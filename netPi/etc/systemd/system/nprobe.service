@@ -1,0 +1,18 @@
+[Unit]
+Description=nprobe extensible NetFlow v5/v9/IPFIX probe/collector for IPv4/v6
+After=network.target syslog.target
+
+[Service]
+Type=simple
+
+ExecStartPre=/bin/sh -c '/bin/sed "/-g.*$\\|-G.*\\|--daemon-mode.*\\|--pid-file.*/s/^/#/" /etc/nprobe/nprobe.conf > /run/nprobe.conf'
+
+ExecStart=/usr/local/bin/nprobe /run/nprobe.conf
+
+ExecStopPost=-/bin/rm -rf /run/nprobe.conf
+
+Restart=on-abnormal
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+#
+# Service file for systems with systemd to run Home Assistant as the homeassistant user.
+#
+
+[Unit]
+Description=Home Assistant for %i
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+ExecStart=/srv/homeassistant/bin/hass
+SendSIGKILL=no
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
