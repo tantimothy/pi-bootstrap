@@ -2,7 +2,7 @@
 sudo apt update && sudo apt dist-upgrade -y --fix-missing
 sudo apt -y autoremove
 sudo apt clean
-sudo apt purge -y $(dpkg -l | awk '/^rc/ { print $2 }')
+#sudo apt purge -y $(dpkg -l | awk '/^rc/ { print $2 }')
 
 sudo systemctl stop home-assistant@homeassistant.service
 sudo su -s /bin/bash homeassistant -c "source /srv/homeassistant/bin/activate
