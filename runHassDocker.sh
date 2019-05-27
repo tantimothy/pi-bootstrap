@@ -1,8 +1,6 @@
-docker run  \
-  --init -d  \
-  --name="home-assistant" \
-  -v /home/pi/Home-AssistantConfig:/config \
+docker run -d \
+  --name hass \
+  --net=host \
   -v /etc/localtime:/etc/localtime:ro \
-  --net=host ttimothy/hass
-
-
+  -v /home/pi/home-assistant/configuration:/config \
+  lroguet/rpi-home-assistant:latest
