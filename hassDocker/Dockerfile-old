@@ -1,0 +1,30 @@
+FROM raspbian/stretch:latest
+
+# Base layer
+ENV ARCH=arm
+ENV CROSS_COMPILE=/usr/bin/
+
+# Install some packages
+
+RUN apt-get update && \
+    apt-get install -y apt-utils \
+    git python3 python3-venv python3-pip bluetooth \
+    libbluetooth-dev rng-tools rpi-update htop tmux avahi-daemon \
+    libtool autoconf rfkill gvfs \
+    build-essential libssl-dev libffi-dev python-dev python3-dev libudev-dev \
+    zip nodejs apt-transport-https bluez-hcidump bc figlet \
+    libttspico-utils && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Mouting point for the user's configuration
+VOLUME /config
+
+# Start Home Assistant
+CMD [ "python3", "-m", "homeassistant", "--config", "/config" ]
+
+# Install Home Assistant
+RUN pip3 install --upgrade setuptools
+RUN pip3 install --upgrade requests
+RUN pip3 install wheel
+RUN pip3 install homeassistant
