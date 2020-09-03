@@ -1,3 +1,4 @@
-sudo /etc/init.d/xl2tpd restart
-sudo /etc/init.d/ipsec restart
+#!/bin/sh
 
+systemctl stop wg-quick@wg0
+systemctl start wg-quick@wg0
