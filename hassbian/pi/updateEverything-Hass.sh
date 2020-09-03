@@ -1,4 +1,6 @@
-./backup2SD
+#/bin/bash
+
+#./backup2SD
 sudo apt update && sudo apt dist-upgrade -y --fix-missing
 sudo apt -y autoremove
 sudo apt clean

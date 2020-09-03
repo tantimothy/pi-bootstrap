@@ -1,5 +1,5 @@
-systemctl status airupnp.timer
-systemctl status airupnp.service
+#/bin/bash
+
 pihole -v 
 pihole status
 service darkstat status

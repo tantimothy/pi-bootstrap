@@ -1,3 +1,5 @@
+#/bin/bash
+
 sudo cp -r home/homeassistant/.homeassistant/* /home/homeassistant/.homeassistant/
 sudo cp home/pi/* /home/pi/
 sudo cp -r var/lib/homebridge/ /var/lib/
