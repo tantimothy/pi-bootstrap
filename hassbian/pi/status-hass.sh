@@ -1,4 +1,2 @@
-sudo systemctl status home-assistant@homeassistant.service
-sudo systemctl status homebridge.timer
-sudo systemctl status homebridge
+sudo systemctl status home-assistant@homeassistant
 less +F /home/homeassistant/.homeassistant/home-assistant.log

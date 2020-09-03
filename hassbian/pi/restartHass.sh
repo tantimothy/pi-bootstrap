@@ -1,1 +1,1 @@
-sudo systemctl restart home-assistant@homeassistant.service
+sudo systemctl restart home-assistant@homeassistant
