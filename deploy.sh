@@ -22,10 +22,12 @@ if ! command -v docker &> /dev/null; then
     read -r
 fi
 
-# 3. DOCKER PERMISSION CHECK WRAPPER
+# 3. BULLETPROOF DOCKER PERMISSION CHECK WRAPPER
+# Instead of checking file write flags, run an actual execution test. 
+# If 'docker ps' throws a permission error, force 'sudo docker'.
 DOCKER_CMD="docker"
-if [ ! -w /var/run/docker.sock ]; then
-    echo "🔒 Elevated socket permissions required. Using 'sudo docker' wrapper..."
+if ! docker ps &>/dev/null; then
+    echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
     DOCKER_CMD="sudo docker"
 fi
 
@@ -149,7 +151,6 @@ ENV_NAME=$(basename "$SELECTED_PATH")
 echo "🚀 Target Selected: $ENV_NAME"
 
 # 4. Universal Teardown Pattern
-# FIX: Prepend $DOCKER_CMD *inside* the query evaluations to fix the permission denied subshell error
 echo "🛑 Tearing down active running containers across the system..."
 RUNNING_CONTAINERS=$($DOCKER_CMD ps -a -q)
 if [ ! -z "$RUNNING_CONTAINERS" ]; then
@@ -160,27 +161,40 @@ fi
 # 5. Navigate into the folder
 cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
 
-# 6. ROUTING LOGIC
+# 6. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
+DEPLOY_SUCCESS=1
+
 if [ -f "run.sh" ]; then
     echo "⚡ Custom run script detected! Executing run.sh..."
     chmod +x run.sh
-    
-    # FIX: Export the correct docker engine alias down to your custom run script 
-    # so that any raw commands inside your script inherit the sudo wrapper automatically.
     export DOCKER_CMD
     if [ "$DOCKER_CMD" = "sudo docker" ]; then
-        # Create a temporary local alias command pattern for the child shell
         sudo ./run.sh
     else
         ./run.sh
     fi
+    DEPLOY_SUCCESS=$?
+
 elif [ -f "docker-compose.yml" ]; then
     echo "🐳 Docker Compose file detected! Launching stack..."
     $DOCKER_CMD compose up --build --no-cache -d
+    DEPLOY_SUCCESS=$?
+
 elif [ -f "Dockerfile" ]; then
     echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
     $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
-    $DOCKER_CMD run -d --name "$ENV_NAME" --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
+    if [ $? -eq 0 ]; then
+        $DOCKER_CMD run -d --name "$ENV_NAME" --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
+        DEPLOY_SUCCESS=$?
+    else
+        DEPLOY_SUCCESS=1
+    fi
+fi
+
+# Verify the execution status code of our build step before clearing
+if [ $DEPLOY_SUCCESS -ne 0 ]; then
+    echo "❌ ERROR: Deployment task failed for [$ENV_NAME]. Review the terminal logs above."
+    exit 1
 fi
 
 # 7. Image Sweep
