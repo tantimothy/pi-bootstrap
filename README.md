@@ -61,11 +61,11 @@ You can run the deployment routine in two flexible configurations:
 ### Mode A: Stateless Execution (Zero-Setup Remote Curl)
 Perfect for brand new or stateless Pis. You do not even need to copy the deployment script manually. Run this single command to pull down, update, and launch the deployment suite:
 
-```bash
+```text
 curl -sSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/main/deploy.sh | bash
 ```
 *(If your repository is **private**, pass your Personal Access Token in the header like this:)*
-```bash
+```text
 curl -sSL -H "Authorization: token YOUR_GITHUB_TOKEN" \
 https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/main/deploy.sh | bash
 ```
@@ -95,7 +95,7 @@ When an environment workspace is selected from the menu interface, the orchestra
 To run this pipeline cleanly out of the box, log into your Raspberry Pi and complete the initial setup:
 
 ### 1. Core Engine Setup (Docker)
-```bash
+```text
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
 sudo usermod -aG docker \$USER
@@ -124,7 +124,7 @@ docker run -d --name my_app --restart unless-stopped -p 80:80 my_image:latest
 ### 3. (Optional) Run Dashboard on SSH Login
 If you want this interactive environment chooser to instantly welcome you every single time you connect to your Pi over SSH, append the launch line to your user terminal profile:
 
-```bash
+```text
 echo "curl -sSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/main/deploy.sh | bash" >> ~/.bashrc
 ```
 
