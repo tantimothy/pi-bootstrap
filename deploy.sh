@@ -48,7 +48,6 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "📥 Fetching latest upstream tree..."
     eval "$GIT_CMD fetch --all --prune"
     
-    # FIX: Explicitly target the upstream tracking branch to prevent headless alignment stalls
     echo "🔄 Forcing workspace sync with remote origin repository..."
     eval "$GIT_CMD reset --hard origin/main"
 else
@@ -150,9 +149,13 @@ ENV_NAME=$(basename "$SELECTED_PATH")
 echo "🚀 Target Selected: $ENV_NAME"
 
 # 4. Universal Teardown Pattern
+# FIX: Prepend $DOCKER_CMD *inside* the query evaluations to fix the permission denied subshell error
 echo "🛑 Tearing down active running containers across the system..."
-$DOCKER_CMD stop $($DOCKER_CMD ps -a -q) 2>/dev/null
-$DOCKER_CMD rm $($DOCKER_CMD ps -a -q) 2>/dev/null
+RUNNING_CONTAINERS=$($DOCKER_CMD ps -a -q)
+if [ ! -z "$RUNNING_CONTAINERS" ]; then
+    $DOCKER_CMD stop $RUNNING_CONTAINERS 2>/dev/null
+    $DOCKER_CMD rm $RUNNING_CONTAINERS 2>/dev/null
+fi
 
 # 5. Navigate into the folder
 cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
@@ -161,14 +164,21 @@ cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
 if [ -f "run.sh" ]; then
     echo "⚡ Custom run script detected! Executing run.sh..."
     chmod +x run.sh
-    ./run.sh
+    
+    # FIX: Export the correct docker engine alias down to your custom run script 
+    # so that any raw commands inside your script inherit the sudo wrapper automatically.
+    export DOCKER_CMD
+    if [ "$DOCKER_CMD" = "sudo docker" ]; then
+        # Create a temporary local alias command pattern for the child shell
+        sudo ./run.sh
+    else
+        ./run.sh
+    fi
 elif [ -f "docker-compose.yml" ]; then
     echo "🐳 Docker Compose file detected! Launching stack..."
-    # FIX: Added --no-cache to force the compose compilation engine to read new file changes
     $DOCKER_CMD compose up --build --no-cache -d
 elif [ -f "Dockerfile" ]; then
     echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
-    # FIX: Added --no-cache to force single Dockerfile rebuild from scratch
     $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
     $DOCKER_CMD run -d --name "$ENV_NAME" --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
 fi
