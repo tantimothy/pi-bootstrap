@@ -35,7 +35,7 @@ For folders where a simple `Dockerfile` isn't enough and you don't want to use C
 
 Example `environments/prod-custom-run/run.sh`:
 
-```\bBash
+```bash
 #!/bin/bash
 echo "📦 Compiling custom local build..."
 docker build -t custom-app:latest .
