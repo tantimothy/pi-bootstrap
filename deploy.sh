@@ -23,8 +23,6 @@ if ! command -v docker &> /dev/null; then
 fi
 
 # 3. DOCKER PERMISSION CHECK WRAPPER
-# Check if the current user can actually read/write to the docker daemon socket.
-# If they cannot, we must prepend 'sudo' to avoid the permission denied crash.
 DOCKER_CMD="docker"
 if [ ! -w /var/run/docker.sock ]; then
     echo "🔒 Elevated socket permissions required. Using 'sudo docker' wrapper..."
@@ -47,10 +45,12 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     PROJECT_DIR=$(git rev-parse --show-toplevel)
     cd "$PROJECT_DIR" || exit 1
     echo "🏠 Running from within local repository: $PROJECT_DIR"
-    echo "📥 Fetching and applying latest code from GitHub..."
-    eval "$GIT_CMD fetch --all"
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"
+    echo "📥 Fetching latest upstream tree..."
+    eval "$GIT_CMD fetch --all --prune"
+    
+    # FIX: Explicitly target the upstream tracking branch to prevent headless alignment stalls
+    echo "🔄 Forcing workspace sync with remote origin repository..."
+    eval "$GIT_CMD reset --hard origin/main"
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
     echo "📂 Preparing project directory at $PROJECT_DIR..."
@@ -65,7 +65,7 @@ else
     else
         cd "$PROJECT_DIR" || exit 1
         echo "📥 Fetching and applying latest code from GitHub..."
-        eval "$GIT_CMD fetch --all"
+        eval "$GIT_CMD fetch --all --prune"
         eval "$GIT_CMD reset --hard origin/main"
     fi
 fi
@@ -161,15 +161,15 @@ cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
 if [ -f "run.sh" ]; then
     echo "⚡ Custom run script detected! Executing run.sh..."
     chmod +x run.sh
-    # Note: If your custom run.sh contains individual docker calls inside, 
-    # ensure you either use sudo inside it or restart your SSH session to initialize user group profiles.
     ./run.sh
 elif [ -f "docker-compose.yml" ]; then
     echo "🐳 Docker Compose file detected! Launching stack..."
-    $DOCKER_CMD compose up --build -d
+    # FIX: Added --no-cache to force the compose compilation engine to read new file changes
+    $DOCKER_CMD compose up --build --no-cache -d
 elif [ -f "Dockerfile" ]; then
     echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
-    $DOCKER_CMD build -t "$ENV_NAME:latest" .
+    # FIX: Added --no-cache to force single Dockerfile rebuild from scratch
+    $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
     $DOCKER_CMD run -d --name "$ENV_NAME" --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
 fi
 
