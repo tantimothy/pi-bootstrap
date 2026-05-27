@@ -35,8 +35,12 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     PROJECT_DIR=$(git rev-parse --show-toplevel)
     cd "$PROJECT_DIR" || exit 1
     echo "🏠 Running from within local repository: $PROJECT_DIR"
-    echo "📥 Fetching latest code from GitHub..."
-    git fetch --all
+    echo "📥 Fetching and applying latest code from GitHub..."
+    eval "$GIT_CMD fetch --all"
+    
+    # Get the active branch name dynamically to reset cleanly
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
     echo "📂 Preparing project directory at $PROJECT_DIR..."
@@ -45,19 +49,14 @@ else
         echo "📁 Creating missing fallback directories..."
         mkdir -p "$(dirname "$PROJECT_DIR")"
         
-        echo "📦 Repository not found locally. Cloning for the first time..."
-        if [ ! -z "$TOKEN" ]; then
-            AUTH_REPO_URL=$(echo "$REPO_URL" | sed "s/https:\/\//https:\/\/${TOKEN}@/")
-            git clone "$AUTH_REPO_URL" "$PROJECT_DIR"
-        else
-            git clone "$REPO_URL" "$PROJECT_DIR"
-        fi
-        
+        echo "📦 Repository not found locally. Cloning cleanly..."
+        eval "$GIT_CMD clone \"$REPO_URL\" \"$PROJECT_DIR\""
         cd "$PROJECT_DIR" || exit 1
     else
         cd "$PROJECT_DIR" || exit 1
-        echo "📥 Fetching latest code from GitHub..."
-        git fetch --all
+        echo "📥 Fetching and applying latest code from GitHub..."
+        eval "$GIT_CMD fetch --all"
+        eval "$GIT_CMD reset --hard origin/main"
     fi
 fi
 
