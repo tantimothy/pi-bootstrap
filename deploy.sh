@@ -3,13 +3,31 @@
 FALLBACK_PROJECT_DIR="$HOME/bootstrap"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
+# 1. DEPENDENCY CHECK: Ensure 'dialog' is installed
 if ! command -v dialog &> /dev/null; then
     echo "📦 'dialog' tool not found. Installing it now..."
     sudo apt-get update && sudo apt-get install -y dialog
 fi
 
+# 2. ENGINE CHECK: Ensure 'docker' is installed
+if ! command -v docker &> /dev/null; then
+    echo "🐳 Docker engine not found! Initiating automated setup..."
+    
+    # Download and run the official Docker setup utility
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    rm get-docker.sh
+    
+    # Add your current system user to the docker network group
+    sudo usermod -aG docker "$USER"
+    
+    echo "✅ Docker successfully installed!"
+    echo "⚠️  CRITICAL: You must log out and log back into your Pi (or restart SSH) for user permissions to take effect."
+    echo "Press Enter to acknowledge and continue the script as root for this run..."
+    read -r
+fi
+
 # Extract token if passed via curl context to handle private repo cloning automatically
-# This checks if a token was used during user authentication in the active shell process
 TOKEN=$(echo "$CURL_USER" | cut -d':' -f2)
 
 echo "🔍 Checking execution environment..."
@@ -25,11 +43,9 @@ else
     
     if [ ! -d "$PROJECT_DIR" ]; then
         echo "📁 Creating missing fallback directories..."
-        # Safely create all parent folders recursively
         mkdir -p "$(dirname "$PROJECT_DIR")"
         
         echo "📦 Repository not found locally. Cloning for the first time..."
-        # If a token was provided in the curl wrapper, use it to authenticate the clone
         if [ ! -z "$TOKEN" ]; then
             AUTH_REPO_URL=$(echo "$REPO_URL" | sed "s/https:\/\//https:\/\/${TOKEN}@/")
             git clone "$AUTH_REPO_URL" "$PROJECT_DIR"
@@ -42,12 +58,9 @@ else
         cd "$PROJECT_DIR" || exit 1
         echo "📥 Fetching latest code from GitHub..."
         git fetch --all
-        # Optional: uncomment to force overwrite local files
-        # git reset --hard origin/main
     fi
 fi
 
-# Double check that we are working from the normalized absolute base directory
 cd "$PROJECT_DIR" || exit 1
 
 # --- DIAGNOSTIC BLOCK ---
@@ -76,7 +89,7 @@ else
     done
 fi
 
-# 1. Dynamic Scan
+# Find valid target setups
 ENV_DIRS=()
 for dir in "${ALL_SUBDIRS[@]}"; do
     if [ -f "$dir/run.sh" ] || [ -f "$dir/docker-compose.yml" ] || [ -f "$dir/Dockerfile" ]; then
@@ -90,7 +103,7 @@ if [ ${#ENV_DIRS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# 2. Build menu options
+# Build menu options
 MENU_OPTIONS=()
 for dir in "${ENV_DIRS[@]}"; do
     folder_name=$(basename "$dir")
@@ -106,7 +119,7 @@ for dir in "${ENV_DIRS[@]}"; do
     MENU_OPTIONS+=( "$dir" "$TYPE /$folder_name" )
 done
 
-# 3. Present the Menu
+# Present the Menu
 TEMP_FILE=$(mktemp)
 dialog --clear \
     --title " Raspberry Pi Deployment Center " \
@@ -127,10 +140,16 @@ clear
 ENV_NAME=$(basename "$SELECTED_PATH")
 echo "🚀 Target Selected: $ENV_NAME"
 
+# Prefix docker calls with sudo if the group permissions haven't initialized yet
+DOCKER_CMD="docker"
+if ! docker ps &>/dev/null; then
+    DOCKER_CMD="sudo docker"
+fi
+
 # 4. Universal Teardown Pattern
 echo "🛑 Tearing down active running containers across the system..."
-docker stop $(docker ps -a -q) 2>/dev/null
-docker rm $(docker ps -a -q) 2>/dev/null
+$DOCKER_CMD stop $($DOCKER_CMD ps -a -q) 2>/dev/null
+$DOCKER_CMD rm $($DOCKER_CMD ps -a -q) 2>/dev/null
 
 # 5. Navigate into the folder
 cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
@@ -142,15 +161,15 @@ if [ -f "run.sh" ]; then
     ./run.sh
 elif [ -f "docker-compose.yml" ]; then
     echo "🐳 Docker Compose file detected! Launching stack..."
-    docker compose up --build -d
+    $DOCKER_CMD compose up --build -d
 elif [ -f "Dockerfile" ]; then
     echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
-    docker build -t "$ENV_NAME:latest" .
-    docker run -d --name "$ENV_NAME" --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
+    $DOCKER_CMD build -t "$ENV_NAME:latest" .
+    $DOCKER_CMD run -d --name "$ENV_NAME" --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
 fi
 
 # 7. Image Sweep
 echo "🧹 Sweeping unused cache layers..."
-docker image prune -a -f
+$DOCKER_CMD image prune -a -f
 
 echo "✅ Environment [$ENV_NAME] successfully deployed!"
