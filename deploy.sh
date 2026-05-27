@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FALLBACK_PROJECT_DIR="$HOME/"
+FALLBACK_PROJECT_DIR="$HOME/bootstrap"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
 if ! command -v dialog &> /dev/null; then
