@@ -12,23 +12,35 @@ fi
 # 2. ENGINE CHECK: Ensure 'docker' is installed
 if ! command -v docker &> /dev/null; then
     echo "🐳 Docker engine not found! Initiating automated setup..."
-    
-    # Download and run the official Docker setup utility
     curl -fsSL https://get.docker.com -o get-docker.sh
     sudo sh get-docker.sh
     rm get-docker.sh
-    
-    # Add your current system user to the docker network group
     sudo usermod -aG docker "$USER"
-    
     echo "✅ Docker successfully installed!"
-    echo "⚠️  CRITICAL: You must log out and log back into your Pi (or restart SSH) for user permissions to take effect."
-    echo "Press Enter to acknowledge and continue the script as root for this run..."
+    echo "⚠️  CRITICAL: Restart SSH after this deployment for user permissions to take effect."
+    echo "Press Enter to continue..."
     read -r
 fi
 
-# Extract token if passed via curl context to handle private repo cloning automatically
+# 3. DOCKER PERMISSION CHECK WRAPPER
+# Check if the current user can actually read/write to the docker daemon socket.
+# If they cannot, we must prepend 'sudo' to avoid the permission denied crash.
+DOCKER_CMD="docker"
+if [ ! -w /var/run/docker.sock ]; then
+    echo "🔒 Elevated socket permissions required. Using 'sudo docker' wrapper..."
+    DOCKER_CMD="sudo docker"
+fi
+
+# Extract the token directly from the CURL_USER environment variable
 TOKEN=$(echo "$CURL_USER" | cut -d':' -f2)
+
+# Build a specialized git command that forces token authentication via headers
+if [ ! -z "$TOKEN" ]; then
+    B64_TOKEN=$(echo -n "tantimothy:$TOKEN" | base64 | tr -d '\n')
+    GIT_CMD="git -c http.extraHeader=\"Authorization: Basic $B64_TOKEN\""
+else
+    GIT_CMD="git"
+fi
 
 echo "🔍 Checking execution environment..."
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -37,8 +49,6 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "🏠 Running from within local repository: $PROJECT_DIR"
     echo "📥 Fetching and applying latest code from GitHub..."
     eval "$GIT_CMD fetch --all"
-    
-    # Get the active branch name dynamically to reset cleanly
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
     eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"
 else
@@ -139,12 +149,6 @@ clear
 ENV_NAME=$(basename "$SELECTED_PATH")
 echo "🚀 Target Selected: $ENV_NAME"
 
-# Prefix docker calls with sudo if the group permissions haven't initialized yet
-DOCKER_CMD="docker"
-if ! docker ps &>/dev/null; then
-    DOCKER_CMD="sudo docker"
-fi
-
 # 4. Universal Teardown Pattern
 echo "🛑 Tearing down active running containers across the system..."
 $DOCKER_CMD stop $($DOCKER_CMD ps -a -q) 2>/dev/null
@@ -157,6 +161,8 @@ cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
 if [ -f "run.sh" ]; then
     echo "⚡ Custom run script detected! Executing run.sh..."
     chmod +x run.sh
+    # Note: If your custom run.sh contains individual docker calls inside, 
+    # ensure you either use sudo inside it or restart your SSH session to initialize user group profiles.
     ./run.sh
 elif [ -f "docker-compose.yml" ]; then
     echo "🐳 Docker Compose file detected! Launching stack..."
