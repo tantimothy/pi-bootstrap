@@ -1,7 +1,7 @@
 #!/bin/bash
 
 FALLBACK_PROJECT_DIR="$HOME/projects/myapp"
-REPO_URL="https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME.git"
+REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
 if ! command -v dialog &> /dev/null; then
     echo "📦 'dialog' tool not found. Installing it now..."
