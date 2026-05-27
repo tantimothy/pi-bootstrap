@@ -1,9 +1,0 @@
-[Unit]
-Description=Runs Homebridge after 2 minutes
-
-[Timer]
-OnBootSec=180
-Unit=homebridge.service
-
-[Install]
-WantedBy=multi-user.target
