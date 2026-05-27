@@ -1,0 +1,55 @@
+version: "3"
+
+services:
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "8080:80/tcp" # Changed to 8080 to avoid conflicts with other local tools
+    environment:
+      TZ: 'Asia/Singapore'
+      FTLCONF_webserver_api_password: 'YourSecurePiholeAdminPassword'
+      FTLCONF_dns_listeningMode: 'ALL' # Required for Docker bridge networking
+    volumes:
+      - './etc-pihole:/etc/pihole'
+    cap_add:
+      - NET_ADMIN
+
+  wg-easy:
+    container_name: wg-easy
+    image: ghcr.io/wg-easy/wg-easy:latest
+    restart: unless-stopped
+    depends_on:
+      - pihole
+    ports:
+      - "51820:51820/udp"
+      - "51821:51821/tcp" # Web UI port for managing your VPN
+    environment:
+      TZ: 'Asia/Singapore'
+      WG_HOST: 'YOUR_PUBLIC_IP_OR_DDNS_DOMAIN'
+      # Directs all WireGuard clients to use your Pi-hole container for DNS:
+      WG_DEFAULT_DNS: '172.20.0.2' 
+      WG_PORT: '51820'
+      # Generate a Web UI password hash using: docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'YOUR_PASSWORD'
+      PASSWORD_HASH: '$2b$12$EXAMPLEHAShDoNoTCopYThIsParT...' 
+      WG_ALLOWED_IPS: '0.0.0.0/0' # Split-tunnel config? Change to your local subnet (e.g., 192.168.1.0/24) if preferred
+    volumes:
+      - './etc-wireguard:/etc/wireguard'
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+    networks:
+      default:
+        ipv4_address: 172.20.0.3
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
