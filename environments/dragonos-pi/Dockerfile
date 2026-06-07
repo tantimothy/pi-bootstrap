@@ -33,10 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Fix RTL-SDR Kernel Driver Conflict inside the container just in case
 RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
 
-# Set up work directory
-WORKDIR /workspace
-
-# Create the Menu Script directly inside the Dockerfile
+# Inject the Menu Script directly into the image boundaries
 RUN echo '#!/bin/bash\n\
 while true; do\n\
   CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \\\n\
@@ -65,5 +62,6 @@ while true; do\n\
   esac\n\
 done' > /usr/local/bin/sdr-menu.sh && chmod +x /usr/local/bin/sdr-menu.sh
 
-# Automatically launch the interactive menu when the container starts
-ENTRYPOINT ["/usr/local/bin/sdr-menu.sh"]
+# Fallback default execution structure if run manually without the run.sh script
+WORKDIR /workspace
+CMD ["/usr/local/bin/sdr-menu.sh"]

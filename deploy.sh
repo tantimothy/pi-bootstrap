@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FALLBACK_PROJECT_DIR="$HOME/bootstrap"
+FALLBACK_PROJECT_DIR="$HOME/projects/myapp"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
 # 1. DEPENDENCY CHECK: Ensure 'dialog' is installed
@@ -23,8 +23,6 @@ if ! command -v docker &> /dev/null; then
 fi
 
 # 3. BULLETPROOF DOCKER PERMISSION CHECK WRAPPER
-# Instead of checking file write flags, run an actual execution test. 
-# If 'docker ps' throws a permission error, force 'sudo docker'.
 DOCKER_CMD="docker"
 if ! docker ps &>/dev/null; then
     echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
@@ -161,6 +159,106 @@ fi
 # 5. Navigate into the folder
 cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
 
+
+# =======================================================
+# 🔐 ADVANCED BULK FORM COMPILER WITH DEFAULT INJECTION
+# =======================================================
+if [ -f ".env.example" ] && [ ! -f ".env" ]; then
+    echo "🔑 Building multi-field runtime parameters board..."
+    
+    KEYS=()
+    DEFAULTS=()
+    HELP_TEXT=""
+    CURRENT_COMMENT=""
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        
+        if [[ "$line" =~ ^# ]]; then
+            CLEAN_COMMENT=$(echo "$line" | sed 's/^#[[:space:]]*//')
+            if [ -z "$CURRENT_COMMENT" ]; then
+                CURRENT_COMMENT="$CLEAN_COMMENT"
+            else
+                CURRENT_COMMENT="$CURRENT_COMMENT $CLEAN_COMMENT"
+            fi
+        elif [[ "$line" =~ = ]]; then
+            KEY=$(echo "$line" | cut -d'=' -f1 | sed 's/[[:space:]]*$//')
+            VAL=$(echo "$line" | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            
+            if [ ! -z "$KEY" ]; then
+                KEYS+=("$KEY")
+                DEFAULTS+=("$VAL")
+                
+                # Append parameter context into a master scrollable information block string
+                if [ -z "$CURRENT_COMMENT" ]; then
+                    HELP_TEXT+="$KEY:\n• No explanation provided.\n\n"
+                else
+                    HELP_TEXT+="$KEY:\n• $CURRENT_COMMENT\n\n"
+                fi
+                CURRENT_COMMENT=""
+            fi
+        else
+            if [ -z "$line" ]; then
+                CURRENT_COMMENT=""
+            fi
+        fi
+    done < .env.example
+
+    if [ ${#KEYS[@]} -gt 0 ]; then
+        # Render a scrollable explanation overlay block first so you can read what fields mean
+        dialog --clear \
+               --title " Variable Parameters Legend: [$ENV_NAME] " \
+               --msgbox "\nReview the requirements for this workspace below before completing the configuration form:\n\n$HELP_TEXT" \
+               20 74
+
+        # Compile dynamic visual layouts for the inline form grid matrix
+        FORM_FIELDS=()
+        ROW_Y=1
+        for i in "${!KEYS[@]}"; do
+            # Elements matching the specification array schema syntax rules:
+            # "Label text" LabelY LabelX "Default value" FieldY FieldX FieldWidth MaxInputChars
+            FORM_FIELDS+=(
+                "${KEYS[$i]}:"  "$ROW_Y" "2"  \
+                "${DEFAULTS[$i]}" "$ROW_Y" "22" \
+                "45" "0"
+            )
+            ((ROW_Y++))
+        done
+
+        # Generate responsive screen dimension metrics based on form element sizing criteria
+        BOX_HEIGHT=$((ROW_Y + 5))
+        [ $BOX_HEIGHT -gt 22 ] && BOX_HEIGHT=22
+        
+        TEMP_FORM_OUT=$(mktemp)
+        
+        dialog --clear \
+               --title " Configure Runtime Variables " \
+               --form "Use [UP/DOWN] to swap slots. Modify parameters or accept defaults directly:" \
+               $BOX_HEIGHT 74 $((BOX_HEIGHT - 5)) "${FORM_FIELDS[@]}" 2> "$TEMP_FORM_OUT"
+        
+        EXIT_CODE=$?
+        
+        if [ $EXIT_CODE -eq 0 ]; then
+            # Read inputs line-by-line out of the text pipe allocation
+            IFS=$'\n' read -d '' -r -a CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
+            rm -f "$TEMP_FORM_OUT"
+            
+            touch .env
+            for i in "${!KEYS[@]}"; do
+                echo "${KEYS[$i]}=${CAPTURED_USER_INPUTS[$i]}" >> .env
+            done
+            echo "✅ Finished compiling system configs successfully."
+        else
+            rm -f "$TEMP_FORM_OUT"
+            clear
+            echo "❌ Deployment halted: Missing mandatory parameters profile creation requirements."
+            exit 1
+        fi
+    fi
+fi
+# =======================================================
+
+
 # 6. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
 DEPLOY_SUCCESS=1
 
@@ -184,7 +282,11 @@ elif [ -f "Dockerfile" ]; then
     echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
     $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
     if [ $? -eq 0 ]; then
-        $DOCKER_CMD run -d --name "$ENV_NAME" --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
+        ENV_FLAGS=""
+        if [ -f ".env" ]; then
+            ENV_FLAGS="--env-file .env"
+        fi
+        $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
         DEPLOY_SUCCESS=$?
     else
         DEPLOY_SUCCESS=1
