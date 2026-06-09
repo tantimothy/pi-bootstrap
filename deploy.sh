@@ -161,14 +161,14 @@ cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
 
 
 # =======================================================
-# 🔐 ADVANCED BULK FORM COMPILER WITH DEFAULT INJECTION
+# 🔐 ADVANCED SINGLE-SCREEN METADATA FORM INTERFACE
 # =======================================================
 if [ -f ".env.example" ] && [ ! -f ".env" ]; then
-    echo "🔑 Building multi-field runtime parameters board..."
+    echo "🔑 Processing unified configuration layout..."
     
     KEYS=()
     DEFAULTS=()
-    HELP_TEXT=""
+    DESCRIPTIONS=()
     CURRENT_COMMENT=""
 
     while IFS= read -r line || [ -n "$line" ]; do
@@ -188,12 +188,10 @@ if [ -f ".env.example" ] && [ ! -f ".env" ]; then
             if [ ! -z "$KEY" ]; then
                 KEYS+=("$KEY")
                 DEFAULTS+=("$VAL")
-                
-                # Append parameter context into a master scrollable information block string
                 if [ -z "$CURRENT_COMMENT" ]; then
-                    HELP_TEXT+="$KEY:\n• No explanation provided.\n\n"
+                    DESCRIPTIONS+=("No explanation provided.")
                 else
-                    HELP_TEXT+="$KEY:\n• $CURRENT_COMMENT\n\n"
+                    DESCRIPTIONS+=("$CURRENT_COMMENT")
                 fi
                 CURRENT_COMMENT=""
             fi
@@ -205,53 +203,65 @@ if [ -f ".env.example" ] && [ ! -f ".env" ]; then
     done < .env.example
 
     if [ ${#KEYS[@]} -gt 0 ]; then
-        # Render a scrollable explanation overlay block first so you can read what fields mean
-        dialog --clear \
-               --title " Variable Parameters Legend: [$ENV_NAME] " \
-               --msgbox "\nReview the requirements for this workspace below before completing the configuration form:\n\n$HELP_TEXT" \
-               20 74
-
-        # Compile dynamic visual layouts for the inline form grid matrix
         FORM_FIELDS=()
         ROW_Y=1
+        
         for i in "${!KEYS[@]}"; do
-            # Elements matching the specification array schema syntax rules:
-            # "Label text" LabelY LabelX "Default value" FieldY FieldX FieldWidth MaxInputChars
+            DESC="${DESCRIPTIONS[$i]}"
+            
+            # Smart Word-Wrap: Split long instructions down to fit the TUI format boundaries gracefully
+            IFS=' ' read -r -a WORDS <<< "$DESC"
+            LINE_BUFF="ℹ️ "
+            for word in "${WORDS[@]}"; do
+                if [ ${#LINE_BUFF} -gt 60 ]; then
+                    # Print full label helper lines to screen stack arrays
+                    FORM_FIELDS+=("$LINE_BUFF" "$ROW_Y" "2" "" "$ROW_Y" "2" "0" "0")
+                    ((ROW_Y++))
+                    LINE_BUFF="   "
+                fi
+                LINE_BUFF+="$word "
+            done
+            [ ! -z "$LINE_BUFF" ] && FORM_FIELDS+=("$LINE_BUFF" "$ROW_Y" "2" "" "$ROW_Y" "2" "0" "0")
+            ((ROW_Y++))
+
+            # Render the actual operational interactive element fields directly below the instruction lines
+            # Setting FieldWidth to 0 makes it a read-only visual banner block
             FORM_FIELDS+=(
-                "${KEYS[$i]}:"  "$ROW_Y" "2"  \
+                "👉 ${KEYS[$i]}:" "$ROW_Y" "2" \
                 "${DEFAULTS[$i]}" "$ROW_Y" "22" \
                 "45" "0"
             )
-            ((ROW_Y++))
+            ((ROW_Y+=2)) # Add a blank gap row between distinct variable sets
         done
 
-        # Generate responsive screen dimension metrics based on form element sizing criteria
-        BOX_HEIGHT=$((ROW_Y + 5))
-        [ $BOX_HEIGHT -gt 22 ] && BOX_HEIGHT=22
+        # Dynamic Box Constraint Calculations
+        BOX_HEIGHT=$((ROW_Y + 4))
+        [ $BOX_HEIGHT -gt 24 ] && BOX_HEIGHT=24 # Constrain vertical view space safely
         
         TEMP_FORM_OUT=$(mktemp)
         
         dialog --clear \
-               --title " Configure Runtime Variables " \
-               --form "Use [UP/DOWN] to swap slots. Modify parameters or accept defaults directly:" \
+               --title " Workspace Configuration: [$ENV_NAME] " \
+               --form "Review descriptions inline. Use [UP/DOWN] to edit missing or default values:" \
                $BOX_HEIGHT 74 $((BOX_HEIGHT - 5)) "${FORM_FIELDS[@]}" 2> "$TEMP_FORM_OUT"
         
         EXIT_CODE=$?
         
         if [ $EXIT_CODE -eq 0 ]; then
-            # Read inputs line-by-line out of the text pipe allocation
             IFS=$'\n' read -d '' -r -a CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
             rm -f "$TEMP_FORM_OUT"
             
+            # Since non-editable labels return nothing, dialog only dumps the actual text fields.
+            # We can map straight down matching our extracted keys register index positions!
             touch .env
             for i in "${!KEYS[@]}"; do
                 echo "${KEYS[$i]}=${CAPTURED_USER_INPUTS[$i]}" >> .env
             done
-            echo "✅ Finished compiling system configs successfully."
+            echo "✅ Finished compiling local environment properties profile."
         else
             rm -f "$TEMP_FORM_OUT"
             clear
-            echo "❌ Deployment halted: Missing mandatory parameters profile creation requirements."
+            echo "❌ Deployment halted: Configuration dashboard requirements aborted."
             exit 1
         fi
     fi
