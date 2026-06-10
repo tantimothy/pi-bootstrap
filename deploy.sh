@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FALLBACK_PROJECT_DIR="$HOME/projects/bootstrap"
+FALLBACK_PROJECT_DIR="$HOME/projects/myapp"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
 # 1. DEPENDENCY CHECK: Ensure 'dialog' is installed
@@ -45,9 +45,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     PROJECT_DIR=$(git rev-parse --show-toplevel)
     cd "$PROJECT_DIR" || exit 1
     
-    # ✅ FIX: Dynamically detect the active tracking branch name (master, main, etc.)
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    
     echo "🏠 Running from within local repository: $PROJECT_DIR ($CURRENT_BRANCH)"
     echo "📥 Fetching latest upstream tree..."
     eval "$GIT_CMD fetch --all --prune"
@@ -68,9 +66,7 @@ else
     else
         cd "$PROJECT_DIR" || exit 1
         
-        # ✅ FIX: Dynamically detect the active tracking branch name here too
         CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-        
         echo "📥 Fetching and applying latest code from GitHub..."
         eval "$GIT_CMD fetch --all --prune"
         eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"
@@ -152,16 +148,39 @@ if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
     exit 0
 fi
 
+# ==========================================
+# 🆕 NEW: DEPLOYMENT POLICY SELECTOR MENU
+# ==========================================
+TEMP_POLICY_FILE=$(mktemp)
+dialog --clear \
+    --title " Deployment Strategy Policy " \
+    --menu "Select how to process the configuration build lifecycle:" 11 70 2 \
+    "FAST" "Preserve existing images & container instances if active" \
+    "CLEAN" "Force fresh rebuild/teardown of the active environment" \
+    2> "$TEMP_POLICY_FILE"
+
+POLICY_EXIT=$?
+REBUILD_POLICY=$(cat "$TEMP_POLICY_FILE")
+rm -f "$POLICY_POLICY_FILE"
+
+if [ $POLICY_EXIT -ne 0 ] || [ -z "$REBUILD_POLICY" ]; then
+    clear
+    echo "❌ Deployment cancelled."
+    exit 0
+fi
+
 clear
 ENV_NAME=$(basename "$SELECTED_PATH")
-echo "🚀 Target Selected: $ENV_NAME"
+echo "🚀 Target Selected: $ENV_NAME [Policy: $REBUILD_POLICY]"
 
-# 4. Universal Teardown Pattern
-echo "🛑 Tearing down active running containers across the system..."
-RUNNING_CONTAINERS=$($DOCKER_CMD ps -a -q)
-if [ ! -z "$RUNNING_CONTAINERS" ]; then
-    $DOCKER_CMD stop $RUNNING_CONTAINERS 2>/dev/null
-    $DOCKER_CMD rm $RUNNING_CONTAINERS 2>/dev/null
+# 4. Conditional Teardown Pattern based on user choice
+if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+    echo "🛑 CLEAN policy active: Tearing down active running containers..."
+    RUNNING_CONTAINERS=$($DOCKER_CMD ps -a -q)
+    if [ ! -z "$RUNNING_CONTAINERS" ]; then
+        $DOCKER_CMD stop $RUNNING_CONTAINERS 2>/dev/null
+        $DOCKER_CMD rm $RUNNING_CONTAINERS 2>/dev/null
+    fi
 fi
 
 # 5. Navigate into the folder
@@ -217,12 +236,10 @@ if [ -f ".env.example" ] && [ ! -f ".env" ]; then
         for i in "${!KEYS[@]}"; do
             DESC="${DESCRIPTIONS[$i]}"
             
-            # Smart Word-Wrap: Split long instructions down to fit the TUI format boundaries gracefully
             IFS=' ' read -r -a WORDS <<< "$DESC"
             LINE_BUFF="ℹ️ "
             for word in "${WORDS[@]}"; do
                 if [ ${#LINE_BUFF} -gt 60 ]; then
-                    # Print full label helper lines to screen stack arrays
                     FORM_FIELDS+=("$LINE_BUFF" "$ROW_Y" "2" "" "$ROW_Y" "2" "0" "0")
                     ((ROW_Y++))
                     LINE_BUFF="   "
@@ -232,19 +249,16 @@ if [ -f ".env.example" ] && [ ! -f ".env" ]; then
             [ ! -z "$LINE_BUFF" ] && FORM_FIELDS+=("$LINE_BUFF" "$ROW_Y" "2" "" "$ROW_Y" "2" "0" "0")
             ((ROW_Y++))
 
-            # Render the actual operational interactive element fields directly below the instruction lines
-            # Setting FieldWidth to 0 makes it a read-only visual banner block
             FORM_FIELDS+=(
                 "👉 ${KEYS[$i]}:" "$ROW_Y" "2" \
                 "${DEFAULTS[$i]}" "$ROW_Y" "22" \
                 "45" "0"
             )
-            ((ROW_Y+=2)) # Add a blank gap row between distinct variable sets
+            ((ROW_Y+=2))
         done
 
-        # Dynamic Box Constraint Calculations
         BOX_HEIGHT=$((ROW_Y + 4))
-        [ $BOX_HEIGHT -gt 24 ] && BOX_HEIGHT=24 # Constrain vertical view space safely
+        [ $BOX_HEIGHT -gt 24 ] && BOX_HEIGHT=24
         
         TEMP_FORM_OUT=$(mktemp)
         
@@ -259,8 +273,6 @@ if [ -f ".env.example" ] && [ ! -f ".env" ]; then
             IFS=$'\n' read -d '' -r -a CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
             rm -f "$TEMP_FORM_OUT"
             
-            # Since non-editable labels return nothing, dialog only dumps the actual text fields.
-            # We can map straight down matching our extracted keys register index positions!
             touch .env
             for i in "${!KEYS[@]}"; do
                 echo "${KEYS[$i]}=${CAPTURED_USER_INPUTS[$i]}" >> .env
@@ -280,12 +292,15 @@ fi
 # 6. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
 DEPLOY_SUCCESS=1
 
+# Export variables down into custom run.sh files
+export DOCKER_CMD
+export REBUILD_POLICY
+
 if [ -f "run.sh" ]; then
     echo "⚡ Custom run script detected! Executing run.sh..."
     chmod +x run.sh
-    export DOCKER_CMD
     if [ "$DOCKER_CMD" = "sudo docker" ]; then
-        sudo ./run.sh
+        sudo -E ./run.sh
     else
         ./run.sh
     fi
@@ -293,17 +308,34 @@ if [ -f "run.sh" ]; then
 
 elif [ -f "docker-compose.yml" ]; then
     echo "🐳 Docker Compose file detected! Launching stack..."
-    $DOCKER_CMD compose up --build --no-cache -d
+    if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+        $DOCKER_CMD compose up --build --no-cache -d
+    else
+        $DOCKER_CMD compose up -d
+    fi
     DEPLOY_SUCCESS=$?
 
 elif [ -f "Dockerfile" ]; then
     echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
-    $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
+    
+    # Check if image exists before building under FAST strategy
+    IMAGE_EXISTS=$($DOCKER_CMD images -q "$ENV_NAME:latest" 2>/dev/null)
+    if [ "$REBUILD_POLICY" = "CLEAN" ] || [ -z "$IMAGE_EXISTS" ]; then
+        $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
+    fi
+    
     if [ $? -eq 0 ]; then
         ENV_FLAGS=""
         if [ -f ".env" ]; then
             ENV_FLAGS="--env-file .env"
         fi
+        
+        # Ensure we clear a path for the run if CLEAN policy is chosen
+        if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+            $DOCKER_CMD stop "$ENV_NAME" 2>/dev/null
+            $DOCKER_CMD rm "$ENV_NAME" 2>/dev/null
+        fi
+        
         $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
         DEPLOY_SUCCESS=$?
     else
@@ -311,14 +343,15 @@ elif [ -f "Dockerfile" ]; then
     fi
 fi
 
-# Verify the execution status code of our build step before clearing
 if [ $DEPLOY_SUCCESS -ne 0 ]; then
     echo "❌ ERROR: Deployment task failed for [$ENV_NAME]. Review the terminal logs above."
     exit 1
 fi
 
-# 7. Image Sweep
-echo "🧹 Sweeping unused cache layers..."
-$DOCKER_CMD image prune -a -f
+# 7. Image Sweep (Only prune if clean policy requested)
+if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+    echo "🧹 CLEAN policy active: Sweeping unused cache layers..."
+    $DOCKER_CMD image prune -a -f
+fi
 
 echo "✅ Environment [$ENV_NAME] successfully deployed!"
