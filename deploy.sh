@@ -44,12 +44,16 @@ echo "🔍 Checking execution environment..."
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     PROJECT_DIR=$(git rev-parse --show-toplevel)
     cd "$PROJECT_DIR" || exit 1
-    echo "🏠 Running from within local repository: $PROJECT_DIR"
+    
+    # ✅ FIX: Dynamically detect the active tracking branch name (master, main, etc.)
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    
+    echo "🏠 Running from within local repository: $PROJECT_DIR ($CURRENT_BRANCH)"
     echo "📥 Fetching latest upstream tree..."
     eval "$GIT_CMD fetch --all --prune"
     
     echo "🔄 Forcing workspace sync with remote origin repository..."
-    eval "$GIT_CMD reset --hard origin/main"
+    eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
     echo "📂 Preparing project directory at $PROJECT_DIR..."
@@ -63,9 +67,13 @@ else
         cd "$PROJECT_DIR" || exit 1
     else
         cd "$PROJECT_DIR" || exit 1
+        
+        # ✅ FIX: Dynamically detect the active tracking branch name here too
+        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        
         echo "📥 Fetching and applying latest code from GitHub..."
         eval "$GIT_CMD fetch --all --prune"
-        eval "$GIT_CMD reset --hard origin/main"
+        eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"
     fi
 fi
 
