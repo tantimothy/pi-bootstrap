@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FALLBACK_PROJECT_DIR="$HOME/projects/myapp"
+FALLBACK_PROJECT_DIR="$HOME/projects/bootstrap"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
 # 1. DEPENDENCY CHECK: Ensure 'dialog' is installed
