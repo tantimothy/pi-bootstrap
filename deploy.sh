@@ -144,6 +144,28 @@ if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
     exit 0
 fi
 
+# ==========================================
+# DEPLOYMENT POLICY SELECTOR MENU
+# ==========================================
+
+TEMP_POLICY_FILE=$(mktemp)
+dialog --clear \
+    --title " Deployment Strategy Policy " \
+    --menu "Select how to process the configuration build lifecycle:" 11 70 2 \
+    "FAST" "Preserve existing images & container instances if active" \
+    "CLEAN" "Force fresh rebuild/teardown of the active environment" \
+    2> "$TEMP_POLICY_FILE"
+
+POLICY_EXIT=$?
+REBUILD_POLICY=$(cat "$TEMP_POLICY_FILE")
+rm -f "$TEMP_POLICY_FILE"  # Clean up temporary allocation file pointer
+
+if [ $POLICY_EXIT -ne 0 ] || [ -z "$REBUILD_POLICY" ]; then
+    clear
+    echo "❌ Deployment cancelled."
+    exit 0
+fi
+
 clear
 ENV_NAME=$(basename "$SELECTED_PATH")
 echo "🚀 Target Selected: $ENV_NAME"
