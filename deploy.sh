@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FALLBACK_PROJECT_DIR="$HOME/projects/myapp"
+FALLBACK_PROJECT_DIR="$HOME/projects/bootstrap"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
 # 1. DEPENDENCY CHECK: Ensure 'dialog' is installed
@@ -44,14 +44,12 @@ echo "🔍 Checking execution environment..."
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     PROJECT_DIR=$(git rev-parse --show-toplevel)
     cd "$PROJECT_DIR" || exit 1
-    
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    echo "🏠 Running from within local repository: $PROJECT_DIR ($CURRENT_BRANCH)"
+    echo "🏠 Running from within local repository: $PROJECT_DIR"
     echo "📥 Fetching latest upstream tree..."
     eval "$GIT_CMD fetch --all --prune"
     
     echo "🔄 Forcing workspace sync with remote origin repository..."
-    eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"
+    eval "$GIT_CMD reset --hard origin/main"
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
     echo "📂 Preparing project directory at $PROJECT_DIR..."
@@ -65,11 +63,9 @@ else
         cd "$PROJECT_DIR" || exit 1
     else
         cd "$PROJECT_DIR" || exit 1
-        
-        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
         echo "📥 Fetching and applying latest code from GitHub..."
         eval "$GIT_CMD fetch --all --prune"
-        eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"
+        eval "$GIT_CMD reset --hard origin/main"
     fi
 fi
 
@@ -148,54 +144,32 @@ if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
     exit 0
 fi
 
-# ==========================================
-# 🆕 NEW: DEPLOYMENT POLICY SELECTOR MENU
-# ==========================================
-TEMP_POLICY_FILE=$(mktemp)
-dialog --clear \
-    --title " Deployment Strategy Policy " \
-    --menu "Select how to process the configuration build lifecycle:" 11 70 2 \
-    "FAST" "Preserve existing images & container instances if active" \
-    "CLEAN" "Force fresh rebuild/teardown of the active environment" \
-    2> "$TEMP_POLICY_FILE"
-
-POLICY_EXIT=$?
-REBUILD_POLICY=$(cat "$TEMP_POLICY_FILE")
-rm -f "$POLICY_POLICY_FILE"
-
-if [ $POLICY_EXIT -ne 0 ] || [ -z "$REBUILD_POLICY" ]; then
-    clear
-    echo "❌ Deployment cancelled."
-    exit 0
-fi
-
 clear
 ENV_NAME=$(basename "$SELECTED_PATH")
-echo "🚀 Target Selected: $ENV_NAME [Policy: $REBUILD_POLICY]"
+echo "🚀 Target Selected: $ENV_NAME"
 
-# 4. Conditional Teardown Pattern based on user choice
-if [ "$REBUILD_POLICY" = "CLEAN" ]; then
-    echo "🛑 CLEAN policy active: Tearing down active running containers..."
-    RUNNING_CONTAINERS=$($DOCKER_CMD ps -a -q)
-    if [ ! -z "$RUNNING_CONTAINERS" ]; then
-        $DOCKER_CMD stop $RUNNING_CONTAINERS 2>/dev/null
-        $DOCKER_CMD rm $RUNNING_CONTAINERS 2>/dev/null
-    fi
+# 4. Universal Teardown Pattern
+echo "🛑 Tearing down active running containers across the system..."
+RUNNING_CONTAINERS=$($DOCKER_CMD ps -a -q)
+if [ ! -z "$RUNNING_CONTAINERS" ]; then
+    $DOCKER_CMD stop $RUNNING_CONTAINERS 2>/dev/null
+    $DOCKER_CMD rm $RUNNING_CONTAINERS 2>/dev/null
 fi
 
-# 5. Navigate into the folder
-cd "$PROJECT_DIR/$SELECTED_PATH" || exit 1
+# 5. Navigate into the folder cleanly using absolute context
+TARGET_WORKSPACE_DIR="$PROJECT_DIR/$SELECTED_PATH"
+cd "$TARGET_WORKSPACE_DIR" || exit 1
 
 
 # =======================================================
-# 🔐 ADVANCED SINGLE-SCREEN METADATA FORM INTERFACE
+# 🔐 ADVANCED BULK FORM COMPILER WITH DEFAULT INJECTION
 # =======================================================
 if [ -f ".env.example" ] && [ ! -f ".env" ]; then
-    echo "🔑 Processing unified configuration layout..."
+    echo "🔑 Building multi-field runtime parameters board..."
     
     KEYS=()
     DEFAULTS=()
-    DESCRIPTIONS=()
+    HELP_TEXT=""
     CURRENT_COMMENT=""
 
     while IFS= read -r line || [ -n "$line" ]; do
@@ -215,10 +189,12 @@ if [ -f ".env.example" ] && [ ! -f ".env" ]; then
             if [ ! -z "$KEY" ]; then
                 KEYS+=("$KEY")
                 DEFAULTS+=("$VAL")
+                
+                # Append parameter context into a master scrollable information block string
                 if [ -z "$CURRENT_COMMENT" ]; then
-                    DESCRIPTIONS+=("No explanation provided.")
+                    HELP_TEXT+="$KEY:\n• No explanation provided.\n\n"
                 else
-                    DESCRIPTIONS+=("$CURRENT_COMMENT")
+                    HELP_TEXT+="$KEY:\n• $CURRENT_COMMENT\n\n"
                 fi
                 CURRENT_COMMENT=""
             fi
@@ -230,41 +206,33 @@ if [ -f ".env.example" ] && [ ! -f ".env" ]; then
     done < .env.example
 
     if [ ${#KEYS[@]} -gt 0 ]; then
+        # Render a scrollable explanation overlay block first so you can read what fields mean
+        dialog --clear \
+               --title " Variable Parameters Legend: [$ENV_NAME] " \
+               --msgbox "\nReview the requirements for this workspace below before completing the configuration form:\n\n$HELP_TEXT" \
+               20 74
+
+        # Compile dynamic visual layouts for the inline form grid matrix
         FORM_FIELDS=()
         ROW_Y=1
-        
         for i in "${!KEYS[@]}"; do
-            DESC="${DESCRIPTIONS[$i]}"
-            
-            IFS=' ' read -r -a WORDS <<< "$DESC"
-            LINE_BUFF="ℹ️ "
-            for word in "${WORDS[@]}"; do
-                if [ ${#LINE_BUFF} -gt 60 ]; then
-                    FORM_FIELDS+=("$LINE_BUFF" "$ROW_Y" "2" "" "$ROW_Y" "2" "0" "0")
-                    ((ROW_Y++))
-                    LINE_BUFF="   "
-                fi
-                LINE_BUFF+="$word "
-            done
-            [ ! -z "$LINE_BUFF" ] && FORM_FIELDS+=("$LINE_BUFF" "$ROW_Y" "2" "" "$ROW_Y" "2" "0" "0")
-            ((ROW_Y++))
-
             FORM_FIELDS+=(
-                "👉 ${KEYS[$i]}:" "$ROW_Y" "2" \
+                "${KEYS[$i]}:"  "$ROW_Y" "2"  \
                 "${DEFAULTS[$i]}" "$ROW_Y" "22" \
                 "45" "0"
             )
-            ((ROW_Y+=2))
+            ((ROW_Y++))
         done
 
-        BOX_HEIGHT=$((ROW_Y + 4))
-        [ $BOX_HEIGHT -gt 24 ] && BOX_HEIGHT=24
+        # Generate responsive screen dimension metrics based on form element sizing criteria
+        BOX_HEIGHT=$((ROW_Y + 5))
+        [ $BOX_HEIGHT -gt 22 ] && BOX_HEIGHT=22
         
         TEMP_FORM_OUT=$(mktemp)
         
         dialog --clear \
-               --title " Workspace Configuration: [$ENV_NAME] " \
-               --form "Review descriptions inline. Use [UP/DOWN] to edit missing or default values:" \
+               --title " Configure Runtime Variables " \
+               --form "Use [UP/DOWN] to swap slots. Modify parameters or accept defaults directly:" \
                $BOX_HEIGHT 74 $((BOX_HEIGHT - 5)) "${FORM_FIELDS[@]}" 2> "$TEMP_FORM_OUT"
         
         EXIT_CODE=$?
@@ -277,11 +245,11 @@ if [ -f ".env.example" ] && [ ! -f ".env" ]; then
             for i in "${!KEYS[@]}"; do
                 echo "${KEYS[$i]}=${CAPTURED_USER_INPUTS[$i]}" >> .env
             done
-            echo "✅ Finished compiling local environment properties profile."
+            echo "✅ Finished compiling system configs successfully."
         else
             rm -f "$TEMP_FORM_OUT"
             clear
-            echo "❌ Deployment halted: Configuration dashboard requirements aborted."
+            echo "❌ Deployment halted: Missing mandatory parameters profile creation requirements."
             exit 1
         fi
     fi
@@ -292,50 +260,34 @@ fi
 # 6. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
 DEPLOY_SUCCESS=1
 
-# Export variables down into custom run.sh files
-export DOCKER_CMD
-export REBUILD_POLICY
+# Ensure we are strictly pointing to the local workspace context directory
+cd "$TARGET_WORKSPACE_DIR" || exit 1
 
 if [ -f "run.sh" ]; then
     echo "⚡ Custom run script detected! Executing run.sh..."
     chmod +x run.sh
-    if [ "$DOCKER_CMD" = "sudo docker" ]; then
-        sudo -E ./run.sh
-    else
-        ./run.sh
-    fi
+    
+    # Export critical global configurations so downstream custom subscripts inherit them perfectly
+    export REBUILD_POLICY="CLEAN" 
+    export DOCKER_CMD
+    
+    # Execute the run script directly without altering user-permissions or local environmental directory paths
+    ./run.sh
     DEPLOY_SUCCESS=$?
 
 elif [ -f "docker-compose.yml" ]; then
     echo "🐳 Docker Compose file detected! Launching stack..."
-    if [ "$REBUILD_POLICY" = "CLEAN" ]; then
-        $DOCKER_CMD compose up --build --no-cache -d
-    else
-        $DOCKER_CMD compose up -d
-    fi
+    $DOCKER_CMD compose up --build --no-cache -d
     DEPLOY_SUCCESS=$?
 
 elif [ -f "Dockerfile" ]; then
     echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
-    
-    # Check if image exists before building under FAST strategy
-    IMAGE_EXISTS=$($DOCKER_CMD images -q "$ENV_NAME:latest" 2>/dev/null)
-    if [ "$REBUILD_POLICY" = "CLEAN" ] || [ -z "$IMAGE_EXISTS" ]; then
-        $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
-    fi
-    
+    $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
     if [ $? -eq 0 ]; then
         ENV_FLAGS=""
         if [ -f ".env" ]; then
             ENV_FLAGS="--env-file .env"
         fi
-        
-        # Ensure we clear a path for the run if CLEAN policy is chosen
-        if [ "$REBUILD_POLICY" = "CLEAN" ]; then
-            $DOCKER_CMD stop "$ENV_NAME" 2>/dev/null
-            $DOCKER_CMD rm "$ENV_NAME" 2>/dev/null
-        fi
-        
         $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
         DEPLOY_SUCCESS=$?
     else
@@ -343,15 +295,14 @@ elif [ -f "Dockerfile" ]; then
     fi
 fi
 
+# Verify the execution status code of our build step before clearing
 if [ $DEPLOY_SUCCESS -ne 0 ]; then
     echo "❌ ERROR: Deployment task failed for [$ENV_NAME]. Review the terminal logs above."
     exit 1
 fi
 
-# 7. Image Sweep (Only prune if clean policy requested)
-if [ "$REBUILD_POLICY" = "CLEAN" ]; then
-    echo "🧹 CLEAN policy active: Sweeping unused cache layers..."
-    $DOCKER_CMD image prune -a -f
-fi
+# 7. Image Sweep
+echo "🧹 Sweeping unused cache layers..."
+$DOCKER_CMD image prune -a -f
 
 echo "✅ Environment [$ENV_NAME] successfully deployed!"
