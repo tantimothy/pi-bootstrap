@@ -62,8 +62,27 @@ cd "$TARGET_DIR" || exit 1
 
 # Synchronize branch state to eliminate localized drift securely
 if [ -d ".git" ]; then
-    eval "$GIT_CMD fetch --all &>/dev/null"
-    eval "$GIT_CMD reset --hard @{u} &>/dev/null"
+    echo "🔄 Synchronizing workspace with upstream repository..."
+    
+    # 1. Fetch latest changes and capture errors
+    if ! eval "$GIT_CMD fetch --all"; then
+        echo "❌ ERROR: Git fetch failed! Check network or authentication tokens."
+        echo "Press Enter to bypass sync and continue with local files, or Ctrl+C to abort..."
+        read -r
+    else
+        # 2. Get current branch name dynamically
+        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        
+        echo "🧹 Resetting tracking state to origin/$CURRENT_BRANCH..."
+        # 3. Force hard reset to origin/branch and report failures
+        if ! eval "$GIT_CMD reset --hard origin/$CURRENT_BRANCH"; then
+            echo "⚠️ WARNING: Hard reset failed. Local drift may still be present."
+            echo "Press Enter to continue anyway..."
+            read -r
+        else
+            echo "✅ Workspace successfully synchronized!"
+        fi
+    fi
 fi
 
 # Ensure environments structure directory block is valid
