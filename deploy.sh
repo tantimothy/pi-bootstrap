@@ -105,7 +105,8 @@ while true; do
 
     while IFS= read -r -d '' dir; do
         DIR_NAME=$(basename "$dir")
-        MENU_OPTIONS+=("$dir" "Workspace configuration: $DIR_NAME")
+        # FIX: Use DIR_NAME as the visible Tag, and keep the path as context if needed
+        MENU_OPTIONS+=("$DIR_NAME" "Deploy environment stack from folder")
     done < <(find "$ENV_BASE_DIR" -maxdepth 1 -mindepth 1 -type d -print0)
 
     TEMP_FILE=$(mktemp)
@@ -115,14 +116,22 @@ while true; do
         "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
     EXIT_STATUS=$?
-    SELECTED_PATH=$(cat "$TEMP_FILE")
+    SELECTED_NAME=$(cat "$TEMP_FILE")
     rm -f "$TEMP_FILE"
 
     # If the user presses Cancel or Esc at the root menu, exit gracefully
-    if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
+    if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_NAME" ]; then
         clear
         echo "👋 Exiting script execution. System environments unmodified."
         exit 0
+    fi
+
+    # Determine structural target action routing
+    if [ "$SELECTED_NAME" = "MAINTENANCE" ]; then
+        SELECTED_PATH="MAINTENANCE"
+    else
+        # Reconstruct the absolute path securely based on the chosen workspace name
+        SELECTED_PATH="$ENV_BASE_DIR/$SELECTED_NAME"
     fi
 
     # ==========================================
