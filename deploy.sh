@@ -3,13 +3,17 @@
 FALLBACK_PROJECT_DIR="$HOME/projects/bootstrap"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
+# ==========================================
 # 1. DEPENDENCY CHECK: Ensure 'dialog' is installed
+# ==========================================
 if ! command -v dialog &> /dev/null; then
     echo "📦 'dialog' tool not found. Installing it now..."
     sudo apt-get update && sudo apt-get install -y dialog
 fi
 
+# ==========================================
 # 2. ENGINE CHECK: Ensure 'docker' is installed
+# ==========================================
 if ! command -v docker &> /dev/null; then
     echo "🐳 Docker engine not found! Initiating automated setup..."
     curl -fsSL https://get.docker.com -o get-docker.sh
@@ -22,7 +26,9 @@ if ! command -v docker &> /dev/null; then
     read -r
 fi
 
-# 3. BULLETPROOF DOCKER PERMISSION CHECK WRAPPER
+# ==========================================
+# 3. BULLETPROOF DOCKER PERMISSION WRAPPER
+# ==========================================
 DOCKER_CMD="docker"
 if ! docker ps &>/dev/null; then
     echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
@@ -35,296 +41,330 @@ TOKEN=$(echo "$CURL_USER" | cut -d':' -f2)
 # Build a specialized git command that forces token authentication via headers
 if [ ! -z "$TOKEN" ]; then
     B64_TOKEN=$(echo -n "tantimothy:$TOKEN" | base64 | tr -d '\n')
-    GIT_CMD="git -c http.extraHeader=\"Authorization: Basic $B64_TOKEN\""
+    GIT_CMD="git -c http.extraheader=\"Authorization: Basic $B64_TOKEN\""
 else
     GIT_CMD="git"
 fi
 
-echo "🔍 Checking execution environment..."
-if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    PROJECT_DIR=$(git rev-parse --show-toplevel)
-    cd "$PROJECT_DIR" || exit 1
-    echo "🏠 Running from within local repository: $PROJECT_DIR"
-    echo "📥 Fetching latest upstream tree..."
-    eval "$GIT_CMD fetch --all --prune"
-    
-    echo "🔄 Forcing workspace sync with remote origin repository..."
-    eval "$GIT_CMD reset --hard origin/main"
+# Determine matching workspace checkout targeting context
+if [ -d ".git" ]; then
+    TARGET_DIR=$(pwd)
+elif [ -d "$FALLBACK_PROJECT_DIR/.git" ]; then
+    TARGET_DIR="$FALLBACK_PROJECT_DIR"
 else
-    PROJECT_DIR="$FALLBACK_PROJECT_DIR"
-    echo "📂 Preparing project directory at $PROJECT_DIR..."
-    
-    if [ ! -d "$PROJECT_DIR" ]; then
-        echo "📁 Creating missing fallback directories..."
-        mkdir -p "$(dirname "$PROJECT_DIR")"
-        
-        echo "📦 Repository not found locally. Cloning cleanly..."
-        eval "$GIT_CMD clone \"$REPO_URL\" \"$PROJECT_DIR\""
-        cd "$PROJECT_DIR" || exit 1
-    else
-        cd "$PROJECT_DIR" || exit 1
-        echo "📥 Fetching and applying latest code from GitHub..."
-        eval "$GIT_CMD fetch --all --prune"
-        eval "$GIT_CMD reset --hard origin/main"
-    fi
+    TARGET_DIR="$FALLBACK_PROJECT_DIR"
+    mkdir -p "$TARGET_DIR"
+    echo "🗂️ Workspace missing. Initializing git clone context..."
+    eval "$GIT_CMD clone $REPO_URL $TARGET_DIR"
 fi
 
-cd "$PROJECT_DIR" || exit 1
+cd "$TARGET_DIR" || exit 1
 
-# --- DIAGNOSTIC BLOCK ---
-if [ ! -d "environments" ]; then
-    dialog --title " Error " --msgbox "Missing directory: Could not find an 'environments/' folder at: $PROJECT_DIR" 8 60
+# Synchronize branch state to eliminate localized drift securely
+if [ -d ".git" ]; then
+    eval "$GIT_CMD fetch --all &>/dev/null"
+    eval "$GIT_CMD reset --hard @{u} &>/dev/null"
+fi
+
+# Ensure environments structure directory block is valid
+ENV_BASE_DIR="$TARGET_DIR/environments"
+if [ ! -d "$ENV_BASE_DIR" ]; then
+    dialog --title " Error " --msgbox "Missing structural directory: $ENV_BASE_DIR" 6 50
     clear
     exit 1
 fi
 
-ALL_SUBDIRS=( $(find environments -maxdepth 1 -mindepth 1 -type d) )
-DIAGNOSTIC_LOG=""
-
-if [ ${#ALL_SUBDIRS[@]} -eq 0 ]; then
-    DIAGNOSTIC_LOG="The 'environments/' folder is completely empty.\nPath: $PROJECT_DIR/environments"
-else
-    DIAGNOSTIC_LOG="Scanned directories inside $PROJECT_DIR/environments:\n\n"
-    for dir in "${ALL_SUBDIRS[@]}"; do
-        folder_name=$(basename "$dir")
-        DIAGNOSTIC_LOG+="📁 /$folder_name -> REJECTED\n"
-        
-        if [ ! -f "$dir/run.sh" ] && [ ! -f "$dir/docker-compose.yml" ] && [ ! -f "$dir/Dockerfile" ]; then
-            DIAGNOSTIC_LOG+="   ⚠️ Reason: Missing run.sh, docker-compose.yml, AND Dockerfile.\n\n"
-        else
-            DIAGNOSTIC_LOG+="   ⚠️ Reason: Directory structure matched, but path resolving failed.\n\n"
-        fi
-    done
-fi
-
-# Find valid target setups
-ENV_DIRS=()
-for dir in "${ALL_SUBDIRS[@]}"; do
-    if [ -f "$dir/run.sh" ] || [ -f "$dir/docker-compose.yml" ] || [ -f "$dir/Dockerfile" ]; then
-        ENV_DIRS+=( "$dir" )
-    fi
-done
-
-if [ ${#ENV_DIRS[@]} -eq 0 ]; then
-    dialog --title " Deployment Scan Breakdown " --msgbox "$DIAGNOSTIC_LOG" 20 70
-    clear
-    exit 1
-fi
-
-# Build menu options
-MENU_OPTIONS=()
-for dir in "${ENV_DIRS[@]}"; do
-    folder_name=$(basename "$dir")
-    
-    if [ -f "$dir/run.sh" ] ; then
-        TYPE="[Custom run.sh]"
-    elif [ -f "$dir/docker-compose.yml" ] ; then
-        TYPE="[Docker Compose]"
-    elif [ -f "$dir/Dockerfile" ] ; then
-        TYPE="[Standalone Dockerfile]"
-    fi
-    
-    MENU_OPTIONS+=( "$dir" "$TYPE /$folder_name" )
-done
-
-# Present the Menu
-TEMP_FILE=$(mktemp)
-dialog --clear \
-    --title " Raspberry Pi Deployment Center " \
-    --menu "Choose a configuration workspace to deploy:" 16 70 8 \
-    "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
-
-EXIT_STATUS=$?
-SELECTED_PATH=$(cat "$TEMP_FILE")
-rm -f "$TEMP_FILE"
-
-if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
-    clear
-    echo "❌ Deployment cancelled."
-    exit 0
-fi
-
 # ==========================================
-# DEPLOYMENT POLICY SELECTOR MENU
+# MAIN ROUTING LOOP ENGINE
 # ==========================================
+while true; do
 
-TEMP_POLICY_FILE=$(mktemp)
-dialog --clear \
-    --title " Deployment Strategy Policy " \
-    --menu "Select how to process the configuration build lifecycle:" 11 70 2 \
-    "FAST" "Preserve existing images & container instances if active" \
-    "CLEAN" "Force fresh rebuild/teardown of the active environment" \
-    2> "$TEMP_POLICY_FILE"
+    # Gather available workspaces
+    MENU_OPTIONS=()
+    # Inject the standalone dynamic container cleanup utility choice into the top of the option array
+    MENU_OPTIONS+=("MAINTENANCE" "🛠️  Manage, Auditing, & Clean System Containers")
 
-POLICY_EXIT=$?
-REBUILD_POLICY=$(cat "$TEMP_POLICY_FILE")
-rm -f "$TEMP_POLICY_FILE"  # Clean up temporary allocation file pointer
+    while IFS= read -r -d '' dir; do
+        DIR_NAME=$(basename "$dir")
+        MENU_OPTIONS+=("$dir" "Workspace configuration: $DIR_NAME")
+    done < <(find "$ENV_BASE_DIR" -maxdepth 1 -mindepth 1 -type d -print0)
 
-if [ $POLICY_EXIT -ne 0 ] || [ -z "$REBUILD_POLICY" ]; then
-    clear
-    echo "❌ Deployment cancelled."
-    exit 0
-fi
+    TEMP_FILE=$(mktemp)
+    dialog --clear \
+        --title " Raspberry Pi Deployment Center " \
+        --menu "Choose an application configuration workspace or a system maintenance action:" 17 76 9 \
+        "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
-clear
-ENV_NAME=$(basename "$SELECTED_PATH")
-echo "🚀 Target Selected: $ENV_NAME"
+    EXIT_STATUS=$?
+    SELECTED_PATH=$(cat "$TEMP_FILE")
+    rm -f "$TEMP_FILE"
 
-# 4. Universal Teardown Pattern
-echo "🛑 Tearing down active running containers across the system..."
-RUNNING_CONTAINERS=$($DOCKER_CMD ps -a -q)
-if [ ! -z "$RUNNING_CONTAINERS" ]; then
-    $DOCKER_CMD stop $RUNNING_CONTAINERS 2>/dev/null
-    $DOCKER_CMD rm $RUNNING_CONTAINERS 2>/dev/null
-fi
+    # If the user presses Cancel or Esc at the root menu, exit gracefully
+    if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
+        clear
+        echo "👋 Exiting script execution. System environments unmodified."
+        exit 0
+    fi
 
-# 5. Navigate into the folder cleanly using absolute context
-TARGET_WORKSPACE_DIR="$PROJECT_DIR/$SELECTED_PATH"
-cd "$TARGET_WORKSPACE_DIR" || exit 1
+    # ==========================================
+    # DETACHED MAINTENANCE SUITE CONTROLLER
+    # ==========================================
+    if [ "$SELECTED_PATH" = "MAINTENANCE" ]; then
+        while true; do
+            TEMP_MAINT_FILE=$(mktemp)
+            dialog --clear \
+                --title " Container Infrastructure Management " \
+                --menu "Select a targeted sanitation utility operation:" 12 70 3 \
+                "SELECTIVE" "View system state and selectively purge chosen containers" \
+                "PURGE_ALL" "Force-stop and fully wipe ALL containers on this system" \
+                "BACK"      "<- Return back to the primary Workspace Menu" \
+                2> "$TEMP_MAINT_FILE"
 
+            MAINT_EXIT=$?
+            MAINT_ACTION=$(cat "$TEMP_MAINT_FILE")
+            rm -f "$TEMP_MAINT_FILE"
 
-# =======================================================
-# 🔐 ADVANCED BULK FORM COMPILER WITH DEFAULT INJECTION
-# =======================================================
-if [ -f ".env.example" ] && [ ! -f ".env" ]; then
-    echo "🔑 Building multi-field runtime parameters board..."
-    
-    KEYS=()
-    DEFAULTS=()
-    HELP_TEXT=""
-    CURRENT_COMMENT=""
-
-    while IFS= read -r line || [ -n "$line" ]; do
-        line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-        
-        if [[ "$line" =~ ^# ]]; then
-            CLEAN_COMMENT=$(echo "$line" | sed 's/^#[[:space:]]*//')
-            if [ -z "$CURRENT_COMMENT" ]; then
-                CURRENT_COMMENT="$CLEAN_COMMENT"
-            else
-                CURRENT_COMMENT="$CURRENT_COMMENT $CLEAN_COMMENT"
+            if [ $MAINT_EXIT -ne 0 ] || [ "$MAINT_ACTION" = "BACK" ]; then
+                # Drop out of the maintenance block loop to drop right back into the main configuration loop
+                break
             fi
-        elif [[ "$line" =~ = ]]; then
-            KEY=$(echo "$line" | cut -d'=' -f1 | sed 's/[[:space:]]*$//')
-            VAL=$(echo "$line" | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-            
-            if [ ! -z "$KEY" ]; then
-                KEYS+=("$KEY")
-                DEFAULTS+=("$VAL")
-                
-                # Append parameter context into a master scrollable information block string
-                if [ -z "$CURRENT_COMMENT" ]; then
-                    HELP_TEXT+="$KEY:\n• No explanation provided.\n\n"
-                else
-                    HELP_TEXT+="$KEY:\n• $CURRENT_COMMENT\n\n"
-                fi
-                CURRENT_COMMENT=""
-            fi
-        else
-            if [ -z "$line" ]; then
-                CURRENT_COMMENT=""
-            fi
-        fi
-    done < .env.example
 
-    if [ ${#KEYS[@]} -gt 0 ]; then
-        # Render a scrollable explanation overlay block first so you can read what fields mean
-        dialog --clear \
-               --title " Variable Parameters Legend: [$ENV_NAME] " \
-               --msgbox "\nReview the requirements for this workspace below before completing the configuration form:\n\n$HELP_TEXT" \
-               20 74
+            case "$MAINT_ACTION" in
+                SELECTIVE)
+                    # Query active system layout via custom Docker formatting array blocks
+                    IFS=$'\n' read -r -d '' -a RUNNING_LIST < <($DOCKER_CMD ps -a --format "{{.ID}}||{{.Names}}||{{.Status}}" && printf '\0')
+                    
+                    if [ ${#RUNNING_LIST[@]} -eq 0 ] || [ -z "${RUNNING_LIST[0]}" ]; then
+                        dialog --title " System Manifest Info " --msgbox "There are zero existing containers present on this engine context." 6 65
+                        continue
+                    fi
 
-        # Compile dynamic visual layouts for the inline form grid matrix
-        FORM_FIELDS=()
-        ROW_Y=1
-        for i in "${!KEYS[@]}"; do
-            FORM_FIELDS+=(
-                "${KEYS[$i]}:"  "$ROW_Y" "2"  \
-                "${DEFAULTS[$i]}" "$ROW_Y" "22" \
-                "45" "0"
-            )
-            ((ROW_Y++))
+                    CHECKBOX_ARGS=()
+                    for item in "${RUNNING_LIST[@]}"; do
+                        if [ ! -z "$item" ]; then
+                            CID=$(echo "$item" | awk -F'||' '{print $1}')
+                            CNAME=$(echo "$item" | awk -F'||' '{print $2}')
+                            CSTAT=$(echo "$item" | awk -F'||' '{print $3}')
+                            # Append metadata parameters to compile multi-selection array arguments
+                            CHECKBOX_ARGS+=("$CID" "$CNAME ($CSTAT)" "OFF")
+                        fi
+                    done
+
+                    TEMP_CHKBX_OUT=$(mktemp)
+                    dialog --clear --title " Selective Sanitization Interface " \
+                        --checklist "Spacebar to mark container instances for deletion; Enter to confirm execution:" 20 75 10 \
+                        "${CHECKBOX_ARGS[@]}" 2> "$TEMP_CHKBX_OUT"
+
+                    CHKBX_EXIT=$?
+                    SELECTED_TARGETS=$(cat "$TEMP_CHKBX_OUT")
+                    rm -f "$TEMP_CHKBX_OUT"
+
+                    if [ $CHKBX_EXIT -eq 0 ] && [ ! -z "$SELECTED_TARGETS" ]; then
+                        clear
+                        echo "🧹 Processing targeted workspace removals..."
+                        for target_id in $SELECTED_TARGETS; do
+                            # Strip lingering container quotes added natively by standard dialog arrays
+                            clean_id=$(echo "$target_id" | tr -d '"')
+                            echo "🛑 Killing instance: [$clean_id]"
+                            $DOCKER_CMD stop "$clean_id" &>/dev/null
+                            $DOCKER_CMD rm "$clean_id" &>/dev/null
+                        done
+                        echo "✅ Target cleanup operation successfully fully completed."
+                        echo "Press Enter to return to maintenance portal..."
+                        read -r
+                    fi
+                    ;;
+
+                PURGE_ALL)
+                    ALL_CONTAINERS=$($DOCKER_CMD ps -a -q)
+                    if [ -z "$ALL_CONTAINERS" ]; then
+                        dialog --title " System Manifest Info " --msgbox "No system containers found. Wipes aborted seamlessly." 6 55
+                    else
+                        dialog --title " WARNING: GLOBAL DESTRUCTION " \
+                            --yesno "Are you absolutely certain you want to force-stop and clear ALL containers on this system?" 7 65
+                        if [ $? -eq 0 ]; then
+                            clear
+                            echo "🚨 Initiating absolute infrastructure purge..."
+                            $DOCKER_CMD stop $ALL_CONTAINERS 2>/dev/null
+                            $DOCKER_CMD rm $ALL_CONTAINERS 2>/dev/null
+                            echo "✨ Complete architecture layer reset finalized."
+                            echo "Press Enter to return to maintenance portal..."
+                            read -r
+                        fi
+                    fi
+                    ;;
+            esac
         done
+        # Ensure that exiting the maintenance window routes directly back up to the master selection logic loop
+        continue
+    fi
 
-        # Generate responsive screen dimension metrics based on form element sizing criteria
-        BOX_HEIGHT=$((ROW_Y + 5))
-        [ $BOX_HEIGHT -gt 22 ] && BOX_HEIGHT=22
+    # ==========================================
+    # 5. DEPLOYMENT POLICY SELECTOR MENU
+    # ==========================================
+    TEMP_POLICY_FILE=$(mktemp)
+    dialog --clear \
+        --title " Deployment Strategy Policy " \
+        --menu "Select how to process the configuration build lifecycle for this workspace:" 11 70 2 \
+        "FAST" "Preserve running instances; build cleanly only if cache missing" \
+        "CLEAN" "Explicitly tear down and rebuild ONLY this targeted workspace" \
+        2> "$TEMP_POLICY_FILE"
+
+    POLICY_EXIT=$?
+    REBUILD_POLICY=$(cat "$TEMP_POLICY_FILE")
+    rm -f "$TEMP_POLICY_FILE"
+
+    if [ $POLICY_EXIT -ne 0 ] || [ -z "$REBUILD_POLICY" ]; then
+        continue  # Cycles back safely right up to workspace choice lists without modifying external running container processes
+    fi
+
+    clear
+    ENV_NAME=$(basename "$SELECTED_PATH")
+    echo "🚀 Target Selected: $ENV_NAME [Policy: $REBUILD_POLICY]"
+
+    # Isolate any image pruning tasks safely down below execution confirmation logic paths
+    if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+        echo "🧹 Host SD Card Preservation: Pruning dangling container layers..."
+        $DOCKER_CMD image prune -f 2>/dev/null
+    fi
+
+    # ==========================================
+    # 6. ZERO-COMMIT DYNAMIC .ENV WIZARD
+    # ==========================================
+    TARGET_WORKSPACE_DIR="$SELECTED_PATH"
+    EXAMPLE_ENV="$TARGET_WORKSPACE_DIR/.env.example"
+    LOCAL_ENV="$TARGET_WORKSPACE_DIR/.env"
+
+    if [ -f "$EXAMPLE_ENV" ]; then
+        echo "📝 Processing configuration mapping parameters..."
         
-        TEMP_FORM_OUT=$(mktemp)
+        FORM_FIELDS=()
+        FIELD_KEYS=()
+        DEFAULT_VALUES=()
+        FIELD_LABELS=()
         
-        dialog --clear \
-               --title " Configure Runtime Variables " \
-               --form "Use [UP/DOWN] to swap slots. Modify parameters or accept defaults directly:" \
-               $BOX_HEIGHT 74 $((BOX_HEIGHT - 5)) "${FORM_FIELDS[@]}" 2> "$TEMP_FORM_OUT"
+        CURRENT_LABEL="Enter value"
         
-        EXIT_CODE=$?
-        
-        if [ $EXIT_CODE -eq 0 ]; then
-            IFS=$'\n' read -d '' -r -a CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
-            rm -f "$TEMP_FORM_OUT"
+        while IFS= read -r line || [ -n "$line" ]; do
+            line=$(echo "$line" | tr -d '\r')
             
-            touch .env
-            for i in "${!KEYS[@]}"; do
-                echo "${KEYS[$i]}=${CAPTURED_USER_INPUTS[$i]}" >> .env
+            if [[ "$line" =~ ^#[[:space:]]*(.*) ]]; then
+                CURRENT_LABEL="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+                KEY=$(echo "${BASH_REMATCH[1]}" | xargs)
+                VAL=$(echo "${BASH_REMATCH[2]}" | xargs)
+                
+                FIELD_KEYS+=("$KEY")
+                DEFAULT_VALUES+=("$VAL")
+                FIELD_LABELS+=("$CURRENT_LABEL")
+                
+                CURRENT_LABEL="Enter value"
+            fi
+        done < "$EXAMPLE_ENV"
+        
+        FIELD_COUNT=${#FIELD_KEYS[@]}
+        
+        if [ "$FIELD_COUNT" -gt 0 ]; then
+            FORM_ARGS=("Configuration Parameters" 20 75 10)
+            
+            for ((i=0; i<FIELD_COUNT; i++)); do
+                Y_POS=$(( (i * 2) + 1 ))
+                LABEL_STR="${FIELD_LABELS[$i]} (${FIELD_KEYS[$i]})"
+                
+                FORM_ARGS+=("$LABEL_STR" "$Y_POS" 2 "" "$Y_POS" 50 0 0)
+                FORM_ARGS+=("${DEFAULT_VALUES[$i]}" "$Y_POS" 50 20 0 0)
             done
-            echo "✅ Finished compiling system configs successfully."
-        else
+            
+            TEMP_FORM_OUT=$(mktemp)
+            dialog --clear --title " Environment Configuration Dashboard " \
+                --form "${FORM_ARGS[@]}" 2> "$TEMP_FORM_OUT"
+            
+            FORM_EXIT=$?
+            
+            if [ $FORM_EXIT -eq 0 ]; then
+                true > "$LOCAL_ENV"
+                MAP_INDEX=0
+                while IFS= read -r submitted_val || [ -n "$submitted_val" ]; do
+                    if [ $MAP_INDEX -lt $FIELD_COUNT ]; then
+                        echo "${FIELD_KEYS[$MAP_INDEX]}=$submitted_val" >> "$LOCAL_ENV"
+                    fi
+                    ((MAP_INDEX++))
+                done < "$TEMP_FORM_OUT"
+                echo "✅ Configuration context serialized to local space successfully."
+            else
+                rm -f "$TEMP_FORM_OUT"
+                continue # Graceful abort returns straight to main menu loops safely
+            fi
             rm -f "$TEMP_FORM_OUT"
-            clear
-            echo "❌ Deployment halted: Missing mandatory parameters profile creation requirements."
-            exit 1
         fi
     fi
-fi
-# =======================================================
 
+    # ==========================================
+    # 7. SUBSCRIPT HANDOFF & ISOLATED ROUTING PIPELINE
+    # ==========================================
+    cd "$TARGET_WORKSPACE_DIR" || exit 1
 
-# 6. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
-DEPLOY_SUCCESS=1
-
-# Ensure we are strictly pointing to the local workspace context directory
-cd "$TARGET_WORKSPACE_DIR" || exit 1
-
-if [ -f "run.sh" ]; then
-    echo "⚡ Custom run script detected! Executing run.sh..."
-    chmod +x run.sh
-    
-    # Export critical global configurations so downstream custom subscripts inherit them perfectly
-    export REBUILD_POLICY="CLEAN" 
+    DOCKER="${DOCKER_CMD:-docker}"
+    export DOCKER
     export DOCKER_CMD
-    
-    # Execute the run script directly without altering user-permissions or local environmental directory paths
-    ./run.sh
-    DEPLOY_SUCCESS=$?
+    export REBUILD_POLICY
 
-elif [ -f "docker-compose.yml" ]; then
-    echo "🐳 Docker Compose file detected! Launching stack..."
-    $DOCKER_CMD compose up --build --no-cache -d
-    DEPLOY_SUCCESS=$?
+    DEPLOY_SUCCESS=1
 
-elif [ -f "Dockerfile" ]; then
-    echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
-    $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
-    if [ $? -eq 0 ]; then
-        ENV_FLAGS=""
-        if [ -f ".env" ]; then
-            ENV_FLAGS="--env-file .env"
-        fi
-        $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
+    if [ -f "run.sh" ]; then
+        echo "⚡ Custom run script detected! Executing run.sh..."
+        chmod +x run.sh
+        ./run.sh
         DEPLOY_SUCCESS=$?
-    else
-        DEPLOY_SUCCESS=1
+
+    elif [ -f "docker-compose.yml" ]; then
+        echo "🐳 Docker Compose file detected! Processing targeted container stack..."
+        if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+            echo "🛑 Tearing down and rebuilding ONLY this compose stack as requested..."
+            $DOCKER_CMD compose down 2>/dev/null
+            $DOCKER_CMD compose up --build --no-cache -d
+        else
+            $DOCKER_CMD compose up -d
     fi
-fi
+        DEPLOY_SUCCESS=$?
 
-# Verify the execution status code of our build step before clearing
-if [ $DEPLOY_SUCCESS -ne 0 ]; then
-    echo "❌ ERROR: Deployment task failed for [$ENV_NAME]. Review the terminal logs above."
-    exit 1
-fi
+    elif [ -f "Dockerfile" ]; then
+        echo "🛠️ Raw Dockerfile detected! Running basic automated fallback..."
+        
+        if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+            $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
+        else
+            $DOCKER_CMD build -t "$ENV_NAME:latest" .
+        fi
+        
+        if [ $? -eq 0 ]; then
+            ENV_FLAGS=""
+            if [ -f ".env" ]; then
+                ENV_FLAGS="--env-file .env"
+            fi
+            
+            echo "♻️ Recycling singleton container resource: [$ENV_NAME]"
+            $DOCKER_CMD stop "$ENV_NAME" &>/dev/null
+            $DOCKER_CMD rm "$ENV_NAME" &>/dev/null
+            
+            $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
+            DEPLOY_SUCCESS=$?
+        else
+            DEPLOY_SUCCESS=1
+        fi
+    fi
 
-# 7. Image Sweep
-echo "🧹 Sweeping unused cache layers..."
-$DOCKER_CMD image prune -a -f
+    # ==========================================
+    # 8. POST-FLIGHT VALIDATION MATRIX
+    # ==========================================
+    if [ $DEPLOY_SUCCESS -ne 0 ]; then
+        echo "❌ ERROR: Deployment task failed for [$ENV_NAME]."
+        echo "Press Enter to return to main dashboard menu..."
+        read -r
+    else
+        echo "🎉 SUCCESS: Configuration workspace [$ENV_NAME] active and healthy."
+        echo "Press Enter to return to main dashboard menu..."
+        read -r
+    fi
 
-echo "✅ Environment [$ENV_NAME] successfully deployed!"
+done
