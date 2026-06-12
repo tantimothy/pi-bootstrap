@@ -256,74 +256,88 @@ while true; do
         $DOCKER_CMD image prune -f 2>/dev/null
     fi
 
-    # ==========================================
-    # 6. ZERO-COMMIT DYNAMIC .ENV WIZARD
-    # ==========================================
-    TARGET_WORKSPACE_DIR="$SELECTED_PATH"
-    EXAMPLE_ENV="$TARGET_WORKSPACE_DIR/.env.example"
-    LOCAL_ENV="$TARGET_WORKSPACE_DIR/.env"
-
-    if [ -f "$EXAMPLE_ENV" ]; then
-        echo "📝 Processing configuration mapping parameters..."
-        
-        FORM_FIELDS=()
-        FIELD_KEYS=()
-        DEFAULT_VALUES=()
-        FIELD_LABELS=()
-        
-        CURRENT_LABEL="Enter value"
-        
-        while IFS= read -r line || [ -n "$line" ]; do
-            line=$(echo "$line" | tr -d '\r')
+    # ==========================================\n"
+    # 6. DYNAMIC ZERO-COMMIT SECRET DASHBOARD\n"
+    # ==========================================\n"
+    # Always display configuration screen if file is missing, or user forces CLEAN.
+    # If FAST is selected, we present the dashboard with existing values populated as defaults.
+    if [ "$REBUILD_POLICY" = "CLEAN" ] || [ ! -f ".env" ] || [ "$REBUILD_POLICY" = "FAST" ]; then
+        if [ -f ".env.example" ]; then
+            echo "📋 Processing configuration parameters..."
             
-            if [[ "$line" =~ ^#[[:space:]]*(.*) ]]; then
-                CURRENT_LABEL="${BASH_REMATCH[1]}"
-            elif [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
-                KEY=$(echo "${BASH_REMATCH[1]}" | xargs)
-                VAL=$(echo "${BASH_REMATCH[2]}" | xargs)
-                
-                FIELD_KEYS+=("$KEY")
-                DEFAULT_VALUES+=("$VAL")
-                FIELD_LABELS+=("$CURRENT_LABEL")
-                
-                CURRENT_LABEL="Enter value"
-            fi
-        done < "$EXAMPLE_ENV"
-        
-        FIELD_COUNT=${#FIELD_KEYS[@]}
-        
-        if [ "$FIELD_COUNT" -gt 0 ]; then
-            FORM_ARGS=("Configuration Parameters" 20 75 10)
-            
-            for ((i=0; i<FIELD_COUNT; i++)); do
-                Y_POS=$(( (i * 2) + 1 ))
-                LABEL_STR="${FIELD_LABELS[$i]} (${FIELD_KEYS[$i]})"
-                
-                FORM_ARGS+=("$LABEL_STR" "$Y_POS" 2 "" "$Y_POS" 50 0 0)
-                FORM_ARGS+=("${DEFAULT_VALUES[$i]}" "$Y_POS" 50 20 0 0)
-            done
-            
-            TEMP_FORM_OUT=$(mktemp)
-            dialog --clear --title " Environment Configuration Dashboard " \
-                --form "${FORM_ARGS[@]}" 2> "$TEMP_FORM_OUT"
-            
-            FORM_EXIT=$?
-            
-            if [ $FORM_EXIT -eq 0 ]; then
-                true > "$LOCAL_ENV"
-                MAP_INDEX=0
-                while IFS= read -r submitted_val || [ -n "$submitted_val" ]; do
-                    if [ $MAP_INDEX -lt $FIELD_COUNT ]; then
-                        echo "${FIELD_KEYS[$MAP_INDEX]}=$submitted_val" >> "$LOCAL_ENV"
+            # Read existing environment values if available to preserve them during FAST runs
+            declare -A CURRENT_ENV_MAP
+            if [ -f ".env" ]; then
+                while IFS= read -r line || [ -n "$line" ]; do
+                    if [[ "$line" =~ ^[^#=]+=. ]]; then
+                        K=$(echo "$line" | cut -d'=' -f1 | xargs)
+                        V=$(echo "$line" | cut -d'=' -f2- | xargs)
+                        CURRENT_ENV_MAP["$K"]="$V"
                     fi
-                    ((MAP_INDEX++))
-                done < "$TEMP_FORM_OUT"
-                echo "✅ Configuration context serialized to local space successfully."
-            else
-                rm -f "$TEMP_FORM_OUT"
-                continue # Graceful abort returns straight to main menu loops safely
+                done < ".env"
             fi
-            rm -f "$TEMP_FORM_OUT"
+
+            LEGEND_TEXT=""
+            FORM_FIELDS=()
+            Y_OFFSET=1
+
+            # Parse schema fields and explanations safely
+            while IFS= read -r line || [ -n "$line" ]; do
+                if [[ "$line" =~ ^#[[:space:]]*(.*) ]]; then
+                    COMMENT="${BASH_REMATCH[1]}"
+                    LEGEND_TEXT+="$COMMENT\n"
+                elif [[ "$line" =~ ^([^=]+)=(.*) ]]; then
+                    FIELD_LABEL="${BASH_REMATCH[1]}"
+                    DEFAULT_VAL="${BASH_REMATCH[2]}"
+                    
+                    # If running on FAST and we have an existing value, override the default assignment
+                    if [ -n "${CURRENT_ENV_MAP[$FIELD_LABEL]}" ]; then
+                        FIELD_VALUE="${CURRENT_ENV_MAP[$FIELD_LABEL]}"
+                    else
+                        FIELD_VALUE="$DEFAULT_VAL"
+                    fi
+
+                    # FIX: Widen column mappings (Label at col 2, Input box moved out to col 35 with length 40)
+                    FORM_FIELDS+=("$FIELD_LABEL" "$Y_OFFSET" 2 "$FIELD_VALUE" "$Y_OFFSET" 35 40 0)
+                    Y_OFFSET=$((Y_OFFSET + 1))
+                fi
+            done < ".env.example"
+
+            # Render the contextual legend panel descriptive block
+            if [ -n "$LEGEND_TEXT" ]; then
+                echo -e "$LEGEND_TEXT" > /tmp/legend.txt
+                dialog --backtitle "Environment Setup Context" \
+                       --title " Variable Parameters Legend " \
+                       --textbox /tmp/legend.txt 14 78
+                rm -f /tmp/legend.txt
+            fi
+
+            # FIX: Expanded form width canvas from 70 to 80 to eliminate grid overlap errors safely
+            TEMP_FORM=$(mktemp)
+            dialog --backtitle "Environment Orchestration Matrix" \
+                   --title " System Credentials & Profile Parameters Configuration " \
+                   --form "Adjust configuration profile parameters for the environment:" 20 80 10 \
+                   "${FORM_FIELDS[@]}" 2> "$TEMP_FORM"
+            
+            if [ $? -eq 0 ]; then
+                # Reconstruct and compile the configuration profile cleanly
+                echo "# Automated Generated Configuration File" > .env
+                echo "# Compiled on: $(date)" >> .env
+                
+                INDEX=0
+                while IFS= read -r line || [ -n "$line" ]; do
+                    if [[ "$line" =~ ^([^=]+)= ]]; then
+                        KEY="${BASH_REMATCH[1]}"
+                        VAL=$(sed -n "$((INDEX + 1))p" "$TEMP_FORM")
+                        echo "$KEY=$VAL" >> .env
+                        INDEX=$((INDEX + 1))
+                    fi
+                done < ".env.example"
+                echo "✅ Local Environment settings file generated successfully."
+            else
+                echo "⚠️ Profile generation bypassed. Utilizing existing or default profiles."
+            fi
+            rm -f "$TEMP_FORM"
         fi
     fi
 
