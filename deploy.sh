@@ -105,8 +105,7 @@ while true; do
 
     while IFS= read -r -d '' dir; do
         DIR_NAME=$(basename "$dir")
-        # FIX: Use DIR_NAME as the visible Tag, and keep the path as context if needed
-        MENU_OPTIONS+=("$DIR_NAME" "Deploy environment stack from folder")
+        MENU_OPTIONS+=("$dir" "Workspace configuration: $DIR_NAME")
     done < <(find "$ENV_BASE_DIR" -maxdepth 1 -mindepth 1 -type d -print0)
 
     TEMP_FILE=$(mktemp)
@@ -116,22 +115,14 @@ while true; do
         "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
     EXIT_STATUS=$?
-    SELECTED_NAME=$(cat "$TEMP_FILE")
+    SELECTED_PATH=$(cat "$TEMP_FILE")
     rm -f "$TEMP_FILE"
 
     # If the user presses Cancel or Esc at the root menu, exit gracefully
-    if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_NAME" ]; then
+    if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
         clear
         echo "👋 Exiting script execution. System environments unmodified."
         exit 0
-    fi
-
-    # Determine structural target action routing
-    if [ "$SELECTED_NAME" = "MAINTENANCE" ]; then
-        SELECTED_PATH="MAINTENANCE"
-    else
-        # Reconstruct the absolute path securely based on the chosen workspace name
-        SELECTED_PATH="$ENV_BASE_DIR/$SELECTED_NAME"
     fi
 
     # ==========================================
@@ -256,125 +247,104 @@ while true; do
         $DOCKER_CMD image prune -f 2>/dev/null
     fi
 
-    # ==========================================\n"
-    # 6. DYNAMIC ZERO-COMMIT SECRET DASHBOARD\n"
-    # ==========================================\n"
-    # Always display configuration screen if file is missing, or user forces CLEAN.
-    # If FAST is selected, we present the dashboard with existing values populated as defaults.
-    if [ "$REBUILD_POLICY" = "CLEAN" ] || [ ! -f ".env" ] || [ "$REBUILD_POLICY" = "FAST" ]; then
-        if [ -f ".env.example" ]; then
-            echo "📋 Processing configuration parameters..."
+    # ==========================================
+    # 6. ZERO-COMMIT DYNAMIC .ENV WIZARD
+    # ==========================================
+    TARGET_WORKSPACE_DIR="$SELECTED_PATH"
+    EXAMPLE_ENV="$TARGET_WORKSPACE_DIR/.env.example"
+    LOCAL_ENV="$TARGET_WORKSPACE_DIR/.env"
+
+    if [ -f "$EXAMPLE_ENV" ]; then
+        echo "📝 Processing configuration mapping parameters..."
+        
+        FORM_FIELDS=()
+        FIELD_KEYS=()
+        DEFAULT_VALUES=()
+        FIELD_LABELS=()
+        
+        CURRENT_LABEL="Enter value"
+        
+        while IFS= read -r line || [ -n "$line" ]; do
+            line=$(echo "$line" | tr -d '\r')
             
-            # Read existing environment values if available to preserve them during FAST runs
-            declare -A CURRENT_ENV_MAP
-            if [ -f ".env" ]; then
-                while IFS= read -r line || [ -n "$line" ]; do
-                    if [[ "$line" =~ ^[^#=]+=. ]]; then
-                        K=$(echo "$line" | cut -d'=' -f1 | xargs)
-                        V=$(echo "$line" | cut -d'=' -f2- | xargs)
-                        CURRENT_ENV_MAP["$K"]="$V"
-                    fi
-                done < ".env"
-            fi
-
-            LEGEND_TEXT=""
-            FORM_FIELDS=()
-            Y_OFFSET=1
-
-            # Parse schema fields and explanations safely
-            while IFS= read -r line || [ -n "$line" ]; do
-                if [[ "$line" =~ ^#[[:space:]]*(.*) ]]; then
-                    COMMENT="${BASH_REMATCH[1]}"
-                    LEGEND_TEXT+="$COMMENT\n"
-                elif [[ "$line" =~ ^([^=]+)=(.*) ]]; then
-                    FIELD_LABEL="${BASH_REMATCH[1]}"
-                    DEFAULT_VAL="${BASH_REMATCH[2]}"
-                    
-                    # If running on FAST and we have an existing value, override the default assignment
-                    if [ -n "${CURRENT_ENV_MAP[$FIELD_LABEL]}" ]; then
-                        FIELD_VALUE="${CURRENT_ENV_MAP[$FIELD_LABEL]}"
-                    else
-                        FIELD_VALUE="$DEFAULT_VAL"
-                    fi
-
-                    # FIX: Widen column mappings (Label at col 2, Input box moved out to col 35 with length 40)
-                    FORM_FIELDS+=("$FIELD_LABEL" "$Y_OFFSET" 2 "$FIELD_VALUE" "$Y_OFFSET" 35 40 0)
-                    Y_OFFSET=$((Y_OFFSET + 1))
-                fi
-            done < ".env.example"
-
-            # Render the contextual legend panel descriptive block
-            if [ -n "$LEGEND_TEXT" ]; then
-                echo -e "$LEGEND_TEXT" > /tmp/legend.txt
-                dialog --backtitle "Environment Setup Context" \
-                       --title " Variable Parameters Legend " \
-                       --textbox /tmp/legend.txt 14 78
-                rm -f /tmp/legend.txt
-            fi
-
-            # FIX: Expanded form width canvas from 70 to 80 to eliminate grid overlap errors safely
-            TEMP_FORM=$(mktemp)
-            dialog --backtitle "Environment Orchestration Matrix" \
-                   --title " System Credentials & Profile Parameters Configuration " \
-                   --form "Adjust configuration profile parameters for the environment:" 20 80 10 \
-                   "${FORM_FIELDS[@]}" 2> "$TEMP_FORM"
-            
-            if [ $? -eq 0 ]; then
-                # Reconstruct and compile the configuration profile cleanly
-                echo "# Automated Generated Configuration File" > .env
-                echo "# Compiled on: $(date)" >> .env
+            if [[ "$line" =~ ^#[[:space:]]*(.*) ]]; then
+                CURRENT_LABEL="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+                KEY=$(echo "${BASH_REMATCH[1]}" | xargs)
+                VAL=$(echo "${BASH_REMATCH[2]}" | xargs)
                 
-                INDEX=0
-                while IFS= read -r line || [ -n "$line" ]; do
-                    if [[ "$line" =~ ^([^=]+)= ]]; then
-                        KEY="${BASH_REMATCH[1]}"
-                        VAL=$(sed -n "$((INDEX + 1))p" "$TEMP_FORM")
-                        echo "$KEY=$VAL" >> .env
-                        INDEX=$((INDEX + 1))
-                    fi
-                done < ".env.example"
-                echo "✅ Local Environment settings file generated successfully."
-            else
-                echo "⚠️ Profile generation bypassed. Utilizing existing or default profiles."
+                FIELD_KEYS+=("$KEY")
+                DEFAULT_VALUES+=("$VAL")
+                FIELD_LABELS+=("$CURRENT_LABEL")
+                
+                CURRENT_LABEL="Enter value"
             fi
-            rm -f "$TEMP_FORM"
+        done < "$EXAMPLE_ENV"
+        
+        FIELD_COUNT=${#FIELD_KEYS[@]}
+        
+        if [ "$FIELD_COUNT" -gt 0 ]; then
+            FORM_ARGS=("Configuration Parameters" 20 75 10)
+            
+            for ((i=0; i<FIELD_COUNT; i++)); do
+                Y_POS=$(( (i * 2) + 1 ))
+                LABEL_STR="${FIELD_LABELS[$i]} (${FIELD_KEYS[$i]})"
+                
+                FORM_ARGS+=("$LABEL_STR" "$Y_POS" 2 "" "$Y_POS" 50 0 0)
+                FORM_ARGS+=("${DEFAULT_VALUES[$i]}" "$Y_POS" 50 20 0 0)
+            done
+            
+            TEMP_FORM_OUT=$(mktemp)
+            dialog --clear --title " Environment Configuration Dashboard " \
+                --form "${FORM_ARGS[@]}" 2> "$TEMP_FORM_OUT"
+            
+            FORM_EXIT=$?
+            
+            if [ $FORM_EXIT -eq 0 ]; then
+                true > "$LOCAL_ENV"
+                MAP_INDEX=0
+                while IFS= read -r submitted_val || [ -n "$submitted_val" ]; do
+                    if [ $MAP_INDEX -lt $FIELD_COUNT ]; then
+                        echo "${FIELD_KEYS[$MAP_INDEX]}=$submitted_val" >> "$LOCAL_ENV"
+                    fi
+                    ((MAP_INDEX++))
+                done < "$TEMP_FORM_OUT"
+                echo "✅ Configuration context serialized to local space successfully."
+            else
+                rm -f "$TEMP_FORM_OUT"
+                continue # Graceful abort returns straight to main menu loops safely
+            fi
+            rm -f "$TEMP_FORM_OUT"
         fi
     fi
 
     # ==========================================
-    # 7. TARGET EXECUTION ROUTER MATRIX
+    # 7. SUBSCRIPT HANDOFF & ISOLATED ROUTING PIPELINE
     # ==========================================
-    # FIX: Ensure we are inside the target workspace directory to find its build files
-    cd "$SELECTED_PATH" || {
-        echo "❌ ERROR: Unable to access path [$SELECTED_PATH]"
-        echo "Press Enter to return to menu..."
-        read -r
-        continue
-    }
+    cd "$TARGET_WORKSPACE_DIR" || exit 1
+
+    DOCKER="${DOCKER_CMD:-docker}"
+    export DOCKER
+    export DOCKER_CMD
+    export REBUILD_POLICY
 
     DEPLOY_SUCCESS=1
-    ENV_NAME=$(basename "$SELECTED_PATH")
 
     if [ -f "run.sh" ]; then
-        echo "🚀 Found custom orchestration script [run.sh]. Handing off control..."
+        echo "⚡ Custom run script detected! Executing run.sh..."
         chmod +x run.sh
-        
-        # Export variables down into the subshell context cleanly
-        export DOCKER_CMD
-        export REBUILD_POLICY
-        
         ./run.sh
         DEPLOY_SUCCESS=$?
 
     elif [ -f "docker-compose.yml" ]; then
-        echo "🐳 Found Docker Compose stack definition. Upstreaming services..."
-        
+        echo "🐳 Docker Compose file detected! Processing targeted container stack..."
         if [ "$REBUILD_POLICY" = "CLEAN" ]; then
-            $DOCKER_CMD compose down -v &>/dev/null
+            echo "🛑 Tearing down and rebuilding ONLY this compose stack as requested..."
+            $DOCKER_CMD compose down 2>/dev/null
             $DOCKER_CMD compose up --build --no-cache -d
         else
             $DOCKER_CMD compose up -d
-        fi
+    fi
         DEPLOY_SUCCESS=$?
 
     elif [ -f "Dockerfile" ]; then
@@ -396,15 +366,11 @@ while true; do
             $DOCKER_CMD stop "$ENV_NAME" &>/dev/null
             $DOCKER_CMD rm "$ENV_NAME" &>/dev/null
             
-            $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped "$ENV_NAME:latest"
+            $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
             DEPLOY_SUCCESS=$?
         else
             DEPLOY_SUCCESS=1
         fi
-    else
-        echo "⚠️ WARNING: No compliant entrypoint definition (run.sh, docker-compose.yml, Dockerfile) found in $ENV_NAME."
-        echo "Press Enter to return to dashboard..."
-        read -r
     fi
 
     # ==========================================
@@ -415,12 +381,9 @@ while true; do
         echo "Press Enter to return to main dashboard menu..."
         read -r
     else
-        echo "✅ SUCCESS: Deployment sequence complete for [$ENV_NAME]!"
+        echo "🎉 SUCCESS: Configuration workspace [$ENV_NAME] active and healthy."
         echo "Press Enter to return to main dashboard menu..."
         read -r
     fi
-
-    # FIX: Safely bounce back to the global environment base path before looping back to the TUI menu
-    cd "$ENV_BASE_DIR" || exit 1
 
 done
