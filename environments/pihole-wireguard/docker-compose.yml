@@ -1,56 +1,55 @@
-version: "3"
+version: '3.8'
 
 services:
   pihole:
     container_name: pihole
     image: pihole/pihole:latest
-    restart: unless-stopped
     ports:
       - "53:53/tcp"
       - "53:53/udp"
       - "${PIHOLE_WEB_PORT:-8080}:80/tcp"
     environment:
-      TZ: '${TZ:-Asia/Singapore}'
-      FTLCONF_webserver_api_password: '${FTLCONF_webserver_api_password}'
-      FTLCONF_dns_listeningMode: 'ALL'
+      - TZ=${TZ:-Asia/Singapore}
+      - WEBPASSWORD=${FTLCONF_webserver_api_password}
+      - FTLCONF_dns_upstreams=1.1.1.1,1.0.0.1
     volumes:
       - './etc-pihole:/etc/pihole'
-    cap_add:
-      - NET_ADMIN
     networks:
-      custom_bridge:
+      pihole_wg_net:
         ipv4_address: ${PIHOLE_INTERNAL_IP:-172.20.0.2}
+    restart: unless-stopped
 
   wg-easy:
     container_name: wg-easy
     image: ghcr.io/wg-easy/wg-easy:latest
-    restart: unless-stopped
     depends_on:
       - pihole
     ports:
       - "${WG_PORT:-51820}:51820/udp"
       - "${WG_UI_PORT:-51821}:51821/tcp"
     environment:
-      TZ: '${TZ:-Asia/Singapore}'
-      WG_HOST: '${WG_HOST}'
-      WG_DEFAULT_DNS: '${PIHOLE_INTERNAL_IP:-172.20.0.2}'
-      WG_PORT: '${WG_PORT:-51820}'
-      PASSWORD_HASH: '${PASSWORD_HASH}'
-      WG_ALLOWED_IPS: '${WG_ALLOWED_IPS:-0.0.0.0/0}'
+      - TZ=${TZ:-Asia/Singapore}
+      - WG_HOST=${WG_HOST}
+      - WG_DEFAULT_DNS=${PIHOLE_INTERNAL_IP:-172.20.0.2}
+      - PASSWORD_HASH=${PASSWORD_HASH}
+      - WG_ALLOWED_IPS=${WG_ALLOWED_IPS:-0.0.0.0/0}
     volumes:
       - './etc-wireguard:/etc/wireguard'
+    networks:
+      pihole_wg_net:
+        ipv4_address: ${WG_INTERNAL_IP:-172.20.0.3}
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
     sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
       - net.ipv4.ip_forward=1
-    networks:
-      custom_bridge:
-        ipv4_address: ${WG_INTERNAL_IP:-172.20.0.3}
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
 
 networks:
-  custom_bridge:
+  pihole_wg_net:
+    name: pihole_wg_network
+    driver: bridge
     ipam:
       config:
         - subnet: ${DOCKER_SUBNET:-172.20.0.0/16}
