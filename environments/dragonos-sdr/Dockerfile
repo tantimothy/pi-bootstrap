@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Fix RTL-SDR Kernel Driver Conflict inside the container just in case
 RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
 
-# Inject the Menu Script directly into the image boundaries
+# Inject the Interactive Selection Menu Script directly into the image layers
 RUN echo '#!/bin/bash\n\
 while true; do\n\
   CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \\\n\
@@ -62,6 +62,6 @@ while true; do\n\
   esac\n\
 done' > /usr/local/bin/sdr-menu.sh && chmod +x /usr/local/bin/sdr-menu.sh
 
-# Fallback default execution structure if run manually without the run.sh script
+# Fallback workspace layout and execution target configuration
 WORKDIR /workspace
 CMD ["/usr/local/bin/sdr-menu.sh"]
