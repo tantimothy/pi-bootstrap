@@ -49,7 +49,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     eval "$GIT_CMD fetch --all --prune"
     
     echo "🔄 Forcing workspace sync with remote origin repository..."
-    eval "$GIT_CMD reset --hard origin/main"
+    eval "$GIT_CMD reset --hard origin/master"
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
     echo "📂 Preparing project directory at $PROJECT_DIR..."
@@ -65,7 +65,7 @@ else
         cd "$PROJECT_DIR" || exit 1
         echo "📥 Fetching and applying latest code from GitHub..."
         eval "$GIT_CMD fetch --all --prune"
-        eval "$GIT_CMD reset --hard origin/main"
+        eval "$GIT_CMD reset --hard origin/master"
     fi
 fi
 
