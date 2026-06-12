@@ -342,32 +342,39 @@ while true; do
     fi
 
     # ==========================================
-    # 7. SUBSCRIPT HANDOFF & ISOLATED ROUTING PIPELINE
+    # 7. TARGET EXECUTION ROUTER MATRIX
     # ==========================================
-    cd "$TARGET_WORKSPACE_DIR" || exit 1
-
-    DOCKER="${DOCKER_CMD:-docker}"
-    export DOCKER
-    export DOCKER_CMD
-    export REBUILD_POLICY
+    # FIX: Ensure we are inside the target workspace directory to find its build files
+    cd "$SELECTED_PATH" || {
+        echo "❌ ERROR: Unable to access path [$SELECTED_PATH]"
+        echo "Press Enter to return to menu..."
+        read -r
+        continue
+    }
 
     DEPLOY_SUCCESS=1
+    ENV_NAME=$(basename "$SELECTED_PATH")
 
     if [ -f "run.sh" ]; then
-        echo "⚡ Custom run script detected! Executing run.sh..."
+        echo "🚀 Found custom orchestration script [run.sh]. Handing off control..."
         chmod +x run.sh
+        
+        # Export variables down into the subshell context cleanly
+        export DOCKER_CMD
+        export REBUILD_POLICY
+        
         ./run.sh
         DEPLOY_SUCCESS=$?
 
     elif [ -f "docker-compose.yml" ]; then
-        echo "🐳 Docker Compose file detected! Processing targeted container stack..."
+        echo "🐳 Found Docker Compose stack definition. Upstreaming services..."
+        
         if [ "$REBUILD_POLICY" = "CLEAN" ]; then
-            echo "🛑 Tearing down and rebuilding ONLY this compose stack as requested..."
-            $DOCKER_CMD compose down 2>/dev/null
+            $DOCKER_CMD compose down -v &>/dev/null
             $DOCKER_CMD compose up --build --no-cache -d
         else
             $DOCKER_CMD compose up -d
-    fi
+        fi
         DEPLOY_SUCCESS=$?
 
     elif [ -f "Dockerfile" ]; then
@@ -389,11 +396,15 @@ while true; do
             $DOCKER_CMD stop "$ENV_NAME" &>/dev/null
             $DOCKER_CMD rm "$ENV_NAME" &>/dev/null
             
-            $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
+            $DOCKER_CMD run -d --name "$ENV_NAME" $ENV_FLAGS --restart unless-stopped "$ENV_NAME:latest"
             DEPLOY_SUCCESS=$?
         else
             DEPLOY_SUCCESS=1
         fi
+    else
+        echo "⚠️ WARNING: No compliant entrypoint definition (run.sh, docker-compose.yml, Dockerfile) found in $ENV_NAME."
+        echo "Press Enter to return to dashboard..."
+        read -r
     fi
 
     # ==========================================
@@ -404,9 +415,12 @@ while true; do
         echo "Press Enter to return to main dashboard menu..."
         read -r
     else
-        echo "🎉 SUCCESS: Configuration workspace [$ENV_NAME] active and healthy."
+        echo "✅ SUCCESS: Deployment sequence complete for [$ENV_NAME]!"
         echo "Press Enter to return to main dashboard menu..."
         read -r
     fi
+
+    # FIX: Safely bounce back to the global environment base path before looping back to the TUI menu
+    cd "$ENV_BASE_DIR" || exit 1
 
 done
