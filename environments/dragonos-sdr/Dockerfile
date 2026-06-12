@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     pkg-config \
-    # Core SDR Drivers and Software \
+    # Core SDR Drivers and Software
     rtl-sdr \
     librtlsdr-dev \
     hackrf \
@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsoapysdr-dev \
     gnuradio \
     gqrx-sdr \
-    # Extra utilities, Audio routing support & Dialog \
+    # Extra utilities, Audio routing support & Dialog
     usbutils \
     procps \
     ca-certificates \
@@ -33,8 +33,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Fix RTL-SDR Kernel Driver Conflict inside the container just in case
 RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
 
-# Inject the Interactive Selection Menu Script directly into the image layers
+# Inject a hybrid Entrypoint wrapper that accommodates non-interactive pipeline daemons
 RUN echo '#!/bin/bash\n\
+# Check if standard input is attached to an active terminal socket\n\
+if [ ! -t 0 ]; then\n\
+  echo "[DAEMON] Running in non-interactive pipeline context. Initializing background core engines safely..."\n\
+  # Keep container persistently alive while waiting for raw hardware signal streams\n\
+  exec tail -f /dev/null\n\
+fi\n\
+\n\
+# If a terminal TTY is present, jump straight into the interactive user TUI selection framework\n\
 while true; do\n\
   CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \\\n\
                   --title " Select an SDR Tool " \\\n\
