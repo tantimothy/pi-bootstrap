@@ -378,6 +378,6 @@ fi
 
 # 7. Image Sweep
 echo "🧹 Sweeping unused cache layers..."
-$DOCKER_CMD image prune -a -f
+# $DOCKER_CMD image prune -a -f
 
 echo "✅ Environment [$ENV_NAME] successfully deployed!"
