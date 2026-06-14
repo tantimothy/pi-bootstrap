@@ -29,15 +29,17 @@ if ! docker ps &>/dev/null; then
     DOCKER_CMD="sudo docker"
 fi
 
-# Extract the token directly from the CURL_USER environment variable
-TOKEN=$(echo "$CURL_USER" | cut -d':' -f2)
-
-# Build a specialized git command that forces token authentication via headers
-if [ ! -z "$TOKEN" ]; then
-    B64_TOKEN=$(echo -n "tantimothy:$TOKEN" | base64 | tr -d '\n')
-    GIT_CMD="git -c http.extraHeader=\"Authorization: Basic $B64_TOKEN\""
+# Check if CURL_USER is provided (Expected format from curl -u: "username:token")
+if [ ! -z "$CURL_USER" ]; then
+    # 1. Prevent Git from hanging indefinitely on terminal prompts if auth fails
+    export GIT_TERMINAL_PROMPT=0
+    
+    # 2. Use Bash Arrays instead of strings to eliminate 'eval' quoting bugs.
+    # Tells Git to dynamically rewrite any standard github URL to use your token on-the-fly.
+    # This solves the 'git fetch' prompt issue for pre-existing local repos.
+    GIT_CMD=(git -c "url.https://${CURL_USER}@github.com/.insteadOf=https://github.com/")
 else
-    GIT_CMD="git"
+    GIT_CMD=(git)
 fi
 
 echo "🔍 Checking execution environment..."
@@ -46,10 +48,10 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     cd "$PROJECT_DIR" || exit 1
     echo "🏠 Running from within local repository: $PROJECT_DIR"
     echo "📥 Fetching latest upstream tree..."
-    eval "$GIT_CMD fetch --all --prune"
+    "${GIT_CMD[@]}" fetch --all --prune
     
     echo "🔄 Forcing workspace sync with remote origin repository..."
-    eval "$GIT_CMD reset --hard origin/master"
+    "${GIT_CMD[@]}" reset --hard origin/master
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
     echo "📂 Preparing project directory at $PROJECT_DIR..."
@@ -59,13 +61,13 @@ else
         mkdir -p "$(dirname "$PROJECT_DIR")"
         
         echo "📦 Repository not found locally. Cloning cleanly..."
-        eval "$GIT_CMD clone \"$REPO_URL\" \"$PROJECT_DIR\""
+        "${GIT_CMD[@]}" clone "$REPO_URL" "$PROJECT_DIR"
         cd "$PROJECT_DIR" || exit 1
     else
         cd "$PROJECT_DIR" || exit 1
         echo "📥 Fetching and applying latest code from GitHub..."
-        eval "$GIT_CMD fetch --all --prune"
-        eval "$GIT_CMD reset --hard origin/master"
+        "${GIT_CMD[@]}" fetch --all --prune
+        "${GIT_CMD[@]}" reset --hard origin/master
     fi
 fi
 
