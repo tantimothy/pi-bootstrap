@@ -31,7 +31,11 @@ cd "$SCRIPT_DIR"
 
 if [ -f "$ENV_FILE" ]; then
     echo "🔑 Sourcing runtime variables and secrets from configuration ecosystem..."
-    export $(grep -v '^#' "$ENV_FILE" | xargs)
+    
+    # Safely auto-export all variables, respecting spaces and quotes
+    set -a
+    source "$ENV_FILE"
+    set +a
 else
     echo "❌ Error: Mandatory target environment configuration file (.env) missing." >&2
     echo "   Ensure your parent TUI wizard has parsed your configurations." >&2
