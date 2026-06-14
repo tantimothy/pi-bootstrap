@@ -21,6 +21,11 @@ if ! command -v docker &> /dev/null; then
     echo "Press Enter to continue..."
     read -r
 fi
+# Add this after the Docker installation check
+if ! docker compose version &> /dev/null; then
+    echo "📦 'docker-compose-plugin' not found. Installing..."
+    sudo apt-get update && sudo apt-get install -y docker-compose-plugin
+fi
 
 # 3. BULLETPROOF DOCKER PERMISSION CHECK WRAPPER
 DOCKER_CMD="docker"
