@@ -12,7 +12,7 @@ set -euo pipefail
 # 1. Framework Variable Inheritance & Core Setup
 # ---------------------------------------------------------------------------------------
 DOCKER="${DOCKER_CMD:-docker}"
-DOCKER_COMPOSE="${DOCKER_COMPOSE_CMD:-docker compose}"
+DOCKER_COMPOSE="${DOCKER_COMPOSE:-docker compose}"
 POLICY="${REBUILD_POLICY:-FAST}"
 
 # Resolve deterministic local scopes
