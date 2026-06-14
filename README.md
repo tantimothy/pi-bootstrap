@@ -171,7 +171,8 @@ Use this configuration whenever an environment requires advanced host system man
 
 #### Execution Design Guidelines:
 * **Engine Abstraction:** Never hardcode raw `docker` or `sudo docker` engine execution hooks. You must inherit the framework's native permissions wrapper model by routing all engine queries directly through the `$DOCKER_CMD` variable fallback.
-* **Strict Non-Interactive Execution:** Do not include interactive execution flags like `-it`, `-t`, or direct TTY piping (such as `< /dev/tty`). The container environment must deploy using the detached daemon flag (`-d`), governed securely by an active `--restart unless-stopped` health state policy.
+* **Pipeline TTY Override (For Interactive Environments):** Because the parent orchestrator often runs in a detached pipeline thread (`curl | bash`), standard interactive flags (`-it`) will crash with a "stdin is not a terminal" error. To deploy an interactive foreground TUI or shell, you **must** sever the background pipeline hooks and bind standard streams to the physical terminal using the `exec` command before invoking Docker.
+* **Detached Execution (For Background Daemons):** If your environment is purely a background service without a terminal UI, omit `-it` and run detached (`-d`) governed by an active `--restart unless-stopped` health model.
 * **Secret Acquisition:** Manually ingest your compiled, user-configured local environment variables by explicitly sourcing the generated `.env` file at the beginning of your runtime logic.
 
 ```bash

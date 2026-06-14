@@ -33,42 +33,54 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Fix RTL-SDR Kernel Driver Conflict inside the container just in case
 RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
 
-# Inject a hybrid Entrypoint wrapper that accommodates non-interactive pipeline daemons
-RUN echo '#!/bin/bash\n\
-# Check if standard input is attached to an active terminal socket\n\
-if [ ! -t 0 ]; then\n\
-  echo "[DAEMON] Running in non-interactive pipeline context. Initializing background core engines safely..."\n\
-  # Keep container persistently alive while waiting for raw hardware signal streams\n\
-  exec tail -f /dev/null\n\
-fi\n\
-\n\
-# If a terminal TTY is present, jump straight into the interactive user TUI selection framework\n\
-while true; do\n\
-  CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \\\n\
-                  --title " Select an SDR Tool " \\\n\
-                  --menu "Choose a tool to launch (with descriptions):" 18 75 8 \\\n\
-                  1 "GQRX (Graphical FM/AM Spectrum Analyzer)" \\\n\
-                  2 "GNU Radio Companion (Visual Flowgraph Editor)" \\\n\
-                  3 "rtl_test (Benchmark & verify RTL-SDR dongle)" \\\n\
-                  4 "hackrf_info (Read HackRF hardware registers)" \\\n\
-                  5 "SoapySDRUtil (Check connected SDR hardware matrix)" \\\n\
-                  6 "lsusb (List physical USB hardware connections)" \\\n\
-                  7 "Bash Shell (Standard terminal access)" \\\n\
-                  8 "Exit" \n\
-                  3>&1 1>&2 2>&3)\n\
-\n\
-  clear\n\
-  case "$CHOICE" in\n\
-    1) echo "Launching GQRX..."; gqrx ;; \n\
-    2) echo "Launching GNU Radio Companion..."; gnuradio-companion ;; \n\
-    3) echo "Running RTL-SDR hardware test..."; rtl_test -t; echo ""; read -p "Press Enter to return to menu..." ;; \n\
-    4) echo "Reading HackRF details..."; hackrf_info; echo ""; read -p "Press Enter to return to menu..." ;; \n\
-    5) echo "Probing hardware via SoapySDR..."; SoapySDRUtil --find; echo ""; read -p "Press Enter to return to menu..." ;; \n\
-    6) echo "Listing Host-attached USB hardware..."; lsusb; echo ""; read -p "Press Enter to return to menu..." ;; \n\
-    7) echo "Dropping into standard Bash Shell. Type '\''exit'\'' to return to the menu."; /bin/bash ;; \n\
-    *) echo "Exiting DragonOS Container..."; break ;; \n\
-  esac\n\
-done' > /usr/local/bin/sdr-menu.sh && chmod +x /usr/local/bin/sdr-menu.sh
+# Inject a hybrid Entrypoint wrapper using a clean, unescaped Heredoc deployment strategy
+RUN cat << 'EOF' > /usr/local/bin/sdr-menu.sh
+#!/bin/bash
+
+# Check if standard input is attached to an active terminal socket
+if [ ! -t 0 ]; then
+  echo "[DAEMON] Running in non-interactive pipeline context. Initializing background core engines safely..."
+  # Keep container persistently alive while waiting for raw hardware signal streams
+  exec tail -f /dev/null
+fi
+
+# If a terminal TTY is present, jump straight into the interactive user TUI selection framework
+while true; do
+  CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \
+                  --title " Select an SDR Tool " \
+                  --menu "Choose a tool to launch (with descriptions):" 18 75 8 \
+                  1 "GQRX (Graphical FM/AM Spectrum Analyzer)" \
+                  2 "GNU Radio Companion (Visual Flowgraph Editor)" \
+                  3 "rtl_test (Benchmark & verify RTL-SDR dongle)" \
+                  4 "hackrf_info (Read HackRF hardware registers)" \
+                  5 "SoapySDRUtil (Check connected SDR hardware matrix)" \
+                  6 "lsusb (List physical USB hardware connections)" \
+                  7 "Bash Shell (Standard terminal access)" \
+                  8 "Exit" \
+                  3>&1 1>&2 2>&3)
+
+  # Check exit status code of the dialog selection frame (ESC / Cancel)
+  if [ $? -ne 0 ]; then
+    echo "Menu canceled or interrupted. Exiting..."
+    break
+  fi
+
+  clear
+  case "$CHOICE" in
+    1) echo "Launching GQRX..."; gqrx ;; 
+    2) echo "Launching GNU Radio Companion..."; gnuradio-companion ;; 
+    3) echo "Running RTL-SDR hardware test..."; rtl_test -t; echo ""; read -p "Press Enter to return to menu..." ;; 
+    4) echo "Reading HackRF details..."; hackrf_info; echo ""; read -p "Press Enter to return to menu..." ;; 
+    5) echo "Probing hardware via SoapySDR..."; SoapySDRUtil --find; echo ""; read -p "Press Enter to return to menu..." ;; 
+    6) echo "Listing Host-attached USB hardware..."; lsusb; echo ""; read -p "Press Enter to return to menu..." ;; 
+    7) echo "Dropping into standard Bash Shell. Type 'exit' to return to the menu."; /bin/bash ;; 
+    8|*) echo "Exiting DragonOS Container Framework Execution Layer..."; break ;;
+  esac
+done
+EOF
+
+# Grant execution rights cleanly over the launcher framework asset
+RUN chmod +x /usr/local/bin/sdr-menu.sh
 
 # Fallback workspace layout and execution target configuration
 WORKDIR /workspace
