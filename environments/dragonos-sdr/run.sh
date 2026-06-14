@@ -100,6 +100,10 @@ exec < /dev/tty
 
 echo "[DEPLOY] Provisioning interactive foreground container environment..."
 
+# Ensure the host pulse cookie directory and file exist prior to mounting
+mkdir -p "~/.config/pulse"
+touch "~/.config/pulse/cookie"
+
 # Changed from '-d' to '-it' and removed background restart policies to allow true interaction
 "${DOCKER}" run -it --rm \
   --privileged \
@@ -110,7 +114,7 @@ echo "[DEPLOY] Provisioning interactive foreground container environment..."
   --device "${HOST_SOUND_DEVICE}" \
   -e PULSE_SERVER="unix:${HOST_PULSE_NATIVE_SOCKET}" \
   -v "${HOST_PULSE_NATIVE_SOCKET}:${HOST_PULSE_NATIVE_SOCKET}" \
-  -v "${HOST_PULSE_COOKIE_PATH}:/root/.config/pulse/cookie" \
+  -v "~/.config/pulse/cookie:/root/.config/pulse/cookie" \
   -v "${HOST_CAPTURES_PATH}:/workspace/captures" \
   -v "${HOST_MSF_DATA_PATH}:/workspace/msf_data" \
   --name "${CONTAINER_NAME}" \
