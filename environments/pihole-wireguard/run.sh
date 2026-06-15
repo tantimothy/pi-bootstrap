@@ -94,29 +94,29 @@ if [ "$POLICY" = "FAST" ]; then
     if [ "$ANY_STOPPED" = "true" ] && [ -n "$IMAGE_EVAL_PIHOLE" ] && [ -n "$IMAGE_EVAL_WGEASY" ]; then
         echo "🔄 [FAST POLICY] Containers exist but are stopped."
         echo "⚡ Executing non-destructive fast-start recovery to preserve local data configurations..."
-        "$DOCKER_COMPOSE" --env-file "$ENV_FILE" start
+        $DOCKER_COMPOSE --env-file "$ENV_FILE" start
         echo "✅ System lifecycle restored smoothly."
         echo "=========================================================="
         exit 0
     fi
 fi
-echo $DOCKER_COMPOSE
+
 # Rebuild Execution Strategies
 if [ "$POLICY" = "CLEAN" ]; then
     echo "🧹 [CLEAN POLICY] Force eviction and zero-cache pipeline requested."
     echo "🛑 Dismantling operational environments..."
-    "$DOCKER_COMPOSE" --env-file "$ENV_FILE" down --volumes --remove-orphans || true
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" down --volumes --remove-orphans || true
     
     echo "🗑️  Evicting local structural image layers..."
     "$DOCKER" rmi pihole/pihole:latest ghcr.io/wg-easy/wg-easy:latest 2>/dev/null || true
     
     echo "🏗️  Triggering pristine build phase..."
-    "$DOCKER_COMPOSE" --env-file "$ENV_FILE" build --no-cache
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" build --no-cache
 
 elif [ "$POLICY" = "FAST" ]; then
     echo "🛠️  [FAST POLICY] Footprint missing. Running selective compilation..."
     if [ -z "$IMAGE_EVAL_PIHOLE" ] || [ -z "$IMAGE_EVAL_WGEASY" ]; then
-        "$DOCKER_COMPOSE" --env-file "$ENV_FILE" build
+        $DOCKER_COMPOSE --env-file "$ENV_FILE" build
     fi
 else
     echo "❌ Error: Unrecognized runtime policy context profile: '${POLICY}'" >&2
@@ -129,13 +129,13 @@ fi
 echo "📥 Orchestrating container deployment manifest layers..."
 
 if [ "$POLICY" = "CLEAN" ]; then
-    "$DOCKER_COMPOSE" --env-file "$ENV_FILE" pull --quiet
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" pull --quiet
 else
-    "$DOCKER_COMPOSE" --env-file "$ENV_FILE" pull
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" pull
 fi
 
 echo "🦅 Launching system infrastructure nodes into background space..."
-"$DOCKER_COMPOSE" --env-file "$ENV_FILE" up -d --remove-orphans
+$DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 
 # ---------------------------------------------------------------------------------------
 # 6. Pipeline Sanity Validation & Telemetry Output
