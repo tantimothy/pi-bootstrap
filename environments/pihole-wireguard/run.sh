@@ -100,7 +100,7 @@ if [ "$POLICY" = "FAST" ]; then
         exit 0
     fi
 fi
-
+echo $DOCKER_COMPOSE
 # Rebuild Execution Strategies
 if [ "$POLICY" = "CLEAN" ]; then
     echo "🧹 [CLEAN POLICY] Force eviction and zero-cache pipeline requested."
