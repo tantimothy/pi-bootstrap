@@ -12,7 +12,25 @@ set -euo pipefail
 # 1. Framework Variable Inheritance & Core Setup
 # ---------------------------------------------------------------------------------------
 DOCKER="${DOCKER_CMD:-docker}"
-DOCKER_COMPOSE="${DOCKER_CMD} compose"
+
+# Force detection of the correct compose command
+if command -v docker-compose &> /dev/null; then
+    # Older standalone binary
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version &> /dev/null; then
+    # Newer docker plugin
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "❌ ERROR: No compatible docker-compose command found!" >&2
+    exit 1
+fi
+
+# Apply sudo prefix if needed (re-using the logic from your deploy.sh)
+if ! $DOCKER ps &>/dev/null; then
+    DOCKER="sudo $DOCKER"
+    DOCKER_COMPOSE="sudo $DOCKER_COMPOSE"
+fi
+
 POLICY="${REBUILD_POLICY:-FAST}"
 
 # Resolve deterministic local scopes
