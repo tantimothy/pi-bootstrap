@@ -80,7 +80,7 @@ Use this configuration whenever an environment requires advanced host system int
 #### Execution Guidelines:
 * **Engine Abstraction:** Never call raw `docker` commands directly. You must inherit the parent dashboard's permission model by wrapping operations within the `$DOCKER_CMD` variable fallback.
 * **Pipeline TTY Override (For Interactive Environments):** Because the parent orchestrator often runs in a detached pipeline thread (`curl | bash`), standard interactive flags (`-it`) will crash with a "stdin is not a terminal" error. To deploy an interactive foreground TUI or shell, you **must** sever the background pipeline hooks and bind standard streams to the physical terminal using the `exec` command before invoking Docker.
-* **Detached Execution (For Background Daemons):** If your environment is purely a background service without a terminal UI, omit `-it` and run detached (`-d`) governed by an active `--restart unless-stopped` health model.
+* **Interactive Foreground Execution:** Run containers attached in the foreground (`-it --rm`) so the user lands directly in the environment's TUI menu or shell.
 * **Secret Acquisition:** Manually ingest compiled TUI variables by sourcing the generated `.env` configuration file at the start of your script.
 
 ```bash
@@ -90,7 +90,9 @@ DOCKER=${DOCKER_CMD:-docker}
 
 # Ingest dynamically generated local secrets
 if [ -f ".env" ]; then
-    export $(cat .env | xargs)
+    set -a
+    source .env
+    set +a
 fi
 
 echo "🛑 Cleaning up active instances..."
@@ -100,7 +102,10 @@ $DOCKER rm "$CONTAINER_NAME" 2>/dev/null
 echo "⚡ Launching localized structural compilation layer..."
 $DOCKER build -t "pi-pentest:latest" .
 
-echo "🚀 Executing non-interactive container with advanced hardware profiles..."
+echo "🚀 Executing interactive container with advanced hardware profiles..."
+exec 0< /dev/tty
+exec 1> /dev/tty
+exec 2> /dev/tty
 $DOCKER run -it --rm \
   --name "$CONTAINER_NAME" \
   --privileged \

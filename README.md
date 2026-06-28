@@ -172,7 +172,7 @@ Use this configuration whenever an environment requires advanced host system man
 #### Execution Design Guidelines:
 * **Engine Abstraction:** Never hardcode raw `docker` or `sudo docker` engine execution hooks. You must inherit the framework's native permissions wrapper model by routing all engine queries directly through the `$DOCKER_CMD` variable fallback.
 * **Pipeline TTY Override (For Interactive Environments):** Because the parent orchestrator often runs in a detached pipeline thread (`curl | bash`), standard interactive flags (`-it`) will crash with a "stdin is not a terminal" error. To deploy an interactive foreground TUI or shell, you **must** sever the background pipeline hooks and bind standard streams to the physical terminal using the `exec` command before invoking Docker.
-* **Detached Execution (For Background Daemons):** If your environment is purely a background service without a terminal UI, omit `-it` and run detached (`-d`) governed by an active `--restart unless-stopped` health model.
+* **Interactive Foreground Execution:** Run containers attached in the foreground (`-it --rm`) so the user lands directly in the environment's TUI menu or shell. Combine with the Pipeline TTY Override above so this works even when invoked through `curl | bash`.
 * **Secret Acquisition:** Manually ingest your compiled, user-configured local environment variables by explicitly sourcing the generated `.env` file at the beginning of your runtime logic.
 
 ```bash
@@ -183,7 +183,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 2. Ingest dynamically compiled local user secrets
 if [ -f "$SCRIPT_DIR/.env" ]; then
-    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
 fi
 
 # 3. Handle policy routing state-machine constraints
@@ -210,11 +212,15 @@ fi
 mkdir -p "${HOST_CAPTURES_PATH:-$SCRIPT_DIR/captures}"
 mkdir -p "${HOST_MSF_DATA_PATH:-$SCRIPT_DIR/.msf4}"
 
-# 6. Execute detached daemon container with advanced profiles
-echo "⚡ Launching container in background..."
-$DOCKER run -d \
+# 6. Force terminal re-binding before attaching to bypass pipeline blockades
+exec 0< /dev/tty
+exec 1> /dev/tty
+exec 2> /dev/tty
+
+# 7. Execute interactive foreground container with advanced profiles
+echo "⚡ Launching container in the foreground..."
+$DOCKER run -it --rm \
   --name "$CONTAINER_NAME" \
-  --restart unless-stopped \
   --privileged \
   --net=host \
   --pid=host \

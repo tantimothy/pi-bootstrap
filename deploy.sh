@@ -278,13 +278,18 @@ if [ -f ".env.example" ]; then
         EXIT_CODE=$?
         
         if [ $EXIT_CODE -eq 0 ]; then
-            IFS=$'\n' read -d '' -r -a CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
+            # Use mapfile/readarray instead of `read -a`: word-splitting via `read -a`
+            # squeezes consecutive IFS delimiters, silently dropping array slots for any
+            # field the user left blank and shifting every subsequent value up by one.
+            mapfile -t CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
             rm -f "$TEMP_FORM_OUT"
-            
+
             # DYNAMIC FIX: Overwrite/Truncate existing configurations to prevent duplicated trailing rows
             > .env
             for i in "${!KEYS[@]}"; do
-                echo "${KEYS[$i]}=${CAPTURED_USER_INPUTS[$i]}" >> .env
+                # Single-quote values so $-bearing secrets (e.g. bcrypt hashes) survive
+                # being `source`d verbatim by downstream run.sh scripts.
+                printf '%s=%q\n' "${KEYS[$i]}" "${CAPTURED_USER_INPUTS[$i]}" >> .env
             done
             echo "✅ Finished compiling system configs successfully."
         else
