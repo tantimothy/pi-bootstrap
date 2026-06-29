@@ -83,6 +83,50 @@ To allow external mobile devices to connect back to your WireGuard instance safe
 
 ---
 
+## 🔑 Passwords & Mandatory Secrets
+
+### `FTLCONF_webserver_api_password` (Pi-hole admin password)
+Seeds the Pi-hole web UI admin password into `./etc-pihole/pihole.toml` — but **only on first container creation**. Once `pihole.toml` exists, changing this value in `.env` has no further effect; recreating the container will not pick up a new value. To change the password afterward:
+```bash
+docker exec -it pihole pihole setpassword
+```
+
+### `WG_HOST` (WireGuard public endpoint)
+Must be a publicly reachable IP address or DDNS hostname — this is what `wg-easy` writes into every client config so remote devices know where to connect. Unlike `FTLCONF_webserver_api_password`, this one *is* read fresh on every container start:
+```bash
+# edit WG_HOST in .env, then:
+docker compose up -d --force-recreate wg-easy
+```
+Note that any client `.conf`/QR code you already downloaded is a static snapshot of the old host — it won't update automatically. Redownload it from the dashboard for each existing peer after changing `WG_HOST`.
+
+#### Finding the equivalent value on a different Pi running PiVPN instead
+If another one of your Pis runs WireGuard via **PiVPN** rather than this `wg-easy` stack, there's no `.env`/`WG_HOST` variable to read — PiVPN has its own config layout. To find the public host/endpoint it's using:
+```bash
+# Option 1: read it straight off an already-generated client config
+grep Endpoint ~/configs/*.conf
+
+# Option 2: read PiVPN's own install-time settings file
+cat /etc/pivpn/wireguard/setupVars.conf   # look for pivpnHOST=
+# (older PiVPN versions: /etc/pivpn/setupVars.conf)
+```
+PiVPN has no simple re-edit-and-restart flow for changing this value like `wg-easy` does — changing it typically means re-running PiVPN's setup or hand-editing `setupVars.conf` and regenerating client configs (`pivpn -qr` / `pivpn -add`).
+
+### Changing the WireGuard dashboard login password
+Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s password is set via `PASSWORD_HASH` at startup:
+```bash
+# 1. Generate a new bcrypt hash
+docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'your_new_password'
+
+# 2. Put the hash in .env, single-quoted (its $ characters get mangled by
+#    run.sh's `source .env` if left unquoted):
+#    PASSWORD_HASH='$2y$12$...'
+
+# 3. Recreate the container so it picks up the new value
+docker compose up -d --force-recreate wg-easy
+```
+
+---
+
 ## 💾 Backups & Maintenance
 All persistent states are safely isolated in project root directories for explicit tracking:
 - `./etc-pihole/` (Adlists, DNS records, configuration flags)
