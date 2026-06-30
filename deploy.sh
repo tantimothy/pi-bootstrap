@@ -154,8 +154,11 @@ if [ ${#ENV_DIRS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# Build menu options
+# Build menu options — numeric tags so users can jump with a keypress
 MENU_OPTIONS=()
+ENV_PATHS=()    # parallel array: index (1-based) → actual directory path
+MENU_INDEX=1
+
 for dir in "${ENV_DIRS[@]}"; do
     folder_name=$(basename "$dir")
 
@@ -175,11 +178,13 @@ for dir in "${ENV_DIRS[@]}"; do
         fi
     fi
 
-    MENU_OPTIONS+=( "$dir" "$TYPE /$folder_name$COMPAT_TAG" )
+    ENV_PATHS+=("$dir")
+    MENU_OPTIONS+=( "$MENU_INDEX" "$TYPE /$folder_name$COMPAT_TAG" )
+    ((MENU_INDEX++))
 done
 
-# Append management action at the bottom of the menu
-MENU_OPTIONS+=( "_manage" "[Manage] List & Delete Containers" )
+# Append management action — use 'M' so it doesn't clash with numeric env slots
+MENU_OPTIONS+=( "M" "[Manage] List & Delete Containers" )
 
 # Present the Menu
 TEMP_FILE=$(mktemp)
@@ -189,13 +194,20 @@ dialog --clear \
     "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
 EXIT_STATUS=$?
-SELECTED_PATH=$(cat "$TEMP_FILE")
+SELECTED_NUM=$(cat "$TEMP_FILE")
 rm -f "$TEMP_FILE"
 
-if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
+if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_NUM" ]; then
     clear
     echo "❌ Deployment cancelled."
     exit 0
+fi
+
+# Resolve numeric selection back to a directory path
+if [ "$SELECTED_NUM" = "M" ]; then
+    SELECTED_PATH="_manage"
+else
+    SELECTED_PATH="${ENV_PATHS[$((SELECTED_NUM - 1))]}"
 fi
 
 # ==========================================
