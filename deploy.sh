@@ -224,7 +224,9 @@ if [ -f ".env.example" ]; then
             if [ ! -z "$KEY" ]; then
                 # DYNAMIC FIX: If a configuration profile already exists, parse and inject its value as the new form default
                 if [ -f ".env" ] && grep -q "^${KEY}=" .env; then
-                    VAL=$(grep "^${KEY}=" .env | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+                    # Strip surrounding single quotes written by the form writer so
+                    # the dialog field shows the clean value without escape characters.
+                    VAL=$(grep "^${KEY}=" .env | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^'//;s/'$//")
                 fi
                 
                 KEYS+=("$KEY")
@@ -287,9 +289,13 @@ if [ -f ".env.example" ]; then
             # DYNAMIC FIX: Overwrite/Truncate existing configurations to prevent duplicated trailing rows
             > .env
             for i in "${!KEYS[@]}"; do
-                # Single-quote values so $-bearing secrets (e.g. bcrypt hashes) survive
-                # being `source`d verbatim by downstream run.sh scripts.
-                printf '%s=%q\n' "${KEYS[$i]}" "${CAPTURED_USER_INPUTS[$i]}" >> .env
+                # Wrap values in single quotes so $-bearing secrets (e.g. bcrypt hashes)
+                # survive being `source`d by run.sh without variable expansion, while
+                # remaining round-trip safe: the reader above strips these quotes before
+                # displaying in the dialog form, preventing escape characters accumulating.
+                # Any literal single quote in a value is escaped as '\''.
+                SAFE_VAL="${CAPTURED_USER_INPUTS[$i]//\'/\'\\\'\'}"
+                printf "%s='%s'\n" "${KEYS[$i]}" "$SAFE_VAL" >> .env
             done
             echo "✅ Finished compiling system configs successfully."
         else
