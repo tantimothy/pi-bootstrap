@@ -125,17 +125,11 @@ if [ "$POLICY" = "CLEAN" ]; then
     echo "🛑 Dismantling operational environments..."
     $DOCKER_COMPOSE --env-file "$ENV_FILE" down --volumes --remove-orphans || true
     
-    echo "🗑️  Evicting local structural image layers..."
+    echo "🗑️  Evicting local image layers (fresh pull will follow)..."
     "$DOCKER" rmi pihole/pihole:latest ghcr.io/wg-easy/wg-easy:latest 2>/dev/null || true
-    
-    echo "🏗️  Triggering pristine build phase..."
-    $DOCKER_COMPOSE --env-file "$ENV_FILE" build --no-cache
 
 elif [ "$POLICY" = "FAST" ]; then
-    echo "🛠️  [FAST POLICY] Footprint missing. Running selective compilation..."
-    if [ -z "$IMAGE_EVAL_PIHOLE" ] || [ -z "$IMAGE_EVAL_WGEASY" ]; then
-        $DOCKER_COMPOSE --env-file "$ENV_FILE" build
-    fi
+    echo "🛠️  [FAST POLICY] Footprint missing. Images will be pulled below."
 else
     echo "❌ Error: Unrecognized runtime policy context profile: '${POLICY}'" >&2
     exit 1
