@@ -48,43 +48,43 @@ else
 fi
 
 echo "🔍 Checking execution environment..."
-if [ "$1" = "--updated" ]; then
-    # Restored by re-exec after git reset; PROJECT_DIR was passed as $2.
-    PROJECT_DIR="$2"
-else
+# Determine PROJECT_DIR unconditionally so it is always set, even on re-exec.
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     PROJECT_DIR=$(git rev-parse --show-toplevel)
-    cd "$PROJECT_DIR" || exit 1
-    echo "🏠 Running from within local repository: $PROJECT_DIR"
-    echo "📥 Fetching latest upstream tree..."
-    "${GIT_CMD[@]}" fetch --all --prune
-
-    echo "🔄 Forcing workspace sync with remote origin repository..."
-    "${GIT_CMD[@]}" reset --hard origin/master
-
-    # Re-exec the freshly updated script, passing PROJECT_DIR so it survives.
-    exec bash "$PROJECT_DIR/deploy.sh" --updated "$PROJECT_DIR"
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
-    echo "📂 Preparing project directory at $PROJECT_DIR..."
+fi
 
-    if [ ! -d "$PROJECT_DIR" ]; then
-        echo "📁 Creating missing fallback directories..."
-        mkdir -p "$(dirname "$PROJECT_DIR")"
-
-        echo "📦 Repository not found locally. Cloning cleanly..."
-        "${GIT_CMD[@]}" clone "$REPO_URL" "$PROJECT_DIR"
+# Sync from remote, then re-exec so the fresh code is the one that runs.
+# Skipped when already re-exec'd to avoid an infinite loop.
+if [ "$1" != "--updated" ]; then
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         cd "$PROJECT_DIR" || exit 1
-    else
-        cd "$PROJECT_DIR" || exit 1
-        echo "📥 Fetching and applying latest code from GitHub..."
+        echo "🏠 Running from within local repository: $PROJECT_DIR"
+        echo "📥 Fetching latest upstream tree..."
         "${GIT_CMD[@]}" fetch --all --prune
+
+        echo "🔄 Forcing workspace sync with remote origin repository..."
         "${GIT_CMD[@]}" reset --hard origin/master
+    else
+        echo "📂 Preparing project directory at $PROJECT_DIR..."
+
+        if [ ! -d "$PROJECT_DIR" ]; then
+            echo "📁 Creating missing fallback directories..."
+            mkdir -p "$(dirname "$PROJECT_DIR")"
+
+            echo "📦 Repository not found locally. Cloning cleanly..."
+            "${GIT_CMD[@]}" clone "$REPO_URL" "$PROJECT_DIR"
+            cd "$PROJECT_DIR" || exit 1
+        else
+            cd "$PROJECT_DIR" || exit 1
+            echo "📥 Fetching and applying latest code from GitHub..."
+            "${GIT_CMD[@]}" fetch --all --prune
+            "${GIT_CMD[@]}" reset --hard origin/master
+        fi
     fi
 
-    # Re-exec the freshly updated script, passing PROJECT_DIR so it survives.
-    exec bash "$PROJECT_DIR/deploy.sh" --updated "$PROJECT_DIR"
-fi
+    exec bash "$PROJECT_DIR/deploy.sh" --updated
 fi
 
 cd "$PROJECT_DIR" || exit 1
