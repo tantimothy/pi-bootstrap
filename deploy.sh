@@ -122,7 +122,7 @@ fi
 MENU_OPTIONS=()
 for dir in "${ENV_DIRS[@]}"; do
     folder_name=$(basename "$dir")
-    
+
     if [ -f "$dir/run.sh" ] ; then
         TYPE="[Custom run.sh]"
     elif [ -f "$dir/docker-compose.yml" ] ; then
@@ -130,9 +130,12 @@ for dir in "${ENV_DIRS[@]}"; do
     elif [ -f "$dir/Dockerfile" ] ; then
         TYPE="[Standalone Dockerfile]"
     fi
-    
+
     MENU_OPTIONS+=( "$dir" "$TYPE /$folder_name" )
 done
+
+# Append management action at the bottom of the menu
+MENU_OPTIONS+=( "_manage" "[Manage] List & Delete Containers" )
 
 # Present the Menu
 TEMP_FILE=$(mktemp)
@@ -148,6 +151,73 @@ rm -f "$TEMP_FILE"
 if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_PATH" ]; then
     clear
     echo "❌ Deployment cancelled."
+    exit 0
+fi
+
+# ==========================================
+# CONTAINER MANAGEMENT SCREEN
+# ==========================================
+if [ "$SELECTED_PATH" = "_manage" ]; then
+    clear
+
+    # Collect all containers with their status
+    CONTAINER_LIST=()
+    while IFS= read -r line; do
+        CNAME=$(echo "$line" | awk -F'\t' '{print $1}')
+        CSTATUS=$(echo "$line" | awk -F'\t' '{print $2}')
+        [ -z "$CNAME" ] && continue
+        CONTAINER_LIST+=( "$CNAME" "$CSTATUS" "off" )
+    done < <($DOCKER_CMD ps -a --format '{{.Names}}\t{{.Status}}' 2>/dev/null)
+
+    if [ ${#CONTAINER_LIST[@]} -eq 0 ]; then
+        dialog --clear --title " Container Manager " \
+            --msgbox "\nNo Docker containers found on this system." 8 50
+        clear
+        exit 0
+    fi
+
+    TEMP_MANAGE=$(mktemp)
+    dialog --clear \
+        --title " Container Manager " \
+        --checklist "Space to select containers to DELETE. Running containers will be stopped first:" \
+        20 74 12 \
+        "${CONTAINER_LIST[@]}" 2> "$TEMP_MANAGE"
+
+    MANAGE_EXIT=$?
+    SELECTED_CONTAINERS=$(cat "$TEMP_MANAGE")
+    rm -f "$TEMP_MANAGE"
+
+    if [ $MANAGE_EXIT -ne 0 ] || [ -z "$SELECTED_CONTAINERS" ]; then
+        clear
+        echo "ℹ️  No containers selected. Exiting."
+        exit 0
+    fi
+
+    # Confirm before deleting
+    CONFIRM_MSG="The following containers will be STOPPED and REMOVED:\n\n"
+    for C in $SELECTED_CONTAINERS; do
+        CONFIRM_MSG+="  • ${C//\"/}\n"
+    done
+    CONFIRM_MSG+="\nThis cannot be undone. Continue?"
+
+    dialog --clear --title " Confirm Deletion " \
+        --yesno "$CONFIRM_MSG" 16 60
+    if [ $? -ne 0 ]; then
+        clear
+        echo "ℹ️  Deletion cancelled."
+        exit 0
+    fi
+
+    clear
+    echo "🗑️  Removing selected containers..."
+    for C in $SELECTED_CONTAINERS; do
+        C="${C//\"/}"
+        echo -n "   Stopping $C... "
+        $DOCKER_CMD stop "$C" >/dev/null 2>&1 && echo "stopped." || echo "already stopped."
+        echo -n "   Removing $C... "
+        $DOCKER_CMD rm "$C" >/dev/null 2>&1 && echo "removed." || echo "failed."
+    done
+    echo "✅ Done."
     exit 0
 fi
 
