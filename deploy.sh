@@ -48,7 +48,10 @@ else
 fi
 
 echo "🔍 Checking execution environment..."
-if [ "$1" != "--updated" ]; then
+if [ "$1" = "--updated" ]; then
+    # Restored by re-exec after git reset; PROJECT_DIR was passed as $2.
+    PROJECT_DIR="$2"
+else
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     PROJECT_DIR=$(git rev-parse --show-toplevel)
     cd "$PROJECT_DIR" || exit 1
@@ -59,8 +62,8 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "🔄 Forcing workspace sync with remote origin repository..."
     "${GIT_CMD[@]}" reset --hard origin/master
 
-    # Re-exec the freshly updated script so the new code is actually loaded.
-    exec bash "$PROJECT_DIR/deploy.sh" --updated
+    # Re-exec the freshly updated script, passing PROJECT_DIR so it survives.
+    exec bash "$PROJECT_DIR/deploy.sh" --updated "$PROJECT_DIR"
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
     echo "📂 Preparing project directory at $PROJECT_DIR..."
@@ -79,8 +82,8 @@ else
         "${GIT_CMD[@]}" reset --hard origin/master
     fi
 
-    # Re-exec the freshly updated script so the new code is actually loaded.
-    exec bash "$PROJECT_DIR/deploy.sh" --updated
+    # Re-exec the freshly updated script, passing PROJECT_DIR so it survives.
+    exec bash "$PROJECT_DIR/deploy.sh" --updated "$PROJECT_DIR"
 fi
 fi
 
