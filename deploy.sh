@@ -3,28 +3,53 @@
 FALLBACK_PROJECT_DIR="$HOME/projects/bootstrap"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 
+# Detect OS once; used throughout for platform-specific paths.
+OS_TYPE="linux"
+if [[ "$(uname)" == "Darwin" ]]; then
+    OS_TYPE="macos"
+fi
+
 # 1. DEPENDENCY CHECK: Ensure 'dialog' is installed
 if ! command -v dialog &> /dev/null; then
     echo "📦 'dialog' tool not found. Installing it now..."
-    sudo apt-get update && sudo apt-get install -y dialog
+    if [ "$OS_TYPE" = "macos" ]; then
+        if command -v brew &> /dev/null; then
+            brew install dialog
+        else
+            echo "❌ Homebrew not found. Install it from https://brew.sh then re-run."
+            exit 1
+        fi
+    else
+        sudo apt-get update && sudo apt-get install -y dialog
+    fi
 fi
 
 # 2. ENGINE CHECK: Ensure 'docker' is installed
 if ! command -v docker &> /dev/null; then
-    echo "🐳 Docker engine not found! Initiating automated setup..."
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-    rm get-docker.sh
-    sudo usermod -aG docker "$USER"
-    echo "✅ Docker successfully installed!"
-    echo "⚠️  CRITICAL: Restart SSH after this deployment for user permissions to take effect."
-    echo "Press Enter to continue..."
-    read -r
+    if [ "$OS_TYPE" = "macos" ]; then
+        echo "❌ Docker not found. Install Docker Desktop from https://www.docker.com/products/docker-desktop then re-run."
+        exit 1
+    else
+        echo "🐳 Docker engine not found! Initiating automated setup..."
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sudo sh get-docker.sh
+        rm get-docker.sh
+        sudo usermod -aG docker "$USER"
+        echo "✅ Docker successfully installed!"
+        echo "⚠️  CRITICAL: Restart SSH after this deployment for user permissions to take effect."
+        echo "Press Enter to continue..."
+        read -r
+    fi
 fi
-# Add this after the Docker installation check
+
 if ! docker compose version &> /dev/null; then
-    echo "📦 'docker-compose-plugin' not found. Installing..."
-    sudo apt-get update && sudo apt-get install -y docker-compose-plugin
+    if [ "$OS_TYPE" = "macos" ]; then
+        echo "❌ Docker Compose plugin not found. Ensure Docker Desktop is up to date."
+        exit 1
+    else
+        echo "📦 'docker-compose-plugin' not found. Installing..."
+        sudo apt-get update && sudo apt-get install -y docker-compose-plugin
+    fi
 fi
 
 # 3. BULLETPROOF DOCKER PERMISSION CHECK WRAPPER
@@ -142,7 +167,15 @@ for dir in "${ENV_DIRS[@]}"; do
         TYPE="[Standalone Dockerfile]"
     fi
 
-    MENU_OPTIONS+=( "$dir" "$TYPE /$folder_name" )
+    # Flag environments that require Linux host features when running on macOS.
+    COMPAT_TAG=""
+    if [ "$OS_TYPE" = "macos" ]; then
+        if grep -qE "\-\-net=host|/dev/bus/usb|/dev/snd|wlan[0-9]|ttyUSB|ttyACM" "$dir/run.sh" 2>/dev/null; then
+            COMPAT_TAG=" ⚠️  Linux-only"
+        fi
+    fi
+
+    MENU_OPTIONS+=( "$dir" "$TYPE /$folder_name$COMPAT_TAG" )
 done
 
 # Append management action at the bottom of the menu
@@ -361,10 +394,18 @@ if [ -f ".env.example" ]; then
         EXIT_CODE=$?
         
         if [ $EXIT_CODE -eq 0 ]; then
-            # Use mapfile/readarray instead of `read -a`: word-splitting via `read -a`
-            # squeezes consecutive IFS delimiters, silently dropping array slots for any
-            # field the user left blank and shifting every subsequent value up by one.
-            mapfile -t CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
+            # mapfile (bash 4+) preserves empty lines as empty array slots.
+            # macOS ships bash 3.2 which lacks mapfile, so fall back to while-read.
+            # Both are correct; `read -a` must NOT be used here as it squeezes
+            # consecutive IFS delimiters, dropping blank fields and shifting values.
+            CAPTURED_USER_INPUTS=()
+            if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
+                mapfile -t CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
+            else
+                while IFS= read -r _line || [ -n "$_line" ]; do
+                    CAPTURED_USER_INPUTS+=("$_line")
+                done < "$TEMP_FORM_OUT"
+            fi
             rm -f "$TEMP_FORM_OUT"
 
             # DYNAMIC FIX: Overwrite/Truncate existing configurations to prevent duplicated trailing rows
