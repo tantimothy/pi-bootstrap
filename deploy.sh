@@ -211,69 +211,138 @@ else
 fi
 
 # ==========================================
-# CONTAINER MANAGEMENT SCREEN
+# DOCKER MANAGEMENT SCREEN
 # ==========================================
 if [ "$SELECTED_PATH" = "_manage" ]; then
     clear
 
-    # Collect all containers with their status
-    CONTAINER_LIST=()
-    while IFS= read -r line; do
-        CNAME=$(echo "$line" | awk -F'\t' '{print $1}')
-        CSTATUS=$(echo "$line" | awk -F'\t' '{print $2}')
-        [ -z "$CNAME" ] && continue
-        CONTAINER_LIST+=( "$CNAME" "$CSTATUS" "off" )
-    done < <($DOCKER_CMD ps -a --format '{{.Names}}\t{{.Status}}' 2>/dev/null)
-
-    if [ ${#CONTAINER_LIST[@]} -eq 0 ]; then
-        dialog --clear --title " Container Manager " \
-            --msgbox "\nNo Docker containers found on this system." 8 50
-        clear
-        exit 0
-    fi
-
-    TEMP_MANAGE=$(mktemp)
+    # Sub-menu: choose what to manage
+    TEMP_MGMT_TYPE=$(mktemp)
     dialog --clear \
-        --title " Container Manager " \
-        --checklist "Space to select containers to DELETE. Running containers will be stopped first:" \
-        20 74 12 \
-        "${CONTAINER_LIST[@]}" 2> "$TEMP_MANAGE"
+        --title " Docker Manager " \
+        --menu "What would you like to manage?" 10 60 2 \
+        "C" "Containers  (running & stopped)" \
+        "I" "Images      (all local images)" \
+        2> "$TEMP_MGMT_TYPE"
+    MGMT_TYPE_EXIT=$?
+    MGMT_TYPE=$(cat "$TEMP_MGMT_TYPE")
+    rm -f "$TEMP_MGMT_TYPE"
 
-    MANAGE_EXIT=$?
-    SELECTED_CONTAINERS=$(cat "$TEMP_MANAGE")
-    rm -f "$TEMP_MANAGE"
-
-    if [ $MANAGE_EXIT -ne 0 ] || [ -z "$SELECTED_CONTAINERS" ]; then
-        clear
-        echo "ℹ️  No containers selected. Exiting."
-        exit 0
+    if [ $MGMT_TYPE_EXIT -ne 0 ] || [ -z "$MGMT_TYPE" ]; then
+        clear; echo "ℹ️  Cancelled."; exit 0
     fi
 
-    # Confirm before deleting
-    CONFIRM_MSG="The following containers will be STOPPED and REMOVED:\n\n"
-    for C in $SELECTED_CONTAINERS; do
-        CONFIRM_MSG+="  • ${C//\"/}\n"
-    done
-    CONFIRM_MSG+="\nThis cannot be undone. Continue?"
+    # ------------------------------------------
+    # CONTAINER MANAGEMENT
+    # ------------------------------------------
+    if [ "$MGMT_TYPE" = "C" ]; then
+        CONTAINER_LIST=()
+        while IFS= read -r line; do
+            CNAME=$(echo "$line" | awk -F'\t' '{print $1}')
+            CSTATUS=$(echo "$line" | awk -F'\t' '{print $2}')
+            [ -z "$CNAME" ] && continue
+            CONTAINER_LIST+=( "$CNAME" "$CSTATUS" "off" )
+        done < <($DOCKER_CMD ps -a --format '{{.Names}}\t{{.Status}}' 2>/dev/null)
 
-    dialog --clear --title " Confirm Deletion " \
-        --yesno "$CONFIRM_MSG" 16 60
-    if [ $? -ne 0 ]; then
+        if [ ${#CONTAINER_LIST[@]} -eq 0 ]; then
+            dialog --clear --title " Container Manager " \
+                --msgbox "\nNo Docker containers found on this system." 8 50
+            clear; exit 0
+        fi
+
+        TEMP_MANAGE=$(mktemp)
+        dialog --clear \
+            --title " Container Manager " \
+            --checklist "Space to select containers to DELETE. Running containers will be stopped first:" \
+            20 74 12 \
+            "${CONTAINER_LIST[@]}" 2> "$TEMP_MANAGE"
+
+        MANAGE_EXIT=$?
+        SELECTED_CONTAINERS=$(cat "$TEMP_MANAGE")
+        rm -f "$TEMP_MANAGE"
+
+        if [ $MANAGE_EXIT -ne 0 ] || [ -z "$SELECTED_CONTAINERS" ]; then
+            clear; echo "ℹ️  No containers selected. Exiting."; exit 0
+        fi
+
+        CONFIRM_MSG="The following containers will be STOPPED and REMOVED:\n\n"
+        for C in $SELECTED_CONTAINERS; do
+            CONFIRM_MSG+="  • ${C//\"/}\n"
+        done
+        CONFIRM_MSG+="\nThis cannot be undone. Continue?"
+
+        dialog --clear --title " Confirm Deletion " --yesno "$CONFIRM_MSG" 16 60
+        if [ $? -ne 0 ]; then
+            clear; echo "ℹ️  Deletion cancelled."; exit 0
+        fi
+
         clear
-        echo "ℹ️  Deletion cancelled."
-        exit 0
-    fi
+        echo "🗑️  Removing selected containers..."
+        for C in $SELECTED_CONTAINERS; do
+            C="${C//\"/}"
+            echo -n "   Stopping $C... "
+            $DOCKER_CMD stop "$C" >/dev/null 2>&1 && echo "stopped." || echo "already stopped."
+            echo -n "   Removing $C... "
+            $DOCKER_CMD rm "$C" >/dev/null 2>&1 && echo "removed." || echo "failed."
+        done
+        echo "✅ Done."
 
-    clear
-    echo "🗑️  Removing selected containers..."
-    for C in $SELECTED_CONTAINERS; do
-        C="${C//\"/}"
-        echo -n "   Stopping $C... "
-        $DOCKER_CMD stop "$C" >/dev/null 2>&1 && echo "stopped." || echo "already stopped."
-        echo -n "   Removing $C... "
-        $DOCKER_CMD rm "$C" >/dev/null 2>&1 && echo "removed." || echo "failed."
-    done
-    echo "✅ Done."
+    # ------------------------------------------
+    # IMAGE MANAGEMENT
+    # ------------------------------------------
+    elif [ "$MGMT_TYPE" = "I" ]; then
+        IMAGE_LIST=()
+        while IFS= read -r line; do
+            IREPO=$(echo "$line" | awk -F'\t' '{print $1}')
+            ITAG=$(echo "$line"  | awk -F'\t' '{print $2}')
+            ISIZE=$(echo "$line" | awk -F'\t' '{print $3}')
+            IID=$(echo "$line"   | awk -F'\t' '{print $4}')
+            [ -z "$IID" ] && continue
+            LABEL="${IREPO}:${ITAG}"
+            IMAGE_LIST+=( "$IID" "$LABEL  ($ISIZE)" "off" )
+        done < <($DOCKER_CMD images --format '{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.ID}}' 2>/dev/null)
+
+        if [ ${#IMAGE_LIST[@]} -eq 0 ]; then
+            dialog --clear --title " Image Manager " \
+                --msgbox "\nNo Docker images found on this system." 8 50
+            clear; exit 0
+        fi
+
+        TEMP_IMG=$(mktemp)
+        dialog --clear \
+            --title " Image Manager " \
+            --checklist "Space to select images to REMOVE:" \
+            20 74 12 \
+            "${IMAGE_LIST[@]}" 2> "$TEMP_IMG"
+
+        IMG_EXIT=$?
+        SELECTED_IMAGES=$(cat "$TEMP_IMG")
+        rm -f "$TEMP_IMG"
+
+        if [ $IMG_EXIT -ne 0 ] || [ -z "$SELECTED_IMAGES" ]; then
+            clear; echo "ℹ️  No images selected. Exiting."; exit 0
+        fi
+
+        CONFIRM_MSG="The following images will be REMOVED:\n\n"
+        for I in $SELECTED_IMAGES; do
+            CONFIRM_MSG+="  • ${I//\"/}\n"
+        done
+        CONFIRM_MSG+="\nThis cannot be undone. Continue?"
+
+        dialog --clear --title " Confirm Deletion " --yesno "$CONFIRM_MSG" 16 60
+        if [ $? -ne 0 ]; then
+            clear; echo "ℹ️  Deletion cancelled."; exit 0
+        fi
+
+        clear
+        echo "🗑️  Removing selected images..."
+        for I in $SELECTED_IMAGES; do
+            I="${I//\"/}"
+            echo -n "   Removing $I... "
+            $DOCKER_CMD rmi "$I" >/dev/null 2>&1 && echo "removed." || echo "failed (may be in use)."
+        done
+        echo "✅ Done."
+    fi
     exit 0
 fi
 
