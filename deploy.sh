@@ -48,23 +48,27 @@ else
 fi
 
 echo "🔍 Checking execution environment..."
+if [ "$1" != "--updated" ]; then
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     PROJECT_DIR=$(git rev-parse --show-toplevel)
     cd "$PROJECT_DIR" || exit 1
     echo "🏠 Running from within local repository: $PROJECT_DIR"
     echo "📥 Fetching latest upstream tree..."
     "${GIT_CMD[@]}" fetch --all --prune
-    
+
     echo "🔄 Forcing workspace sync with remote origin repository..."
     "${GIT_CMD[@]}" reset --hard origin/master
+
+    # Re-exec the freshly updated script so the new code is actually loaded.
+    exec bash "$PROJECT_DIR/deploy.sh" --updated
 else
     PROJECT_DIR="$FALLBACK_PROJECT_DIR"
     echo "📂 Preparing project directory at $PROJECT_DIR..."
-    
+
     if [ ! -d "$PROJECT_DIR" ]; then
         echo "📁 Creating missing fallback directories..."
         mkdir -p "$(dirname "$PROJECT_DIR")"
-        
+
         echo "📦 Repository not found locally. Cloning cleanly..."
         "${GIT_CMD[@]}" clone "$REPO_URL" "$PROJECT_DIR"
         cd "$PROJECT_DIR" || exit 1
@@ -74,6 +78,10 @@ else
         "${GIT_CMD[@]}" fetch --all --prune
         "${GIT_CMD[@]}" reset --hard origin/master
     fi
+
+    # Re-exec the freshly updated script so the new code is actually loaded.
+    exec bash "$PROJECT_DIR/deploy.sh" --updated
+fi
 fi
 
 cd "$PROJECT_DIR" || exit 1
