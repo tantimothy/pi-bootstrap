@@ -79,11 +79,13 @@ echo "✅ Local host storage layout initialized cleanly."
 # ---------------------------------------------------------------------------------------
 echo "🔧 Configuring host network prerequisites for WireGuard..."
 
-# Enable IP forwarding persistently
-if ! grep -qsF "net.ipv4.ip_forward=1" /etc/sysctl.d/wireguard.conf 2>/dev/null; then
-    echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/wireguard.conf > /dev/null
-fi
+# Enable IP forwarding and WireGuard mark routing persistently
+sudo tee /etc/sysctl.d/wireguard.conf > /dev/null << 'EOF'
+net.ipv4.ip_forward=1
+net.ipv4.conf.all.src_valid_mark=1
+EOF
 sudo sysctl -w net.ipv4.ip_forward=1 > /dev/null
+sudo sysctl -w net.ipv4.conf.all.src_valid_mark=1 > /dev/null
 
 # Write the nftables masquerade rule file for VPN traffic.
 # No interface pinned — works on eth0, wlan0, or any future interface.
