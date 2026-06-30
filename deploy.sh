@@ -261,7 +261,7 @@ if [ -f ".env.example" ]; then
             FORM_FIELDS+=(
                 "${KEYS[$i]}:"  "$ROW_Y" "2"  \
                 "${DEFAULTS[$i]}" "$ROW_Y" "22" \
-                "45" "0"
+                "45" "256"
             )
             ((ROW_Y++))
         done
