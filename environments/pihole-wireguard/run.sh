@@ -73,6 +73,45 @@ mkdir -p "${SCRIPT_DIR}/etc-wireguard"
 echo "✅ Local host storage layout initialized cleanly."
 
 # ---------------------------------------------------------------------------------------
+# 3b. Host System Prerequisites (nftables masquerade + IP forwarding)
+#     wg-easy runs with network_mode: host so the host kernel handles NAT.
+#     This block is idempotent — safe to re-run on every deploy.
+# ---------------------------------------------------------------------------------------
+echo "🔧 Configuring host network prerequisites for WireGuard..."
+
+# Enable IP forwarding persistently
+if ! grep -qsF "net.ipv4.ip_forward=1" /etc/sysctl.d/wireguard.conf 2>/dev/null; then
+    echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/wireguard.conf > /dev/null
+fi
+sudo sysctl -w net.ipv4.ip_forward=1 > /dev/null
+
+# Write the nftables masquerade rule file for VPN traffic.
+# No interface pinned — works on eth0, wlan0, or any future interface.
+sudo mkdir -p /etc/nftables.d
+sudo tee /etc/nftables.d/wireguard.nft > /dev/null << 'NFTEOF'
+table ip wg-nat {
+    chain POSTROUTING {
+        type nat hook postrouting priority 100; policy accept;
+        ip saddr 10.8.0.0/24 masquerade
+    }
+}
+NFTEOF
+
+# Load rule now (flush first so re-runs don't duplicate rules)
+sudo nft delete table ip wg-nat 2>/dev/null || true
+sudo nft -f /etc/nftables.d/wireguard.nft
+
+# Ensure /etc/nftables.conf includes our file so it loads on every boot
+if ! grep -qsF 'wireguard.nft' /etc/nftables.conf 2>/dev/null; then
+    echo 'include "/etc/nftables.d/wireguard.nft"' | sudo tee -a /etc/nftables.conf > /dev/null
+fi
+
+# Enable nftables service to restore rules on reboot
+sudo systemctl enable nftables > /dev/null 2>&1 || true
+
+echo "✅ Host network prerequisites configured."
+
+# ---------------------------------------------------------------------------------------
 # 4. Advanced Policy Engine Routing State Machine
 # ---------------------------------------------------------------------------------------
 CONTAINER_NAMES=("pihole" "wg-easy")

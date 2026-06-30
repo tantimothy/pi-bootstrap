@@ -22,20 +22,17 @@ services:
     image: ghcr.io/wg-easy/wg-easy:latest
     depends_on:
       - pihole
-    ports:
-      - "${WG_PORT:-51820}:51820/udp"
-      - "${WG_UI_PORT:-51821}:51821/tcp"
     environment:
       - TZ=${TZ:-Asia/Singapore}
       - WG_HOST=${WG_HOST}
       - WG_DEFAULT_DNS=${PIHOLE_INTERNAL_IP:-172.20.0.2}
       - PASSWORD_HASH=${PASSWORD_HASH}
       - WG_ALLOWED_IPS=${WG_ALLOWED_IPS:-0.0.0.0/0}
+      - WG_POST_UP=:
+      - WG_PRE_DOWN=:
     volumes:
       - './etc-wireguard:/etc/wireguard'
-    networks:
-      pihole_wg_net:
-        ipv4_address: ${WG_INTERNAL_IP:-172.20.0.3}
+    network_mode: host
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
