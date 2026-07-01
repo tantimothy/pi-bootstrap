@@ -113,18 +113,28 @@ if [ "$POLICY" = "FAST" ]; then
 fi
 
 # ---------------------------------------------------------------------------------------
-# 4. CLEAN policy: stop and remove existing installation
+# 4. CLEAN policy: stop service, remove agent containers, wipe install directory
 # ---------------------------------------------------------------------------------------
 if [ "$POLICY" = "CLEAN" ]; then
-    echo "🧹 [CLEAN POLICY] Stopping and removing existing NanoClaw installation..."
+    echo "🧹 [CLEAN POLICY] Stopping NanoClaw service and agent containers..."
     nanoclaw_stop
 
+    # NanoClaw names its agent images nanoclaw-agent-v2-{hash}:latest where the
+    # hash is derived from the install path. Filter by prefix to catch all of them.
+    AGENT_CONTAINERS=$(docker ps -a --format '{{.ID}} {{.Image}}' 2>/dev/null \
+        | awk '$2 ~ /^nanoclaw-agent-v2-/ {print $1}')
+    if [ -n "$AGENT_CONTAINERS" ]; then
+        echo "🐳 Stopping and removing NanoClaw agent containers..."
+        echo "$AGENT_CONTAINERS" | xargs docker stop 2>/dev/null || true
+        echo "$AGENT_CONTAINERS" | xargs docker rm   2>/dev/null || true
+    fi
+
     if [ -d "$INSTALL_PATH" ]; then
-        echo "🗑️  Removing installation directory: $INSTALL_PATH"
+        echo "🗑️  Removing install directory: $INSTALL_PATH"
         rm -rf "$INSTALL_PATH"
     fi
 
-    echo "✅ Existing installation removed. Proceeding with fresh install below."
+    echo "✅ Clean complete. Proceeding with fresh install below."
 fi
 
 # ---------------------------------------------------------------------------------------
