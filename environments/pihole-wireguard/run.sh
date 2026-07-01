@@ -64,6 +64,11 @@ fi
 : "${PIHOLE_WEB_PORT:=8080}"
 : "${WG_UI_PORT:=51821}"
 
+# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable
+HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+[ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+[ -z "$HOST_IP" ] && HOST_IP="localhost"
+
 # ---------------------------------------------------------------------------------------
 # 3. Pre-emptive Volume Generation & Permission Management
 # ---------------------------------------------------------------------------------------
@@ -196,8 +201,8 @@ $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 echo "=========================================================="
 echo "🏁 Infrastructure Execution Pipeline Completed Successfully!"
 echo "=========================================================="
-echo "🌍 Pi-hole Web Admin Panel:  http://localhost:${PIHOLE_WEB_PORT}/admin"
-echo "🔐 WireGuard Web Dashboard: http://localhost:${WG_UI_PORT}"
+echo "🌍 Pi-hole Web Admin Panel:  http://${HOST_IP}:${PIHOLE_WEB_PORT}/admin"
+echo "🔐 WireGuard Web Dashboard: http://${HOST_IP}:${WG_UI_PORT}"
 echo "=========================================================="
 echo ""
 echo "📌 Post-Install Notes (normally shown by the installer, hidden behind the container build):"
