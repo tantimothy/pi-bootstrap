@@ -45,6 +45,23 @@ mkdir -p "${HOST_MSF_DATA_PATH}"
 POLICY="${REBUILD_POLICY:-FAST}"
 echo "[POLICY] Ingesting central orchestration lifecycle strategy: [${POLICY}]"
 
+# STOP: pause container (keep it, FAST can resume)
+if [ "${POLICY}" = "STOP" ]; then
+    echo "🛑 [STOP] Pausing container: ${CONTAINER_NAME}"
+    "${DOCKER}" stop "${CONTAINER_NAME}" 2>/dev/null || true
+    echo "✅ Container paused. Run with FAST to resume."
+    exit 0
+fi
+
+# TEARDOWN: stop + remove container, no reinstall
+if [ "${POLICY}" = "TEARDOWN" ]; then
+    echo "🗑️  [TEARDOWN] Stopping and removing container: ${CONTAINER_NAME}"
+    "${DOCKER}" stop "${CONTAINER_NAME}" 2>/dev/null || true
+    "${DOCKER}" rm   "${CONTAINER_NAME}" 2>/dev/null || true
+    echo "✅ Container removed."
+    exit 0
+fi
+
 CONTAINER_RUNNING=$("${DOCKER}" ps --filter "name=^\/${CONTAINER_NAME}$" --format "{{.Names}}")
 CONTAINER_EXISTS=$("${DOCKER}" ps -a --filter "name=^\/\${CONTAINER_NAME}$" --format "{{.Names}}")
 IMAGE_EXISTS=$("${DOCKER}" images -q "${DOCKER_IMAGE_TAG}" 2>/dev/null || true)

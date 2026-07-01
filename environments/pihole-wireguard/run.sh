@@ -33,6 +33,22 @@ fi
 
 POLICY="${REBUILD_POLICY:-FAST}"
 
+# STOP: pause containers (keep them, FAST can resume)
+if [ "$POLICY" = "STOP" ]; then
+    echo "🛑 [STOP] Pausing pihole-wireguard stack (containers preserved)..."
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" stop || true
+    echo "✅ Stack paused. Run with FAST to resume."
+    exit 0
+fi
+
+# TEARDOWN: stop + remove containers, no reinstall
+if [ "$POLICY" = "TEARDOWN" ]; then
+    echo "🗑️  [TEARDOWN] Stopping and removing pihole-wireguard stack..."
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" down --remove-orphans || true
+    echo "✅ Stack torn down."
+    exit 0
+fi
+
 # Resolve deterministic local scopes
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"

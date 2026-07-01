@@ -86,8 +86,29 @@ nanoclaw_stop() {
 }
 
 # ---------------------------------------------------------------------------------------
-# 3. FAST policy shortcut: if service is already active, just show status and exit
+# 3. STOP / TEARDOWN — handle before anything else so no deploy logic runs
 # ---------------------------------------------------------------------------------------
+if [ "$POLICY" = "STOP" ]; then
+    echo "🛑 [STOP] Pausing NanoClaw service (agent containers preserved)..."
+    nanoclaw_stop
+    echo "✅ Service stopped. Run with FAST to resume."
+    exit 0
+fi
+
+if [ "$POLICY" = "TEARDOWN" ]; then
+    echo "🗑️  [TEARDOWN] Stopping NanoClaw service and removing agent containers..."
+    nanoclaw_stop
+    AGENT_CONTAINERS=$(docker ps -a --format '{{.ID}} {{.Image}}' 2>/dev/null \
+        | awk '$2 ~ /^nanoclaw-agent-v2-/ {print $1}')
+    if [ -n "$AGENT_CONTAINERS" ]; then
+        echo "🐳 Removing agent containers..."
+        echo "$AGENT_CONTAINERS" | xargs docker stop 2>/dev/null || true
+        echo "$AGENT_CONTAINERS" | xargs docker rm   2>/dev/null || true
+    fi
+    echo "✅ Service and containers removed."
+    exit 0
+fi
+
 if [ "$POLICY" = "FAST" ]; then
     if nanoclaw_is_active; then
         echo "✅ [FAST POLICY] NanoClaw service is already running."

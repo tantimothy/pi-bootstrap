@@ -353,9 +353,11 @@ fi
 TEMP_POLICY_FILE=$(mktemp)
 dialog --clear \
     --title " Deployment Strategy Policy " \
-    --menu "Select how to process the configuration build lifecycle:" 11 70 2 \
-    "FAST" "Preserve existing images & container instances if active" \
-    "CLEAN" "Force fresh rebuild/teardown of the active environment" \
+    --menu "Select how to process the configuration build lifecycle:" 15 70 4 \
+    "FAST"     "Start if not running; skip if already active" \
+    "STOP"     "Pause running containers (resumable with FAST)" \
+    "TEARDOWN" "Stop & remove containers — no reinstall" \
+    "CLEAN"    "Stop, remove, and reinstall from scratch" \
     2> "$TEMP_POLICY_FILE"
 
 POLICY_EXIT=$?
@@ -394,7 +396,7 @@ cd "$TARGET_WORKSPACE_DIR" || exit 1
 # =======================================================
 # 🔐 ADVANCED BULK FORM COMPILER WITH DEFAULT INJECTION
 # =======================================================
-if [ -f ".env.example" ]; then
+if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLICY" != "TEARDOWN" ]; then
     echo "🔑 Building multi-field runtime parameters board..."
     
     KEYS=()
@@ -544,7 +546,15 @@ if [ -f "run.sh" ]; then
     DEPLOY_SUCCESS=$?
 
 elif [ -f "docker-compose.yml" ]; then
-    if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+    if [ "$REBUILD_POLICY" = "STOP" ]; then
+        echo "🛑 [STOP] Pausing Docker Compose stack (containers preserved)..."
+        $DOCKER_CMD compose stop 2>/dev/null || true
+        DEPLOY_SUCCESS=0
+    elif [ "$REBUILD_POLICY" = "TEARDOWN" ]; then
+        echo "🗑️  [TEARDOWN] Stopping and removing Docker Compose stack..."
+        $DOCKER_CMD compose down 2>/dev/null || true
+        DEPLOY_SUCCESS=0
+    elif [ "$REBUILD_POLICY" = "CLEAN" ]; then
         echo "🐳 Docker Compose file detected [CLEAN]! Performing fresh stack teardown and rebuild..."
         $DOCKER_CMD compose down 2>/dev/null
         $DOCKER_CMD compose up --build --no-cache -d
@@ -556,7 +566,16 @@ elif [ -f "docker-compose.yml" ]; then
     fi
 
 elif [ -f "Dockerfile" ]; then
-    if [ "$REBUILD_POLICY" = "CLEAN" ]; then
+    if [ "$REBUILD_POLICY" = "STOP" ]; then
+        echo "🛑 [STOP] Pausing container: $TRACKING_NAME"
+        $DOCKER_CMD stop "$TRACKING_NAME" 2>/dev/null || true
+        DEPLOY_SUCCESS=0
+    elif [ "$REBUILD_POLICY" = "TEARDOWN" ]; then
+        echo "🗑️  [TEARDOWN] Stopping and removing container: $TRACKING_NAME"
+        $DOCKER_CMD stop "$TRACKING_NAME" 2>/dev/null || true
+        $DOCKER_CMD rm   "$TRACKING_NAME" 2>/dev/null || true
+        DEPLOY_SUCCESS=0
+    elif [ "$REBUILD_POLICY" = "CLEAN" ]; then
         echo "🛠️ Raw Dockerfile detected [CLEAN]! Executing zero-cache structural compilation..."
         $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
         if [ $? -eq 0 ]; then

@@ -46,7 +46,31 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
 # ---------------------------------------------------------------------------------------
-# 2. FAST policy: if all expected containers are running, exit early
+# 2. STOP / TEARDOWN — handle before anything else so no deploy logic runs
+# ---------------------------------------------------------------------------------------
+ALL_CONTAINERS=(pihole grafana prometheus ping speedtest nodeexp)
+
+if [ "$POLICY" = "STOP" ]; then
+    echo "🛑 [STOP] Pausing Internet Pi containers (preserved for FAST resume)..."
+    for name in "${ALL_CONTAINERS[@]}"; do
+        $DOCKER stop "$name" 2>/dev/null || true
+    done
+    echo "✅ Containers paused."
+    exit 0
+fi
+
+if [ "$POLICY" = "TEARDOWN" ]; then
+    echo "🗑️  [TEARDOWN] Stopping and removing Internet Pi containers..."
+    for name in "${ALL_CONTAINERS[@]}"; do
+        $DOCKER stop "$name" 2>/dev/null || true
+        $DOCKER rm   "$name" 2>/dev/null || true
+    done
+    echo "✅ Containers removed."
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------------------
+# 3. FAST policy: if all expected containers are running, exit early
 # ---------------------------------------------------------------------------------------
 if [ "$POLICY" = "FAST" ]; then
     EXPECTED=()
