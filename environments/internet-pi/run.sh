@@ -25,7 +25,8 @@ if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE"
     set +a
 else
-    echo "❌ Error: .env file missing. Run the TUI wizard to configure first." >&2
+    echo "❌ Error: .env file missing." >&2
+    echo "   Copy .env.example to .env and fill in the values, then re-run." >&2
     exit 1
 fi
 

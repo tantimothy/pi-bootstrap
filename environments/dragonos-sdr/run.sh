@@ -16,9 +16,12 @@ DOCKER="${DOCKER_CMD:-docker}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "${SCRIPT_DIR}/.env" ]; then
     echo "[INFO] Ingesting dynamic environment configurations from local .env context..."
-    export $(grep -v '^#' "${SCRIPT_DIR}/.env" | xargs)
+    set -a
+    source "${SCRIPT_DIR}/.env"
+    set +a
 else
-    echo "[WARN] Stale environment reference. Local .env not detected at ${SCRIPT_DIR}/.env"
+    echo "[WARN] No .env found at ${SCRIPT_DIR}/.env — using built-in defaults."
+    echo "       To customise, copy .env.example to .env and fill in the values."
 fi
 
 # Fallback Environment Configurations
