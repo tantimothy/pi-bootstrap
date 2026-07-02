@@ -127,13 +127,56 @@ docker compose up -d --force-recreate wg-easy
 
 ---
 
-## 💾 Backups & Maintenance
-All persistent states are safely isolated in project root directories for explicit tracking:
-- `./etc-pihole/` (Adlists, DNS records, configuration flags)
-- `./etc-wireguard/` (Cryptographic server keys, client lists, peer state)
+## 💾 Data Directories
 
-**To update the stack to the latest stable container layers gracefully:**
+Persistent data is stored on the host and survives container removal:
+
+| Directory | Contents |
+|-----------|---------|
+| `./etc-pihole/` | Pi-hole config, gravity database, custom blocklists, local DNS records |
+| `./etc-wireguard/` | WireGuard server keys + all peer configs — **back this up; losing it invalidates every client VPN** |
+
+**Back up before any destructive operation:**
 ```bash
-./run.sh
+cp -r environments/pihole-wireguard/etc-pihole  ~/backup/
+cp -r environments/pihole-wireguard/etc-wireguard ~/backup/
 ```
-The automated `run.sh` workflow handles hot updates naturally by re-pulling dependencies during execution cycles without dropping configuration states.
+
+---
+
+## 🎛️ Deployment Policies
+
+Select a policy when deploying from the menu, or set `REBUILD_POLICY` when running `./run.sh` directly:
+
+| Policy | Action |
+|--------|--------|
+| `FAST` | Start stack if not running; skip if already active |
+| `STOP` | Pause containers (resumable with FAST) |
+| `TEARDOWN` | Stop + remove containers; data directories untouched |
+| `CLEAN` | Stop + remove + pull fresh images and redeploy |
+| `INFO` | List data directories with sizes and useful commands |
+| `WIPE` | Delete persisted data directories (irreversible — back up first) |
+
+---
+
+## 💡 Useful Commands
+
+```bash
+# Change Pi-hole admin password
+docker exec -it pihole pihole setpassword
+
+# Show connected WireGuard peers and transfer stats
+docker exec -it wg-easy wg show
+
+# Generate a new bcrypt hash for PASSWORD_HASH in .env
+docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'your_new_password'
+
+# Recreate wg-easy container to pick up new PASSWORD_HASH or WG_HOST
+docker compose up -d --force-recreate wg-easy
+
+# Follow live logs for both containers
+docker compose logs -f
+
+# Stack status
+docker compose ps
+```

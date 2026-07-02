@@ -94,4 +94,54 @@ chmod +x run.sh
 
 ## 5. Using the Interactive Menu
 
-Upon manual interactive launching, a blue screen interface will load in your terminal window. Use the **Up/
+Upon launching, a blue screen TUI will load in your terminal. Use the arrow keys to select an SDR tool and press Enter to launch it. Press `q` or select the exit option to return to the menu.
+
+---
+
+## 💾 Data Directories
+
+Persistent data is stored on the host and survives container removal:
+
+| Directory | Contents |
+|-----------|---------|
+| `./workspace/captures/` | SDR captures, signal recordings, IQ dumps, analysis outputs |
+| `./workspace/msf_data/` | Metasploit Framework data — workspaces, loot, credentials |
+
+**Back up before any destructive operation:**
+```bash
+cp -r environments/dragonos-sdr/workspace ~/backup/
+```
+
+---
+
+## 🎛️ Deployment Policies
+
+| Policy | Action |
+|--------|--------|
+| `FAST` | Start container if not running; reattach if already active |
+| `STOP` | Pause container (resumable with FAST) |
+| `TEARDOWN` | Stop + remove container; data directories untouched |
+| `CLEAN` | Stop + remove + rebuild image from scratch (slow on ARM) |
+| `INFO` | List data directories with sizes and useful commands |
+| `WIPE` | Delete persisted data directories (irreversible — back up first) |
+
+---
+
+## 💡 Useful Commands
+
+```bash
+# Reattach to the SDR tool menu in a running container
+docker exec -it sdr-dragonos-core /usr/local/bin/sdr-menu.sh
+
+# Open a raw shell inside the container
+docker exec -it sdr-dragonos-core bash
+
+# View container logs
+docker logs sdr-dragonos-core
+
+# Browse SDR captures on the host
+ls ./workspace/captures/
+
+# List connected USB SDR devices on the host
+lsusb | grep -i "rtl\|sdr\|hackrf\|lime"
+```

@@ -66,23 +66,61 @@ bash setup/add-imessage.sh   # macOS only
 
 ---
 
-## Useful Commands
+## 💾 Data Directories
+
+Persistent data lives inside the install path and survives `TEARDOWN`:
+
+| Directory | Contents |
+|-----------|---------|
+| `~/nanoclaw/groups/` | Per-group files: conversation history, memory wiki, transcripts, CLAUDE.md |
+| `~/nanoclaw/data/` | Sessions, message database, task scheduler database, IPC streams |
+
+The install directory itself (`~/nanoclaw/`) can be re-cloned by the `CLEAN` policy; the `groups/` and `data/` subdirectories are what actually need backing up.
+
+**Back up before CLEAN or WIPE:**
+```bash
+cp -r ~/nanoclaw/groups ~/backup/nanoclaw-groups
+cp -r ~/nanoclaw/data   ~/backup/nanoclaw-data
+```
+
+---
+
+## 🎛️ Deployment Policies
+
+| Policy | Action |
+|--------|--------|
+| `FAST` | Start service if stopped; skip if already active |
+| `STOP` | Stop the nanoclaw service (agent containers keep running) |
+| `TEARDOWN` | Stop service + remove all agent containers; data untouched |
+| `CLEAN` | Stop service, remove containers, wipe install dir, reinstall |
+| `INFO` | List data directories with sizes and useful commands |
+| `WIPE` | Delete `groups/` and `data/` only (install dir preserved) |
+
+---
+
+## 💡 Useful Commands
 
 ```bash
-# Service status & logs
+# Service status and live logs
 systemctl status nanoclaw
 journalctl -u nanoclaw -f
 
 # Restart after config change
 sudo systemctl restart nanoclaw
 
-# Register a new Anthropic API key
+# List running agent containers
+docker ps --filter name=nanoclaw-agent
+
+# Register or update Anthropic API key
 cd ~/nanoclaw && bash setup/register-claude-token.sh
 
-# Check running agent containers
-docker ps --filter name=nanoclaw
+# Add messaging channels
+cd ~/nanoclaw && bash setup/add-whatsapp.sh
+cd ~/nanoclaw && bash setup/add-telegram.sh
+cd ~/nanoclaw && bash setup/add-discord.sh
+cd ~/nanoclaw && bash setup/add-imessage.sh   # macOS only
 
-# Web interface (browser-based conversations)
+# Web interface
 http://<pi-ip>:3080
 ```
 

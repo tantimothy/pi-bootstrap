@@ -64,22 +64,58 @@ Choose one. If you want both Pi-hole and WireGuard, use `pihole-wireguard`.
 
 ---
 
-## Useful Commands
+## 💾 Data Directories
+
+| Directory | Contents | Survives CLEAN? |
+|-----------|---------|----------------|
+| `~/pi-hole/` | Pi-hole config, gravity database, custom blocklists, local DNS records | ✅ Yes |
+| `~/internet-monitoring/grafana/` | Grafana dashboard definitions, data source config, user settings | ✅ Yes |
+| `~/internet-monitoring/prometheus/` | Prometheus time-series metrics — speedtest history, ping latency | ✅ Yes |
+| `~/internet-pi/` | Repo clone + generated config.yml and inventory.ini | ❌ Wiped by CLEAN |
+
+The data directories above are NOT touched by CLEAN — only the install directory is removed and re-cloned.
+
+**Back up before WIPE:**
+```bash
+cp -r ~/pi-hole                      ~/backup/
+cp -r ~/internet-monitoring/grafana  ~/backup/
+cp -r ~/internet-monitoring/prometheus ~/backup/
+```
+
+---
+
+## 🎛️ Deployment Policies
+
+| Policy | Action |
+|--------|--------|
+| `FAST` | Start containers if not running; skip if already active |
+| `STOP` | Pause all containers (resumable with FAST) |
+| `TEARDOWN` | Stop + remove all 6 containers; data directories untouched |
+| `CLEAN` | Stop containers, wipe install dir, re-clone, re-run playbook |
+| `INFO` | List data directories with sizes and useful commands |
+| `WIPE` | Delete `~/pi-hole/` and `~/internet-monitoring/` data dirs |
+
+---
+
+## 💡 Useful Commands
 
 ```bash
-# Re-run the Ansible playbook manually (e.g. after editing config.yml)
+# Re-run the Ansible playbook (e.g. after editing .env or config.yml)
 cd ~/internet-pi && ansible-playbook main.yml -i inventory.ini
 
-# Update to the latest internet-pi release
+# Update internet-pi to latest release
 cd ~/internet-pi && git pull && ansible-playbook main.yml -i inventory.ini
 
-# View Pi-hole logs
-docker logs pihole
+# Change Pi-hole admin password
+docker exec -it pihole pihole setpassword
 
-# View Grafana logs
-docker logs grafana
+# Update Pi-hole gravity (blocklists)
+docker exec -it pihole pihole -g
 
-# Stop everything
-cd ~/internet-pi/internet-monitoring && docker compose down
-docker stop pihole && docker rm pihole
+# Follow all monitoring logs
+cd ~/internet-monitoring && docker compose logs -f
+
+# View Pi-hole or Grafana logs individually
+docker logs -f pihole
+docker logs -f grafana
 ```
