@@ -192,7 +192,19 @@ EOF
 # ---------------------------------------------------------------------------------------
 echo "🚀 Running Ansible playbook (this may take a few minutes on first run)..."
 cd "$INSTALL_PATH"
-ansible-playbook main.yml -i inventory.ini
+
+# The playbook uses 'become: true' (sudo). Check if passwordless sudo is available;
+# if not, rebind stdin to the terminal and pass -K so Ansible can prompt for the
+# sudo password interactively.
+ANSIBLE_EXTRA_FLAGS=""
+if ! sudo -n true 2>/dev/null; then
+    echo "⚠️  sudo requires a password on this system."
+    echo "   Ansible will prompt for it now (this is your sudo/system password)."
+    exec 0< /dev/tty
+    ANSIBLE_EXTRA_FLAGS="-K"
+fi
+
+ansible-playbook main.yml -i inventory.ini $ANSIBLE_EXTRA_FLAGS
 
 # ---------------------------------------------------------------------------------------
 # 10. Post-deploy output
