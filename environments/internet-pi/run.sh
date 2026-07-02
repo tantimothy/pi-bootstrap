@@ -40,6 +40,10 @@ MONITORING_SPEEDTEST_INTERVAL="${MONITORING_SPEEDTEST_INTERVAL:-60m}"
 DOCKER="${DOCKER_CMD:-docker}"
 if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 
+# pip3 installs ansible-playbook/ansible-galaxy to ~/.local/bin which is not
+# always in PATH inside non-interactive scripts — add it explicitly.
+export PATH="$HOME/.local/bin:$PATH"
+
 # Detect host LAN IP so post-deploy URLs are immediately clickable/copyable
 HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
 [ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')

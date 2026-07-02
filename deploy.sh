@@ -353,11 +353,13 @@ fi
 TEMP_POLICY_FILE=$(mktemp)
 dialog --clear \
     --title " Deployment Strategy Policy " \
-    --menu "Select how to process the configuration build lifecycle:" 15 70 4 \
+    --menu "Select how to process the configuration build lifecycle:" 19 70 6 \
     "FAST"     "Start if not running; skip if already active" \
     "STOP"     "Pause running containers (resumable with FAST)" \
     "TEARDOWN" "Stop & remove containers — no reinstall" \
     "CLEAN"    "Stop, remove, and reinstall from scratch" \
+    "INFO"     "List data directories and useful commands" \
+    "WIPE"     "Delete persisted data directories (backup first!)" \
     2> "$TEMP_POLICY_FILE"
 
 POLICY_EXIT=$?
@@ -396,7 +398,7 @@ cd "$TARGET_WORKSPACE_DIR" || exit 1
 # =======================================================
 # 🔐 ADVANCED BULK FORM COMPILER WITH DEFAULT INJECTION
 # =======================================================
-if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLICY" != "TEARDOWN" ]; then
+if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLICY" != "TEARDOWN" ] && [ "$REBUILD_POLICY" != "INFO" ] && [ "$REBUILD_POLICY" != "WIPE" ]; then
     echo "🔑 Building multi-field runtime parameters board..."
     
     KEYS=()
@@ -527,7 +529,20 @@ elif [ -f ".env.example" ] && grep -q "^CONTAINER_NAME=" .env.example; then
 fi
 # =======================================================
 
-# 6. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
+# 6. INFO / WIPE — delegate entirely to info.sh (environment-agnostic)
+if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
+    cd "$TARGET_WORKSPACE_DIR" || exit 1
+    if [ -f "info.sh" ]; then
+        chmod +x info.sh
+        ACTION=$([ "$REBUILD_POLICY" = "INFO" ] && echo "list" || echo "delete")
+        ./info.sh "$ACTION"
+    else
+        echo "ℹ️  No info.sh found for [$ENV_NAME]. No data directory information available."
+    fi
+    exit 0
+fi
+
+# 7. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
 DEPLOY_SUCCESS=1
 
 # Ensure we are strictly pointing to the local workspace context directory
