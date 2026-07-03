@@ -60,6 +60,26 @@ Receives aircraft position broadcasts on **1090 MHz** — any RTL-SDR dongle can
 |------|------|-------------|
 | `rtl_433` | [github.com/merbanan/rtl_433](https://github.com/merbanan/rtl_433) | Decodes hundreds of 433/868/915 MHz devices — weather stations, door sensors, car tire pressure sensors, power meters, garage remotes |
 
+### Terrestrial Radio & Digital Mode Decoding
+
+| Package | Tool(s) | Description |
+|---------|---------|-------------|
+| `alsa-utils` | `aplay` | PCM audio playback — required for `rtl_fm \| aplay` to produce sound |
+| `sox` | `sox`, `soxi`, `play` | Audio Swiss-army knife — sample-rate conversion, WAV recording, format bridging for rtl_fm pipelines |
+| `multimon-ng` | `multimon-ng` | [github.com/EliasOenal/multimon-ng](https://github.com/EliasOenal/multimon-ng) — decodes POCSAG/FLEX pagers, EAS/SAME weather alerts, DTMF, and APRS audio tones from an rtl_fm pipe |
+
+### APRS / Packet Radio
+
+| Tool | Link | Description |
+|------|------|-------------|
+| `direwolf` | [github.com/wb2osz/direwolf](https://github.com/wb2osz/direwolf) | Software TNC — decodes APRS packets piped from `rtl_fm` on 144.390 MHz (NA) / 144.800 MHz (EU); also runs as a full iGate or digipeater |
+
+### ACARS Aircraft Data Link
+
+| Tool | Link | Description |
+|------|------|-------------|
+| `acarsdec` | [github.com/szpajder/acarsdec](https://github.com/szpajder/acarsdec) | Multi-channel ACARS decoder — decodes text messages (weather, gate assignments, ops) transmitted by commercial aircraft on 129.125 / 130.025 / 130.450 / 131.550 MHz |
+
 ### Hardware Abstraction
 
 | Tool | Link | Description |
@@ -170,10 +190,13 @@ Upon launching, a blue screen TUI will load in your terminal. Use the arrow keys
 | **10** | dump1090 | ADS-B decoder — live aircraft table in terminal + HTTP map on port 8080 |
 | **11** | readsb | ADS-B decoder with MLAT — prompts for lat/lon for web map range rings |
 | **12** | rtl_433 | Decode 433/868/915 MHz devices — weather sensors, remotes, meters |
-| **13** | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
-| **14** | lsusb | List USB devices attached to the host |
-| **15** | Bash Shell | Raw terminal inside the container — full access to all installed tools |
-| **16** | Exit | Leave the menu (container keeps running in background) |
+| **13** | multimon-ng | Digital mode decoder — prompts for frequency, decodes pagers/EAS/DTMF from rtl_fm pipe |
+| **14** | direwolf | APRS decoder — submenu for NA (144.390 MHz) or EU (144.800 MHz) frequency |
+| **15** | acarsdec | ACARS decoder — scans 129.125 / 130.025 / 130.450 / 131.550 MHz simultaneously |
+| **16** | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
+| **17** | lsusb | List USB devices attached to the host |
+| **18** | Bash Shell | Raw terminal inside the container — full access to all installed tools |
+| **19** | Exit | Leave the menu (container keeps running in background) |
 
 ---
 

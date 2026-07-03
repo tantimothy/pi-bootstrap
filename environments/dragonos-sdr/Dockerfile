@@ -26,7 +26,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     readsb \
     # Multi-protocol RF Decoder (433/868/915 MHz sensors, remotes)
     rtl-433 \
-    # Extra utilities, Audio routing support & Dialog
+    # ACARS aircraft data-link messages
+    acarsdec \
+    # Terrestrial radio audio & digital mode decoding
+    alsa-utils \
+    sox \
+    multimon-ng \
+    # APRS / packet radio TNC
+    direwolf \
+    # Extra utilities & Dialog
     usbutils \
     procps \
     ca-certificates \
@@ -51,11 +59,11 @@ fi
 while true; do
   CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \
                   --title " Select an SDR Tool " \
-                  --menu "Choose a tool to launch:" 28 80 16 \
+                  --menu "Choose a tool to launch:" 30 80 19 \
                   1  "GQRX              — Graphical spectrum analyzer / FM/AM/SSB receiver" \
                   2  "GNU Radio         — Visual signal processing flowgraph editor" \
                   3  "rtl_test          — Benchmark & verify RTL-SDR dongle" \
-                  4  "rtl_fm            — FM/AM/SSB demodulator → audio output" \
+                  4  "rtl_fm            — FM/AM/SSB demodulator → audio via aplay" \
                   5  "rtl_tcp           — Network SDR server (connect from GQRX/SDR# remotely)" \
                   6  "rtl_power         — Wideband spectrum power scan across a frequency range" \
                   7  "hackrf_info       — Read HackRF firmware version & hardware registers" \
@@ -64,10 +72,13 @@ while true; do
                   10 "dump1090          — ADS-B aircraft tracker (1090 MHz, interactive table)" \
                   11 "readsb            — ADS-B decoder with MLAT & web map (port 8080)" \
                   12 "rtl_433           — Decode 433/868/915 MHz sensors, remotes & meters" \
-                  13 "SoapySDRUtil      — Probe all connected SDR hardware (any vendor)" \
-                  14 "lsusb             — List physical USB connections on the host" \
-                  15 "Bash Shell        — Drop to a raw terminal inside the container" \
-                  16 "Exit" \
+                  13 "multimon-ng       — Decode pagers, EAS weather alerts & DTMF from FM" \
+                  14 "direwolf          — APRS packet radio decoder / TNC (144.390/144.800 MHz)" \
+                  15 "acarsdec          — ACARS aircraft data-link messages (129-131 MHz)" \
+                  16 "SoapySDRUtil      — Probe all connected SDR hardware (any vendor)" \
+                  17 "lsusb             — List physical USB connections on the host" \
+                  18 "Bash Shell        — Drop to a raw terminal inside the container" \
+                  19 "Exit" \
                   3>&1 1>&2 2>&3)
 
   if [ $? -ne 0 ]; then
@@ -161,19 +172,40 @@ while true; do
       rtl_433
       read -p "Press Enter to return to menu..." ;;
     13)
+      echo "Common frequencies: 152.240M (POCSAG pager), 162.400M (NOAA Weather/EAS)"
+      read -p "Frequency to monitor: " freq
+      echo "Decoding all digital modes from $freq — Ctrl+C to stop."
+      rtl_fm -f "$freq" -s 22050 - 2>/dev/null | multimon-ng -t raw -a ALL -
+      read -p "Press Enter to return to menu..." ;;
+    14)
+      dialog --title "direwolf APRS" --menu "Select APRS frequency:" 10 60 2 \
+          "144390k" "144.390 MHz — North America" \
+          "144800k" "144.800 MHz — Europe / rest of world" 2>/tmp/dw_freq
+      dw_freq=$(cat /tmp/dw_freq 2>/dev/null)
+      [ -z "$dw_freq" ] && dw_freq=144390k
+      clear
+      echo "Starting direwolf APRS decoder on ${dw_freq} — Ctrl+C to stop."
+      rtl_fm -f "$dw_freq" -s 24000 - 2>/dev/null | direwolf -r 24000 -D 1 -
+      read -p "Press Enter to return to menu..." ;;
+    15)
+      echo "ACARS frequencies: 129.125 130.025 130.450 131.550 MHz (scanning all)"
+      echo "Ctrl+C to stop."
+      acarsdec -r 0 129.125 130.025 130.450 131.550
+      read -p "Press Enter to return to menu..." ;;
+    16)
       echo "Probing connected SDR hardware via SoapySDR..."
       SoapySDRUtil --find
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    14)
+    17)
       echo "USB devices attached to the host:"
       lsusb
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    15)
+    18)
       echo "Dropping into Bash. Type 'exit' to return to the menu."
       /bin/bash ;;
-    16|*)
+    19|*)
       echo "Exiting DragonOS SDR launcher."
       break ;;
   esac
