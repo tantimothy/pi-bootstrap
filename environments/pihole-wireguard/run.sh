@@ -162,7 +162,7 @@ download_dashboard() {
 }
 
 # Pi-hole metrics dashboard (works with ekofr/pihole-exporter)
-download_dashboard 14942 "pihole"
+download_dashboard 10176 "pihole"
 # WireGuard peer stats dashboard (works with mindflavor/prometheus-wireguard-exporter)
 download_dashboard 12177 "wireguard"
 # Node Exporter Full (works with prom/node-exporter)
@@ -312,7 +312,7 @@ echo "     3. docker compose up -d --force-recreate wg-easy"
 echo ""
 echo "  📊 Grafana: pre-provisioned dashboards are in the 'Pi Network' folder."
 echo "     If dashboards are missing (no internet at deploy time), import manually:"
-echo "     Pi-hole → Dashboards > Import > ID 14942"
+echo "     Pi-hole → Dashboards > Import > ID 10176"
 echo "     WireGuard → Dashboards > Import > ID 12177"
 echo ""
 echo "  ⚙️  FTLCONF_webserver_api_password (Pi-hole) only seeds pihole.toml on FIRST"

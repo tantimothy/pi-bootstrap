@@ -253,7 +253,7 @@ Pre-provisioned dashboards appear in the **Pi Network** folder:
 
 | Dashboard | Grafana ID | Shows |
 |-----------|-----------|-------|
-| Pi-hole | 14942 | DNS queries/sec, blocked %, top clients, top blocked domains |
+| Pi-hole | 10176 | DNS queries/sec, blocked %, top clients, top blocked domains |
 | WireGuard | 12177 | Per-peer received/sent bytes, last handshake timestamp |
 | Node Exporter Full | 1860 | CPU, RAM, disk, filesystem, network I/O, system load |
 | Blackbox Exporter | 7587 | HTTP response times, probe success/fail, ping latency, DNS check |
