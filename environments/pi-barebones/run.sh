@@ -98,23 +98,49 @@ VNC_DEPTH=24
 # 4a. Install packages (idempotent)
 sudo apt-get install -y tigervnc-standalone-server tigervnc-common
 
-# 4b. Set VNC password — only prompt if no password file exists yet
-PASSWD_FILE="$VNC_HOME/.config/tigervnc/passwd"
-LEGACY_PASSWD="$VNC_HOME/.vnc/passwd"
-if [ ! -f "$PASSWD_FILE" ] && [ ! -f "$LEGACY_PASSWD" ]; then
-    echo ""
-    echo "🔐 Set a VNC access password (6–8 characters). Select 'n' when asked for a view-only password."
-    sudo -u "$VNC_USER" vncpasswd
+# 4b. Resolve the password utility binary.
+#     Debian 13 (Trixie) splits it into tigervnc-tools as 'tigervncpasswd';
+#     Raspberry Pi OS / Debian 11-12 ship it as 'vncpasswd'.
+VNCPASSWD_BIN=""
+if command -v vncpasswd &>/dev/null; then
+    VNCPASSWD_BIN="vncpasswd"
+elif command -v tigervncpasswd &>/dev/null; then
+    VNCPASSWD_BIN="tigervncpasswd"
+else
+    echo "📦 vncpasswd not found — installing tigervnc-tools..."
+    sudo apt-get install -y tigervnc-tools
+    if command -v tigervncpasswd &>/dev/null; then
+        VNCPASSWD_BIN="tigervncpasswd"
+    elif command -v vncpasswd &>/dev/null; then
+        VNCPASSWD_BIN="vncpasswd"
+    else
+        echo "❌ Could not locate a VNC password utility. Skipping password step." >&2
+    fi
 fi
 
-# 4c. Copy passwd to the modern TigerVNC location
+# Create a normalising symlink so 'vncpasswd' always works going forward
+if [ "$VNCPASSWD_BIN" = "tigervncpasswd" ] && ! command -v vncpasswd &>/dev/null; then
+    sudo ln -sf "$(command -v tigervncpasswd)" /usr/local/bin/vncpasswd
+    echo "🔗 Symlinked tigervncpasswd → /usr/local/bin/vncpasswd"
+fi
+
+# 4c. Set VNC password — only prompt if no password file exists yet
+PASSWD_FILE="$VNC_HOME/.config/tigervnc/passwd"
+LEGACY_PASSWD="$VNC_HOME/.vnc/passwd"
+if [ -n "$VNCPASSWD_BIN" ] && [ ! -f "$PASSWD_FILE" ] && [ ! -f "$LEGACY_PASSWD" ]; then
+    echo ""
+    echo "🔐 Set a VNC access password (6–8 characters). Select 'n' when asked for a view-only password."
+    sudo -u "$VNC_USER" "$VNCPASSWD_BIN"
+fi
+
+# 4d. Copy passwd to the modern TigerVNC location
 sudo -u "$VNC_USER" mkdir -p "$VNC_HOME/.config/tigervnc"
 if [ -f "$LEGACY_PASSWD" ] && [ ! -f "$PASSWD_FILE" ]; then
     sudo cp "$LEGACY_PASSWD" "$PASSWD_FILE"
     sudo chown "$VNC_USER:$VNC_USER" "$PASSWD_FILE"
 fi
 
-# 4d. Write ~/.vnc/config (overwrite to ensure settings are always current)
+# 4e. Write ~/.vnc/config (overwrite to ensure settings are always current)
 sudo -u "$VNC_USER" mkdir -p "$VNC_HOME/.vnc"
 sudo tee "$VNC_HOME/.vnc/config" > /dev/null << EOF
 session=lightdm-xsession
@@ -124,13 +150,13 @@ localhost=0
 EOF
 sudo chown "$VNC_USER:$VNC_USER" "$VNC_HOME/.vnc/config"
 
-# 4e. Map display :1 to this user (idempotent)
+# 4f. Map display :1 to this user (idempotent)
 sudo mkdir -p /etc/tigervnc
 if ! sudo grep -qsF ":${VNC_DISPLAY}=${VNC_USER}" /etc/tigervnc/vncserver.users 2>/dev/null; then
     echo ":${VNC_DISPLAY}=${VNC_USER}" | sudo tee -a /etc/tigervnc/vncserver.users > /dev/null
 fi
 
-# 4f. Write systemd service file
+# 4g. Write systemd service file
 sudo tee /etc/systemd/system/vncserver@.service > /dev/null << EOF
 [Unit]
 Description=Remote desktop service (VNC)
@@ -150,7 +176,7 @@ ExecStart=/usr/bin/tigervncserver :%i
 WantedBy=multi-user.target
 EOF
 
-# 4g. Clear stale locks, reload systemd, enable and start
+# 4h. Clear stale locks, reload systemd, enable and start
 sudo rm -rf "/tmp/.X11-unix/X${VNC_DISPLAY}" "/tmp/.X${VNC_DISPLAY}-lock"
 sudo systemctl daemon-reload
 sudo systemctl enable "vncserver@${VNC_DISPLAY}.service"

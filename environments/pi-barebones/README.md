@@ -116,6 +116,22 @@ vncpasswd
 sudo systemctl restart vncserver@1.service
 ```
 
+### OS Compatibility — Debian 13 (Trixie)
+
+On Debian 13, the password utility ships in a separate package as `tigervncpasswd` rather than `vncpasswd`. `run.sh` handles this automatically:
+
+1. Checks for `vncpasswd`, then `tigervncpasswd`
+2. Installs `tigervnc-tools` if neither is found
+3. Creates a symlink `/usr/local/bin/vncpasswd → tigervncpasswd` so the short name works everywhere
+
+If you hit this manually (e.g. outside of `run.sh`):
+
+```bash
+sudo apt install -y tigervnc-tools
+tigervncpasswd               # set password
+sudo ln -sf /usr/bin/tigervncpasswd /usr/local/bin/vncpasswd  # optional shortcut
+```
+
 ### Changing resolution
 
 Edit `~/.vnc/config` and update the `geometry` line, then restart the service:
