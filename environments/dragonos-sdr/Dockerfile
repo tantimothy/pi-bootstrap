@@ -21,6 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsoapysdr-dev \
     gnuradio \
     gqrx-sdr \
+    # ADS-B Aircraft Tracking
+    dump1090-mutability \
+    readsb \
+    # Multi-protocol RF Decoder (433/868/915 MHz sensors, remotes)
+    rtl-433 \
     # Extra utilities, Audio routing support & Dialog
     usbutils \
     procps \
@@ -46,7 +51,7 @@ fi
 while true; do
   CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \
                   --title " Select an SDR Tool " \
-                  --menu "Choose a tool to launch:" 24 80 13 \
+                  --menu "Choose a tool to launch:" 28 80 16 \
                   1  "GQRX              — Graphical spectrum analyzer / FM/AM/SSB receiver" \
                   2  "GNU Radio         — Visual signal processing flowgraph editor" \
                   3  "rtl_test          — Benchmark & verify RTL-SDR dongle" \
@@ -56,10 +61,13 @@ while true; do
                   7  "hackrf_info       — Read HackRF firmware version & hardware registers" \
                   8  "hackrf_sweep      — Fast full-spectrum scan (1 MHz – 6 GHz)" \
                   9  "hackrf_transfer   — Receive or transmit raw IQ data to/from file" \
-                  10 "SoapySDRUtil      — Probe all connected SDR hardware (any vendor)" \
-                  11 "lsusb             — List physical USB connections on the host" \
-                  12 "Bash Shell        — Drop to a raw terminal inside the container" \
-                  13 "Exit" \
+                  10 "dump1090          — ADS-B aircraft tracker (1090 MHz, interactive table)" \
+                  11 "readsb            — ADS-B decoder with MLAT & web map (port 8080)" \
+                  12 "rtl_433           — Decode 433/868/915 MHz sensors, remotes & meters" \
+                  13 "SoapySDRUtil      — Probe all connected SDR hardware (any vendor)" \
+                  14 "lsusb             — List physical USB connections on the host" \
+                  15 "Bash Shell        — Drop to a raw terminal inside the container" \
+                  16 "Exit" \
                   3>&1 1>&2 2>&3)
 
   if [ $? -ne 0 ]; then
@@ -132,19 +140,40 @@ while true; do
       fi
       read -p "Press Enter to return to menu..." ;;
     10)
+      echo "Starting dump1090 ADS-B receiver (interactive table view)..."
+      echo "Listening on 1090 MHz for aircraft position broadcasts."
+      echo "HTTP map available at http://localhost:8080 if the port is published."
+      echo "Ctrl+C to stop."
+      dump1090 --interactive --net --net-http-port 8080 --net-beast-output-port 30005
+      read -p "Press Enter to return to menu..." ;;
+    11)
+      read -p "Your latitude  (optional, enables map range rings): " lat
+      read -p "Your longitude (optional, enables map range rings): " lon
+      args="--net --interactive"
+      [ -n "$lat" ] && args="$args --lat $lat"
+      [ -n "$lon" ] && args="$args --lon $lon"
+      echo "Starting readsb — web map at http://localhost:8080 — Ctrl+C to stop."
+      readsb $args
+      read -p "Press Enter to return to menu..." ;;
+    12)
+      echo "Starting rtl_433 — decoding 433/868/915 MHz sensors, remotes, meters..."
+      echo "Ctrl+C to stop."
+      rtl_433
+      read -p "Press Enter to return to menu..." ;;
+    13)
       echo "Probing connected SDR hardware via SoapySDR..."
       SoapySDRUtil --find
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    11)
+    14)
       echo "USB devices attached to the host:"
       lsusb
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    12)
+    15)
       echo "Dropping into Bash. Type 'exit' to return to the menu."
       /bin/bash ;;
-    13|*)
+    16|*)
       echo "Exiting DragonOS SDR launcher."
       break ;;
   esac

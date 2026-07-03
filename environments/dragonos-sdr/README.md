@@ -43,6 +43,23 @@ Base image: [debian:bookworm-slim](https://hub.docker.com/_/debian) — addition
 | `hackrf_debug` | Low-level hardware register inspection and debugging |
 | `hackrf_operacake` | OperaCake antenna switch control — select antenna port programmatically |
 
+### ADS-B Aircraft Tracking
+
+Receives aircraft position broadcasts on **1090 MHz** — any RTL-SDR dongle can decode these.
+
+| Tool | Link | Description |
+|------|------|-------------|
+| `dump1090` | [github.com/mutability/dump1090](https://github.com/mutability/dump1090) | ADS-B Mode S decoder — interactive terminal aircraft table + HTTP map on port 8080 |
+| `readsb` | [github.com/wiedehopf/readsb](https://github.com/wiedehopf/readsb) | Modern dump1090 fork — adds MLAT support, better performance, optional lat/lon for range rings on the web map |
+
+> **Note:** The web map (port 8080) requires the container to be started with `-p 8080:8080`. Add `"8080:8080"` to the ports section of the run config, or access the interactive terminal view without it.
+
+### Multi-Protocol RF Decoding
+
+| Tool | Link | Description |
+|------|------|-------------|
+| `rtl_433` | [github.com/merbanan/rtl_433](https://github.com/merbanan/rtl_433) | Decodes hundreds of 433/868/915 MHz devices — weather stations, door sensors, car tire pressure sensors, power meters, garage remotes |
+
 ### Hardware Abstraction
 
 | Tool | Link | Description |
@@ -138,6 +155,25 @@ chmod +x run.sh
 ## 5. Using the Interactive Menu
 
 Upon launching, a blue screen TUI will load in your terminal. Use the arrow keys to select an SDR tool and press Enter to launch it. Press `q` or select the exit option to return to the menu.
+
+| Option | Tool | What it does |
+|:---|:---|:---|
+| **1** | GQRX | Graphical spectrum analyzer — spectrum waterfall, FM/AM/SSB demodulation |
+| **2** | GNU Radio Companion | Visual flowgraph editor for signal processing pipelines |
+| **3** | rtl_test | Benchmark RTL-SDR dongle, test sample rates, report dropped samples |
+| **4** | rtl_fm | FM/AM/SSB demodulator — prompts for frequency, pipes audio to `aplay` |
+| **5** | rtl_tcp | Network SDR server — exposes the dongle over TCP for remote SDR clients |
+| **6** | rtl_power | Wideband power scan — prompts for frequency range, logs signal levels |
+| **7** | hackrf_info | Read HackRF firmware version, serial number, hardware registers |
+| **8** | hackrf_sweep | Fast spectrum scan — prompts for MHz bounds, sweeps up to 8 GHz/s |
+| **9** | hackrf_transfer | IQ capture/replay submenu — receive to file or transmit from file |
+| **10** | dump1090 | ADS-B decoder — live aircraft table in terminal + HTTP map on port 8080 |
+| **11** | readsb | ADS-B decoder with MLAT — prompts for lat/lon for web map range rings |
+| **12** | rtl_433 | Decode 433/868/915 MHz devices — weather sensors, remotes, meters |
+| **13** | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
+| **14** | lsusb | List USB devices attached to the host |
+| **15** | Bash Shell | Raw terminal inside the container — full access to all installed tools |
+| **16** | Exit | Leave the menu (container keeps running in background) |
 
 ---
 
