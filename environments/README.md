@@ -72,6 +72,22 @@ CONTAINER_NAME="pihole-service wireguard-vpn wg-easy-dashboard"
 
 ---
 
+## ⚙️ Deployment Caching & Rebuild Policies
+
+The dashboard orchestrator passes one of two policies down to every environment at runtime:
+
+| Policy | Container Lifecycle | Image Cache Behaviour |
+|:---|:---|:---|
+| **`FAST`** *(default)* | Skips rebuild if containers are already running; runs `docker start` if stopped; rebuilds only what is missing | Reuses local Docker layer cache to avoid slow ARM compilation |
+| **`CLEAN`** | Stops and removes all containers listed in `CONTAINER_NAME` | Evicts the local image cache (`docker rmi`) and forces a pristine `--no-cache` build |
+
+### Automated CLEAN Triggers
+The orchestrator can also force `CLEAN` mode automatically when it detects:
+* **Missing integrity assets** — critical config files, volume tracking paths, or dependent assets were wiped or modified outside the normal workflow.
+* **Git hash mismatch** — after a remote fetch the upstream `Dockerfile` or `entrypoint.sh` differs from the local copy, so outdated image layers are never silently kept in production.
+
+---
+
 ## 🚀 The Three Environment Deployment Archetypes
 
 ### Archetype 1: Custom Orchestration Shell (`run.sh`)
@@ -85,34 +101,40 @@ Use this configuration whenever an environment requires advanced host system int
 
 ```bash
 #!/bin/bash
-# Inherit engine wrappers from the main dashboard context safely
+# 1. Inherit engine wrapper from the main dashboard
 DOCKER=${DOCKER_CMD:-docker}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Ingest dynamically generated local secrets
-if [ -f ".env" ]; then
-    set -a
-    source .env
-    set +a
+# 2. Source the user-configured .env
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a; source "$SCRIPT_DIR/.env"; set +a
 fi
 
-echo "🛑 Cleaning up active instances..."
+# 3. Policy routing — FAST skips rebuild if image exists; CLEAN forces fresh build
+IMAGE_NAME="pi-pentest:latest"
+IMAGE_EXISTS=$($DOCKER images -q "$IMAGE_NAME" 2>/dev/null)
+
 $DOCKER stop "$CONTAINER_NAME" 2>/dev/null
-$DOCKER rm "$CONTAINER_NAME" 2>/dev/null
+$DOCKER rm   "$CONTAINER_NAME" 2>/dev/null
 
-echo "⚡ Launching localized structural compilation layer..."
-$DOCKER build -t "pi-pentest:latest" .
+if [ "${REBUILD_POLICY:-FAST}" = "CLEAN" ] || [ -z "$IMAGE_EXISTS" ]; then
+    $DOCKER build --no-cache -t "$IMAGE_NAME" "$SCRIPT_DIR"
+fi
 
-echo "🚀 Executing interactive container with advanced hardware profiles..."
-exec 0< /dev/tty
-exec 1> /dev/tty
-exec 2> /dev/tty
+# 4. Pre-create volume paths so Docker doesn't create them as root
+mkdir -p "${HOST_CAPTURES_PATH:-$SCRIPT_DIR/captures}"
+
+# 5. Re-bind TTY so interactive flags work even when invoked via curl | bash
+exec 0< /dev/tty; exec 1> /dev/tty; exec 2> /dev/tty
+
 $DOCKER run -it --rm \
   --name "$CONTAINER_NAME" \
   --privileged \
   --net=host \
   -v /dev:/dev \
+  -v "${HOST_CAPTURES_PATH:-$SCRIPT_DIR/captures}:/root/captures" \
   -e TARGET_INTERFACE="${WIFI_INTERFACE:-wlan1}" \
-  pi-pentest:latest
+  "$IMAGE_NAME"
 ```
 
 ### Archetype 2: Multi-Container Microservice Stack (`docker-compose.yml`)
