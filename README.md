@@ -1,77 +1,173 @@
-# 🐳 Raspberry Pi Multi-Environment Docker Orchestrator
+# 🐳 Pi Bootstrap
 
-An automated, stateless, and lightweight TUI (Terminal User Interface) deployment hub designed for managing diverse containerized applications on ARM architectures.
-
-> For the environment workspace developer guide (how to create a new environment), see [`environments/README.md`](environments/README.md).
-
-The framework operates under a **local compilation paradigm**: instead of maintaining bulky pre-built images inside external registries, it pulls raw blueprints directly from GitHub and compiles them natively on the Raspberry Pi. This minimizes bandwidth consumption and ensures total optimization for host-specific ARM constraints.
-
-## 🏗️ Core Architectural Capabilities
-
-### 1. Bulletproof Permission Wrapper
-The core execution engine (`deploy.sh`) never makes hardcoded calls to `docker` or assumes the executing user belongs to the `docker` group. On initialization, it runs a validation check on the UNIX socket interface:
-* It tests write access to `/var/run/docker.sock`.
-* If access is denied, it automatically upgrades operations by shifting to a secure `sudo docker` structural alias.
-* The resolved runtime engine is exported to child environments via the `$DOCKER_CMD` variable, allowing all downstream setups to run seamlessly on fresh OS installations without requiring shell re-logs.
-
-### 2. Secure Git Sync & Header Injection
-To enable secure remote execution without exposing credentials, `deploy.sh` utilizes an advanced token-forwarding mechanism:
-* When executed via remote piping, Personal Access Tokens (PATs) are accepted strictly through HTTP headers to keep them clean from shell execution histories (`.bash_history`).
-* The orchestrator captures this token internally and forwards it into subsequent Git actions using custom headers: `git -c http.extraHeader="Authorization: token $GITHUB_TOKEN"`.
-* This setup guarantees that nested application modules and secondary repository fetches authenticate silently without ever breaking character into interactive terminal credential prompts.
-
-### 3. Metadata-Driven Secret Pre-Processor
-Environment configuration is handled entirely at runtime through a stateless parsing engine that interprets `.env.example` tracking blueprints:
-1. **The Legend Screen:** It reads syntax comment blocks (`#`) immediately preceding any variable key to generate a full-screen, scrollable information card detailing what each input parameter represents.
-2. **The Consolidated TUI Form:** It parses key-value pairings (`KEY=DEFAULT`) to dynamically generate a unified `dialog` form, pre-populating fields with default placeholders.
-3. **Draft Separation:** All verified user configurations are saved to an uncommitted, local `.env` file. If a user cancels out of the form, all working drafts are securely wiped to prevent data leakage.
-
-### 4. Advanced State-Machine Policy Matrix
-Deployments are governed by two distinct structural paths passed down to control nodes:
-
-| Policy | Target Evaluation Pattern | Container Lifecycle Routing | Image Optimization Routine |
-| :--- | :--- | :--- | :--- |
-| **`FAST`** *(Default)* | Loops across all identifiers declared in `$CONTAINER_NAME`. | • If active: Skips rebuilds to maximize uptime.<br>• If dormant: Runs `docker start`.<br>• If missing: Rebuilds missing segments. | Reuses local Docker layer caches to bypass slow ARM physical processing steps. |
-| **`CLEAN`** | Forcefully loops across all target container arrays. | Stops and completely destroys matching running or dormant containers. | Triggers a strict `--no-cache` execution to pull pristine updates from zero-state. |
-
-## 🛠️ Dynamic Routing Topology
-
-When a folder workspace is selected from the primary menu interface, `deploy.sh` interrogates its file tree sequentially and routes execution through the following strict priority checklist:
-
-```text
-Selected Workspace Folder
-│
-├── 1. [Found run.sh] ──────────► Executes Custom Bash Router Script
-│                                  (Delegates lifecycle mechanics entirely to script)
-│
-├── 2. [Found docker-compose.yml] ► Executes Multi-Container Compose Route
-│                                  (Runs `$DOCKER_CMD compose up -d`)
-│
-└── 3. [Found Dockerfile] ───────► Executes Pure Standalone Fallback Route
-                                   (Runs automated container compilation engine)
-```
-
-## 🚀 System Installation & Initialization
-
-### Mode A: Stateless Remote Execution (Zero-Setup Remote Curl)
-For automated setups on vanilla systems, execute the deployment dashboard remotely without cloning the utility layout manually. Pass your GitHub token through the secure header template below:
+A lightweight TUI hub for deploying and managing containerized environments on a Raspberry Pi. Run `deploy.sh` to get an interactive menu — select an environment, configure it, and it handles the rest.
 
 ```bash
-curl -sSL -H "Authorization: token <your_github_token>" \
--H "Accept: application/vnd.github.v3.raw" \
-https://tantimothy:<your_github_token>@raw.githubusercontent.com/tantimothy/pi-bootstrap/master/deploy.sh | bash
-```
-
-### Mode B: Local Repository Execution
-If you are developing custom environments or editing orchestration configurations locally on the host Pi filesystem:
-
-```bash
-chmod +x deploy.sh
+# Clone and run
+git clone https://github.com/tantimothy/pi-bootstrap.git
+cd pi-bootstrap
 ./deploy.sh
 ```
 
-## 📊 Minimum Host Prerequisites
-* **Operating System:** Raspberry Pi OS (Debian 11 Bullseye / 12 Bookworm recommended).
-* **Architecture:** `arm64` or `armhf` structural kernels.
-* **Core Utilities:** `bash`, `git`, `curl` available within the system `$PATH`.
-* *(Note: The TUI rendering package `dialog` and the underlying Docker virtualization engine are automatically verified, bootstrapped, and configured by the master script on execution).*
+Or run directly on a fresh Pi without cloning:
+
+```bash
+curl -sSL -H "Authorization: token <your_github_token>" \
+  -H "Accept: application/vnd.github.v3.raw" \
+  https://tantimothy:<your_github_token>@raw.githubusercontent.com/tantimothy/pi-bootstrap/master/deploy.sh | bash
+```
+
+---
+
+## 🗂️ Environments
+
+| Environment | Description |
+|:---|:---|
+| [dragonos-sdr](environments/dragonos-sdr/) | Software-defined radio toolkit — GQRX, GNU Radio, RTL-SDR utilities, HackRF tools, ADS-B aircraft tracking (dump1090, readsb), rtl_433 sensor decoding, APRS packet radio (direwolf), ACARS aircraft messages (acarsdec), FM/pager/EAS decoding (multimon-ng) |
+| [pihole-wireguard](environments/pihole-wireguard/) | Network stack — Pi-hole DNS ad-blocker + WireGuard VPN (wg-easy) + full monitoring suite (Prometheus, Grafana, Uptime Kuma, node/speedtest/blackbox exporters) + PADD terminal dashboard |
+| [kali-pentest](environments/kali-pentest/) | Headless Kali Linux pentest environment — wireless attacks (Wifite2, aircrack-ng suite, hcxdumptool), network MITM (Bettercap, Nmap, tshark), exploitation (Metasploit), wardriving (Kismet + GPS) |
+| [internet-pi](environments/internet-pi/) | Ansible-managed Raspberry Pi — Pi-hole, Prometheus, Grafana, Speedtest Exporter, Blackbox Exporter, Node Exporter (based on [geerlingguy/internet-pi](https://github.com/geerlingguy/internet-pi)) |
+| [nanoclaw](environments/nanoclaw/) | AI / LLM tools — Ollama (local model inference), whisper.cpp (speech-to-text), Claude API integration |
+| [pi-barebones](environments/pi-barebones/) | Minimal Pi setup — tmux, fastfetch system info, PADD Pi-hole dashboard, custom `.bashrc` tweaks |
+| [dragonos-sdr](environments/dragonos-sdr/) | *(see above)* |
+
+---
+
+## 🏗️ How It Works
+
+### Routing Priority
+
+`deploy.sh` scans each selected environment folder and picks the first match:
+
+```text
+environments/your-env/
+│
+├── 1. run.sh          →  delegates everything to the script (most flexible)
+├── 2. docker-compose.yml  →  runs `docker compose up -d`
+└── 3. Dockerfile      →  builds and runs a single container on port 80
+```
+
+### Permission Wrapper
+
+`deploy.sh` never assumes the user is in the `docker` group. It tests `/var/run/docker.sock` access and automatically prepends `sudo` if needed, exporting the resolved command as `$DOCKER_CMD` so all child environments inherit it.
+
+### Policy Matrix
+
+Every environment receives a `REBUILD_POLICY` variable:
+
+| Policy | Container behaviour | Image cache |
+|:---|:---|:---|
+| `FAST` *(default)* | Skip rebuild if running; `docker start` if stopped; rebuild only what's missing | Reuse local layer cache |
+| `CLEAN` | Stop and remove all containers in `CONTAINER_NAME` | Evict image cache, force `--no-cache` build |
+| `STOP` | Pause containers (resumable with FAST) | — |
+| `TEARDOWN` | Stop + remove containers; data untouched | — |
+| `INFO` | Show data directories, sizes, and useful commands | — |
+| `WIPE` | Delete persisted data directories (irreversible) | — |
+
+### Secret Pre-Processor
+
+Each environment has a `.env.example` file. `deploy.sh` reads it to:
+1. Show each variable's inline `#` comment as a scrollable info card
+2. Generate a `dialog` form pre-filled with defaults
+3. Write the result to a local `.env` file (gitignored — never committed)
+
+---
+
+## 🛠️ Adding a New Environment
+
+Drop a folder into `environments/` — `deploy.sh` discovers it automatically.
+
+### Folder Layout
+
+```text
+environments/
+└── my-environment/
+    ├── .env.example        # required: drives the TUI config form
+    ├── run.sh              # archetype 1: custom script (highest priority)
+    ├── docker-compose.yml  # archetype 2: multi-container stack
+    └── Dockerfile          # archetype 3: single container (lowest priority)
+```
+
+### `.env.example` Format
+
+Every variable needs a `#` comment immediately above it — that comment becomes the form label shown to the user:
+
+```ini
+# Name used by the dashboard to track container state.
+CONTAINER_NAME=my-app
+
+# Port to expose the web UI on.
+WEB_PORT=8080
+
+# Leave blank to force the user to set it explicitly.
+API_SECRET_KEY=
+```
+
+### `CONTAINER_NAME`
+
+Declare every container the environment manages, space-separated. The orchestrator uses this list for FAST checks, CLEAN teardown, STOP, and INFO:
+
+```ini
+# Single container
+CONTAINER_NAME=my-app
+
+# Multi-container stack — all names, space-separated
+CONTAINER_NAME="pihole wg-easy prometheus grafana"
+```
+
+### Archetype 1: `run.sh` (Custom Script)
+
+Use this when you need host network config, kernel drivers, hardware pass-through (USB SDR, Wi-Fi card, GPS), or multi-step pre-deployment logic.
+
+Key rules:
+- **Never** hardcode `docker` — use `DOCKER=${DOCKER_CMD:-docker}` to inherit the sudo wrapper
+- Source `.env` with `set -a; source "$SCRIPT_DIR/.env"; set +a`
+- Create volume paths with `mkdir -p` *before* `docker run` — otherwise Docker creates them as root
+- Re-bind TTY with `exec 0</dev/tty` before any `-it` container so it works when invoked via `curl | bash`
+
+```bash
+#!/bin/bash
+DOCKER=${DOCKER_CMD:-docker}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a; source "$SCRIPT_DIR/.env"; set +a
+fi
+
+IMAGE_NAME="my-app:latest"
+IMAGE_EXISTS=$($DOCKER images -q "$IMAGE_NAME" 2>/dev/null)
+
+$DOCKER stop "$CONTAINER_NAME" 2>/dev/null
+$DOCKER rm   "$CONTAINER_NAME" 2>/dev/null
+
+if [ "${REBUILD_POLICY:-FAST}" = "CLEAN" ] || [ -z "$IMAGE_EXISTS" ]; then
+    $DOCKER build --no-cache -t "$IMAGE_NAME" "$SCRIPT_DIR"
+fi
+
+mkdir -p "${HOST_DATA_PATH:-$SCRIPT_DIR/data}"
+
+exec 0</dev/tty; exec 1>/dev/tty; exec 2>/dev/tty
+
+$DOCKER run -it --rm \
+  --name "$CONTAINER_NAME" \
+  -v "${HOST_DATA_PATH:-$SCRIPT_DIR/data}:/data" \
+  "$IMAGE_NAME"
+```
+
+### Archetype 2: `docker-compose.yml` (Multi-Container Stack)
+
+Docker Compose picks up the generated `.env` automatically. Match every `container_name:` in your compose file to the names in `CONTAINER_NAME`:
+
+```yaml
+services:
+  myapp:
+    container_name: my-app
+    image: myimage:latest
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    restart: unless-stopped
+```
+
+### Archetype 3: `Dockerfile` (Single Container Fallback)
+
+No `run.sh` or `docker-compose.yml` needed. The orchestrator builds the image, injects variables via `--env-file .env`, and maps port 80. For anything beyond a basic single-container setup, use Archetype 1 or 2 instead.
