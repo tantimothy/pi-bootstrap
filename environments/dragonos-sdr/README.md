@@ -10,14 +10,44 @@ The container includes a built-in **TUI (Text User Interface) launch menu** powe
 
 ## 🔧 Tools & Projects
 
+Base image: [debian:bookworm-slim](https://hub.docker.com/_/debian) — additional SDR tools from the Debian/Kali package catalog can be installed with `apt-get install` inside the container. The following are pre-installed by the Dockerfile:
+
+> **Note:** This container mirrors a subset of the [DragonOS](https://cemaxecuter.com) toolset. The full DragonOS distribution additionally includes SDR++ , CubicSDR, dump1090 (ADS-B), WSJT-X (FT8/FT4), Direwolf (APRS), gr-gsm (GSM), inspectrum, multimon-ng, rtl_433, and more — these can be added to the Dockerfile via `apt-get install`.
+
+### Graphical Tools
+
 | Tool | Link | Description |
 |------|------|-------------|
-| DragonOS | [cemaxecuter.com](https://cemaxecuter.com) | Ubuntu-based Linux distribution pre-loaded with SDR tools — this environment mirrors its toolset on Debian |
-| GNU Radio | [gnuradio.org](https://www.gnuradio.org) | Visual signal processing framework — build and run SDR flowgraphs with a drag-and-drop GUI |
-| GQRX | [gqrx.dk](https://www.gqrx.dk) | Graphical SDR receiver — spectrum waterfall display for FM/AM/SSB listening and spectrum analysis |
-| RTL-SDR | [rtl-sdr.com](https://www.rtl-sdr.com) | Software-defined radio driver and utilities for low-cost DVB-T USB dongles repurposed as wideband receivers |
-| HackRF | [greatscottgadgets.com/hackrf](https://greatscottgadgets.com/hackrf/) | Half-duplex SDR transceiver covering 1 MHz–6 GHz — tools for transmitting and receiving arbitrary RF |
-| SoapySDR | [github.com/pothosware/SoapySDR](https://github.com/pothosware/SoapySDR) | Hardware-agnostic SDR abstraction layer — lets GNU Radio and other tools work with any SDR hardware |
+| GQRX | [gqrx.dk](https://www.gqrx.dk) | Graphical SDR receiver — spectrum waterfall, FM/AM/SSB/CW demodulation, recording |
+| GNU Radio Companion | [gnuradio.org](https://www.gnuradio.org) | Visual flowgraph editor — build and run signal processing pipelines with drag-and-drop blocks |
+
+### RTL-SDR Utilities (`rtl-sdr` package)
+
+| Binary | Description |
+|--------|-------------|
+| `rtl_test` | Benchmark and verify RTL-SDR dongle — tests sample rate, reports dropped samples |
+| `rtl_fm` | FM/AM/SSB demodulator — pipes demodulated audio to stdout for playback via `aplay` or `sox` |
+| `rtl_sdr` | Raw IQ data recorder — captures samples to file at a given frequency and sample rate |
+| `rtl_tcp` | Network SDR server — streams raw IQ over TCP so remote clients (GQRX, SDR#) can use the dongle |
+| `rtl_power` | Wideband spectrum power scanner — sweeps a frequency range and logs signal levels over time |
+| `rtl_biast` | Bias-T control — enables 5V DC on the antenna port to power active antennas and LNAs |
+| `rtl_eeprom` | EEPROM read/write — change dongle serial number, vendor/product strings, bias-T default |
+
+### HackRF Utilities (`hackrf` package)
+
+| Binary | Description |
+|--------|-------------|
+| `hackrf_info` | Read hardware registers, firmware version, serial number, and board revision |
+| `hackrf_transfer` | Transmit or receive raw IQ data to/from file — the primary HackRF capture/replay tool |
+| `hackrf_sweep` | Fast full-spectrum scanner — covers the HackRF's entire 1 MHz–6 GHz range at up to 8 GHz/s |
+| `hackrf_debug` | Low-level hardware register inspection and debugging |
+| `hackrf_operacake` | OperaCake antenna switch control — select antenna port programmatically |
+
+### Hardware Abstraction
+
+| Tool | Link | Description |
+|------|------|-------------|
+| SoapySDR | [github.com/pothosware/SoapySDR](https://github.com/pothosware/SoapySDR) | Hardware-agnostic SDR abstraction layer — `SoapySDRUtil --find` probes all connected devices regardless of manufacturer |
 
 ---
 
