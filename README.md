@@ -32,6 +32,29 @@ curl -sSL -H "Authorization: token <your_github_token>" \
 
 ---
 
+## 🖥️ Desktop Menu Integration
+
+On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once to register all environments as clickable desktop entries:
+
+```bash
+./install-desktop-entries.sh
+
+# To remove them
+./install-desktop-entries.sh --uninstall
+```
+
+This installs entries to `~/.local/share/applications/`. What each type does:
+
+| Entry type | How it opens |
+|:---|:---|
+| GQRX, GNU Radio Companion | X11 socket passthrough — window appears directly on the Pi desktop |
+| SDR menu, Kali, NanoClaw | Opens in your desktop's default terminal emulator |
+| Pi-hole, Grafana, Uptime Kuma, WireGuard | `xdg-open` to `localhost:<port>` in your default browser |
+
+Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
+
+---
+
 ## 🏗️ How It Works
 
 ### Routing Priority
