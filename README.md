@@ -29,7 +29,6 @@ curl -sSL -H "Authorization: token <your_github_token>" \
 | [internet-pi](environments/internet-pi/) | Ansible-managed Raspberry Pi — Pi-hole, Prometheus, Grafana, Speedtest Exporter, Blackbox Exporter, Node Exporter (based on [geerlingguy/internet-pi](https://github.com/geerlingguy/internet-pi)) |
 | [nanoclaw](environments/nanoclaw/) | AI / LLM tools — Ollama (local model inference), whisper.cpp (speech-to-text), Claude API integration |
 | [pi-barebones](environments/pi-barebones/) | Minimal Pi setup — tmux, fastfetch system info, PADD Pi-hole dashboard, custom `.bashrc` tweaks |
-| [dragonos-sdr](environments/dragonos-sdr/) | *(see above)* |
 
 ---
 
