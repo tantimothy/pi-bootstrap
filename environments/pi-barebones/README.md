@@ -13,6 +13,7 @@ This is not a Docker environment — it runs directly on the host and has no con
 | tmux | [github.com/tmux/tmux](https://github.com/tmux/tmux) | Terminal multiplexer — persists sessions across SSH disconnects and splits one terminal into panes/windows |
 | fastfetch | [github.com/fastfetch-cli/fastfetch](https://github.com/fastfetch-cli/fastfetch) | Fast system info display (OS, CPU, RAM, uptime) shown on login — neofetch replacement written in C |
 | PADD | [github.com/pi-hole/PADD](https://github.com/pi-hole/PADD) | Pi-hole live stats dashboard for the terminal — shows query rates, blocked %, top domains; displayed on login if `padd.sh` is present in `~` |
+| TigerVNC | [tigervnc.org](https://tigervnc.org) | High-performance VNC server — streams the full Pi desktop to any VNC client at 1920×1080, auto-starts on boot via systemd |
 
 ---
 
@@ -24,6 +25,7 @@ This is not a Docker environment — it runs directly on the host and has no con
    - Runs `tmux new-session -A` — attaches to an existing tmux session or creates one
    - Runs `~/padd.sh` if it exists (Pi-hole PADD dashboard)
    - Runs `fastfetch` if installed (system info display)
+4. **Installs and configures TigerVNC** — see below
 
 The `.bashrc` injection uses marker comments so re-running the script cleanly replaces the previous block rather than appending duplicate lines.
 
@@ -62,6 +64,70 @@ source ~/.bashrc
 
 ---
 
+## 🖥️ TigerVNC Remote Desktop
+
+`run.sh` installs and configures TigerVNC automatically. All steps are idempotent — re-running the script is safe.
+
+### What gets configured
+
+| Step | What happens |
+|:---|:---|
+| Install | `tigervnc-standalone-server` and `tigervnc-common` via apt |
+| Password | Prompts for a VNC password once; skipped on subsequent runs if `~/.vnc/passwd` or `~/.config/tigervnc/passwd` already exists |
+| `~/.vnc/config` | Written with `session=lightdm-xsession`, `geometry=1920x1080`, `depth=24`, `localhost=0` |
+| `/etc/tigervnc/vncserver.users` | Maps display `:1` to the current user |
+| systemd service | `/etc/systemd/system/vncserver@.service` — auto-starts on boot |
+| Boot enable | `systemctl enable vncserver@1.service` + immediate start |
+
+The current user is detected automatically (`$SUDO_USER` or `$USER`) — the username is not hardcoded.
+
+### Connecting
+
+Open any VNC client and connect to:
+
+```
+Host:     <Pi IP address>:5901
+Password: the one you set during setup
+```
+
+> **Port:** display `:1` maps to TCP port `5901` (`:2` → `5902`, etc.)
+
+### Managing the VNC service
+
+```bash
+# Check status
+systemctl status vncserver@1.service
+
+# Restart (e.g. after a config change)
+sudo systemctl restart vncserver@1.service
+
+# Stop
+sudo systemctl stop vncserver@1.service
+
+# View VNC server log
+cat ~/.vnc/*.log
+```
+
+### Changing the VNC password
+
+```bash
+vncpasswd
+# then restart the service
+sudo systemctl restart vncserver@1.service
+```
+
+### Changing resolution
+
+Edit `~/.vnc/config` and update the `geometry` line, then restart the service:
+
+```bash
+nano ~/.vnc/config
+# change geometry=1920x1080 to e.g. geometry=1280x720
+sudo systemctl restart vncserver@1.service
+```
+
+---
+
 ## 🎛️ Deployment Policies
 
 | Policy | Action |
@@ -78,18 +144,24 @@ source ~/.bashrc
 ## 💡 Useful Commands
 
 ```bash
-# List installed packages from packages.txt
-cat environments/pi-barebones/packages.txt
-
 # Re-run setup after editing packages.txt
 ./run.sh
 
 # Attach to the tmux session
 tmux attach
 
-# List running tmux sessions
-tmux ls
-
 # View current .bashrc injected block
 grep -A20 'PI INITIAL SETUP START' ~/.bashrc
+
+# Check VNC server status
+systemctl status vncserver@1.service
+
+# Restart VNC after config changes
+sudo systemctl restart vncserver@1.service
+
+# Change VNC password
+vncpasswd
+
+# View VNC server log
+cat ~/.vnc/*.log
 ```

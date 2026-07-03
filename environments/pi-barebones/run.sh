@@ -82,5 +82,86 @@ fi
 # <<< PI INITIAL SETUP END <<<
 EOF
 
-echo "✅ Success! System initialization script finished successfully."
-echo "💡 Please source your bash profiles or restart your SSH session to observe structural updates: source ~/.bashrc"
+echo "✅ Shell setup complete."
+
+# --- STEP 4: TIGERVNC SERVER ---
+echo ""
+echo "🖥️  Setting up TigerVNC..."
+
+# Detect the target user — prefer the user who invoked sudo, fall back to $USER
+VNC_USER="${SUDO_USER:-$USER}"
+VNC_HOME=$(eval echo "~$VNC_USER")
+VNC_DISPLAY=1
+VNC_GEOMETRY="1920x1080"
+VNC_DEPTH=24
+
+# 4a. Install packages (idempotent)
+sudo apt-get install -y tigervnc-standalone-server tigervnc-common
+
+# 4b. Set VNC password — only prompt if no password file exists yet
+PASSWD_FILE="$VNC_HOME/.config/tigervnc/passwd"
+LEGACY_PASSWD="$VNC_HOME/.vnc/passwd"
+if [ ! -f "$PASSWD_FILE" ] && [ ! -f "$LEGACY_PASSWD" ]; then
+    echo ""
+    echo "🔐 Set a VNC access password (6–8 characters). Select 'n' when asked for a view-only password."
+    sudo -u "$VNC_USER" vncpasswd
+fi
+
+# 4c. Copy passwd to the modern TigerVNC location
+sudo -u "$VNC_USER" mkdir -p "$VNC_HOME/.config/tigervnc"
+if [ -f "$LEGACY_PASSWD" ] && [ ! -f "$PASSWD_FILE" ]; then
+    sudo cp "$LEGACY_PASSWD" "$PASSWD_FILE"
+    sudo chown "$VNC_USER:$VNC_USER" "$PASSWD_FILE"
+fi
+
+# 4d. Write ~/.vnc/config (overwrite to ensure settings are always current)
+sudo -u "$VNC_USER" mkdir -p "$VNC_HOME/.vnc"
+sudo tee "$VNC_HOME/.vnc/config" > /dev/null << EOF
+session=lightdm-xsession
+geometry=${VNC_GEOMETRY}
+depth=${VNC_DEPTH}
+localhost=0
+EOF
+sudo chown "$VNC_USER:$VNC_USER" "$VNC_HOME/.vnc/config"
+
+# 4e. Map display :1 to this user (idempotent)
+sudo mkdir -p /etc/tigervnc
+if ! sudo grep -qsF ":${VNC_DISPLAY}=${VNC_USER}" /etc/tigervnc/vncserver.users 2>/dev/null; then
+    echo ":${VNC_DISPLAY}=${VNC_USER}" | sudo tee -a /etc/tigervnc/vncserver.users > /dev/null
+fi
+
+# 4f. Write systemd service file
+sudo tee /etc/systemd/system/vncserver@.service > /dev/null << EOF
+[Unit]
+Description=Remote desktop service (VNC)
+After=syslog.target network.target
+
+[Service]
+Type=forking
+User=${VNC_USER}
+Group=${VNC_USER}
+WorkingDirectory=${VNC_HOME}
+PIDFile=${VNC_HOME}/.vnc/%H:%i.pid
+ExecStartPre=-/usr/bin/tigervncserver -kill :%i
+ExecStop=/usr/bin/tigervncserver -kill :%i
+ExecStart=/usr/bin/tigervncserver :%i
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 4g. Clear stale locks, reload systemd, enable and start
+sudo rm -rf "/tmp/.X11-unix/X${VNC_DISPLAY}" "/tmp/.X${VNC_DISPLAY}-lock"
+sudo systemctl daemon-reload
+sudo systemctl enable "vncserver@${VNC_DISPLAY}.service"
+sudo systemctl restart "vncserver@${VNC_DISPLAY}.service"
+
+HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+[ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+
+echo ""
+echo "✅ TigerVNC running on display :${VNC_DISPLAY} (port 590${VNC_DISPLAY})."
+echo "   Connect from a VNC client:  ${HOST_IP}:590${VNC_DISPLAY}"
+echo "   Password:                   the one you set in Step 4b above"
+echo ""
+echo "✅ All done. Reconnect your SSH session (or run: source ~/.bashrc) to activate the shell changes."
