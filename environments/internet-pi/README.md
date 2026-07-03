@@ -6,16 +6,31 @@ Source: [github.com/geerlingguy/internet-pi](https://github.com/geerlingguy/inte
 
 ---
 
+## 🔧 Tools & Projects
+
+| Tool | Link | Description |
+|------|------|-------------|
+| internet-pi | [github.com/geerlingguy/internet-pi](https://github.com/geerlingguy/internet-pi) | Jeff Geerling's Ansible playbook for Raspberry Pi internet monitoring — the upstream project this environment deploys |
+| Pi-hole | [pi-hole.net](https://pi-hole.net) | Network-wide DNS-based ad and tracker blocker |
+| Grafana | [grafana.com](https://grafana.com) | Time-series dashboard — pre-built views for speedtest history, ping latency, and system health |
+| Prometheus | [prometheus.io](https://prometheus.io) | Metrics scraping and time-series storage backend |
+| Speedtest Exporter | [github.com/MiguelNdeCarvalho/speedtest-exporter](https://github.com/MiguelNdeCarvalho/speedtest-exporter) | Runs Speedtest CLI on a schedule and exposes results as Prometheus metrics |
+| Blackbox Exporter | [github.com/prometheus/blackbox_exporter](https://github.com/prometheus/blackbox_exporter) | Probes HTTP/HTTPS endpoints and ICMP ping targets — used for uptime and latency monitoring |
+| Node Exporter | [github.com/prometheus/node_exporter](https://github.com/prometheus/node_exporter) | Exposes Pi host system metrics (CPU, RAM, disk, network I/O) to Prometheus |
+| Ansible | [ansible.com](https://www.ansible.com) | Agentless automation tool — internet-pi uses it to configure the Pi and manage Docker containers declaratively |
+
+---
+
 ## What It Deploys
 
 | Service | Container | Port | Purpose |
 |---------|-----------|------|---------|
-| Pi-hole | `pihole` | 80, 53 | Network-wide DNS ad blocking |
-| Grafana | `grafana` | 3030 | Dashboard — speedtest history, ping latency, uptime |
-| Prometheus | `prometheus` | 9090 | Metrics storage |
-| Speedtest | `speedtest` | — | Runs internet speed tests on a schedule |
-| Ping/Blackbox | `ping` | — | Probes configured URLs for availability |
-| Node Exporter | `nodeexp` | 9100 | Pi system metrics (CPU, RAM, disk) |
+| [Pi-hole](https://pi-hole.net) | `pihole` | 80, 53 | Network-wide DNS ad blocking |
+| [Grafana](https://grafana.com) | `grafana` | 3030 | Dashboard — speedtest history, ping latency, uptime |
+| [Prometheus](https://prometheus.io) | `prometheus` | 9090 | Metrics storage |
+| [Speedtest Exporter](https://github.com/MiguelNdeCarvalho/speedtest-exporter) | `speedtest` | — | Runs internet speed tests on a schedule |
+| [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | `ping` | — | Probes configured URLs for availability |
+| [Node Exporter](https://github.com/prometheus/node_exporter) | `nodeexp` | 9100 | Pi system metrics (CPU, RAM, disk) |
 
 ---
 

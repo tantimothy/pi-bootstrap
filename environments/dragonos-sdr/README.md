@@ -8,6 +8,19 @@ The container includes a built-in **TUI (Text User Interface) launch menu** powe
 
 ---
 
+## 🔧 Tools & Projects
+
+| Tool | Link | Description |
+|------|------|-------------|
+| DragonOS | [cemaxecuter.com](https://cemaxecuter.com) | Ubuntu-based Linux distribution pre-loaded with SDR tools — this environment mirrors its toolset on Debian |
+| GNU Radio | [gnuradio.org](https://www.gnuradio.org) | Visual signal processing framework — build and run SDR flowgraphs with a drag-and-drop GUI |
+| GQRX | [gqrx.dk](https://www.gqrx.dk) | Graphical SDR receiver — spectrum waterfall display for FM/AM/SSB listening and spectrum analysis |
+| RTL-SDR | [rtl-sdr.com](https://www.rtl-sdr.com) | Software-defined radio driver and utilities for low-cost DVB-T USB dongles repurposed as wideband receivers |
+| HackRF | [greatscottgadgets.com/hackrf](https://greatscottgadgets.com/hackrf/) | Half-duplex SDR transceiver covering 1 MHz–6 GHz — tools for transmitting and receiving arbitrary RF |
+| SoapySDR | [github.com/pothosware/SoapySDR](https://github.com/pothosware/SoapySDR) | Hardware-agnostic SDR abstraction layer — lets GNU Radio and other tools work with any SDR hardware |
+
+---
+
 ## Prerequisites
 
 Before building or running the container, ensure your Raspberry Pi environment is ready:

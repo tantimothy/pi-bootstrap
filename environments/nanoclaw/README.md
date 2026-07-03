@@ -21,6 +21,17 @@ Memory works in three layers:
 
 ---
 
+## 🔧 Tools & Projects
+
+| Tool | Link | Description |
+|------|------|-------------|
+| NanoClaw | [github.com/qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw) | Self-hosted AI assistant built on Claude — routes messages from WhatsApp, Telegram, Slack, and Discord to isolated per-group agent containers |
+| Anthropic Claude | [anthropic.com](https://www.anthropic.com) | Large language model powering each agent's reasoning, memory recall, and task execution |
+| Ollama | [ollama.com](https://ollama.com) | Local LLM and embedding server — NanoClaw uses it to run `nomic-embed-text` for semantic memory search without sending data to an external API |
+| whisper.cpp | [github.com/ggerganov/whisper.cpp](https://github.com/ggerganov/whisper.cpp) | Local voice transcription (optional) — converts voice messages to text on-device using OpenAI's Whisper model compiled for ARM |
+
+---
+
 ## Deployment
 
 ### First Time
