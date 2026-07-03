@@ -176,11 +176,18 @@ ExecStart=/usr/bin/tigervncserver :%i
 WantedBy=multi-user.target
 EOF
 
-# 4h. Clear stale locks, reload systemd, enable and start
-sudo rm -rf "/tmp/.X11-unix/X${VNC_DISPLAY}" "/tmp/.X${VNC_DISPLAY}-lock"
+# 4h. Reload systemd, enable on boot, then start or skip
 sudo systemctl daemon-reload
 sudo systemctl enable "vncserver@${VNC_DISPLAY}.service"
-sudo systemctl restart "vncserver@${VNC_DISPLAY}.service"
+
+if systemctl is-active --quiet "vncserver@${VNC_DISPLAY}.service"; then
+    echo "ℹ️  VNC server already running — skipping restart to preserve active sessions."
+    echo "   To apply config changes manually: sudo systemctl restart vncserver@${VNC_DISPLAY}.service"
+else
+    # Only remove stale X locks when the service is not running
+    sudo rm -rf "/tmp/.X11-unix/X${VNC_DISPLAY}" "/tmp/.X${VNC_DISPLAY}-lock"
+    sudo systemctl start "vncserver@${VNC_DISPLAY}.service"
+fi
 
 HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
 [ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
