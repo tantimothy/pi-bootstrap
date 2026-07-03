@@ -38,6 +38,122 @@ services:
       - SYS_MODULE
     restart: unless-stopped
 
+  # Scrapes Pi-hole v6 API and exposes metrics for Prometheus
+  pihole-exporter:
+    container_name: pihole-exporter
+    image: ekofr/pihole-exporter:latest
+    environment:
+      - PIHOLE_HOSTNAME=pihole
+      - PIHOLE_PORT=80
+      - PIHOLE_PASSWORD=${FTLCONF_webserver_api_password}
+      - PORT=9617
+    networks:
+      pihole_wg_net:
+    depends_on:
+      - pihole
+    restart: unless-stopped
+
+  # Reads WireGuard kernel stats (wg show) and exposes metrics for Prometheus
+  # Runs on host network to see the wg0 interface managed by wg-easy
+  wireguard-exporter:
+    container_name: wireguard-exporter
+    image: mindflavor/prometheus-wireguard-exporter:latest
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PROMETHEUS_WIREGUARD_EXPORTER_PORT=9586
+    restart: unless-stopped
+
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:latest
+    volumes:
+      - './monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro'
+      - 'prometheus_data:/prometheus'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      pihole_wg_net:
+    restart: unless-stopped
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:latest
+    ports:
+      - "${GRAFANA_PORT:-3030}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - 'grafana_data:/var/lib/grafana'
+      - './monitoring/grafana/provisioning:/etc/grafana/provisioning:ro'
+      - './monitoring/grafana/dashboards:/etc/grafana/dashboards:ro'
+    depends_on:
+      - prometheus
+    networks:
+      pihole_wg_net:
+    restart: unless-stopped
+
+  uptime-kuma:
+    container_name: uptime-kuma
+    image: louislam/uptime-kuma:latest
+    ports:
+      - "${UPTIME_KUMA_PORT:-3001}:3001"
+    volumes:
+      - 'uptime_kuma_data:/app/data'
+    networks:
+      pihole_wg_net:
+    restart: unless-stopped
+
+  # Pi host system metrics — CPU, RAM, disk, network I/O, filesystem
+  # Runs on host network so it sees the real host interfaces and mounts
+  node-exporter:
+    container_name: node-exporter
+    image: prom/node-exporter:latest
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)'
+    volumes:
+      - '/proc:/host/proc:ro'
+      - '/sys:/host/sys:ro'
+      - '/:/rootfs:ro'
+    network_mode: host
+    pid: host
+    restart: unless-stopped
+
+  # Internet speed test — runs a full Speedtest CLI test when Prometheus scrapes it
+  speedtest-exporter:
+    container_name: speedtest-exporter
+    image: ghcr.io/miguelndecarvalho/speedtest-exporter:latest
+    networks:
+      pihole_wg_net:
+    restart: unless-stopped
+
+  # HTTP / ICMP / DNS probing for service health and latency
+  blackbox-exporter:
+    container_name: blackbox-exporter
+    image: prom/blackbox-exporter:latest
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    volumes:
+      - './monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro'
+    cap_add:
+      - NET_RAW
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      pihole_wg_net:
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  uptime_kuma_data:
+
 networks:
   pihole_wg_net:
     name: pihole_wg_network

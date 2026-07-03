@@ -1,0 +1,2 @@
+# Dashboard JSON files are downloaded at deploy time by run.sh — do not commit them
+*.json

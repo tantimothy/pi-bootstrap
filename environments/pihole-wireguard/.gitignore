@@ -1,0 +1,9 @@
+# Downloaded at deploy time by run.sh — do not commit
+padd.sh
+
+# Runtime data directories
+etc-pihole/
+etc-wireguard/
+
+# Local environment config — never committed
+.env

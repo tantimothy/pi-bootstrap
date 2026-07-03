@@ -1,0 +1,83 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  # Pi-hole metrics via ekofr/pihole-exporter (on bridge network)
+  - job_name: 'pihole'
+    static_configs:
+      - targets: ['pihole-exporter:9617']
+
+  # WireGuard peer metrics via mindflavor/prometheus-wireguard-exporter
+  # (runs on host network — reached via host-gateway alias)
+  - job_name: 'wireguard'
+    static_configs:
+      - targets: ['host.docker.internal:9586']
+
+  # Raspberry Pi host system metrics (CPU, RAM, disk, network)
+  # node-exporter runs on host network, reached via host-gateway alias
+  - job_name: 'node'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+
+  # Internet speed test — long interval to avoid hammering the connection
+  # scrape_timeout must be longer than the speedtest itself (can take ~60s)
+  - job_name: 'speedtest'
+    scrape_interval: 30m
+    scrape_timeout: 90s
+    static_configs:
+      - targets: ['speedtest-exporter:9798']
+
+  # HTTP health checks for all local services
+  - job_name: 'blackbox_http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://pihole:80/admin
+          - http://grafana:3000
+          - http://uptime-kuma:3001
+          - http://host.docker.internal:51821
+          - https://google.com
+          - https://github.com
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # ICMP ping latency to key external IPs
+  - job_name: 'blackbox_icmp'
+    metrics_path: /probe
+    params:
+      module: [icmp]
+    static_configs:
+      - targets:
+          - 1.1.1.1
+          - 8.8.8.8
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # DNS resolution check via Pi-hole (validates DNS is working end-to-end)
+  - job_name: 'blackbox_dns'
+    metrics_path: /probe
+    params:
+      module: [dns_google]
+    static_configs:
+      - targets:
+          - pihole:53
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
