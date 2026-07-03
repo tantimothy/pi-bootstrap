@@ -16,6 +16,13 @@ fi
 
 mkdir -p "$APPS_DIR"
 
+# Only install entries if the nanoclaw service has been registered
+if ! systemctl list-unit-files "nanoclaw.service" --no-legend 2>/dev/null | grep -q "nanoclaw"; then
+    echo "  ⚠  nanoclaw: service 'nanoclaw.service' not found — skipping (deploy the environment first)"
+    exit 0
+fi
+echo "  nanoclaw: deployed ✓"
+
 cat > "$APPS_DIR/pi-bootstrap-nanoclaw.desktop" << EOF
 [Desktop Entry]
 Name=NanoClaw AI

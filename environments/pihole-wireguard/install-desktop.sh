@@ -24,6 +24,13 @@ fi
 
 mkdir -p "$APPS_DIR"
 
+# Only install entries if the environment has been deployed
+if ! docker ps -a --filter "name=^/pihole$" -q 2>/dev/null | grep -q .; then
+    echo "  ⚠  pihole-wireguard: container 'pihole' not found — skipping (deploy the environment first)"
+    exit 0
+fi
+echo "  pihole-wireguard: deployed ✓"
+
 # Read a value from .env with a fallback default
 env_val() {
     local key="$1" default="$2"

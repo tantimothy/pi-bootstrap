@@ -24,11 +24,23 @@ fi
 mkdir -p "$APPS_DIR"
 
 ENV_FILE="$ENV_DIR/.env"
+
+# Resolve image name before deployment check
 SDR_IMAGE="dragonos-pi"
-SDR_CONTAINER="sdr-dragonos-core"
 if [ -f "$ENV_FILE" ]; then
     _i=$(grep '^DOCKER_IMAGE_TAG=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'"); [ -n "$_i" ] && SDR_IMAGE=$_i
-    _c=$(grep '^CONTAINER_NAME='   "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'"); [ -n "$_c" ] && SDR_CONTAINER=$_c
+fi
+
+# Only install entries if the environment has been built
+if ! docker images -q "$SDR_IMAGE" 2>/dev/null | grep -q .; then
+    echo "  ⚠  dragonos-sdr: image '$SDR_IMAGE' not found — skipping (deploy the environment first)"
+    exit 0
+fi
+
+echo "  dragonos-sdr: deployed ✓"
+SDR_CONTAINER="sdr-dragonos-core"
+if [ -f "$ENV_FILE" ]; then
+    _c=$(grep '^CONTAINER_NAME=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'"); [ -n "$_c" ] && SDR_CONTAINER=$_c
 fi
 
 # X11 flags: mount the host X socket and pass DISPLAY=:0 (standard for Pi desktop).
