@@ -229,6 +229,26 @@ cp -r environments/dragonos-sdr/workspace ~/backup/
 
 ---
 
+## 🖥️ Desktop Integration
+
+On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once from the repo root:
+
+```bash
+./install-desktop-entries.sh
+# or just this environment on its own:
+./environments/dragonos-sdr/install-desktop.sh
+```
+
+| Desktop entry | How it opens |
+|:---|:---|
+| **GQRX** | X11 socket passthrough — spectrum waterfall window appears directly on the Pi desktop |
+| **GNU Radio Companion** | X11 socket passthrough — flowgraph editor window on the Pi desktop |
+| **SDR Tools Menu** | Opens in your desktop's default terminal emulator |
+
+X11 apps require the `dragonos-pi` image to be built first — run this environment once via `deploy.sh`. The entries use `DISPLAY=:0`, which is correct for a directly connected Pi desktop. For SSH with X forwarding, edit the installed `.desktop` files and replace `:0` with your `$DISPLAY` value.
+
+---
+
 ## 💡 Useful Commands
 
 ```bash

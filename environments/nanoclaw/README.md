@@ -109,6 +109,20 @@ cp -r ~/nanoclaw/data   ~/backup/nanoclaw-data
 
 ---
 
+## 🖥️ Desktop Integration
+
+On a Pi with a desktop environment, run once from the repo root:
+
+```bash
+./install-desktop-entries.sh
+# or just this environment on its own:
+./environments/nanoclaw/install-desktop.sh
+```
+
+This installs a **NanoClaw AI** entry that opens the environment in your desktop's default terminal emulator.
+
+---
+
 ## 💡 Useful Commands
 
 ```bash

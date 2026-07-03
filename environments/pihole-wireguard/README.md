@@ -184,6 +184,27 @@ Select a policy when deploying from the menu, or set `REBUILD_POLICY` when runni
 
 ---
 
+## 🖥️ Desktop Integration
+
+On a Pi with a desktop environment, run once from the repo root:
+
+```bash
+./install-desktop-entries.sh
+# or just this environment on its own:
+./environments/pihole-wireguard/install-desktop.sh
+```
+
+| Desktop entry | Opens |
+|:---|:---|
+| **Pi-hole Admin** | `http://localhost:<PIHOLE_WEB_PORT>/admin` in default browser |
+| **Grafana** | `http://localhost:<GRAFANA_PORT>` in default browser |
+| **Uptime Kuma** | `http://localhost:<UPTIME_KUMA_PORT>` in default browser |
+| **WireGuard Dashboard** | `http://localhost:<WG_UI_PORT>` in default browser |
+
+Port values are read from your `.env` at install time. Re-run the script if you change ports.
+
+---
+
 ## 💡 Useful Commands
 
 ```bash
