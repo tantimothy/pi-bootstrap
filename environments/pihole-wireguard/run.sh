@@ -215,7 +215,7 @@ if [ -f "$PADD_SCRIPT" ]; then
 $PADD_MARKER_START
 if [ -n "\$TMUX" ] && [ -f ~/padd.sh ]; then
     if ! tmux list-windows -F '#W' 2>/dev/null | grep -q '^padd\$'; then
-        tmux new-window -n padd "while ! PIHOLE_PASSWORD='${PADD_PASS}' ~/padd.sh; do sleep 5; done"
+        tmux new-window -n padd "while ! ~/padd.sh --secret '${PADD_PASS}'; do sleep 5; done"
     fi
 fi
 $PADD_MARKER_END
