@@ -6,7 +6,6 @@ ACTION="${1:-list}"
 [ -f "$SCRIPT_DIR/.env" ] && { set -a; source "$SCRIPT_DIR/.env"; set +a; }
 
 INSTALL_PATH="${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi}"
-export INSTALL_PATH
 
 DATA_DIRS=("$HOME/pi-hole" "$HOME/internet-monitoring/grafana" "$HOME/internet-monitoring/prometheus")
 DATA_DESCRIPTIONS=(
@@ -21,7 +20,13 @@ DATA_DIRS_LABEL="📁 Persistent Data Directories (back these up):"
 INSTALL_DIRS_LABEL="📂 Install Directories (can be re-cloned):"
 DELETE_INSTALL_DIRS=true
 DELETE_CONFIRM_MSG="All Pi-hole settings and Grafana dashboards will be lost."
-ENVSUBST_VARS='${INSTALL_PATH}'
+USEFUL_COMMANDS="   cd ${INSTALL_PATH} && ansible-playbook main.yml -i inventory.ini              # Re-run playbook
+   cd ${INSTALL_PATH} && git pull && ansible-playbook main.yml -i inventory.ini  # Update + re-run
+   docker logs -f pihole                                                          # Pi-hole live logs
+   docker logs -f grafana                                                         # Grafana live logs
+   cd ~/internet-monitoring && docker compose logs -f                             # All monitoring logs
+   docker exec -it pihole pihole setpassword                                      # Change Pi-hole password
+   docker exec -it pihole pihole -g                                               # Update gravity/blocklists"
 
 source "$REPO_DIR/lib/info-lib.sh"
 run_info

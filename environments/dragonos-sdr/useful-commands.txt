@@ -1,4 +1,0 @@
-   docker exec -it ${CONTAINER_NAME} /usr/local/bin/sdr-menu.sh   # Reattach to SDR menu
-   docker exec -it ${CONTAINER_NAME} bash                          # Open shell in container
-   docker logs ${CONTAINER_NAME}                                   # Container logs
-   ls ${SCRIPT_DIR}/workspace/captures/                            # Browse SDR captures

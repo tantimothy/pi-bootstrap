@@ -17,7 +17,7 @@
 #   NO_DELETE_MSG        — shown in delete when there is nothing to remove
 #   DELETE_CONFIRM_MSG   — text shown in the deletion confirmation prompt
 #   DELETE_INSTALL_DIRS  — "true" to include INSTALL_DIRS in the wipe (default: false)
-#   ENVSUBST_VARS        — variable list passed to envsubst (e.g. '${VAR1} ${VAR2}')
+#   USEFUL_COMMANDS      — multiline string of commands to display (bash-interpolated in info.sh)
 
 _info_list() {
     echo ""
@@ -80,7 +80,7 @@ _info_list() {
     fi
 
     echo "💡 Useful Commands:"
-    envsubst "${ENVSUBST_VARS:-}" < "$SCRIPT_DIR/useful-commands.txt"
+    echo "$USEFUL_COMMANDS"
     echo ""
 }
 
