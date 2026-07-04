@@ -232,6 +232,12 @@ $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 # ---------------------------------------------------------------------------------------
 PADD_SCRIPT="$SCRIPT_DIR/padd.sh"
 
+# PADD requires jq (JSON parsing) and dnsutils (dig) on the host
+if ! command -v jq &>/dev/null || ! command -v dig &>/dev/null; then
+    echo "📦 Installing PADD dependencies (jq, dnsutils)..."
+    sudo apt-get install -y jq dnsutils 2>/dev/null || true
+fi
+
 if [ ! -f "$PADD_SCRIPT" ]; then
     echo "📊 Downloading PADD (Pi-hole terminal dashboard)..."
     if curl -fsSL --max-time 15 \
