@@ -8,6 +8,7 @@ ACTION="${1:-list}"
 INSTALL_PATH="${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi}"
 
 DATA_DIRS=("$HOME/pi-hole" "$HOME/internet-monitoring/grafana" "$HOME/internet-monitoring/prometheus")
+WIPE_PARENT_DIRS=("$HOME/internet-monitoring")
 DATA_DESCRIPTIONS=(
     "Pi-hole config, gravity database, custom blocklists, local DNS records"
     "Grafana dashboard definitions, data source config, user settings"

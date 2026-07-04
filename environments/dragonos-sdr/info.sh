@@ -8,6 +8,7 @@ ACTION="${1:-list}"
 CONTAINER_NAME="${CONTAINER_NAME:-sdr-dragonos-core}"
 
 DATA_DIRS=("$SCRIPT_DIR/workspace/captures" "$SCRIPT_DIR/workspace/msf_data")
+WIPE_PARENT_DIRS=("$SCRIPT_DIR/workspace")
 DATA_DESCRIPTIONS=(
     "SDR captures, signal recordings, and analysis outputs"
     "Metasploit Framework data — workspace, loot, credentials"

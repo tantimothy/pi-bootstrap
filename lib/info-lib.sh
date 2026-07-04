@@ -10,6 +10,9 @@
 #   INSTALL_DIRS + INSTALL_DESCRIPTIONS
 #   NAMED_VOLUMES + NAMED_VOLUME_DESCRIPTIONS
 #
+# Optional arrays (declare as () if unused):
+#   WIPE_PARENT_DIRS     — parent dirs to rm -rf after DATA_DIRS are deleted (e.g. ~/internet-monitoring)
+#
 # Optional scalars (library provides defaults):
 #   DATA_DIRS_LABEL      — heading for the data dirs section
 #   INSTALL_DIRS_LABEL   — heading for the install dirs section
@@ -131,6 +134,18 @@ _info_delete() {
         done
     fi
 
+    if [ -n "${WIPE_PARENT_DIRS+x}" ] && [ "${#WIPE_PARENT_DIRS[@]}" -gt 0 ]; then
+        for dir in "${WIPE_PARENT_DIRS[@]}"; do
+            if [ -d "$dir" ]; then
+                local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+                echo "   🗑️  $dir  ($size)  (including any remaining contents)"
+                DIRS_EXIST=true
+            else
+                echo "   ⬜  $dir  (does not exist)"
+            fi
+        done
+    fi
+
     echo ""
     if [ "$DIRS_EXIST" = "false" ]; then
         echo "ℹ️  Nothing to delete."
@@ -151,20 +166,8 @@ _info_delete() {
 
     if [ "$CONFIRM" -eq 0 ]; then
         local dir
-        local -a _parent_dirs=()
         for dir in "${DATA_DIRS[@]}"; do
-            if [ -d "$dir" ]; then
-                rm -rf "$dir" && echo "🗑️  Deleted: $dir"
-                local _par; _par="$(dirname "$dir")"
-                local _seen=false
-                if [ ${#_parent_dirs[@]} -gt 0 ]; then
-                    local _p
-                    for _p in "${_parent_dirs[@]}"; do
-                        [ "$_p" = "$_par" ] && _seen=true && break
-                    done
-                fi
-                [ "$_seen" = "false" ] && _parent_dirs+=("$_par")
-            fi
+            [ -d "$dir" ] && rm -rf "$dir" && echo "🗑️  Deleted: $dir"
         done
         if [ "${DELETE_INSTALL_DIRS:-false}" = "true" ] && [ "${#INSTALL_DIRS[@]}" -gt 0 ]; then
             for dir in "${INSTALL_DIRS[@]}"; do
@@ -178,10 +181,9 @@ _info_delete() {
                 [ -n "$EXISTS" ] && docker volume rm "$vol" && echo "🗑️  Deleted volume: $vol"
             done
         fi
-        if [ ${#_parent_dirs[@]} -gt 0 ]; then
-            for _par in "${_parent_dirs[@]}"; do
-                [ "$_par" = "$HOME" ] && continue
-                [ -d "$_par" ] && rmdir "$_par" 2>/dev/null && echo "🗑️  Removed empty directory: $_par" || true
+        if [ -n "${WIPE_PARENT_DIRS+x}" ] && [ "${#WIPE_PARENT_DIRS[@]}" -gt 0 ]; then
+            for dir in "${WIPE_PARENT_DIRS[@]}"; do
+                [ -d "$dir" ] && rm -rf "$dir" && echo "🗑️  Deleted: $dir"
             done
         fi
         echo "✅ Done."
