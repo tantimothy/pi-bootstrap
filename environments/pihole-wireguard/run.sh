@@ -177,51 +177,6 @@ download_dashboard 13665 "speedtest"
 echo "✅ Monitoring setup complete."
 
 # ---------------------------------------------------------------------------------------
-# 3d. PADD — Pi-hole live stats dashboard
-#     Downloads padd.sh once, then injects a .bashrc block that auto-launches it in
-#     a dedicated tmux window on every login. Idempotent: re-deploy replaces the block.
-#     Runs here (before FAST early-exit) so it always executes regardless of stack state.
-# ---------------------------------------------------------------------------------------
-PADD_SCRIPT="$HOME/padd.sh"
-
-# PADD requires jq (JSON parsing) and dnsutils (dig) on the host
-if ! command -v jq &>/dev/null || ! command -v dig &>/dev/null; then
-    echo "📦 Installing PADD dependencies (jq, dnsutils)..."
-    sudo apt-get install -y jq dnsutils 2>/dev/null || true
-fi
-
-if [ ! -f "$PADD_SCRIPT" ]; then
-    echo "📊 Downloading PADD (Pi-hole terminal dashboard)..."
-    if curl -fsSL --max-time 15 \
-        "https://raw.githubusercontent.com/pi-hole/PADD/master/padd.sh" \
-        -o "$PADD_SCRIPT"; then
-        chmod +x "$PADD_SCRIPT"
-        echo "✅ PADD downloaded."
-    else
-        echo "⚠️  Could not download PADD — skipping. Get it from https://github.com/pi-hole/PADD"
-    fi
-fi
-
-if [ -f "$PADD_SCRIPT" ]; then
-    BASHRC="$HOME/.bashrc"
-    PADD_MARKER_START="# >>> PIHOLE-WIREGUARD PADD START >>>"
-    PADD_MARKER_END="# <<< PIHOLE-WIREGUARD PADD END <<<"
-    PADD_PASS="${FTLCONF_webserver_api_password:-}"
-    touch "$BASHRC"
-    if grep -qF "$PADD_MARKER_START" "$BASHRC"; then
-        sed -i "/$PADD_MARKER_START/,/$PADD_MARKER_END/d" "$BASHRC"
-    fi
-    cat >> "$BASHRC" << EOF
-$PADD_MARKER_START
-
-~/padd.sh --secret '${PADD_PASS}'
-
-$PADD_MARKER_END
-EOF
-    echo "📊 PADD configured — will auto-launch on next terminal session."
-fi
-
-# ---------------------------------------------------------------------------------------
 # 4. Advanced Policy Engine Routing State Machine
 # ---------------------------------------------------------------------------------------
 CONTAINER_NAMES=("pihole" "wg-easy" "pihole-exporter" "wireguard-exporter" "prometheus" "grafana" "uptime-kuma" "node-exporter" "speedtest-exporter" "blackbox-exporter")

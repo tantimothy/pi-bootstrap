@@ -9,7 +9,7 @@ services:
     environment:
       - TZ=${TZ:-Asia/Singapore}
       - WEBPASSWORD=${FTLCONF_webserver_api_password}
-      - FTLCONF_dns_upstreams=1.1.1.1;1.0.0.1
+      - FTLCONF_dns_upstreams
     volumes:
       - './etc-pihole:/etc/pihole'
     networks:
