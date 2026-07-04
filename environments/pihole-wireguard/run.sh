@@ -218,7 +218,7 @@ $PADD_MARKER_START
 
 $PADD_MARKER_END
 EOF
-    echo "📊 PADD configured — will auto-launch in a tmux window 'padd' on next login."
+    echo "📊 PADD configured — will auto-launch on next terminal session."
 fi
 
 # ---------------------------------------------------------------------------------------
