@@ -50,37 +50,19 @@ fi
 # --- STEP 3: IDEMPOTENTLY INJECT LINES TO .BASHRC ---
 echo "✏️ Updating $BASHRC with initialization blocks..."
 
-# Ensure .bashrc exists
 touch "$BASHRC"
 
-# Clean out any older versions of our setup block if the script was run previously
-# This logic deletes everything strictly between the START and END markers inclusive.
 if grep -qF "$MARKER_START" "$BASHRC"; then
     echo "🧹 Cleaned old configurations from .bashrc to enforce idempotency."
     sed -i "/$MARKER_START/,/$MARKER_END/d" "$BASHRC"
 fi
 
-# Append the fresh block exactly once
-cat << 'EOF' >> "$BASHRC"
-# >>> PI INITIAL SETUP START >>>
-
-# Ensure we dynamically attach or spawn a reusable tmux session
-tmux new-session -A
-
-# Execute PADD dashboard utility if it exists in home directory
-cd ~
-if [ -f ./padd.sh ]; then
-    ./padd.sh
-fi
-
-# Fallback wrapper to trigger system telemetry fastfetch safely
-cd ~
-if [ -f /usr/bin/fastfetch ]; then 
-    fastfetch
-fi
-
-# <<< PI INITIAL SETUP END <<<
-EOF
+{
+    echo ""
+    echo "$MARKER_START"
+    cat "$SCRIPT_DIR/.bashrc"
+    echo "$MARKER_END"
+} >> "$BASHRC"
 
 echo "✅ Shell setup complete."
 
