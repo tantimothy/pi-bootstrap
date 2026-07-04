@@ -215,7 +215,7 @@ if [ -f "$PADD_SCRIPT" ]; then
 $PADD_MARKER_START
 if [ -n "\$TMUX" ] && [ -f ~/padd.sh ]; then
     if ! tmux list-windows -F '#W' 2>/dev/null | grep -q '^padd\$'; then
-        tmux new-window -n padd "~/padd.sh --secret '${PADD_PASS}'"
+        tmux new-window -n padd "timeout 90 bash -c 'until curl -sf http://localhost/api/auth >/dev/null 2>&1; do sleep 5; done' && ~/padd.sh --secret '${PADD_PASS}'"
     fi
 fi
 $PADD_MARKER_END
