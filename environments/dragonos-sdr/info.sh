@@ -7,6 +7,7 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
 fi
 
 CONTAINER_NAME="${CONTAINER_NAME:-sdr-dragonos-core}"
+export SCRIPT_DIR CONTAINER_NAME
 
 DATA_DIRS=(
     "$SCRIPT_DIR/workspace/captures"
@@ -15,12 +16,6 @@ DATA_DIRS=(
 DATA_DESCRIPTIONS=(
     "SDR captures, signal recordings, and analysis outputs"
     "Metasploit Framework data — workspace, loot, credentials"
-)
-USEFUL_COMMANDS=(
-    "docker exec -it $CONTAINER_NAME /usr/local/bin/sdr-menu.sh   # Reattach to SDR menu"
-    "docker exec -it $CONTAINER_NAME bash                          # Open shell in container"
-    "docker logs $CONTAINER_NAME                                   # Container logs"
-    "ls $SCRIPT_DIR/workspace/captures/                            # Browse SDR captures"
 )
 
 # -----------------------------------------------------------------------
@@ -39,9 +34,7 @@ if [ "$ACTION" = "list" ]; then
     done
     echo ""
     echo "💡 Useful Commands:"
-    for cmd in "${USEFUL_COMMANDS[@]}"; do
-        echo "   $cmd"
-    done
+    envsubst '${CONTAINER_NAME} ${SCRIPT_DIR}' < "$SCRIPT_DIR/useful-commands.txt"
     echo ""
 
 elif [ "$ACTION" = "delete" ]; then

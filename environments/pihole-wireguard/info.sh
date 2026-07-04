@@ -7,6 +7,8 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
 fi
 
 : "${GRAFANA_PORT:=3030}"
+: "${PIHOLE_WEB_PORT:=8080}"
+export SCRIPT_DIR PIHOLE_WEB_PORT
 
 DATA_DIRS=(
     "$SCRIPT_DIR/etc-pihole"
@@ -21,18 +23,6 @@ NAMED_VOLUME_DESCRIPTIONS=(
     "Prometheus time-series metrics (peer transfer stats, Pi-hole query history)"
     "Grafana database — saved dashboards, alert rules, user preferences"
     "Uptime Kuma database — all monitors, notification channels, incident history"
-)
-USEFUL_COMMANDS=(
-    "docker exec -it pihole pihole setpassword                   # Change Pi-hole admin password"
-    "docker exec -it wg-easy wg show                             # Show connected WireGuard peers and transfer stats"
-    "docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'pass'   # Generate new bcrypt hash for PASSWORD_HASH"
-    "docker logs -f pihole                                        # Pi-hole live logs"
-    "docker logs -f wg-easy                                       # WireGuard live logs"
-    "docker logs -f grafana                                       # Grafana live logs"
-    "docker compose -f $SCRIPT_DIR/docker-compose.yml ps         # Full stack status"
-    "tmux attach -t pihole-monitor                                # Attach to PADD dashboard tmux session"
-    "PIHOLE_SERVER=localhost:${PIHOLE_WEB_PORT:-8080} $SCRIPT_DIR/padd.sh  # Run PADD manually"
-    "docker logs -f uptime-kuma                                   # Uptime Kuma live logs"
 )
 
 # -----------------------------------------------------------------------
@@ -65,9 +55,7 @@ if [ "$ACTION" = "list" ]; then
     done
     echo ""
     echo "💡 Useful Commands:"
-    for cmd in "${USEFUL_COMMANDS[@]}"; do
-        echo "   $cmd"
-    done
+    envsubst '${SCRIPT_DIR} ${PIHOLE_WEB_PORT}' < "$SCRIPT_DIR/useful-commands.txt"
     echo ""
     echo "📊 Backup named volumes:"
     echo "   docker run --rm -v prometheus_data:/data -v \$(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data"

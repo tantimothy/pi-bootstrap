@@ -7,6 +7,7 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
 fi
 
 INSTALL_PATH="${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}"
+export INSTALL_PATH
 
 DATA_DIRS=(
     "$INSTALL_PATH/groups"
@@ -21,15 +22,6 @@ INSTALL_DIRS=(
 )
 INSTALL_DESCRIPTIONS=(
     "NanoClaw repo + built binaries (groups/ and data/ live inside here)"
-)
-USEFUL_COMMANDS=(
-    "systemctl status nanoclaw                             # Service status"
-    "journalctl -u nanoclaw -f                            # Live logs"
-    "sudo systemctl restart nanoclaw                      # Restart service"
-    "docker ps --filter name=nanoclaw                     # List agent containers"
-    "cd $INSTALL_PATH && bash setup/add-whatsapp.sh       # Add WhatsApp channel"
-    "cd $INSTALL_PATH && bash setup/add-telegram.sh       # Add Telegram channel"
-    "cd $INSTALL_PATH && bash setup/register-claude-token.sh  # Update Anthropic API key"
 )
 
 # -----------------------------------------------------------------------
@@ -60,9 +52,7 @@ if [ "$ACTION" = "list" ]; then
     done
     echo ""
     echo "💡 Useful Commands:"
-    for cmd in "${USEFUL_COMMANDS[@]}"; do
-        echo "   $cmd"
-    done
+    envsubst '${INSTALL_PATH}' < "$SCRIPT_DIR/useful-commands.txt"
     echo ""
 
 elif [ "$ACTION" = "delete" ]; then

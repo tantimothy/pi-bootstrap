@@ -1,0 +1,7 @@
+   cd ${INSTALL_PATH} && ansible-playbook main.yml -i inventory.ini              # Re-run playbook
+   cd ${INSTALL_PATH} && git pull && ansible-playbook main.yml -i inventory.ini  # Update + re-run
+   docker logs -f pihole                                                          # Pi-hole live logs
+   docker logs -f grafana                                                         # Grafana live logs
+   cd ~/internet-monitoring && docker compose logs -f                             # All monitoring logs
+   docker exec -it pihole pihole setpassword                                      # Change Pi-hole password
+   docker exec -it pihole pihole -g                                               # Update gravity/blocklists

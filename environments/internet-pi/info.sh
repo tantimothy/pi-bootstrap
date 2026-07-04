@@ -7,6 +7,7 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
 fi
 
 INSTALL_PATH="${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi}"
+export INSTALL_PATH
 
 DATA_DIRS=(
     "$HOME/pi-hole"
@@ -23,15 +24,6 @@ INSTALL_DIRS=(
 )
 INSTALL_DESCRIPTIONS=(
     "internet-pi repo clone + generated config.yml and inventory.ini"
-)
-USEFUL_COMMANDS=(
-    "cd $INSTALL_PATH && ansible-playbook main.yml -i inventory.ini   # Re-run playbook"
-    "cd $INSTALL_PATH && git pull && ansible-playbook main.yml -i inventory.ini  # Update + re-run"
-    "docker logs -f pihole                                             # Pi-hole live logs"
-    "docker logs -f grafana                                            # Grafana live logs"
-    "cd ~/internet-monitoring && docker compose logs -f               # All monitoring logs"
-    "docker exec -it pihole pihole setpassword                        # Change Pi-hole password"
-    "docker exec -it pihole pihole -g                                 # Update gravity/blocklists"
 )
 
 # -----------------------------------------------------------------------
@@ -62,9 +54,7 @@ if [ "$ACTION" = "list" ]; then
     done
     echo ""
     echo "💡 Useful Commands:"
-    for cmd in "${USEFUL_COMMANDS[@]}"; do
-        echo "   $cmd"
-    done
+    envsubst '${INSTALL_PATH}' < "$SCRIPT_DIR/useful-commands.txt"
     echo ""
 
 elif [ "$ACTION" = "delete" ]; then

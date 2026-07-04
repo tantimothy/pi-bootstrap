@@ -1,0 +1,7 @@
+   systemctl status nanoclaw                                        # Service status
+   journalctl -u nanoclaw -f                                       # Live logs
+   sudo systemctl restart nanoclaw                                 # Restart service
+   docker ps --filter name=nanoclaw                                # List agent containers
+   cd ${INSTALL_PATH} && bash setup/add-whatsapp.sh                # Add WhatsApp channel
+   cd ${INSTALL_PATH} && bash setup/add-telegram.sh                # Add Telegram channel
+   cd ${INSTALL_PATH} && bash setup/register-claude-token.sh       # Update Anthropic API key
