@@ -1,0 +1,14 @@
+==========================================================
+🏁 Internet Pi Deployment Complete!
+==========================================================
+${PIHOLE_LINE}${GRAFANA_LINE}
+  🔑 Pi-hole admin password:   PIHOLE_PASSWORD from your .env
+  📊 Grafana login:            admin / MONITORING_GRAFANA_ADMIN_PASSWORD from .env
+  ⚡ Speedtest runs every ${MONITORING_SPEEDTEST_INTERVAL} — results visible in Grafana
+  📁 Config and data:          ${INSTALL_PATH}
+
+  ↩️  To re-run with updated config (e.g. after editing .env):
+     Select this environment again in the deploy menu (FAST will re-run the playbook)
+  🔄 Or run manually:
+     cd ${INSTALL_PATH} && ansible-playbook main.yml -i inventory.ini
+==========================================================

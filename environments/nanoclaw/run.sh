@@ -188,28 +188,12 @@ bash nanoclaw.sh
 # ---------------------------------------------------------------------------------------
 # 6. Post-install status
 # ---------------------------------------------------------------------------------------
-echo ""
-echo "=========================================================="
-echo "🏁 NanoClaw Setup Complete"
-echo "=========================================================="
-echo ""
-echo "  🌐 Web interface:  http://${HOST_IP}:${NANOCLAW_PORT}"
 if [ "$OS_TYPE" = "linux" ]; then
-    echo "  📋 Service status: systemctl status nanoclaw"
-    echo "  📜 Live logs:      journalctl -u nanoclaw -f"
+    SERVICE_COMMANDS="  📋 Service status: systemctl status nanoclaw
+  📜 Live logs:      journalctl -u nanoclaw -f"
 else
-    echo "  📜 Live logs:      tail -f $INSTALL_PATH/logs/nanoclaw.log"
+    SERVICE_COMMANDS="  📜 Live logs:      tail -f ${INSTALL_PATH}/logs/nanoclaw.log"
 fi
-echo ""
-echo "  📲 To add more channels (Telegram, Discord, WhatsApp, Slack, iMessage):"
-echo "     cd $INSTALL_PATH && bash setup/add-telegram.sh"
-echo "     cd $INSTALL_PATH && bash setup/add-discord.sh"
-echo "     cd $INSTALL_PATH && bash setup/add-whatsapp.sh"
-echo "     cd $INSTALL_PATH && bash setup/add-imessage.sh"
-echo ""
-echo "  🔑 To register a new Anthropic API key:"
-echo "     cd $INSTALL_PATH && bash setup/register-claude-token.sh"
-echo ""
-echo "  🐳 NanoClaw manages its own Docker containers per conversation group."
-echo "     Use the Docker Manager in the deploy menu to view or delete them."
-echo "=========================================================="
+export HOST_IP NANOCLAW_PORT INSTALL_PATH SERVICE_COMMANDS
+envsubst '${HOST_IP} ${NANOCLAW_PORT} ${INSTALL_PATH} ${SERVICE_COMMANDS}' \
+    < "$SCRIPT_DIR/post-deploy.txt"

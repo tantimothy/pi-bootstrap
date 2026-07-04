@@ -209,19 +209,12 @@ ansible-playbook main.yml -i inventory.ini $ANSIBLE_EXTRA_FLAGS
 # ---------------------------------------------------------------------------------------
 # 10. Post-deploy output
 # ---------------------------------------------------------------------------------------
-echo "=========================================================="
-echo "🏁 Internet Pi Deployment Complete!"
-echo "=========================================================="
-[ "$PIHOLE_ENABLE" = "true" ]     && echo "🌍 Pi-hole Admin:     http://${HOST_IP}/admin"
-[ "$MONITORING_ENABLE" = "true" ] && echo "📊 Grafana Dashboard: http://${HOST_IP}:3030/"
-echo ""
-echo "  🔑 Pi-hole admin password:   PIHOLE_PASSWORD from your .env"
-echo "  📊 Grafana login:            admin / MONITORING_GRAFANA_ADMIN_PASSWORD from .env"
-echo "  ⚡ Speedtest runs every ${MONITORING_SPEEDTEST_INTERVAL} — results visible in Grafana"
-echo "  📁 Config and data:          $INSTALL_PATH"
-echo ""
-echo "  ↩️  To re-run with updated config (e.g. after editing .env):"
-echo "     Select this environment again in the deploy menu (FAST will re-run the playbook)"
-echo "  🔄 Or run manually:"
-echo "     cd $INSTALL_PATH && ansible-playbook main.yml -i inventory.ini"
-echo "=========================================================="
+PIHOLE_LINE=""
+GRAFANA_LINE=""
+[ "$PIHOLE_ENABLE"    = "true" ] && PIHOLE_LINE="🌍 Pi-hole Admin:     http://${HOST_IP}/admin
+"
+[ "$MONITORING_ENABLE" = "true" ] && GRAFANA_LINE="📊 Grafana Dashboard: http://${HOST_IP}:3030/
+"
+export PIHOLE_LINE GRAFANA_LINE MONITORING_SPEEDTEST_INTERVAL INSTALL_PATH
+envsubst '${PIHOLE_LINE} ${GRAFANA_LINE} ${MONITORING_SPEEDTEST_INTERVAL} ${INSTALL_PATH}' \
+    < "$SCRIPT_DIR/post-deploy.txt"

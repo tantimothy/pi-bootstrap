@@ -191,10 +191,7 @@ fi
 
 HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
 [ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+VNC_PORT="590${VNC_DISPLAY}"
 
-echo ""
-echo "✅ TigerVNC running on display :${VNC_DISPLAY} (port 590${VNC_DISPLAY})."
-echo "   Connect from a VNC client:  ${HOST_IP}:590${VNC_DISPLAY}"
-echo "   Password:                   the one you set in Step 4b above"
-echo ""
-echo "✅ All done. Reconnect your SSH session (or run: source ~/.bashrc) to activate the shell changes."
+export HOST_IP VNC_DISPLAY VNC_PORT
+envsubst '${HOST_IP} ${VNC_DISPLAY} ${VNC_PORT}' < "$SCRIPT_DIR/post-deploy.txt"
