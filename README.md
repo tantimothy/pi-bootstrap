@@ -34,7 +34,7 @@ curl -sSL -H "Authorization: token <your_github_token>" \
 
 ## 🖥️ Desktop Menu Integration
 
-On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once to register all environments as clickable desktop entries:
+On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once to register all environments as clickable desktop entries. This is also available as menu options in `./deploy.sh` — "[Desktop] Install Desktop Entries" and "[Desktop] Uninstall Desktop Entries":
 
 ```bash
 ./install-desktop-entries.sh
@@ -49,11 +49,11 @@ This installs entries to `~/.local/share/applications/`. What each type does:
 |:---|:---|
 | GQRX, GNU Radio Companion | X11 socket passthrough — window appears directly on the Pi desktop |
 | SDR menu, Kali, NanoClaw | Opens in your desktop's default terminal emulator |
-| Pi-hole, Grafana, Uptime Kuma, WireGuard | `xdg-open` to `localhost:<port>` in your default browser |
+| Pi-hole, Grafana, Uptime Kuma, WireGuard | Tries `xdg-open`, then falls back to `x-www-browser`, `sensible-browser`, and `chromium-browser` against `localhost:<port>`, so the shortcut still works if no default browser handler is configured |
 
 Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
 
-Environments that haven't been deployed yet are skipped automatically — deploy first, then re-run to register their entries.
+Only environments that are actually deployed get entries. Re-running the installer keeps the menu in sync: it registers entries for anything newly deployed, and removes entries for anything that isn't (or was undeployed since) — so stale shortcuts don't linger. New entries appear in the menu automatically on Raspberry Pi OS; no manual refresh is needed.
 
 ---
 

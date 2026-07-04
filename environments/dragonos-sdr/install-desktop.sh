@@ -31,8 +31,10 @@ if [ -f "$ENV_FILE" ]; then
     _i=$(grep '^DOCKER_IMAGE_TAG=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'"); [ -n "$_i" ] && SDR_IMAGE=$_i
 fi
 
-# Only install entries if the environment has been built
+# Only install entries if the environment has been built.
+# If it hasn't (or the image was removed since), clean up any stale entries too.
 if ! docker images -q "$SDR_IMAGE" 2>/dev/null | grep -q .; then
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; done
     echo "  ⚠  dragonos-sdr: image '$SDR_IMAGE' not found — skipping (deploy the environment first)"
     exit 0
 fi

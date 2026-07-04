@@ -24,8 +24,11 @@ fi
 
 mkdir -p "$APPS_DIR"
 
-# Only install entries if the environment has been deployed
+# Only install entries if the environment has been deployed.
+# If it isn't (or was deployed before and has since been torn down), remove
+# any stale entries so the menu doesn't accumulate broken shortcuts.
 if ! docker ps -a --filter "name=^/pihole$" -q 2>/dev/null | grep -q .; then
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; done
     echo "  ⚠  pihole-wireguard: container 'pihole' not found — skipping (deploy the environment first)"
     exit 0
 fi
@@ -44,11 +47,23 @@ GRAFANA_PORT=$(env_val "GRAFANA_PORT"    "3030")
 UPTIME_PORT=$(env_val  "UPTIME_KUMA_PORT" "3001")
 WG_PORT=$(env_val      "WG_UI_PORT"      "51821")
 
+# Build a shell command that tries several launchers in turn. A bare
+# `xdg-open` silently does nothing on some Pi desktop images that lack a
+# configured default browser handler, so fall back through common
+# alternatives. Inlined into each Exec= (rather than a shared function)
+# since the desktop launcher spawns a fresh process with no access to
+# functions defined in this installer script.
+open_cmd() {
+    local url="$1"
+    printf 'xdg-open %s 2>/dev/null || x-www-browser %s 2>/dev/null || sensible-browser %s 2>/dev/null || chromium-browser %s 2>/dev/null' \
+        "$url" "$url" "$url" "$url"
+}
+
 cat > "$APPS_DIR/pi-bootstrap-pihole.desktop" << EOF
 [Desktop Entry]
 Name=Pi-hole Admin
 Comment=DNS ad-blocker — blocklist management, query log, client stats
-Exec=xdg-open http://localhost:$PIHOLE_PORT/admin
+Exec=bash -c "$(open_cmd "http://localhost:$PIHOLE_PORT/admin")"
 Icon=network-server
 Type=Application
 Categories=Network;System;
@@ -60,7 +75,7 @@ cat > "$APPS_DIR/pi-bootstrap-grafana.desktop" << EOF
 [Desktop Entry]
 Name=Grafana (Pi Network)
 Comment=Monitoring dashboards — Pi-hole metrics, WireGuard peers, node and speedtest
-Exec=xdg-open http://localhost:$GRAFANA_PORT
+Exec=bash -c "$(open_cmd "http://localhost:$GRAFANA_PORT")"
 Icon=utilities-system-monitor
 Type=Application
 Categories=Network;System;
@@ -72,7 +87,7 @@ cat > "$APPS_DIR/pi-bootstrap-uptime-kuma.desktop" << EOF
 [Desktop Entry]
 Name=Uptime Kuma
 Comment=Service uptime and health monitoring dashboard
-Exec=xdg-open http://localhost:$UPTIME_PORT
+Exec=bash -c "$(open_cmd "http://localhost:$UPTIME_PORT")"
 Icon=network-server
 Type=Application
 Categories=Network;System;
@@ -84,7 +99,7 @@ cat > "$APPS_DIR/pi-bootstrap-wireguard.desktop" << EOF
 [Desktop Entry]
 Name=WireGuard VPN Dashboard
 Comment=WireGuard peer management — add or remove clients, view connection status
-Exec=xdg-open http://localhost:$WG_PORT
+Exec=bash -c "$(open_cmd "http://localhost:$WG_PORT")"
 Icon=network-vpn
 Type=Application
 Categories=Network;

@@ -16,8 +16,10 @@ fi
 
 mkdir -p "$APPS_DIR"
 
-# Only install entries if the nanoclaw service has been registered
+# Only install entries if the nanoclaw service has been registered.
+# If it hasn't (or was unregistered since), clean up any stale entries too.
 if ! systemctl list-unit-files "nanoclaw.service" --no-legend 2>/dev/null | grep -q "nanoclaw"; then
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; done
     echo "  ⚠  nanoclaw: service 'nanoclaw.service' not found — skipping (deploy the environment first)"
     exit 0
 fi
