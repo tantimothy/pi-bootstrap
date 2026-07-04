@@ -151,8 +151,20 @@ _info_delete() {
 
     if [ "$CONFIRM" -eq 0 ]; then
         local dir
+        local -a _parent_dirs=()
         for dir in "${DATA_DIRS[@]}"; do
-            [ -d "$dir" ] && rm -rf "$dir" && echo "🗑️  Deleted: $dir"
+            if [ -d "$dir" ]; then
+                rm -rf "$dir" && echo "🗑️  Deleted: $dir"
+                local _par; _par="$(dirname "$dir")"
+                local _seen=false
+                if [ ${#_parent_dirs[@]} -gt 0 ]; then
+                    local _p
+                    for _p in "${_parent_dirs[@]}"; do
+                        [ "$_p" = "$_par" ] && _seen=true && break
+                    done
+                fi
+                [ "$_seen" = "false" ] && _parent_dirs+=("$_par")
+            fi
         done
         if [ "${DELETE_INSTALL_DIRS:-false}" = "true" ] && [ "${#INSTALL_DIRS[@]}" -gt 0 ]; then
             for dir in "${INSTALL_DIRS[@]}"; do
@@ -164,6 +176,12 @@ _info_delete() {
             for vol in "${NAMED_VOLUMES[@]}"; do
                 local EXISTS; EXISTS=$(docker volume ls -q --filter name="^${vol}$" 2>/dev/null)
                 [ -n "$EXISTS" ] && docker volume rm "$vol" && echo "🗑️  Deleted volume: $vol"
+            done
+        fi
+        if [ ${#_parent_dirs[@]} -gt 0 ]; then
+            for _par in "${_parent_dirs[@]}"; do
+                [ "$_par" = "$HOME" ] && continue
+                [ -d "$_par" ] && rmdir "$_par" 2>/dev/null && echo "🗑️  Removed empty directory: $_par" || true
             done
         fi
         echo "✅ Done."
