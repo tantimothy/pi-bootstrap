@@ -183,14 +183,15 @@ for dir in "${ENV_DIRS[@]}"; do
     ((MENU_INDEX++))
 done
 
-# Append management action — use 'M' so it doesn't clash with numeric env slots
+# Append management actions — use letters so they don't clash with numeric env slots
 MENU_OPTIONS+=( "M" "[Manage] List & Delete Containers" )
+MENU_OPTIONS+=( "D" "[Desktop] Install Desktop Entries" )
 
 # Present the Menu
 TEMP_FILE=$(mktemp)
 dialog --clear \
     --title " Raspberry Pi Deployment Center " \
-    --menu "Choose a configuration workspace to deploy:" 16 70 8 \
+    --menu "Choose a configuration workspace to deploy:" 18 70 10 \
     "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
 EXIT_STATUS=$?
@@ -206,6 +207,8 @@ fi
 # Resolve numeric selection back to a directory path
 if [ "$SELECTED_NUM" = "M" ]; then
     SELECTED_PATH="_manage"
+elif [ "$SELECTED_NUM" = "D" ]; then
+    SELECTED_PATH="_desktop"
 else
     SELECTED_PATH="${ENV_PATHS[$((SELECTED_NUM - 1))]}"
 fi
@@ -343,6 +346,23 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         done
         echo "✅ Done."
     fi
+    exit 0
+fi
+
+# ==========================================
+# DESKTOP ENTRIES INSTALLER
+# ==========================================
+if [ "$SELECTED_PATH" = "_desktop" ]; then
+    clear
+    DESKTOP_SCRIPT="$PROJECT_DIR/install-desktop-entries.sh"
+    if [ ! -f "$DESKTOP_SCRIPT" ]; then
+        echo "❌ install-desktop-entries.sh not found at $PROJECT_DIR"
+        exit 1
+    fi
+    echo "🖥️  Installing desktop entries for all deployed environments..."
+    bash "$DESKTOP_SCRIPT"
+    echo ""
+    echo "✅ Desktop entries installed. Re-run to update after deploying new environments."
     exit 0
 fi
 
