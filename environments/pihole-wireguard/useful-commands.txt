@@ -8,3 +8,7 @@
    tmux attach -t pihole-monitor                                    # Attach to PADD dashboard tmux session
    PIHOLE_SERVER=localhost:${PIHOLE_WEB_PORT} ${SCRIPT_DIR}/padd.sh  # Run PADD manually
    docker logs -f uptime-kuma                                       # Uptime Kuma live logs
+
+📊 Backup named volumes:
+   docker run --rm -v prometheus_data:/data -v $(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
+   docker run --rm -v grafana_data:/data -v $(pwd):/backup alpine tar czf /backup/grafana_data.tar.gz /data
