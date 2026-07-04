@@ -121,6 +121,8 @@ On a Pi with a desktop environment, run once from the repo root:
 
 This installs a **NanoClaw AI** entry that opens the environment in your desktop's default terminal emulator.
 
+The script checks whether the `nanoclaw.service` systemd unit exists before registering the entry — it prints a warning and exits cleanly if the service hasn't been installed yet. Deploy this environment first, then re-run to install the entry.
+
 ---
 
 ## 💡 Useful Commands

@@ -13,7 +13,7 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 
 | Service | Container | Port | Purpose |
 |---------|-----------|------|---------|
-| [Pi-hole v6](https://pi-hole.net) | `pihole` | 53 (DNS), 8080 (web) | Network-wide DNS ad blocking and local DNS management |
+| [Pi-hole v6](https://pi-hole.net) | `pihole` | 53 (DNS), 80 (web) | Network-wide DNS ad blocking and local DNS management |
 | [WireGuard](https://www.wireguard.com) / [wg-easy](https://github.com/wg-easy/wg-easy) | `wg-easy` | 51820/udp (VPN), 51821 (web) | Encrypted VPN with a web UI for peer management |
 | [Grafana](https://grafana.com) | `grafana` | 3030 | Time-series dashboards for Pi-hole and WireGuard metrics |
 | [Prometheus](https://prometheus.io) | `prometheus` | *(internal)* | Metrics scraping and storage backend |
@@ -83,7 +83,7 @@ chmod +x run.sh
 ### 5. Post-deployment Verification
 Ensure both containers are running cleanly: `docker compose ps`
 Access your local dashboards via the values populated by your configuration engine:
-- **Pi-hole Web UI:** `http://<YOUR_PI_IP>:{PIHOLE_WEB_PORT:-8080}/admin`
+- **Pi-hole Web UI:** `http://<YOUR_PI_IP>:{PIHOLE_WEB_PORT:-80}/admin`
 - **WireGuard Web UI:** `http://<YOUR_PI_IP>:{WG_UI_PORT:-51821}`
 
 ---
@@ -203,6 +203,8 @@ On a Pi with a desktop environment, run once from the repo root:
 
 Port values are read from your `.env` at install time. Re-run the script if you change ports.
 
+The script checks whether the stack is deployed before registering entries — it prints a warning and exits cleanly if the `pihole` container doesn't exist yet. Deploy first, then re-run to install the entries.
+
 ---
 
 ## 💡 Useful Commands
@@ -233,11 +235,11 @@ docker logs -f wireguard-exporter
 # Stack status (all 6 containers)
 docker compose ps
 
-# Attach to the PADD live dashboard (auto-launched in tmux by run.sh)
-tmux attach -t pihole-monitor
+# Attach to tmux (PADD auto-launches in the 'padd' window on login)
+tmux attach
 
-# Run PADD manually (e.g. if tmux wasn't installed at deploy time)
-PIHOLE_SERVER=localhost:8080 ./padd.sh
+# Run PADD manually
+~/padd.sh
 
 # Uptime Kuma logs
 docker logs -f uptime-kuma
@@ -274,7 +276,7 @@ Monitors are configured via the UI. Suggested monitors for this stack:
 
 | What to monitor | Type | URL / Target |
 |-----------------|------|--------------|
-| Pi-hole web UI | HTTP(s) | `http://localhost:8080/admin` |
+| Pi-hole web UI | HTTP(s) | `http://localhost/admin` |
 | WireGuard web UI | HTTP(s) | `http://localhost:51821` |
 | Grafana | HTTP(s) | `http://localhost:3030` |
 | DNS resolution (via Pi-hole) | DNS | resolve `google.com` on `127.0.0.1` |

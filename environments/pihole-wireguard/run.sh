@@ -79,7 +79,7 @@ else
 fi
 
 # Fallback boundaries to safeguard the deployment if unassigned
-: "${PIHOLE_WEB_PORT:=8080}"
+: "${PIHOLE_WEB_PORT:=80}"
 : "${WG_UI_PORT:=51821}"
 : "${GRAFANA_PORT:=3030}"
 : "${UPTIME_KUMA_PORT:=3001}"
@@ -177,6 +177,52 @@ download_dashboard 13665 "speedtest"
 echo "✅ Monitoring setup complete."
 
 # ---------------------------------------------------------------------------------------
+# 3d. PADD — Pi-hole live stats dashboard
+#     Downloads padd.sh once, then injects a .bashrc block that auto-launches it in
+#     a dedicated tmux window on every login. Idempotent: re-deploy replaces the block.
+#     Runs here (before FAST early-exit) so it always executes regardless of stack state.
+# ---------------------------------------------------------------------------------------
+PADD_SCRIPT="$HOME/padd.sh"
+
+# PADD requires jq (JSON parsing) and dnsutils (dig) on the host
+if ! command -v jq &>/dev/null || ! command -v dig &>/dev/null; then
+    echo "📦 Installing PADD dependencies (jq, dnsutils)..."
+    sudo apt-get install -y jq dnsutils 2>/dev/null || true
+fi
+
+if [ ! -f "$PADD_SCRIPT" ]; then
+    echo "📊 Downloading PADD (Pi-hole terminal dashboard)..."
+    if curl -fsSL --max-time 15 \
+        "https://raw.githubusercontent.com/pi-hole/PADD/master/padd.sh" \
+        -o "$PADD_SCRIPT"; then
+        chmod +x "$PADD_SCRIPT"
+        echo "✅ PADD downloaded."
+    else
+        echo "⚠️  Could not download PADD — skipping. Get it from https://github.com/pi-hole/PADD"
+    fi
+fi
+
+if [ -f "$PADD_SCRIPT" ]; then
+    BASHRC="$HOME/.bashrc"
+    PADD_MARKER_START="# >>> PIHOLE-WIREGUARD PADD START >>>"
+    PADD_MARKER_END="# <<< PIHOLE-WIREGUARD PADD END <<<"
+    touch "$BASHRC"
+    if grep -qF "$PADD_MARKER_START" "$BASHRC"; then
+        sed -i "/$PADD_MARKER_START/,/$PADD_MARKER_END/d" "$BASHRC"
+    fi
+    cat >> "$BASHRC" << EOF
+$PADD_MARKER_START
+if [ -n "\$TMUX" ] && [ -f ~/padd.sh ]; then
+    if ! tmux list-windows -F '#W' 2>/dev/null | grep -q '^padd\$'; then
+        tmux new-window -n padd "while true; do ~/padd.sh; sleep 5; done"
+    fi
+fi
+$PADD_MARKER_END
+EOF
+    echo "📊 PADD configured — will auto-launch in a tmux window 'padd' on next login."
+fi
+
+# ---------------------------------------------------------------------------------------
 # 4. Advanced Policy Engine Routing State Machine
 # ---------------------------------------------------------------------------------------
 CONTAINER_NAMES=("pihole" "wg-easy" "pihole-exporter" "wireguard-exporter" "prometheus" "grafana" "uptime-kuma" "node-exporter" "speedtest-exporter" "blackbox-exporter")
@@ -224,56 +270,6 @@ $DOCKER_COMPOSE --env-file "$ENV_FILE" pull
 
 echo "🦅 Launching system infrastructure nodes into background space..."
 $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
-
-# ---------------------------------------------------------------------------------------
-# 5b. PADD — Pi-hole live stats dashboard in a dedicated tmux window
-#     Downloads padd.sh once, then launches (or skips if already running).
-#     The while-true wrapper retries if Pi-hole isn't ready yet.
-# ---------------------------------------------------------------------------------------
-PADD_SCRIPT="$SCRIPT_DIR/padd.sh"
-
-# PADD requires jq (JSON parsing) and dnsutils (dig) on the host
-if ! command -v jq &>/dev/null || ! command -v dig &>/dev/null; then
-    echo "📦 Installing PADD dependencies (jq, dnsutils)..."
-    sudo apt-get install -y jq dnsutils 2>/dev/null || true
-fi
-
-if [ ! -f "$PADD_SCRIPT" ]; then
-    echo "📊 Downloading PADD (Pi-hole terminal dashboard)..."
-    if curl -fsSL --max-time 15 \
-        "https://raw.githubusercontent.com/pi-hole/PADD/master/padd.sh" \
-        -o "$PADD_SCRIPT"; then
-        chmod +x "$PADD_SCRIPT"
-        echo "✅ PADD downloaded."
-    else
-        echo "⚠️  Could not download PADD — skipping. Get it from https://github.com/pi-hole/PADD"
-    fi
-fi
-
-if [ -f "$PADD_SCRIPT" ]; then
-    if pgrep -f "padd.sh" > /dev/null 2>&1; then
-        echo "📊 PADD already running."
-    elif command -v tmux &>/dev/null; then
-        # PIHOLE_SERVER tells PADD which host:port to reach Pi-hole on.
-        # Pi-hole in Docker is accessible at localhost on the host-mapped port.
-        PADD_CMD="while true; do PIHOLE_SERVER=localhost:${PIHOLE_WEB_PORT} ${PADD_SCRIPT}; sleep 5; done"
-        if [ -n "${TMUX:-}" ]; then
-            # Already inside a tmux session — open a new window in it
-            tmux new-window -n "padd" bash -c "$PADD_CMD"
-            echo "📊 PADD launched in new tmux window 'padd'."
-        else
-            # Not in tmux — create/reuse a named session
-            tmux new-session -d -s "pihole-monitor" 2>/dev/null || true
-            tmux new-window -t "pihole-monitor" -n "padd" bash -c "$PADD_CMD" 2>/dev/null || true
-            echo "📊 PADD launched in tmux session 'pihole-monitor'."
-            echo "   Attach: tmux attach -t pihole-monitor"
-        fi
-    else
-        echo "📊 PADD downloaded but tmux is not installed — run it manually:"
-        echo "   PIHOLE_SERVER=localhost:${PIHOLE_WEB_PORT} $PADD_SCRIPT"
-        echo "   (or: sudo apt install tmux  for auto-launch on next deploy)"
-    fi
-fi
 
 # ---------------------------------------------------------------------------------------
 # 6. Pipeline Sanity Validation & Telemetry Output

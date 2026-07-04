@@ -5,7 +5,7 @@ services:
     ports:
       - "53:53/tcp"
       - "53:53/udp"
-      - "${PIHOLE_WEB_PORT:-8080}:80/tcp"
+      - "${PIHOLE_WEB_PORT:-80}:80/tcp"
     environment:
       - TZ=${TZ:-Asia/Singapore}
       - WEBPASSWORD=${FTLCONF_webserver_api_password}
@@ -161,3 +161,6 @@ networks:
     ipam:
       config:
         - subnet: ${DOCKER_SUBNET:-172.20.0.0/16}
+          gateway: 172.20.0.1
+          aux_addresses:
+            pihole-static: ${PIHOLE_INTERNAL_IP:-172.20.0.2}

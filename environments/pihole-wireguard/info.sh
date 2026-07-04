@@ -6,7 +6,7 @@ ACTION="${1:-list}"
 [ -f "$SCRIPT_DIR/.env" ] && { set -a; source "$SCRIPT_DIR/.env"; set +a; }
 
 : "${GRAFANA_PORT:=3030}"
-: "${PIHOLE_WEB_PORT:=8080}"
+: "${PIHOLE_WEB_PORT:=80}"
 
 DATA_DIRS=("$SCRIPT_DIR/etc-pihole" "$SCRIPT_DIR/etc-wireguard")
 DATA_DESCRIPTIONS=(
@@ -29,8 +29,8 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
    docker logs -f wg-easy                                           # WireGuard live logs
    docker logs -f grafana                                           # Grafana live logs
    docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps           # Full stack status
-   tmux attach -t pihole-monitor                                    # Attach to PADD dashboard tmux session
-   PIHOLE_SERVER=localhost:${PIHOLE_WEB_PORT} ${SCRIPT_DIR}/padd.sh  # Run PADD manually
+   tmux attach                                                      # Attach to tmux (PADD is in the 'padd' window)
+   ~/padd.sh                                                        # Run PADD manually
    docker logs -f uptime-kuma                                       # Uptime Kuma live logs
 
 📊 Backup named volumes:

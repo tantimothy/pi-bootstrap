@@ -53,6 +53,8 @@ This installs entries to `~/.local/share/applications/`. What each type does:
 
 Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
 
+Environments that haven't been deployed yet are skipped automatically — deploy first, then re-run to register their entries.
+
 ---
 
 ## 🏗️ How It Works
