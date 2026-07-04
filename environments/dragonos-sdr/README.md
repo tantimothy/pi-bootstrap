@@ -225,7 +225,7 @@ cp -r environments/dragonos-sdr/workspace ~/backup/
 | `TEARDOWN` | Stop + remove container; data directories untouched |
 | `CLEAN` | Stop + remove + rebuild image from scratch (slow on ARM) |
 | `INFO` | List data directories with sizes and useful commands |
-| `WIPE` | Delete persisted data directories (irreversible — back up first) |
+| `WIPE` | Delete `./workspace/captures/` and `./workspace/msf_data/`; removes `./workspace/` if empty |
 
 ---
 

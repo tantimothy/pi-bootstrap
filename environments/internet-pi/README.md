@@ -108,7 +108,7 @@ cp -r ~/internet-monitoring/prometheus ~/backup/
 | `TEARDOWN` | Stop + remove all 6 containers; data directories untouched |
 | `CLEAN` | Stop containers, wipe install dir, re-clone, re-run playbook |
 | `INFO` | List data directories with sizes and useful commands |
-| `WIPE` | Delete `~/pi-hole/` and `~/internet-monitoring/` data dirs |
+| `WIPE` | Delete `~/pi-hole/`, `~/internet-monitoring/grafana/`, `~/internet-monitoring/prometheus/`; removes `~/internet-monitoring/` if empty |
 
 ---
 
