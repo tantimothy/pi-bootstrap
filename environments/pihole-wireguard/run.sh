@@ -213,11 +213,9 @@ if [ -f "$PADD_SCRIPT" ]; then
     fi
     cat >> "$BASHRC" << EOF
 $PADD_MARKER_START
-if [ -n "\$TMUX" ] && [ -f ~/padd.sh ]; then
-    if ! tmux list-windows -F '#W' 2>/dev/null | grep -q '^padd\$'; then
-        tmux new-window -n padd "timeout 90 bash -c 'until curl -sf http://localhost/api/auth >/dev/null 2>&1; do sleep 5; done' && ~/padd.sh --secret '${PADD_PASS}'"
-    fi
-fi
+
+~/padd.sh --secret '${PADD_PASS}'
+
 $PADD_MARKER_END
 EOF
     echo "📊 PADD configured — will auto-launch in a tmux window 'padd' on next login."
