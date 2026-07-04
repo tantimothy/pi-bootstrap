@@ -631,8 +631,12 @@ if [ $DEPLOY_SUCCESS -ne 0 ]; then
     exit 1
 fi
 
-# 7. Image Sweep
-echo "🧹 Sweeping unused cache layers..."
-# $DOCKER_CMD image prune -a -f
-
-echo "✅ Environment [$ENV_NAME] successfully deployed!"
+# 7. Completion message — wording matches the action that was actually taken
+case "$REBUILD_POLICY" in
+    STOP)     echo "✅ Environment [$ENV_NAME] stopped." ;;
+    TEARDOWN) echo "✅ Environment [$ENV_NAME] torn down." ;;
+    WIPE)     echo "✅ Environment [$ENV_NAME] data wiped." ;;
+    CLEAN)    echo "✅ Environment [$ENV_NAME] rebuilt from scratch." ;;
+    INFO)     echo "✅ Environment [$ENV_NAME] info displayed." ;;
+    *)        echo "✅ Environment [$ENV_NAME] deployed." ;;
+esac
