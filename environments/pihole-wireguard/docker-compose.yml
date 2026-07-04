@@ -2,11 +2,6 @@ services:
   pihole:
     container_name: pihole
     image: pihole/pihole:latest
-    ports:
-      - "53:53/tcp"
-      - "53:53/udp"
-      - "67:67/udp"
-      - "${PIHOLE_WEB_PORT:-80}:80/tcp"
     environment:
       - TZ=${TZ:-Asia/Singapore}
       - WEBPASSWORD=${FTLCONF_webserver_api_password}
@@ -15,9 +10,7 @@ services:
       - NET_ADMIN
     volumes:
       - './etc-pihole:/etc/pihole'
-    networks:
-      pihole_wg_net:
-        ipv4_address: ${PIHOLE_INTERNAL_IP:-172.20.0.2}
+    network_mode: host
     restart: unless-stopped
 
   wg-easy:
@@ -28,7 +21,7 @@ services:
     environment:
       - TZ=${TZ:-Asia/Singapore}
       - WG_HOST=${WG_HOST}
-      - WG_DEFAULT_DNS=${PIHOLE_INTERNAL_IP:-172.20.0.2}
+      - WG_DEFAULT_DNS=${WG_DNS:-10.8.0.1}
       - PASSWORD_HASH=${PASSWORD_HASH}
       - WG_ALLOWED_IPS=${WG_ALLOWED_IPS:-0.0.0.0/0}
       - "WG_POST_UP=:"
@@ -46,10 +39,12 @@ services:
     container_name: pihole-exporter
     image: ekofr/pihole-exporter:latest
     environment:
-      - PIHOLE_HOSTNAME=pihole
-      - PIHOLE_PORT=80
+      - PIHOLE_HOSTNAME=host.docker.internal
+      - PIHOLE_PORT=${PIHOLE_WEB_PORT:-80}
       - PIHOLE_PASSWORD=${FTLCONF_webserver_api_password}
       - PORT=9617
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       pihole_wg_net:
     depends_on:
@@ -165,4 +160,3 @@ networks:
       config:
         - subnet: ${DOCKER_SUBNET:-172.20.0.0/16}
           gateway: 172.20.0.1
-          ip_range: 172.20.1.0/24

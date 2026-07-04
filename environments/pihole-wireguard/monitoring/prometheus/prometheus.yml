@@ -35,7 +35,7 @@ scrape_configs:
       module: [http_2xx]
     static_configs:
       - targets:
-          - http://pihole:80/admin
+          - http://host.docker.internal:80/admin
           - http://grafana:3000
           - http://uptime-kuma:3001
           - http://host.docker.internal:51821
@@ -73,7 +73,7 @@ scrape_configs:
       module: [dns_google]
     static_configs:
       - targets:
-          - pihole:53
+          - host.docker.internal:53
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
