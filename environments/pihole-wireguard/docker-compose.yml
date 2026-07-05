@@ -108,6 +108,8 @@ services:
       - "${UPTIME_KUMA_PORT:-3001}:3001"
     volumes:
       - 'uptime_kuma_data:/app/data'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       pihole_wg_net:
     restart: unless-stopped
