@@ -53,7 +53,15 @@ This installs entries to `~/.local/share/applications/`. What each type does:
 
 Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
 
-Only environments that are actually deployed get entries. Re-running the installer keeps the menu in sync: it registers entries for anything newly deployed, and removes entries for anything that isn't (or was undeployed since) — so stale shortcuts don't linger. New entries appear in the menu automatically on Raspberry Pi OS; no manual refresh is needed.
+Only environments that are actually deployed get entries. Re-running the installer keeps the menu in sync: it registers entries for anything newly deployed, and removes entries for anything that isn't (or was undeployed since) — so stale shortcuts don't linger. "Deployed" is detected differently per environment, since each has a different way of showing it's actually running rather than just built:
+
+| Environment | "Deployed" signal |
+|:---|:---|
+| pihole-wireguard | The `pihole` container exists |
+| nanoclaw | The `nanoclaw.service` systemd unit is registered |
+| dragonos-sdr, kali-pentest | A local `.deployed` marker that `run.sh` creates the moment it launches the container (these run with `--rm`, so a cached image alone doesn't prove the environment was actually used) |
+
+New entries appear in the menu automatically on Raspberry Pi OS; no manual refresh is needed.
 
 ---
 

@@ -237,6 +237,9 @@ On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once from the repo r
 ./install-desktop-entries.sh
 # or just this environment on its own:
 ./environments/dragonos-sdr/install-desktop.sh
+
+# To remove entries (also in the deploy.sh menu as "Uninstall Desktop Entries"):
+./install-desktop-entries.sh --uninstall
 ```
 
 | Desktop entry | How it opens |
@@ -245,7 +248,7 @@ On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once from the repo r
 | **GNU Radio Companion** | X11 socket passthrough — flowgraph editor window on the Pi desktop |
 | **SDR Tools Menu** | Opens in your desktop's default terminal emulator |
 
-The script checks whether the `dragonos-pi` image is built before registering entries — it prints a warning and exits cleanly if the image doesn't exist yet. Deploy this environment first, then re-run to install the entries.
+The script only registers entries once you've actually launched this environment at least once — `run.sh` records that in a local `.deployed` marker file right before it starts the container. A cached `dragonos-pi` image on its own isn't enough, since an image built for a one-off test can otherwise linger indefinitely. Deploy this environment first, then re-run to install the entries; running `REBUILD_POLICY=TEARDOWN ./run.sh` clears the marker and the next install run removes the entries automatically.
 
 X11 entries use `DISPLAY=:0`, which is correct for a directly connected Pi desktop. For SSH with X forwarding, edit the installed `.desktop` files and replace `:0` with your `$DISPLAY` value.
 

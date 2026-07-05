@@ -192,6 +192,9 @@ On a Pi with a desktop environment, run once from the repo root:
 ./install-desktop-entries.sh
 # or just this environment on its own:
 ./environments/pihole-wireguard/install-desktop.sh
+
+# To remove entries (also in the deploy.sh menu as "Uninstall Desktop Entries"):
+./install-desktop-entries.sh --uninstall
 ```
 
 | Desktop entry | Opens |
@@ -201,9 +204,11 @@ On a Pi with a desktop environment, run once from the repo root:
 | **Uptime Kuma** | `http://localhost:<UPTIME_KUMA_PORT>` in default browser |
 | **WireGuard Dashboard** | `http://localhost:<WG_UI_PORT>` in default browser |
 
+Each entry tries `xdg-open` first, then falls back through `x-www-browser`, `sensible-browser`, and `chromium-browser` in case no default browser handler is configured on your system.
+
 Port values are read from your `.env` at install time. Re-run the script if you change ports.
 
-The script checks whether the stack is deployed before registering entries — it prints a warning and exits cleanly if the `pihole` container doesn't exist yet. Deploy first, then re-run to install the entries.
+The script checks whether the stack is deployed before registering entries — it prints a warning and exits cleanly if the `pihole` container doesn't exist yet, and removes any previously-installed entries if the stack has since been torn down. Deploy first, then re-run to install the entries.
 
 ---
 
