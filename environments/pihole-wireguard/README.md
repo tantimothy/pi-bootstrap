@@ -393,73 +393,85 @@ Deploy as normal — all peers reconnect automatically.
 
 #### From PiVPN — Option A (preserve existing clients)
 
-PiVPN stores the server private key in `/etc/wireguard/wg0.conf`. You need to extract it and the peer entries, then splice them into wg-easy's format.
+PiVPN stores the server private key in `/etc/wireguard/wg0.conf`.
+
+> **Important:** wg-easy regenerates `wg0.conf` from its own `wg0.json` on every startup. Editing `wg0.conf` directly has no effect — your changes will be silently overwritten at the next restart. The correct target is always `wg0.json`.
 
 **Step 1 — on the old Pi, capture what you need:**
 
 ```bash
-# Server private key (keep this secret)
+# Server private key (keep this secret — treat it like a password)
 sudo grep PrivateKey /etc/wireguard/wg0.conf
 
-# All peer entries
+# All peer entries (PublicKey, PresharedKey, AllowedIPs per peer)
 sudo grep -A4 '^\[Peer\]' /etc/wireguard/wg0.conf
-
-# PiVPN sometimes stores keys separately — check here too
-ls /etc/wireguard/keys/
 ```
 
-**Step 2 — deploy this environment fresh** (generates a temporary new key):
+**Step 2 — deploy this environment fresh** (wg-easy generates a temporary new key):
 
 ```bash
 ./run.sh   # or use the TUI
 ```
 
-**Step 3 — stop the containers:**
+**Step 3 — stop wg-easy:**
 
 ```bash
-docker compose stop
+docker compose stop wg-easy
 ```
 
-**Step 4 — splice in the old server private key:**
-
-Edit `environments/pihole-wireguard/etc-wireguard/wg0.conf`. Find the `[Interface]` block and replace the `PrivateKey` value with the one from PiVPN:
-
-```
-[Interface]
-PrivateKey = <PASTE YOUR OLD PIVPN PRIVATE KEY HERE>
-Address = 10.8.0.1/24
-...
-```
-
-Do not change anything else in `[Interface]` — leave wg-easy's Address, ListenPort, PostUp/PreDown as-is.
-
-**Step 5 — add your existing peers:**
-
-Append your PiVPN `[Peer]` blocks to the same `wg0.conf`. They look like:
-
-```
-[Peer]
-# phone
-PublicKey = <peer-public-key>
-PresharedKey = <preshared-key>   # if PiVPN generated one
-AllowedIPs = 10.8.0.2/32
-```
-
-> **IP address note:** PiVPN and wg-easy may use different subnet ranges (PiVPN defaults to `10.6.0.0/24`, wg-easy to `10.8.0.1/24`). If your peers have addresses in `10.6.0.x`, keep those AllowedIPs and make sure the `Address` in `[Interface]` covers that subnet — or renumber the peers (requires updating client configs).
-
-**Step 6 — restart:**
+**Step 4 — derive the old server's public key:**
 
 ```bash
-docker compose up -d
+echo "<your-old-pivpn-private-key>" | docker run --rm -i ghcr.io/wg-easy/wg-easy wg pubkey
 ```
 
-Existing clients reconnect because the server public key (derived from the preserved private key) matches what's in their config. The wg-easy web UI will show the peers but without names — add names via the UI or edit `etc-wireguard/wg0.json` directly (see structure below).
+This gives you the public key that your existing client configs already know about.
+
+**Step 5 — edit `etc-wireguard/wg0.json`:**
+
+wg-easy's JSON stores the server keys and all client metadata. Replace the auto-generated server keys and add a client entry for each PiVPN peer:
+
+```json
+{
+  "server": {
+    "privateKey": "<your-old-pivpn-private-key>",
+    "publicKey": "<output from step 4>",
+    "address": "10.8.0.1"
+  },
+  "clients": {
+    "<uuid-for-peer-1>": {
+      "id": "<uuid-for-peer-1>",
+      "name": "laptop",
+      "address": "10.6.0.2",
+      "publicKey": "<peer PublicKey from wg0.conf>",
+      "preSharedKey": "<peer PresharedKey from wg0.conf, or omit if none>",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "enabled": true
+    }
+  }
+}
+```
+
+Use `uuidgen` to generate IDs. Add one entry per peer.
+
+> **Subnet mismatch (PiVPN default `10.6.x` or `10.84.43.x` vs wg-easy's `10.8.x`):** This is fine. WireGuard adds a per-peer kernel route for each peer's `AllowedIPs` independently of the server's interface subnet. The old client IP addresses work as-is — you do not need to renumber your peers or update any client config.
+
+**Step 6 — restart wg-easy:**
+
+```bash
+docker compose up -d wg-easy
+```
+
+wg-easy reads `wg0.json`, regenerates `wg0.conf` with the old private key and peer entries, and brings up the WireGuard interface. Existing clients reconnect without any changes on their end.
+
+Verify with `docker exec wg-easy wg show` — you should see your peers listed.
 
 ---
 
 #### From standard WireGuard / wg-quick — Option A
 
-The process is identical to the PiVPN steps above. Your server config is at `/etc/wireguard/wg0.conf`. Extract the `PrivateKey` from `[Interface]` and all `[Peer]` blocks, then follow PiVPN steps 2–6.
+Identical to the PiVPN steps above. Your server config is at `/etc/wireguard/wg0.conf`. Extract `PrivateKey` from `[Interface]` and all `[Peer]` blocks, then follow steps 2–6.
 
 ---
 
@@ -476,27 +488,30 @@ No key extraction or file editing needed. Existing client `.conf` files become i
 
 ---
 
-#### wg0.json format reference (for adding peer names after key migration)
+#### wg0.json structure reference
 
-If you imported peers via `wg0.conf` but the wg-easy UI shows them without names, create or edit `etc-wireguard/wg0.json` while containers are stopped:
+wg-easy's authoritative state is `etc-wireguard/wg0.json` — it writes `wg0.conf` from this file on every startup. Full structure:
 
 ```json
 {
+  "server": {
+    "privateKey": "<server private key>",
+    "publicKey": "<server public key>",
+    "address": "10.8.0.1"
+  },
   "clients": {
-    "some-uuid-here": {
-      "id": "some-uuid-here",
+    "<uuid>": {
+      "id": "<uuid>",
       "name": "My Phone",
       "address": "10.8.0.2",
-      "publicKey": "<peer-public-key-from-wg0.conf>",
+      "publicKey": "<peer public key>",
+      "preSharedKey": "<preshared key, or omit field if none>",
       "createdAt": "2024-01-01T00:00:00.000Z",
       "updatedAt": "2024-01-01T00:00:00.000Z",
-      "enabled": true,
-      "expiredAt": null,
-      "allowedIPs": ["0.0.0.0/0", "::/0"],
-      "persistentKeepalive": 0
+      "enabled": true
     }
   }
 }
 ```
 
-Add one entry per peer. Use any unique string for `id` (a UUID or short slug). The `publicKey` must match the `PublicKey` in the corresponding `[Peer]` block in `wg0.conf`. Restart containers after editing.
+Always stop the `wg-easy` container before editing this file, then restart it — otherwise wg-easy may overwrite your changes mid-edit.
