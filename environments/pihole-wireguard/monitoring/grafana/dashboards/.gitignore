@@ -1,2 +1,7 @@
 # Dashboard JSON files are downloaded at deploy time by run.sh — do not commit them
 *.json
+
+# Exception: hand-authored to match mindflavor/prometheus-wireguard-exporter's
+# actual metric names — no matching community dashboard exists, so this one
+# is tracked directly instead of downloaded. See run.sh's monitoring setup.
+!wireguard.json
