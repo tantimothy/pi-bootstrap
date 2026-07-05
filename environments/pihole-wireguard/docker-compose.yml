@@ -138,7 +138,12 @@ services:
     environment:
       - DARKSTAT_INTERFACES=${DARKSTAT_INTERFACES:-eth0}
       - DARKSTAT_PORT=${DARKSTAT_PORT:-667}
-    entrypoint: ["sh", "-c", "exec darkstat $(printf ' -i %s' $$DARKSTAT_INTERFACES) -p $$DARKSTAT_PORT --no-dns -f /var/lib/darkstat/darkstat.db"]
+    # darkstat's "-f" flag is a tcpdump-style BPF capture filter expression,
+    # not a database file path — passing a path there makes pcap_compile()
+    # fail immediately ("can't parse filter expression: syntax error") and
+    # crash-loop. Persisting the hosts database across restarts actually
+    # uses the separate --import/--export flags.
+    entrypoint: ["sh", "-c", "exec darkstat $(printf ' -i %s' $$DARKSTAT_INTERFACES) -p $$DARKSTAT_PORT --no-dns --import /var/lib/darkstat/darkstat.db --export /var/lib/darkstat/darkstat.db"]
     volumes:
       - './darkstat-db:/var/lib/darkstat'
     network_mode: host
