@@ -143,7 +143,12 @@ services:
     # fail immediately ("can't parse filter expression: syntax error") and
     # crash-loop. Persisting the hosts database across restarts actually
     # uses the separate --import/--export flags.
-    entrypoint: ["sh", "-c", "exec darkstat $(printf ' -i %s' $$DARKSTAT_INTERFACES) -p $$DARKSTAT_PORT --no-dns --import /var/lib/darkstat/darkstat.db --export /var/lib/darkstat/darkstat.db"]
+    # darkstat also daemonizes (forks to the background) by default, which
+    # breaks Docker: the foreground process Docker tracks as the container's
+    # main process exits cleanly right after the fork, so Docker restarts
+    # the "finished" container in a loop even though nothing crashed.
+    # --no-daemon keeps it in the foreground where Docker expects it.
+    entrypoint: ["sh", "-c", "exec darkstat $(printf ' -i %s' $$DARKSTAT_INTERFACES) -p $$DARKSTAT_PORT --no-dns --no-daemon --import /var/lib/darkstat/darkstat.db --export /var/lib/darkstat/darkstat.db"]
     volumes:
       - './darkstat-db:/var/lib/darkstat'
     network_mode: host
