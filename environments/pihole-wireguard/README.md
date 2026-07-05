@@ -6,20 +6,19 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 
 ## 🪐 Architecture & Networking
 
-- **Chained DNS Pipeline:** `wg-easy` is hardcoded to route all client DNS traffic directly through the Pi-hole container container-to-container (`172.20.0.2`), ensuring remote devices automatically get ad-blocking and local split-tunnel domain resolution.
+- **Chained DNS Pipeline:** Pi-hole runs on the host network so it can serve DHCP to LAN devices and receive broadcast packets. `wg-easy` writes `WG_DNS` (default `10.8.0.1` — the Pi's WireGuard tunnel IP) into every peer config, so VPN clients use Pi-hole for DNS automatically.
 - **Monitoring Pipeline:** `pihole-exporter` scrapes Pi-hole's v6 API and `wireguard-exporter` reads WireGuard kernel stats — both feed Prometheus, which Grafana queries for dashboards.
 
 ### Services & Ports
 
 | Service | Container | Port | Purpose |
 |---------|-----------|------|---------|
-| [Pi-hole v6](https://pi-hole.net) | `pihole` | 53 (DNS), 80 (web) | Network-wide DNS ad blocking and local DNS management |
+| [Pi-hole v6](https://pi-hole.net) | `pihole` | 53 (DNS), 67/udp (DHCP), 80 (web) | Network-wide DNS ad blocking, local DNS management, and optional DHCP server |
 | [WireGuard](https://www.wireguard.com) / [wg-easy](https://github.com/wg-easy/wg-easy) | `wg-easy` | 51820/udp (VPN), 51821 (web) | Encrypted VPN with a web UI for peer management |
 | [Grafana](https://grafana.com) | `grafana` | 3030 | Time-series dashboards for Pi-hole and WireGuard metrics |
 | [Prometheus](https://prometheus.io) | `prometheus` | *(internal)* | Metrics scraping and storage backend |
 | [pihole-exporter](https://github.com/eko/pihole-exporter) | `pihole-exporter` | *(internal)* | Translates Pi-hole v6 API responses into Prometheus metrics |
 | [prometheus-wireguard-exporter](https://github.com/MindFlavor/prometheus_wireguard_exporter) | `wireguard-exporter` | *(internal, host net)* | Reads `wg show` kernel output and exposes peer stats for Prometheus |
-| [PADD](https://github.com/pi-hole/PADD) | host terminal | tmux window | Pi-hole live stats dashboard — queries/sec, blocked %, top domains, in a dedicated terminal |
 | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | `uptime-kuma` | 3001 | Self-hosted uptime monitor with status pages and alerting for all services in this stack |
 | [Node Exporter](https://github.com/prometheus/node_exporter) | `node-exporter` | *(host net, internal)* | Pi host system metrics — CPU, RAM, disk, network I/O exposed to Prometheus |
 | [Speedtest Exporter](https://github.com/MiguelNdeCarvalho/speedtest-exporter) | `speedtest-exporter` | *(internal)* | Runs a full internet speed test when Prometheus scrapes it (every 30 min by default) |
@@ -91,7 +90,7 @@ Access your local dashboards via the values populated by your configuration engi
 ## 🔒 Edge & Router Configuration
 To allow external mobile devices to connect back to your WireGuard instance safely:
 - **Port Forwarding:** Log into your home network gateway router and forward external **UDP port 51820** directly to the local static IP address of your Raspberry Pi.
-- **Host Firewall (Optional):** If running UFW on your Pi, ensure forwarding paths from Docker's virtual bridge (`172.20.0.0/16`) are permitted to interact with your local physical network interfaces.
+- **Host Firewall (Optional):** If running UFW on your Pi, ensure ports 53 (DNS), 67 (DHCP), 80 (Pi-hole web), and 51820 (WireGuard) are allowed on your LAN interface. The monitoring containers (Grafana, Prometheus, Uptime Kuma) communicate via the internal Docker bridge and do not need firewall rules.
 
 ---
 
@@ -239,14 +238,8 @@ docker logs -f prometheus
 docker logs -f pihole-exporter
 docker logs -f wireguard-exporter
 
-# Stack status (all 6 containers)
+# Stack status
 docker compose ps
-
-# Attach to tmux (PADD auto-launches in the 'padd' window on login)
-tmux attach
-
-# Run PADD manually
-~/padd.sh
 
 # Uptime Kuma logs
 docker logs -f uptime-kuma
