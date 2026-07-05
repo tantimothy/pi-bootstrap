@@ -1,0 +1,96 @@
+{
+  "id": null,
+  "uid": "wireguard-pi-bootstrap",
+  "title": "WireGuard",
+  "description": "Hand-authored for mindflavor/prometheus_wireguard_exporter's actual metric names (wireguard_sent_bytes_total, wireguard_received_bytes_total, wireguard_latest_handshake_seconds) — community dashboard 12177 was built for a different exporter's naming scheme (wireguard_peer_*_bytes_total, wireguard_peer_info) and never worked with this stack.",
+  "tags": ["wireguard", "pi-bootstrap"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Sent (per peer)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "Bps" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "irate(wireguard_sent_bytes_total[5m])",
+          "legendFormat": "{{allowed_ips}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Received (per peer)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "Bps" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "irate(wireguard_received_bytes_total[5m])",
+          "legendFormat": "{{allowed_ips}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Time Since Last Handshake (per peer)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "time() - wireguard_latest_handshake_seconds",
+          "legendFormat": "{{allowed_ips}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Total Sent / Received (cumulative, all peers)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(wireguard_sent_bytes_total)",
+          "legendFormat": "Total Sent",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(wireguard_received_bytes_total)",
+          "legendFormat": "Total Received",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}
