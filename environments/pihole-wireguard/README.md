@@ -312,6 +312,8 @@ docker compose up -d --force-recreate pihole-exporter
 
 `wireguard-exporter` runs on the host network alongside `wg-easy` so it can read `wg0` interface stats directly from the kernel. On first deploy it may take 1–2 minutes to start producing metrics — this is normal while WireGuard initialises. If you see "no data" in the WireGuard Grafana dashboard, wait for at least one peer to complete a handshake.
 
+If `docker compose ps` shows `wireguard-exporter` stuck restarting, and `docker logs wireguard-exporter` repeats `error: The argument '--prepend_sudo <prepend_sudo>' requires a value but none was supplied` — that's the container's own crash loop, not a shell/`sudo` issue on the host. The `mindflavor/prometheus-wireguard-exporter` image's default `CMD` is just `["-a"]` (a flag with no value); `docker-compose.yml` overrides `command: ["-a", "true"]` to fix this, so make sure you're on a version of this repo that includes that override.
+
 ---
 
 ## 🔄 Migrating from an Existing Install
