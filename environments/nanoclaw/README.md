@@ -117,11 +117,14 @@ On a Pi with a desktop environment, run once from the repo root:
 ./install-desktop-entries.sh
 # or just this environment on its own:
 ./environments/nanoclaw/install-desktop.sh
+
+# To remove entries (also in the deploy.sh menu as "Uninstall Desktop Entries"):
+./install-desktop-entries.sh --uninstall
 ```
 
 This installs a **NanoClaw AI** entry that opens the environment in your desktop's default terminal emulator.
 
-The script checks whether the `nanoclaw.service` systemd unit exists before registering the entry — it prints a warning and exits cleanly if the service hasn't been installed yet. Deploy this environment first, then re-run to install the entry.
+The script checks whether the `nanoclaw.service` systemd unit exists before registering the entry — it prints a warning and exits cleanly if the service hasn't been installed yet, and removes the entry automatically if the service is later uninstalled. Deploy this environment first, then re-run to install the entry.
 
 ---
 
