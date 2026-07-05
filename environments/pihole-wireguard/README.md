@@ -311,6 +311,10 @@ docker compose up -d --force-recreate pihole-exporter
 
 If `docker compose ps` shows `wireguard-exporter` stuck restarting, and `docker logs wireguard-exporter` repeats `error: The argument '--prepend_sudo <prepend_sudo>' requires a value but none was supplied` — that's the container's own crash loop, not a shell/`sudo` issue on the host. The `mindflavor/prometheus-wireguard-exporter` image's default `CMD` is just `["-a"]` (a flag with no value); `docker-compose.yml` overrides `command: ["-a", "true"]` to fix this, so make sure you're on a version of this repo that includes that override.
 
+### darkstat
+
+`darkstat` shows hostnames for LAN devices by resolving IPs through reverse DNS, using whatever DNS server the host itself is configured with (it runs with `network_mode: host`, same as Pi-hole). If devices show up as bare IP addresses instead of names, check Pi-hole's **Settings → DNS → Conditional Forwarding** — it needs to be enabled and pointed at your router for Pi-hole to answer reverse lookups for locally-leased IPs. Without it, Pi-hole (or whatever your resolver is) has no local PTR records to return, and darkstat falls back to showing the raw IP.
+
 ---
 
 ## 🔄 Migrating from an Existing Install
