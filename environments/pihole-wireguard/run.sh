@@ -151,8 +151,15 @@ download_dashboard() {
     local outfile="${SCRIPT_DIR}/monitoring/grafana/dashboards/${name}.json"
     if [ ! -f "$outfile" ]; then
         echo "📥 Downloading Grafana dashboard: ${name} (ID ${id})..."
+        # Community dashboards template their datasource as a "${DS_<name>}"
+        # input variable, and the exact <name> varies per dashboard (e.g.
+        # DS_PROMETHEUS, DS_WIREGUARD, DS_SIGNCL-PROMETHEUS). We only ever
+        # provision one datasource, so rewrite any such token generically
+        # instead of hardcoding specific names — a hardcoded list silently
+        # misses whatever a given dashboard happens to call it, leaving an
+        # unresolved placeholder and a "datasource not found" panel.
         if curl -fsSL --max-time 15 "https://grafana.com/api/dashboards/${id}/revisions/latest/download" \
-            | sed 's/\${DS_PROMETHEUS}/prometheus/g; s/\${DS_WIREGUARD}/prometheus/g; s/\${DS_PROM}/prometheus/g' \
+            | sed -E 's/\$\{DS_[A-Za-z0-9_-]+\}/prometheus/g' \
             > "$outfile"; then
             echo "✅ Dashboard downloaded: ${name}"
         else
