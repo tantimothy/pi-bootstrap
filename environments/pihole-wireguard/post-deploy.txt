@@ -5,6 +5,7 @@
 🔐 WireGuard Web Dashboard: http://${HOST_IP}:${WG_UI_PORT}
 📊 Grafana (monitoring):    http://${HOST_IP}:${GRAFANA_PORT}  (username: admin)
 🟢 Uptime Kuma:             http://${HOST_IP}:${UPTIME_KUMA_PORT}
+🌐 darkstat (traffic):      http://${HOST_IP}:${DARKSTAT_PORT}
 ==========================================================
 
 📌 Post-Install Notes:

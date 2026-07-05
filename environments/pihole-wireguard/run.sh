@@ -84,6 +84,8 @@ fi
 : "${GRAFANA_PORT:=3030}"
 : "${UPTIME_KUMA_PORT:=3001}"
 : "${WG_PORT:=51820}"
+: "${DARKSTAT_PORT:=667}"
+: "${DARKSTAT_INTERFACE:=eth0}"
 
 # Detect host LAN IP so post-deploy URLs are immediately clickable/copyable
 HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
@@ -96,6 +98,7 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 echo "📁 Executing pre-emptive volume generation routines..."
 mkdir -p "${SCRIPT_DIR}/etc-pihole"
 mkdir -p "${SCRIPT_DIR}/etc-wireguard"
+mkdir -p "${SCRIPT_DIR}/darkstat-db"
 echo "✅ Local host storage layout initialized cleanly."
 
 # ---------------------------------------------------------------------------------------
@@ -186,7 +189,7 @@ echo "✅ Monitoring setup complete."
 # ---------------------------------------------------------------------------------------
 # 4. Advanced Policy Engine Routing State Machine
 # ---------------------------------------------------------------------------------------
-CONTAINER_NAMES=("pihole" "wg-easy" "pihole-exporter" "wireguard-exporter" "prometheus" "grafana" "uptime-kuma" "node-exporter" "speedtest-exporter" "blackbox-exporter")
+CONTAINER_NAMES=("pihole" "wg-easy" "pihole-exporter" "wireguard-exporter" "prometheus" "grafana" "uptime-kuma" "node-exporter" "speedtest-exporter" "blackbox-exporter" "darkstat")
 ALL_RUNNING=true
 
 for name in "${CONTAINER_NAMES[@]}"; do

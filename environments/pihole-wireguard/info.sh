@@ -7,11 +7,13 @@ ACTION="${1:-list}"
 
 : "${GRAFANA_PORT:=3030}"
 : "${PIHOLE_WEB_PORT:=80}"
+: "${DARKSTAT_PORT:=667}"
 
-DATA_DIRS=("$SCRIPT_DIR/etc-pihole" "$SCRIPT_DIR/etc-wireguard")
+DATA_DIRS=("$SCRIPT_DIR/etc-pihole" "$SCRIPT_DIR/etc-wireguard" "$SCRIPT_DIR/darkstat-db")
 DATA_DESCRIPTIONS=(
     "Pi-hole config, gravity database, custom blocklists, local DNS records"
     "WireGuard server keys + all peer configs — losing this invalidates every client VPN"
+    "darkstat traffic database — per-host bandwidth history"
 )
 INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()
 NAMED_VOLUMES=("prometheus_data" "grafana_data" "uptime_kuma_data")
@@ -28,9 +30,9 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
    docker logs -f pihole                                            # Pi-hole live logs
    docker logs -f wg-easy                                           # WireGuard live logs
    docker logs -f grafana                                           # Grafana live logs
+   docker logs -f darkstat                                          # darkstat logs
    docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps           # Full stack status
-   tmux attach                                                      # Attach to tmux (PADD is in the 'padd' window)
-   ~/padd.sh                                                        # Run PADD manually
+   http://localhost:${DARKSTAT_PORT}                                # darkstat network traffic web UI
    docker logs -f uptime-kuma                                       # Uptime Kuma live logs
 
 📊 Backup named volumes:

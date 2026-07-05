@@ -39,6 +39,7 @@ scrape_configs:
           - http://grafana:3000
           - http://uptime-kuma:3001
           - http://host.docker.internal:51821
+          - http://host.docker.internal:667
           - https://google.com
           - https://github.com
     relabel_configs:

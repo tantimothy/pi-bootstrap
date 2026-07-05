@@ -15,6 +15,7 @@ ENTRIES=(
     pi-bootstrap-grafana
     pi-bootstrap-uptime-kuma
     pi-bootstrap-wireguard
+    pi-bootstrap-darkstat
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
@@ -42,10 +43,11 @@ env_val() {
     echo "${val:-$default}"
 }
 
-PIHOLE_PORT=$(env_val "PIHOLE_WEB_PORT"  "8080")
+PIHOLE_PORT=$(env_val "PIHOLE_WEB_PORT"  "80")
 GRAFANA_PORT=$(env_val "GRAFANA_PORT"    "3030")
 UPTIME_PORT=$(env_val  "UPTIME_KUMA_PORT" "3001")
 WG_PORT=$(env_val      "WG_UI_PORT"      "51821")
+DARKSTAT_PORT=$(env_val "DARKSTAT_PORT"  "667")
 
 # Build a shell command that tries several launchers in turn. A bare
 # `xdg-open` silently does nothing on some Pi desktop images that lack a
@@ -113,3 +115,15 @@ Categories=Network;
 Terminal=false
 EOF
 echo "  ✓  WireGuard       (http://localhost:$WG_PORT)"
+
+cat > "$APPS_DIR/pi-bootstrap-darkstat.desktop" << EOF
+[Desktop Entry]
+Name=darkstat (Traffic)
+Comment=Per-host network bandwidth usage and protocol breakdown
+Exec=bash -c "$(open_cmd "http://localhost:$DARKSTAT_PORT")"
+Icon=network-wired
+Type=Application
+Categories=Network;System;
+Terminal=false
+EOF
+echo "  ✓  darkstat        (http://localhost:$DARKSTAT_PORT)"

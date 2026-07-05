@@ -20,6 +20,7 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 | [pihole-exporter](https://github.com/eko/pihole-exporter) | `pihole-exporter` | *(internal)* | Translates Pi-hole v6 API responses into Prometheus metrics |
 | [prometheus-wireguard-exporter](https://github.com/MindFlavor/prometheus_wireguard_exporter) | `wireguard-exporter` | *(internal, host net)* | Reads `wg show` kernel output and exposes peer stats for Prometheus |
 | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | `uptime-kuma` | 3001 | Self-hosted uptime monitor with status pages and alerting for all services in this stack |
+| [darkstat](https://unix4lyfe.org/darkstat/) | `darkstat` | 667 (web) | Per-host bandwidth usage, protocol breakdown, and top talkers — built from Debian apt for ARM |
 | [Node Exporter](https://github.com/prometheus/node_exporter) | `node-exporter` | *(host net, internal)* | Pi host system metrics — CPU, RAM, disk, network I/O exposed to Prometheus |
 | [Speedtest Exporter](https://github.com/MiguelNdeCarvalho/speedtest-exporter) | `speedtest-exporter` | *(internal)* | Runs a full internet speed test when Prometheus scrapes it (every 30 min by default) |
 | [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | `blackbox-exporter` | *(internal)* | HTTP health checks, ICMP ping latency, and DNS resolution probes for all local services |
@@ -148,6 +149,7 @@ Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s passwor
 |-----------|---------|
 | `./etc-pihole/` | Pi-hole config, gravity database, custom blocklists, local DNS records |
 | `./etc-wireguard/` | WireGuard server keys + all peer configs — **back this up; losing it invalidates every client VPN** |
+| `./darkstat-db/` | darkstat traffic database — per-host bandwidth history |
 
 ### Named Docker Volumes
 
@@ -232,6 +234,7 @@ docker compose up -d --force-recreate wg-easy
 docker compose logs -f
 
 # Follow logs for individual services
+docker logs -f darkstat
 docker logs -f pihole
 docker logs -f grafana
 docker logs -f prometheus
@@ -287,6 +290,7 @@ Monitors are configured via the UI. Suggested monitors for this stack:
 | WireGuard web UI | HTTP(s) | `http://localhost:51821` |
 | Grafana | HTTP(s) | `http://localhost:3030` |
 | DNS resolution (via Pi-hole) | DNS | resolve `google.com` on `127.0.0.1` |
+| darkstat | HTTP(s) | `http://localhost:667` |
 | External internet | HTTP(s) | `https://1.1.1.1` or any external site |
 | Pi host ping | Ping | `localhost` |
 

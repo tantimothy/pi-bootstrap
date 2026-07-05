@@ -130,6 +130,23 @@ services:
     pid: host
     restart: unless-stopped
 
+  # Network traffic monitor — per-host bandwidth, protocol breakdown, top talkers
+  # Builds locally from Debian apt so it works on ARM (Raspberry Pi).
+  darkstat:
+    container_name: darkstat
+    build: ./darkstat
+    environment:
+      - DARKSTAT_INTERFACE=${DARKSTAT_INTERFACE:-eth0}
+      - DARKSTAT_PORT=${DARKSTAT_PORT:-667}
+    entrypoint: ["sh", "-c", "exec darkstat -i $$DARKSTAT_INTERFACE -p $$DARKSTAT_PORT --no-dns -f /var/lib/darkstat/darkstat.db"]
+    volumes:
+      - './darkstat-db:/var/lib/darkstat'
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    restart: unless-stopped
+
   # Internet speed test — runs a full Speedtest CLI test when Prometheus scrapes it
   speedtest-exporter:
     container_name: speedtest-exporter
