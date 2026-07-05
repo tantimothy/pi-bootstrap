@@ -27,6 +27,11 @@ fi
 # Fallback Environment Configurations
 CONTAINER_NAME="${CONTAINER_NAME:-sdr-dragonos-core}"
 DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-dragonos-pi}"
+# Marks that this environment has actually been launched at least once.
+# Containers here run with --rm, so a lingering docker image (which can be
+# left over from a one-off build/test) isn't a reliable "deployed" signal —
+# install-desktop.sh checks this marker instead.
+DEPLOYED_MARKER="${SCRIPT_DIR}/.deployed"
 DISPLAY="${DISPLAY:-:0}"
 HOST_USB_BUS_PATH="${HOST_USB_BUS_PATH:-/dev/bus/usb}"
 HOST_X11_UNIX_PATH="${HOST_X11_UNIX_PATH:-/tmp/.X11-unix}"
@@ -61,6 +66,7 @@ if [ "${POLICY}" = "TEARDOWN" ]; then
     echo "🗑️  [TEARDOWN] Stopping and removing container: ${CONTAINER_NAME}"
     "${DOCKER}" stop "${CONTAINER_NAME}" 2>/dev/null || true
     "${DOCKER}" rm   "${CONTAINER_NAME}" 2>/dev/null || true
+    rm -f "${DEPLOYED_MARKER}"
     echo "✅ Container removed."
     exit 0
 fi
@@ -123,6 +129,9 @@ echo "[DEPLOY] Provisioning interactive foreground container environment..."
 # Ensure the host pulse cookie directory and file exist prior to mounting
 mkdir -p "$HOME/.config/pulse"
 touch "$HOME/.config/pulse/cookie"
+
+# Record that this environment has actually been launched (see DEPLOYED_MARKER above)
+touch "${DEPLOYED_MARKER}"
 
 # Changed from '-d' to '-it' and removed background restart policies to allow true interaction
 "${DOCKER}" run -it --rm \

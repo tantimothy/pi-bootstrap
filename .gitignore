@@ -1,1 +1,4 @@
 .DS_Store
+
+# Marker files run.sh touches to record that an environment has been launched
+environments/*/.deployed
