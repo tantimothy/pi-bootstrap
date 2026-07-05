@@ -256,7 +256,7 @@ docker logs -f uptime-kuma
 
 Access Grafana at `http://<pi-ip>:3030` (default port) with username `admin` and the password from `GRAFANA_ADMIN_PASSWORD` in your `.env`.
 
-Pre-provisioned dashboards appear in the **Pi Network** folder:
+Pre-provisioned dashboards appear in the **Pi Network** folder — they are *not* on Grafana's default/home Dashboards view, so browse into it explicitly: sidebar → **Dashboards** → **Pi Network**.
 
 | Dashboard | Grafana ID | Shows |
 |-----------|-----------|-------|
@@ -270,6 +270,13 @@ If dashboards are missing (no internet at deploy time), import them manually:
 1. Grafana sidebar → **Dashboards** → **Import**
 2. Enter the dashboard ID from the table above
 3. Select **Prometheus** as the datasource and click **Import**
+
+If a dashboard is present but its panels show "Datasource not found" instead of data, `run.sh` downloaded it before it existed locally and the datasource-variable rewrite (`${DS_...}` → your Prometheus datasource) didn't cover every variable name a given community dashboard uses. Fix by re-running the rewrite against the existing file and restarting Grafana:
+```bash
+cd environments/pihole-wireguard/monitoring/grafana/dashboards/
+sed -i -E 's/\$\{DS_[A-Za-z0-9_-]+\}/prometheus/g' <dashboard>.json
+docker restart grafana
+```
 
 ---
 
