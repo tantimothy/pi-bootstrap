@@ -187,13 +187,10 @@ bash nanoclaw.sh
 
 # ---------------------------------------------------------------------------------------
 # 6. Post-install status
+#    Delegates to info.sh so the "just deployed" summary and the on-demand
+#    INFO menu are always the exact same content — one file, not two.
 # ---------------------------------------------------------------------------------------
-if [ "$OS_TYPE" = "linux" ]; then
-    SERVICE_COMMANDS="  📋 Service status: systemctl status nanoclaw
-  📜 Live logs:      journalctl -u nanoclaw -f"
-else
-    SERVICE_COMMANDS="  📜 Live logs:      tail -f ${INSTALL_PATH}/logs/nanoclaw.log"
-fi
-export HOST_IP NANOCLAW_PORT INSTALL_PATH SERVICE_COMMANDS
-envsubst '${HOST_IP} ${NANOCLAW_PORT} ${INSTALL_PATH} ${SERVICE_COMMANDS}' \
-    < "$SCRIPT_DIR/post-deploy.txt"
+echo "=========================================================="
+echo "🏁 NanoClaw Setup Complete"
+echo "=========================================================="
+bash "$SCRIPT_DIR/info.sh" list

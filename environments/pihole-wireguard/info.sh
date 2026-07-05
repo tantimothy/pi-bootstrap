@@ -10,6 +10,7 @@ ACTION="${1:-list}"
 : "${DARKSTAT_PORT:=667}"
 : "${UPTIME_KUMA_PORT:=3001}"
 : "${WG_UI_PORT:=51821}"
+: "${WG_PORT:=51820}"
 
 # Resolve the host's LAN IP so these URLs are actually usable from another
 # device — "localhost" only means something on the Pi's own terminal.
@@ -34,7 +35,7 @@ DATA_DIRS_LABEL="📁 Persistent Data Directories (local):"
 DELETE_CONFIRM_MSG=$'This permanently deletes all listed directories and Docker volumes.\nWireGuard peer configs will be unrecoverable.'
 USEFUL_COMMANDS="🌐 Web UIs:
    http://${HOST_IP}:${PIHOLE_WEB_PORT}/admin                       # Pi-hole Admin
-   http://${HOST_IP}:${GRAFANA_PORT}                                # Grafana dashboards
+   http://${HOST_IP}:${GRAFANA_PORT}                                # Grafana dashboards (username: admin)
    http://${HOST_IP}:${UPTIME_KUMA_PORT}                            # Uptime Kuma
    http://${HOST_IP}:${WG_UI_PORT}                                  # WireGuard Dashboard (wg-easy)
    http://${HOST_IP}:${DARKSTAT_PORT}                               # darkstat network traffic
@@ -48,6 +49,30 @@ USEFUL_COMMANDS="🌐 Web UIs:
    docker logs -f darkstat                                          # darkstat logs
    docker logs -f uptime-kuma                                       # Uptime Kuma live logs
    docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps           # Full stack status
+
+📌 Notes:
+   🌐 Pi-hole config lives at ./etc-pihole/pihole.toml on the host. Edits via
+      env vars only seed it on first creation — use the web UI (Settings >
+      All Settings) or 'pihole-FTL --config <key> <value>' afterward.
+   ➕ WireGuard: add a client/device via the Web Dashboard above → 'New
+      Client', then scan the QR code (mobile) or download the .conf (desktop).
+   📡 WireGuard: remote access requires forwarding external UDP port
+      ${WG_PORT} to this Pi's local static IP on your home router/gateway.
+   💾 WireGuard state (server keys, peer configs) lives at ./etc-wireguard —
+      back this up; losing it invalidates every client config.
+   🔑 To change the WireGuard dashboard login password:
+      1. docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'your_new_password'
+      2. Put the printed hash in PASSWORD_HASH= in .env, single-quoted
+      3. docker compose up -d --force-recreate wg-easy
+   📊 Grafana: pre-provisioned dashboards are in the 'Pi Network' folder. If
+      missing (no internet at deploy time), import manually: Dashboards >
+      Import > ID 10176 (Pi-hole) / 12177 (WireGuard), datasource Prometheus.
+   ⚙️  FTLCONF_webserver_api_password only seeds pihole.toml on first container
+      creation, then is ignored — use 'pihole setpassword' to change it later.
+   ⚙️  WG_HOST is read fresh on every container start — editing it in .env and
+      recreating wg-easy does take effect, but any client .conf/QR code you
+      already downloaded is a static snapshot of the OLD host and won't
+      update; redownload it from the dashboard for each existing peer.
 
 📊 Backup named volumes:
    docker run --rm -v prometheus_data:/data -v \$(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
