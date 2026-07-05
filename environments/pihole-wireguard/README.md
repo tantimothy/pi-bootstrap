@@ -289,10 +289,12 @@ Monitors are configured via the UI. Suggested monitors for this stack — **don'
 | Pi-hole web UI | HTTP(s) | `http://host.docker.internal/admin` |
 | WireGuard web UI | HTTP(s) | `http://host.docker.internal:51821` |
 | Grafana | HTTP(s) | `http://grafana:3000` (same bridge network — use the container name and internal port, not the host-mapped one) |
-| DNS resolution (via Pi-hole) | DNS | resolve `google.com` on `host.docker.internal` |
+| DNS resolution (via Pi-hole) | DNS | resolve `google.com`, Resolver Server `<pi-lan-ip>` (see note below) |
 | darkstat | HTTP(s) | `http://host.docker.internal:667` |
 | External internet | HTTP(s) | `https://1.1.1.1` or any external site |
 | Pi host ping | Ping | `host.docker.internal` |
+
+**DNS resolution monitor:** unlike the other monitor types, Uptime Kuma's Resolver Server field needs a raw IP address, not a hostname — it can't resolve `host.docker.internal` itself for this one (querying a DNS server is a lower-level operation than the DNS lookups behind normal hostname resolution). Use the Pi's actual LAN IP address instead. If you're not sure `host.docker.internal` and the LAN IP resolve to different things from Uptime Kuma's perspective, confirm with `docker exec uptime-kuma getent hosts host.docker.internal`.
 
 Uptime Kuma supports notifications via Telegram, Discord, Slack, email, ntfy, and many others — set one up under **Settings → Notifications** so you get alerted when something goes down.
 
