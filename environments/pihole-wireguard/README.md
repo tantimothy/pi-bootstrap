@@ -125,17 +125,19 @@ PiVPN has no simple re-edit-and-restart flow for changing this value like `wg-ea
 
 ### Changing the WireGuard dashboard login password
 Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s password is set via `PASSWORD_HASH` at startup:
-```bash
-# 1. Generate a new bcrypt hash
-docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'your_new_password'
 
-# 2. Put the hash in .env, single-quoted (its $ characters get mangled by
-#    run.sh's `source .env` if left unquoted):
-#    PASSWORD_HASH='$2y$12$...'
-
-# 3. Recreate the container so it picks up the new value
-docker compose up -d --force-recreate wg-easy
-```
+1. Generate a new bcrypt hash:
+   ```bash
+   docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'your_new_password'
+   ```
+2. Put the hash in `.env`, single-quoted (its `$` characters get mangled by `run.sh`'s `source .env` if left unquoted):
+   ```
+   PASSWORD_HASH='$2y$12$...'
+   ```
+3. Recreate the container so it picks up the new value:
+   ```bash
+   docker compose up -d --force-recreate wg-easy
+   ```
 
 ---
 
