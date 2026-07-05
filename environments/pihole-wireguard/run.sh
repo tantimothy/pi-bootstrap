@@ -85,7 +85,7 @@ fi
 : "${UPTIME_KUMA_PORT:=3001}"
 : "${WG_PORT:=51820}"
 : "${DARKSTAT_PORT:=667}"
-: "${DARKSTAT_INTERFACE:=eth0}"
+: "${DARKSTAT_INTERFACES:=eth0}"
 
 # Detect host LAN IP so post-deploy URLs are immediately clickable/copyable
 HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')

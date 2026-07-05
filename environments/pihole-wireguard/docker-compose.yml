@@ -136,9 +136,9 @@ services:
     container_name: darkstat
     build: ./darkstat
     environment:
-      - DARKSTAT_INTERFACE=${DARKSTAT_INTERFACE:-eth0}
+      - DARKSTAT_INTERFACES=${DARKSTAT_INTERFACES:-eth0}
       - DARKSTAT_PORT=${DARKSTAT_PORT:-667}
-    entrypoint: ["sh", "-c", "exec darkstat -i $$DARKSTAT_INTERFACE -p $$DARKSTAT_PORT --no-dns -f /var/lib/darkstat/darkstat.db"]
+    entrypoint: ["sh", "-c", "exec darkstat $(printf ' -i %s' $$DARKSTAT_INTERFACES) -p $$DARKSTAT_PORT --no-dns -f /var/lib/darkstat/darkstat.db"]
     volumes:
       - './darkstat-db:/var/lib/darkstat'
     network_mode: host
