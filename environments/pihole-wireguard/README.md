@@ -204,7 +204,7 @@ On a Pi with a desktop environment, run once from the repo root:
 | **Uptime Kuma** | `http://localhost:<UPTIME_KUMA_PORT>` in default browser |
 | **WireGuard Dashboard** | `http://localhost:<WG_UI_PORT>` in default browser |
 
-Each entry tries `xdg-open` first, then falls back through `x-www-browser`, `sensible-browser`, and `chromium-browser` in case no default browser handler is configured on your system.
+Each entry tries `xdg-open` first, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox` in case no default browser handler is configured on your system — covering both the older Debian wrapper names and the current Raspberry Pi OS (Bookworm+) package names.
 
 Port values are read from your `.env` at install time. Re-run the script if you change ports.
 

@@ -49,7 +49,7 @@ This installs entries to `~/.local/share/applications/`. What each type does:
 |:---|:---|
 | GQRX, GNU Radio Companion | X11 socket passthrough — window appears directly on the Pi desktop |
 | SDR menu, Kali, NanoClaw | Opens in your desktop's default terminal emulator |
-| Pi-hole, Grafana, Uptime Kuma, WireGuard | Tries `xdg-open`, then falls back to `x-www-browser`, `sensible-browser`, and `chromium-browser` against `localhost:<port>`, so the shortcut still works if no default browser handler is configured |
+| Pi-hole, Grafana, Uptime Kuma, WireGuard | Tries `xdg-open`, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox` against `localhost:<port>`, so the shortcut still works if no default browser handler is configured |
 
 Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
 
