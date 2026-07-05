@@ -31,11 +31,16 @@ if [ -f "$ENV_FILE" ]; then
     _i=$(grep '^DOCKER_IMAGE_TAG=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'"); [ -n "$_i" ] && SDR_IMAGE=$_i
 fi
 
-# Only install entries if the environment has been built.
-# If it hasn't (or the image was removed since), clean up any stale entries too.
-if ! docker images -q "$SDR_IMAGE" 2>/dev/null | grep -q .; then
+# Only install entries if the environment has actually been launched at least
+# once (run.sh touches .deployed right before it runs the container). A
+# lingering docker image alone isn't enough — the image can survive a one-off
+# build/test long after the user stops using the environment, since it's not
+# removed by anything short of a manual `docker rmi` or CLEAN policy.
+# If it hasn't been launched (or the marker was cleared by TEARDOWN since),
+# clean up any stale entries too.
+if [ ! -f "$ENV_DIR/.deployed" ]; then
     for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; done
-    echo "  ⚠  dragonos-sdr: image '$SDR_IMAGE' not found — skipping (deploy the environment first)"
+    echo "  ⚠  dragonos-sdr: not deployed — skipping (deploy the environment first)"
     exit 0
 fi
 
