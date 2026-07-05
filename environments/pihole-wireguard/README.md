@@ -282,17 +282,17 @@ docker restart grafana
 
 Access Uptime Kuma at `http://<pi-ip>:3001`. On first visit it prompts you to create an admin account — do this immediately before exposing the port to your network.
 
-Monitors are configured via the UI. Suggested monitors for this stack:
+Monitors are configured via the UI. Suggested monitors for this stack — **don't use `localhost`**: Uptime Kuma runs in its own container on the `pihole_wg_network` bridge, not on the host network, so `localhost` only ever refers to the Uptime Kuma container itself, never Pi-hole/WireGuard/darkstat/the Pi host. Use `host.docker.internal` for anything running on the host network, and the container name directly for anything on the same bridge network as Uptime Kuma:
 
 | What to monitor | Type | URL / Target |
 |-----------------|------|--------------|
-| Pi-hole web UI | HTTP(s) | `http://localhost/admin` |
-| WireGuard web UI | HTTP(s) | `http://localhost:51821` |
-| Grafana | HTTP(s) | `http://localhost:3030` |
-| DNS resolution (via Pi-hole) | DNS | resolve `google.com` on `127.0.0.1` |
-| darkstat | HTTP(s) | `http://localhost:667` |
+| Pi-hole web UI | HTTP(s) | `http://host.docker.internal/admin` |
+| WireGuard web UI | HTTP(s) | `http://host.docker.internal:51821` |
+| Grafana | HTTP(s) | `http://grafana:3000` (same bridge network — use the container name and internal port, not the host-mapped one) |
+| DNS resolution (via Pi-hole) | DNS | resolve `google.com` on `host.docker.internal` |
+| darkstat | HTTP(s) | `http://host.docker.internal:667` |
 | External internet | HTTP(s) | `https://1.1.1.1` or any external site |
-| Pi host ping | Ping | `localhost` |
+| Pi host ping | Ping | `host.docker.internal` |
 
 Uptime Kuma supports notifications via Telegram, Discord, Slack, email, ntfy, and many others — set one up under **Settings → Notifications** so you get alerted when something goes down.
 
