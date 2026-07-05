@@ -50,13 +50,20 @@ WG_PORT=$(env_val      "WG_UI_PORT"      "51821")
 # Build a shell command that tries several launchers in turn. A bare
 # `xdg-open` silently does nothing on some Pi desktop images that lack a
 # configured default browser handler, so fall back through common
-# alternatives. Inlined into each Exec= (rather than a shared function)
-# since the desktop launcher spawns a fresh process with no access to
-# functions defined in this installer script.
+# alternatives — including the current Raspberry Pi OS (Debian Bookworm+)
+# package names, "chromium" and "firefox", not the older "chromium-browser"
+# / "firefox-esr" wrapper names some other distros use. Inlined into each
+# Exec= (rather than a shared function) since the desktop launcher spawns a
+# fresh process with no access to functions defined in this installer script.
+BROWSER_FALLBACKS=(xdg-open x-www-browser sensible-browser chromium-browser chromium firefox-esr firefox)
+
 open_cmd() {
-    local url="$1"
-    printf 'xdg-open %s 2>/dev/null || x-www-browser %s 2>/dev/null || sensible-browser %s 2>/dev/null || chromium-browser %s 2>/dev/null' \
-        "$url" "$url" "$url" "$url"
+    local url="$1" cmd="" b
+    for b in "${BROWSER_FALLBACKS[@]}"; do
+        [ -n "$cmd" ] && cmd+=" || "
+        cmd+="$b $url 2>/dev/null"
+    done
+    printf '%s' "$cmd"
 }
 
 cat > "$APPS_DIR/pi-bootstrap-pihole.desktop" << EOF
