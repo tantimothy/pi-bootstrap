@@ -1,6 +1,0 @@
-
-✅ TigerVNC running on display :${VNC_DISPLAY} (port ${VNC_PORT}).
-   Connect from a VNC client:  ${HOST_IP}:${VNC_PORT}
-   Password:                   the one you set in Step 4b above
-
-✅ All done. Reconnect your SSH session (or run: source ~/.bashrc) to activate the shell changes.

@@ -8,6 +8,7 @@ ACTION="${1:-list}"
 INSTALL_PATH="${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi}"
 PIHOLE_ENABLE="${PIHOLE_ENABLE:-true}"
 MONITORING_ENABLE="${MONITORING_ENABLE:-true}"
+MONITORING_SPEEDTEST_INTERVAL="${MONITORING_SPEEDTEST_INTERVAL:-60m}"
 
 # Resolve the host's LAN IP so these URLs are actually usable from another
 # device — "localhost" only means something on the Pi's own terminal.
@@ -43,7 +44,15 @@ ${WEB_UIS}
    docker logs -f grafana                                                         # Grafana live logs
    cd ~/internet-monitoring && docker compose logs -f                             # All monitoring logs
    docker exec -it pihole pihole setpassword                                      # Change Pi-hole password
-   docker exec -it pihole pihole -g                                               # Update gravity/blocklists"
+   docker exec -it pihole pihole -g                                               # Update gravity/blocklists
+
+📌 Notes:
+   🔑 Pi-hole admin password:  PIHOLE_PASSWORD from your .env
+   📊 Grafana login:           admin / MONITORING_GRAFANA_ADMIN_PASSWORD from .env
+   ⚡ Speedtest runs every ${MONITORING_SPEEDTEST_INTERVAL} — results appear in Grafana
+   📁 Config and data live at: ${INSTALL_PATH}
+   ↩️  To re-run with updated config (e.g. after editing .env), select this
+      environment again in the deploy menu — FAST will re-run the playbook."
 
 source "$REPO_DIR/lib/info-lib.sh"
 run_info

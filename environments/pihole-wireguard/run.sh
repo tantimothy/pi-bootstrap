@@ -237,7 +237,10 @@ $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 
 # ---------------------------------------------------------------------------------------
 # 6. Pipeline Sanity Validation & Telemetry Output
+#    Delegates to info.sh so the "just deployed" summary and the on-demand
+#    INFO menu are always the exact same content — one file, not two.
 # ---------------------------------------------------------------------------------------
-export HOST_IP PIHOLE_WEB_PORT WG_UI_PORT GRAFANA_PORT UPTIME_KUMA_PORT WG_PORT
-envsubst '${HOST_IP} ${PIHOLE_WEB_PORT} ${WG_UI_PORT} ${GRAFANA_PORT} ${UPTIME_KUMA_PORT} ${WG_PORT}' \
-    < "$SCRIPT_DIR/post-deploy.txt"
+echo "=========================================================="
+echo "🏁 Infrastructure Execution Pipeline Completed Successfully!"
+echo "=========================================================="
+bash "$SCRIPT_DIR/info.sh" list

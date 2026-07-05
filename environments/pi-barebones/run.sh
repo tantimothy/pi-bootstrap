@@ -171,9 +171,9 @@ else
     sudo systemctl start "vncserver@${VNC_DISPLAY}.service"
 fi
 
-HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-VNC_PORT="590${VNC_DISPLAY}"
+# Delegates to info.sh so the "just deployed" summary and the on-demand
+# INFO menu are always the exact same content — one file, not two.
+bash "$SCRIPT_DIR/info.sh" list
 
-export HOST_IP VNC_DISPLAY VNC_PORT
-envsubst '${HOST_IP} ${VNC_DISPLAY} ${VNC_PORT}' < "$SCRIPT_DIR/post-deploy.txt"
+echo ""
+echo "✅ All done. Reconnect your SSH session (or run: source ~/.bashrc) to activate the shell changes."

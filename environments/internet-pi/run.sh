@@ -208,13 +208,10 @@ ansible-playbook main.yml -i inventory.ini $ANSIBLE_EXTRA_FLAGS
 
 # ---------------------------------------------------------------------------------------
 # 10. Post-deploy output
+#     Delegates to info.sh so the "just deployed" summary and the on-demand
+#     INFO menu are always the exact same content — one file, not two.
 # ---------------------------------------------------------------------------------------
-PIHOLE_LINE=""
-GRAFANA_LINE=""
-[ "$PIHOLE_ENABLE"    = "true" ] && PIHOLE_LINE="🌍 Pi-hole Admin:     http://${HOST_IP}/admin
-"
-[ "$MONITORING_ENABLE" = "true" ] && GRAFANA_LINE="📊 Grafana Dashboard: http://${HOST_IP}:3030/
-"
-export PIHOLE_LINE GRAFANA_LINE MONITORING_SPEEDTEST_INTERVAL INSTALL_PATH
-envsubst '${PIHOLE_LINE} ${GRAFANA_LINE} ${MONITORING_SPEEDTEST_INTERVAL} ${INSTALL_PATH}' \
-    < "$SCRIPT_DIR/post-deploy.txt"
+echo "=========================================================="
+echo "🏁 Internet Pi Deployment Complete!"
+echo "=========================================================="
+bash "$SCRIPT_DIR/info.sh" list
