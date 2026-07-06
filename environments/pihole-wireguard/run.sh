@@ -298,22 +298,24 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # would just get found and recreated (destroyed) by the very next
     # `docker compose up`. `docker commit` produces a fully independent image
     # with no Compose labels, so it's immune to that and is a real rollback.
-    FALLBACK_TAG="clean-fallback-$(date +%s)"
+    #
+    # The tag is fixed (not timestamped) since only one fallback is ever kept
+    # per container — a stable tag means the rollback command never changes.
+    FALLBACK_TAG="clean-fallback"
     echo "🛑 Stopping current containers and snapshotting them as a rollback fallback..."
     for name in "${CONTAINER_NAMES[@]}"; do
         if "$DOCKER" inspect "$name" &>/dev/null; then
             "$DOCKER" stop "$name" &>/dev/null || true
 
-            # Only ever keep the single most recent fallback per container —
-            # drop any older clean-fallback snapshot for this name before
-            # creating the new one, so these don't accumulate across repeated
-            # CLEAN runs.
-            OLD_FALLBACKS=$("$DOCKER" images --format '{{.Repository}}:{{.Tag}}' --filter "reference=${name}:clean-fallback-*") || true
-            if [ -n "$OLD_FALLBACKS" ]; then
-                "$DOCKER" rmi $OLD_FALLBACKS &>/dev/null || true
-            fi
+            # `docker commit` below moves the "${name}:clean-fallback" tag to
+            # the new image, leaving any previous image with that tag dangling
+            # (untagged) rather than removing it — capture its ID first so it
+            # can be cleaned up after, keeping just the one fallback around.
+            OLD_FALLBACK_ID=$("$DOCKER" images -q "${name}:${FALLBACK_TAG}") || true
 
             "$DOCKER" commit "$name" "${name}:${FALLBACK_TAG}" &>/dev/null || true
+
+            [ -n "$OLD_FALLBACK_ID" ] && "$DOCKER" rmi "$OLD_FALLBACK_ID" &>/dev/null || true
         fi
     done
 
