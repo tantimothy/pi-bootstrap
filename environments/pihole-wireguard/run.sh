@@ -175,7 +175,7 @@ download_dashboard() {
 
 # Pi-hole metrics dashboard (works with ekofr/pihole-exporter)
 download_dashboard 10176 "pihole"
-# WireGuard dashboard is NOT downloaded — community dashboard 12177 queries
+# WireGuard: community dashboard 12177 is NOT downloaded — it queries
 # wireguard_peer_*_bytes_total / wireguard_peer_info, which is a different
 # exporter's naming scheme entirely. mindflavor/prometheus-wireguard-exporter
 # (what this stack actually runs) emits wireguard_sent_bytes_total /
@@ -183,6 +183,10 @@ download_dashboard 10176 "pihole"
 # instead, so 12177's panels always showed "No data". wireguard.json is a
 # hand-authored dashboard matching those real metric names, committed
 # directly to the repo (see monitoring/grafana/dashboards/.gitignore).
+# Dashboard 17251 is a *different* community dashboard that was verified to
+# use the correct metric names/labels for this exporter — downloaded
+# alongside the hand-authored one as a second, independent option.
+download_dashboard 17251 "wireguard-community"
 # Node Exporter Full (works with prom/node-exporter)
 download_dashboard 1860 "node-exporter"
 # Blackbox Exporter overview (works with prom/blackbox-exporter)
