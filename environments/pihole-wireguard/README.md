@@ -184,7 +184,7 @@ Select a policy when deploying from the menu, or set `REBUILD_POLICY` when runni
 
 | Policy | Action |
 |--------|--------|
-| `FAST` | Start stack if not running; skip if already active |
+| `FAST` | Start stack if not running; otherwise reconcile against `docker-compose.yml` (no image pull) so config-only edits still take effect |
 | `STOP` | Pause containers (resumable with FAST) |
 | `TEARDOWN` | Stop + remove containers; data directories untouched |
 | `CLEAN` | Pull fresh images, snapshot old containers as a rollback fallback, then stop + remove + redeploy |

@@ -44,6 +44,22 @@ CONTAINER_ENTRYPOINT_COMMAND="${CONTAINER_ENTRYPOINT_COMMAND:-/usr/local/bin/sdr
 HOST_CAPTURES_PATH="${HOST_CAPTURES_PATH:-./workspace/captures}"
 HOST_MSF_DATA_PATH="${HOST_MSF_DATA_PATH:-./workspace/msf_data}"
 
+# --- CONFIG DRIFT DETECTION ---
+# Fingerprints the values that feed into the `docker run` invocation at the
+# bottom of this script. FAST's shortcuts below normally reattach to (or
+# `docker start`) an existing container without recreating it — if one of
+# these values changed since that container was created (a different USB
+# bus path, sound device, entrypoint, etc.), the existing container would
+# otherwise silently keep running with stale config. This hash lets FAST
+# notice that and reconcile instead.
+CONFIG_HASH_FILE="${SCRIPT_DIR}/.container-config-hash"
+CONFIG_FINGERPRINT="${DOCKER_IMAGE_TAG}|${HOST_USB_BUS_PATH}|${DISPLAY}|${HOST_X11_UNIX_PATH}|${HOST_SOUND_DEVICE}|${HOST_PULSE_NATIVE_SOCKET}|${HOST_PULSE_COOKIE_PATH}|${CONTAINER_ENTRYPOINT_COMMAND}|${HOST_CAPTURES_PATH}|${HOST_MSF_DATA_PATH}"
+CONFIG_HASH=$(printf '%s' "${CONFIG_FINGERPRINT}" | sha256sum | awk '{print $1}')
+CONFIG_DRIFTED=false
+if [ -f "${CONFIG_HASH_FILE}" ] && [ "$(cat "${CONFIG_HASH_FILE}")" != "${CONFIG_HASH}" ]; then
+    CONFIG_DRIFTED=true
+fi
+
 # --- ARCHITECTURAL SAFEGUARD: PRE-EMPTIVE VOLUME GENERATION ---
 echo "[PRE-FLIGHT] Applying Pre-emptive Directory Creation Constraints on volume paths..."
 mkdir -p "${HOST_CAPTURES_PATH}"
@@ -67,6 +83,7 @@ if [ "${POLICY}" = "TEARDOWN" ]; then
     "${DOCKER}" stop "${CONTAINER_NAME}" 2>/dev/null || true
     "${DOCKER}" rm   "${CONTAINER_NAME}" 2>/dev/null || true
     rm -f "${DEPLOYED_MARKER}"
+    rm -f "${CONFIG_HASH_FILE}"
     echo "✅ Container removed."
     exit 0
 fi
@@ -77,10 +94,22 @@ IMAGE_EXISTS=$("${DOCKER}" images -q "${DOCKER_IMAGE_TAG}" 2>/dev/null || true)
 
 if [ "${POLICY}" = "FAST" ]; then
     if [ -n "${CONTAINER_RUNNING}" ]; then
+        if [ "${CONFIG_DRIFTED}" = "true" ]; then
+            echo "[DRIFT] ⚠️  run.sh config (USB/audio/display paths, entrypoint, etc.) has changed since this container was created."
+            echo "[DRIFT]    Not killing your active session automatically — run TEARDOWN then FAST (or CLEAN) to pick up the new config."
+        fi
         echo "[BYPASS] FAST Policy Engaged: Container '${CONTAINER_NAME}' is currently active."
         echo "[LIFECYCLE] Attaching your session to the existing interactive container environment..."
         exec "${DOCKER}" exec -it "${CONTAINER_NAME}" "${CONTAINER_ENTRYPOINT_COMMAND}"
         exit 0
+    fi
+
+    # A dormant (stopped, not removed) container isn't actively attached to
+    # anyone, so it's safe to reconcile automatically rather than just warn.
+    if [ -n "${CONTAINER_EXISTS}" ] && [ "${CONFIG_DRIFTED}" = "true" ]; then
+        echo "[DRIFT] run.sh config changed since this dormant container was created — recreating with current settings..."
+        "${DOCKER}" rm "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+        CONTAINER_EXISTS=""
     fi
 
     if [ -z "${CONTAINER_RUNNING}" ] && [ -n "${CONTAINER_EXISTS}" ] && [ -n "${IMAGE_EXISTS}" ]; then
@@ -94,17 +123,20 @@ fi
 
 # --- STATE TEARDOWN AND IMAGE COMPILE ROUTING ---
 if [ "${POLICY}" = "CLEAN" ]; then
-    echo "[PURGE] CLEAN Policy Engaged: Deconstructing infrastructure containers and image layers..."
+    echo "[PURGE] CLEAN Policy Engaged: Compiling a fresh image before touching the existing container..."
+    echo "[COMPILE] Triggering pristine, zero-cache compilation block across ARM layers..."
+    "${DOCKER}" build --no-cache -t "${DOCKER_IMAGE_TAG}" "${SCRIPT_DIR}"
+
+    # Only tear down the existing container AFTER a successful build (the
+    # build above already retags ${DOCKER_IMAGE_TAG} onto the new image,
+    # leaving the previous image dangling rather than deleting it — set -eo
+    # pipefail means a failed build exits before we ever reach this point,
+    # so the previous working container is left untouched instead of
+    # leaving nothing running at all).
     if [ -n "${CONTAINER_EXISTS}" ]; then
         "${DOCKER}" stop "${CONTAINER_NAME}" >/dev/null 2>&1 || true
         "${DOCKER}" rm "${CONTAINER_NAME}" >/dev/null 2>&1 || true
     fi
-    if [ -n "${IMAGE_EXISTS}" ]; then
-        echo "[LIFECYCLE] Evicting local image registry cache: ${DOCKER_IMAGE_TAG}"
-        "${DOCKER}" rmi "${DOCKER_IMAGE_TAG}" >/dev/null 2>&1 || true
-    fi
-    echo "[COMPILE] Triggering pristine, zero-cache compilation block across ARM layers..."
-    "${DOCKER}" build --no-cache -t "${DOCKER_IMAGE_TAG}" "${SCRIPT_DIR}"
 
 elif [ "${POLICY}" = "FAST" ]; then
     if [ -n "${CONTAINER_EXISTS}" ]; then
@@ -132,6 +164,11 @@ touch "$HOME/.config/pulse/cookie"
 
 # Record that this environment has actually been launched (see DEPLOYED_MARKER above)
 touch "${DEPLOYED_MARKER}"
+
+# Record the config this container is about to be launched with (see CONFIG
+# DRIFT DETECTION above) so a future FAST run can tell if run.sh's settings
+# have changed since.
+echo "${CONFIG_HASH}" > "${CONFIG_HASH_FILE}"
 
 # Changed from '-d' to '-it' and removed background restart policies to allow true interaction
 "${DOCKER}" run -it --rm \

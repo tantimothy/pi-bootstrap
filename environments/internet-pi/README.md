@@ -46,9 +46,9 @@ This environment uses **Ansible** (not Docker Compose directly). `run.sh` handle
 
 **First run takes 5–10 minutes** — Docker images are large.
 
-**FAST policy** checks if `pihole`, `grafana`, and `prometheus` containers are all running. If yes, exits immediately. If any are missing, re-runs the playbook (Ansible is idempotent — safe to re-run).
+**FAST policy** checks if `pihole`, `grafana`, and `prometheus` containers are all running, but always re-runs the Ansible playbook regardless — Ansible is idempotent (it only touches what's actually drifted from `config.yml`), so this is what lets a `.env` change take effect on a plain FAST run without needing the heavier CLEAN policy.
 
-**CLEAN policy** stops all internet-pi containers, wipes the install directory, then does a fresh install.
+**CLEAN policy** wipes the install directory for a fresh clone, then runs Ansible galaxy/config/inventory steps, and only stops+removes the existing containers right before the Ansible playbook run (which recreates them). Containers are deliberately kept running through the git clone/pull and `ansible-galaxy` steps in between — if `PIHOLE_ENABLE=true`, Pi-hole may be this host's own DNS resolver, and those steps need working DNS to reach github.com/galaxy.ansible.com.
 
 ---
 
@@ -103,10 +103,10 @@ cp -r ~/internet-monitoring/prometheus ~/backup/
 
 | Policy | Action |
 |--------|--------|
-| `FAST` | Start containers if not running; skip if already active |
+| `FAST` | Start containers if not running; otherwise re-run the (idempotent) Ansible playbook to pick up config changes |
 | `STOP` | Pause all containers (resumable with FAST) |
 | `TEARDOWN` | Stop + remove all 6 containers; data directories untouched |
-| `CLEAN` | Stop containers, wipe install dir, re-clone, re-run playbook |
+| `CLEAN` | Wipe install dir, re-clone, re-run playbook — old containers stay up until right before the playbook recreates them |
 | `INFO` | List data directories with sizes and useful commands |
 | `WIPE` | Delete `~/pi-hole/`, `~/internet-monitoring/grafana/`, `~/internet-monitoring/prometheus/`, and `~/internet-monitoring/` |
 
