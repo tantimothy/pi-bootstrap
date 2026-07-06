@@ -150,7 +150,7 @@ chmod +x run.sh
 - **The Container-Running Shortcut**: If `REBUILD_POLICY=FAST` and the container is actively running (`docker ps`), the script logs a bypass message and exits code `0` immediately to preserve runtime uptime and ongoing captures.
 - **The Container-Stopped Shortcut**: If `REBUILD_POLICY=FAST` and the container exists but is *stopped* (and the local image cache is present), it issues a fast `docker start` sequence to preserve the system lifecycle state and any uncommitted data layer shifts, then exits code `0`.
 - **Smart Compilation Branching**:
-  - If `REBUILD_POLICY=CLEAN`, it forces an explicit image eviction (`docker rmi`) and runs a pristine, zero-cache compilation (`docker build --no-cache`).
+  - If `REBUILD_POLICY=CLEAN`, it runs a pristine, zero-cache compilation (`docker build --no-cache`) *first*, before touching any existing container. Only after that build succeeds does it stop/remove the previous container — a failed build now leaves the previous working container running instead of leaving nothing at all. (The build retags the image name onto the new image, leaving the old one dangling rather than deleting it.)
   - If `REBUILD_POLICY=FAST` but the image layer is completely missing, it executes a standard compilation (`docker build`) *without* the `--no-cache` flag to maximize ARM architecture performance by utilizing cached base layers.
 
 ### Parent Pipeline Compatibility Features:
@@ -223,7 +223,7 @@ cp -r environments/dragonos-sdr/workspace ~/backup/
 | `FAST` | Start container if not running; reattach if already active |
 | `STOP` | Pause container (resumable with FAST) |
 | `TEARDOWN` | Stop + remove container; data directories untouched |
-| `CLEAN` | Stop + remove + rebuild image from scratch (slow on ARM) |
+| `CLEAN` | Rebuild image from scratch (slow on ARM), then stop + remove the old container only once the build succeeds |
 | `INFO` | List data directories with sizes and useful commands |
 | `WIPE` | Delete `./workspace/captures/`, `./workspace/msf_data/`, and `./workspace/` |
 

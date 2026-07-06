@@ -94,17 +94,20 @@ fi
 
 # --- STATE TEARDOWN AND IMAGE COMPILE ROUTING ---
 if [ "${POLICY}" = "CLEAN" ]; then
-    echo "[PURGE] CLEAN Policy Engaged: Deconstructing infrastructure containers and image layers..."
+    echo "[PURGE] CLEAN Policy Engaged: Compiling a fresh image before touching the existing container..."
+    echo "[COMPILE] Triggering pristine, zero-cache compilation block across ARM layers..."
+    "${DOCKER}" build --no-cache -t "${DOCKER_IMAGE_TAG}" "${SCRIPT_DIR}"
+
+    # Only tear down the existing container AFTER a successful build (the
+    # build above already retags ${DOCKER_IMAGE_TAG} onto the new image,
+    # leaving the previous image dangling rather than deleting it — set -eo
+    # pipefail means a failed build exits before we ever reach this point,
+    # so the previous working container is left untouched instead of
+    # leaving nothing running at all).
     if [ -n "${CONTAINER_EXISTS}" ]; then
         "${DOCKER}" stop "${CONTAINER_NAME}" >/dev/null 2>&1 || true
         "${DOCKER}" rm "${CONTAINER_NAME}" >/dev/null 2>&1 || true
     fi
-    if [ -n "${IMAGE_EXISTS}" ]; then
-        echo "[LIFECYCLE] Evicting local image registry cache: ${DOCKER_IMAGE_TAG}"
-        "${DOCKER}" rmi "${DOCKER_IMAGE_TAG}" >/dev/null 2>&1 || true
-    fi
-    echo "[COMPILE] Triggering pristine, zero-cache compilation block across ARM layers..."
-    "${DOCKER}" build --no-cache -t "${DOCKER_IMAGE_TAG}" "${SCRIPT_DIR}"
 
 elif [ "${POLICY}" = "FAST" ]; then
     if [ -n "${CONTAINER_EXISTS}" ]; then

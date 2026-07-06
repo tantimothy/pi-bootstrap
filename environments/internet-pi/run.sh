@@ -98,20 +98,17 @@ if [ "$POLICY" = "FAST" ]; then
 fi
 
 # ---------------------------------------------------------------------------------------
-# 3. CLEAN policy: stop containers and wipe install directory for a fresh deploy
+# 3. CLEAN policy: wipe install directory for a fresh clone
 # ---------------------------------------------------------------------------------------
-if [ "$POLICY" = "CLEAN" ]; then
-    echo "🧹 [CLEAN POLICY] Stopping Internet Pi containers..."
-    for name in pihole grafana prometheus ping speedtest nodeexp; do
-        $DOCKER stop "$name" 2>/dev/null || true
-        $DOCKER rm   "$name" 2>/dev/null || true
-    done
-
-    if [ -d "$INSTALL_PATH" ]; then
-        echo "🗑️  Removing install directory: $INSTALL_PATH"
-        rm -rf "$INSTALL_PATH"
-    fi
-    echo "✅ Clean complete. Proceeding with fresh install."
+# Containers are deliberately NOT stopped here — if PIHOLE_ENABLE=true, Pi-hole
+# may be this host's own DNS resolver, and the steps below (git clone/pull,
+# ansible-galaxy collection install) need working DNS. Tearing it down first
+# would leave the host unable to resolve github.com/galaxy.ansible.com at all.
+# The actual container teardown is deferred to just before the Ansible
+# playbook run (step 9), which is what recreates them anyway.
+if [ "$POLICY" = "CLEAN" ] && [ -d "$INSTALL_PATH" ]; then
+    echo "🧹 [CLEAN POLICY] Removing install directory for a fresh clone: $INSTALL_PATH"
+    rm -rf "$INSTALL_PATH"
 fi
 
 # ---------------------------------------------------------------------------------------
@@ -190,6 +187,18 @@ EOF
 # ---------------------------------------------------------------------------------------
 # 9. Run the Ansible playbook
 # ---------------------------------------------------------------------------------------
+# CLEAN's container teardown happens here — right before the playbook
+# recreates everything — rather than at step 3, so Pi-hole (if it's this
+# host's own DNS resolver) stays up through every network-dependent step
+# above (git clone/pull, ansible-galaxy install).
+if [ "$POLICY" = "CLEAN" ]; then
+    echo "🧹 [CLEAN POLICY] Stopping Internet Pi containers..."
+    for name in pihole grafana prometheus ping speedtest nodeexp; do
+        $DOCKER stop "$name" 2>/dev/null || true
+        $DOCKER rm   "$name" 2>/dev/null || true
+    done
+fi
+
 echo "🚀 Running Ansible playbook (this may take a few minutes on first run)..."
 cd "$INSTALL_PATH"
 
