@@ -89,11 +89,11 @@ Every environment receives a `REBUILD_POLICY` variable:
 
 | Policy | Container behaviour | Image cache |
 |:---|:---|:---|
-| `FAST` *(default)* | Skip rebuild if running; `docker start` if stopped; rebuild only what's missing | Reuse local layer cache |
-| `CLEAN` | Stop and remove all containers in `CONTAINER_NAME` | Evict image cache, force `--no-cache` build |
+| `FAST` *(default)* | Reuse or reconcile whatever's already running rather than exiting silently stale — the exact mechanism varies by environment (Docker Compose's own config-hash recreate, re-running an idempotent Ansible playbook, or a custom config-drift hash for plain `docker run` environments); see each environment's README for specifics | Reuse local layer cache; rebuild/pull only what's missing |
+| `CLEAN` | Build or pull the replacement *before* touching the existing containers, so a failed build/pull leaves the previous working setup untouched instead of leaving nothing running; some environments (e.g. `pihole-wireguard`) also keep the previous container as an explicit rollback fallback | Force `--no-cache` build or fresh `pull`, depending on environment |
 | `STOP` | Pause containers (resumable with FAST) | — |
 | `TEARDOWN` | Stop + remove containers; data untouched | — |
-| `INFO` | Show data directories, sizes, and useful commands | — |
+| `INFO` | Show data directories, sizes, and useful commands (scrollable via `less` in an interactive terminal) | — |
 | `WIPE` | Delete persisted data directories (irreversible) | — |
 
 ### Secret Pre-Processor

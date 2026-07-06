@@ -188,7 +188,7 @@ Select a policy when deploying from the menu, or set `REBUILD_POLICY` when runni
 | `STOP` | Pause containers (resumable with FAST) |
 | `TEARDOWN` | Stop + remove containers; data directories untouched |
 | `CLEAN` | Pull fresh images, snapshot old containers as a rollback fallback, then stop + remove + redeploy |
-| `INFO` | List data directories with sizes and useful commands |
+| `INFO` | List data directories with sizes and useful commands (scrollable via `less` in an interactive terminal) |
 | `WIPE` | Delete persisted data directories (irreversible — back up first) |
 
 **`CLEAN` details:** images are pulled *before* the old containers are stopped — Pi-hole is this stack's own DNS resolver, so pulling only after teardown would leave the host unable to resolve registry hostnames on a self-hosted-DNS Pi. Before removal, each old container is snapshotted via `docker commit` into a `<name>:clean-fallback` image (a plain rename isn't enough, since Compose matches containers by label and would just recreate/destroy a renamed one on the next `up`). The tag is fixed, not timestamped — only the single most recent fallback is ever kept per container, since `docker commit` just moves the tag to the new image and the previous one is cleaned up right after, so the rollback command below never changes. Named volumes are left untouched.

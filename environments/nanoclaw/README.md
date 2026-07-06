@@ -104,7 +104,7 @@ cp -r ~/nanoclaw/data   ~/backup/nanoclaw-data
 | `STOP` | Stop the nanoclaw service (agent containers keep running) |
 | `TEARDOWN` | Stop service + remove all agent containers; data untouched |
 | `CLEAN` | Stop service, remove containers, wipe install dir, reinstall |
-| `INFO` | List data directories with sizes and useful commands |
+| `INFO` | List data directories with sizes and useful commands (scrollable via `less` in an interactive terminal) |
 | `WIPE` | Delete `groups/` and `data/` only (install dir preserved) |
 
 ---
