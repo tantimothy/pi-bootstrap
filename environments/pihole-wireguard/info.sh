@@ -73,15 +73,16 @@ USEFUL_COMMANDS="🌐 Web UIs:
       recreating wg-easy does take effect, but any client .conf/QR code you
       already downloaded is a static snapshot of the OLD host and won't
       update; redownload it from the dashboard for each existing peer.
-   ⏮️  CLEAN policy rollback: every container is snapshotted to a
-      <name>:clean-fallback-<timestamp> image before a CLEAN redeploy (only
-      the most recent one per container is kept). In practice Pi-hole is the
-      only one you'd realistically need to roll back — it's this stack's own
-      DNS resolver. If a fresh Pi-hole image is broken:
+   ⏮️  CLEAN policy rollback: every container is snapshotted to a fixed
+      <name>:clean-fallback image before a CLEAN redeploy (only the most
+      recent one per container is kept, so this command never changes). In
+      practice Pi-hole is the only one you'd realistically need to roll
+      back — it's this stack's own DNS resolver. If a fresh Pi-hole image
+      is broken:
         docker stop pihole && docker rm pihole
         docker run -d --name pihole --network host --cap-add NET_ADMIN \\
           --restart unless-stopped -v ${SCRIPT_DIR}/etc-pihole:/etc/pihole \\
-          pihole:clean-fallback-<timestamp>
+          pihole:clean-fallback
       ./etc-pihole is a bind mount, so Pi-hole's actual data is unaffected —
       this only rolls back the software. Before the next ./run.sh, stop+rm
       this container first (it has no Compose labels, so Compose will hit a

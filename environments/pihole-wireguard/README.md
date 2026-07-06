@@ -191,7 +191,7 @@ Select a policy when deploying from the menu, or set `REBUILD_POLICY` when runni
 | `INFO` | List data directories with sizes and useful commands |
 | `WIPE` | Delete persisted data directories (irreversible — back up first) |
 
-**`CLEAN` details:** images are pulled *before* the old containers are stopped — Pi-hole is this stack's own DNS resolver, so pulling only after teardown would leave the host unable to resolve registry hostnames on a self-hosted-DNS Pi. Before removal, each old container is snapshotted via `docker commit` into a `<name>:clean-fallback-<timestamp>` image (a plain rename isn't enough, since Compose matches containers by label and would just recreate/destroy a renamed one on the next `up`). Only the single most recent fallback is kept per container — any older `clean-fallback` image for that same container is deleted right before the new one is created, so these don't accumulate across repeated `CLEAN` runs. Named volumes are left untouched.
+**`CLEAN` details:** images are pulled *before* the old containers are stopped — Pi-hole is this stack's own DNS resolver, so pulling only after teardown would leave the host unable to resolve registry hostnames on a self-hosted-DNS Pi. Before removal, each old container is snapshotted via `docker commit` into a `<name>:clean-fallback` image (a plain rename isn't enough, since Compose matches containers by label and would just recreate/destroy a renamed one on the next `up`). The tag is fixed, not timestamped — only the single most recent fallback is ever kept per container, since `docker commit` just moves the tag to the new image and the previous one is cleaned up right after, so the rollback command below never changes. Named volumes are left untouched.
 
 ### Rolling back a bad `CLEAN` deploy
 
@@ -210,7 +210,7 @@ docker rm pihole
 docker run -d --name pihole --network host --cap-add NET_ADMIN \
   --restart unless-stopped \
   -v "$(pwd)/etc-pihole:/etc/pihole" \
-  pihole:clean-fallback-<timestamp>
+  pihole:clean-fallback
 ```
 
 `./etc-pihole` is a bind mount, not baked into the image, so all of Pi-hole's actual state (gravity database, custom blocklists, settings) is unaffected either way — this only rolls back the *software*, not the data.
@@ -351,6 +351,12 @@ docker compose up -d --force-recreate pihole-exporter
 If `docker compose ps` shows `wireguard-exporter` stuck restarting, and `docker logs wireguard-exporter` repeats `error: The argument '--prepend_sudo <prepend_sudo>' requires a value but none was supplied` — that's the container's own crash loop, not a shell/`sudo` issue on the host. The `mindflavor/prometheus-wireguard-exporter` image's default `CMD` is just `["-a"]` (a flag with no value); `docker-compose.yml` overrides `command: ["-a", "true"]` to fix this, so make sure you're on a version of this repo that includes that override.
 
 If the WireGuard Grafana dashboard shows "No data" on every panel despite `wireguard-exporter` scraping successfully (check Prometheus → Status → Targets, job `wireguard` should show `up`), you're likely on an older deploy that downloaded community dashboard ID 12177 — it queries `wireguard_peer_*_bytes_total`/`wireguard_peer_info`, which is a *different* exporter's metric naming scheme, not this one's (`wireguard_sent_bytes_total`/`wireguard_received_bytes_total`/`wireguard_latest_handshake_seconds`). Delete `monitoring/grafana/dashboards/wireguard.json` and `monitoring/grafana/dashboards/wireguard-community.json` and redeploy (`REBUILD_POLICY=FAST ./run.sh`) to pick up the hand-authored dashboard plus community dashboard 17251, both of which match the real metric names.
+
+### Speedtest exporter
+
+If `docker compose ps` (or Prometheus's own container-health view) shows `speedtest-exporter` as `unhealthy` even though `docker logs speedtest-exporter` shows real speed test results (`Server=... Download=...Mbps Upload=...Mbps`), it's a false alarm from the image's own built-in healthcheck, not an actual outage — Prometheus's real scrape (over the bridge network's IPv4 address) is unaffected either way. The image's default healthcheck spiders `http://localhost:9798/`, and on some systems `localhost` resolves to `::1` (IPv6) first; the exporter only binds IPv4, so that spider gets `connection refused` forever. `docker-compose.yml`'s `healthcheck:` override pins it to `http://127.0.0.1:9798/` explicitly to fix this — make sure you're on a version of this repo that includes it.
+
+If it's *actually* down (no speed test results in the logs at all, or DNS/connection errors like `Couldn't resolve host name (HostNotFoundException)`), the exporter needs outbound internet access and working DNS — check `docker exec speedtest-exporter getent hosts www.speedtest.net` resolves. After moving this stack to a new Pi/IP, existing containers can end up with a stale host-DNS-forwarding address baked into their `/etc/resolv.conf` (Docker computes this once, at container-creation time, and never updates it) — `docker compose up -d --force-recreate` regenerates it against the current network config.
 
 ### darkstat
 
