@@ -2,3 +2,7 @@
 
 # Marker files run.sh touches to record that an environment has been launched
 environments/*/.deployed
+
+# Config fingerprint used by dragonos-sdr/kali-pentest to detect drift
+# between an existing container and the current run.sh settings
+environments/*/.container-config-hash

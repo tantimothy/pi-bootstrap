@@ -152,6 +152,9 @@ chmod +x run.sh
 - **Smart Compilation Branching**:
   - If `REBUILD_POLICY=CLEAN`, it runs a pristine, zero-cache compilation (`docker build --no-cache`) *first*, before touching any existing container. Only after that build succeeds does it stop/remove the previous container — a failed build now leaves the previous working container running instead of leaving nothing at all. (The build retags the image name onto the new image, leaving the old one dangling rather than deleting it.)
   - If `REBUILD_POLICY=FAST` but the image layer is completely missing, it executes a standard compilation (`docker build`) *without* the `--no-cache` flag to maximize ARM architecture performance by utilizing cached base layers.
+- **Config Drift Detection**: A hash of the settings that feed the `docker run` invocation (USB bus path, sound device, X11/Pulse paths, entrypoint command, capture/data volume paths) is stored in `.container-config-hash` (gitignored, like `.deployed`) every time the container is launched. On a later `FAST` run, if any of those settings changed (e.g. you edited `.env`) since the existing container was created:
+  - **Currently running** — you're only warned; your active session is never killed automatically. Run `TEARDOWN` then `FAST` (or `CLEAN`) to pick up the new config.
+  - **Dormant (stopped but not removed)** — nothing is attached, so it's recreated automatically with the current settings instead of reusing the stale one.
 
 ### Parent Pipeline Compatibility Features:
 - **Strict Non-Interactive Execution**: To run smoothly within automated environment threads (like a background `curl | bash` stream), the script excludes all interactive flags (`-it`, `-t`, or `< /dev/tty`). It runs fully detached via `-d` governed under a long-term `--restart=unless-stopped` lifecycle strategy.
