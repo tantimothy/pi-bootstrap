@@ -93,6 +93,60 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
 # ---------------------------------------------------------------------------------------
+# 2b. PADD launcher — idempotent .bashrc block (mirrors pi-barebones' own
+#     MARKER_START/END pattern). padd.sh itself is user-managed, not
+#     downloaded by this script — this only wires up the login launcher.
+#     Always inserted *before* pi-barebones' block if present, so that
+#     environment's fastfetch (which is meant to run last) still ends up at
+#     the bottom of the login sequence regardless of deploy order.
+#
+#     PADD auto-reads /etc/pihole/cli_pw (if readable) before falling back
+#     to --secret or an interactive prompt, so the password is written there
+#     instead of being passed as a CLI argument — a CLI arg would be visible
+#     to any user on the system via `ps aux` for the process's whole
+#     lifetime, not just recorded in shell history.
+# ---------------------------------------------------------------------------------------
+BASHRC="$HOME/.bashrc"
+PADD_MARKER_START="# >>> PIHOLE-WIREGUARD PADD START >>>"
+PADD_MARKER_END="# <<< PIHOLE-WIREGUARD PADD END <<<"
+PI_BAREBONES_MARKER_START="# >>> PI INITIAL SETUP START >>>"
+
+touch "$BASHRC"
+
+if [ -n "${FTLCONF_webserver_api_password:-}" ]; then
+    sudo mkdir -p /etc/pihole
+    sudo tee /etc/pihole/cli_pw > /dev/null <<< "${FTLCONF_webserver_api_password}"
+    sudo chown "$(id -u):$(id -g)" /etc/pihole/cli_pw
+    sudo chmod 600 /etc/pihole/cli_pw
+fi
+
+# Remove any existing block first so re-runs stay idempotent
+if grep -qF "$PADD_MARKER_START" "$BASHRC"; then
+    sed -i "/$PADD_MARKER_START/,/$PADD_MARKER_END/d" "$BASHRC"
+fi
+
+PADD_BLOCK=$(cat <<BASHRC_BLOCK
+$PADD_MARKER_START
+
+[ -x ~/padd.sh ] && ~/padd.sh
+
+$PADD_MARKER_END
+BASHRC_BLOCK
+)
+
+if grep -qF "$PI_BAREBONES_MARKER_START" "$BASHRC"; then
+    # pi-barebones' block already exists — insert ours immediately before it
+    awk -v block="$PADD_BLOCK" -v marker="$PI_BAREBONES_MARKER_START" '
+        index($0, marker) == 1 && !done { print block; done=1 }
+        { print }
+    ' "$BASHRC" > "${BASHRC}.tmp" && mv "${BASHRC}.tmp" "$BASHRC"
+else
+    # No pi-barebones block yet — append at the end. If pi-barebones is
+    # deployed later, its own script appends after this one, preserving order.
+    { echo ""; echo "$PADD_BLOCK"; } >> "$BASHRC"
+fi
+
+# ---------------------------------------------------------------------------------------
 # 3. Pre-emptive Volume Generation & Permission Management
 # ---------------------------------------------------------------------------------------
 echo "📁 Executing pre-emptive volume generation routines..."
