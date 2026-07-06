@@ -67,8 +67,14 @@ if grep -qF "$LEGACY_MARKER_START" "$BASHRC"; then
     sed -i "/$LEGACY_MARKER_START/,/$LEGACY_MARKER_END/d" "$BASHRC"
 fi
 
-# tmux block: always re-pinned to the very top of .bashrc, so it runs
-# before anything else (including blocks injected by other environments)
+# tmux block: always re-pinned immediately before whichever other custom
+# block (PADD, fastfetch) currently comes first — NOT prepended to the
+# absolute top of .bashrc, since that would run before the default
+# .bashrc's own "if not running interactively, don't do anything" guard
+# that most distros ship, breaking non-interactive shell invocations
+# (scp, ansible, `ssh host command`, etc.). If neither block exists yet,
+# append at the very end, i.e. after all pre-existing default content.
+PADD_MARKER_START="# >>> PIHOLE-WIREGUARD PADD START >>>"
 if grep -qF "$TMUX_MARKER_START" "$BASHRC"; then
     sed -i "/$TMUX_MARKER_START/,/$TMUX_MARKER_END/d" "$BASHRC"
 fi
@@ -78,7 +84,21 @@ $(cat "$SCRIPT_DIR/.bashrc.tmux")
 $TMUX_MARKER_END
 BLOCK
 )
-{ echo "$TMUX_BLOCK"; echo ""; cat "$BASHRC"; } > "${BASHRC}.tmp" && mv "${BASHRC}.tmp" "$BASHRC"
+if grep -qF "$PADD_MARKER_START" "$BASHRC"; then
+    INSERT_BEFORE="$PADD_MARKER_START"
+elif grep -qF "$FASTFETCH_MARKER_START" "$BASHRC"; then
+    INSERT_BEFORE="$FASTFETCH_MARKER_START"
+else
+    INSERT_BEFORE=""
+fi
+if [ -n "$INSERT_BEFORE" ]; then
+    awk -v block="$TMUX_BLOCK" -v marker="$INSERT_BEFORE" '
+        index($0, marker) == 1 && !done { print block; print ""; done=1 }
+        { print }
+    ' "$BASHRC" > "${BASHRC}.tmp" && mv "${BASHRC}.tmp" "$BASHRC"
+else
+    { echo ""; echo "$TMUX_BLOCK"; } >> "$BASHRC"
+fi
 
 # fastfetch block: always re-pinned to the very bottom of .bashrc, so it
 # runs last regardless of what other blocks are injected in between

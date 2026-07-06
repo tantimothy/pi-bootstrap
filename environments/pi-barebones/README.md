@@ -23,7 +23,7 @@ Note: [PADD](https://github.com/pi-hole/PADD) (Pi-hole's terminal stats dashboar
 1. **Copies `.tmux.conf`** from this directory to `~/.tmux.conf` if the file exists
 2. **Installs packages** listed in `packages.txt` (one package name per line, `#` for comments)
 3. **Injects two `.bashrc` blocks** (idempotent — safe to re-run; old blocks are replaced, not duplicated), kept separate and independently positioned rather than one combined block so other environments can inject their own login-time commands in between:
-   - **tmux block**, always re-pinned to the very top of `.bashrc` — runs `tmux new-session -A` (attaches to an existing tmux session or creates one)
+   - **tmux block**, always re-pinned immediately before any other custom block (e.g. `pihole-wireguard`'s PADD launcher) — or appended at the end if none exist yet — runs `tmux new-session -A` (attaches to an existing tmux session or creates one). Never prepended to the absolute top of `.bashrc`, since that would run before the default `.bashrc`'s own "if not running interactively, don't do anything" guard and could break non-interactive shell invocations (scp, ansible, `ssh host command`, etc.)
    - **fastfetch block**, always re-pinned to the very bottom of `.bashrc` — runs `fastfetch` if installed (system info display)
 
    For example, `pihole-wireguard`'s PADD launcher block inserts itself between these two, so the login sequence is always tmux → PADD → fastfetch regardless of which environment you deploy first.
