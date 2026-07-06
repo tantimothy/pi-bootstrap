@@ -166,6 +166,13 @@ services:
     networks:
       pihole_wg_net:
     restart: unless-stopped
+    # The image's own default healthcheck spiders "localhost", which some
+    # Docker setups resolve to ::1 (IPv6) first — but the exporter only
+    # binds IPv4, so it gets "connection refused" and shows unhealthy even
+    # though the exporter (and Prometheus's actual scrape, over the bridge
+    # network's IPv4 address) work fine. Pin it to 127.0.0.1 explicitly.
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:9798/ || exit 1"]
 
   # HTTP / ICMP / DNS probing for service health and latency
   blackbox-exporter:
