@@ -223,11 +223,11 @@ cp -r environments/dragonos-sdr/workspace ~/backup/
 
 | Policy | Action |
 |--------|--------|
-| `FAST` | Start container if not running; reattach if already active |
+| `FAST` | Start container if not running; reattach if already active (warns instead of reattaching silently if `.env` config drifted since the container was created) |
 | `STOP` | Pause container (resumable with FAST) |
 | `TEARDOWN` | Stop + remove container; data directories untouched |
 | `CLEAN` | Rebuild image from scratch (slow on ARM), then stop + remove the old container only once the build succeeds |
-| `INFO` | List data directories with sizes and useful commands |
+| `INFO` | List data directories with sizes and useful commands (scrollable via `less` in an interactive terminal) |
 | `WIPE` | Delete `./workspace/captures/`, `./workspace/msf_data/`, and `./workspace/` |
 
 ---

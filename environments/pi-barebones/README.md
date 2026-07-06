@@ -154,7 +154,7 @@ sudo systemctl restart vncserver@1.service
 | `STOP` | No-op — no running services to stop |
 | `TEARDOWN` | No-op — no containers to remove |
 | `CLEAN` | Same as FAST (re-runs setup idempotently) |
-| `INFO` | No persistent data directories — shows useful commands |
+| `INFO` | No persistent data directories — shows useful commands (scrollable via `less` in an interactive terminal) |
 | `WIPE` | No data directories to delete |
 
 ---
