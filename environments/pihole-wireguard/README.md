@@ -191,7 +191,33 @@ Select a policy when deploying from the menu, or set `REBUILD_POLICY` when runni
 | `INFO` | List data directories with sizes and useful commands |
 | `WIPE` | Delete persisted data directories (irreversible — back up first) |
 
-**`CLEAN` details:** images are pulled *before* the old containers are stopped — Pi-hole is this stack's own DNS resolver, so pulling only after teardown would leave the host unable to resolve registry hostnames on a self-hosted-DNS Pi. Before removal, each old container is snapshotted via `docker commit` into a `<name>:clean-fallback-<timestamp>` image (a plain rename isn't enough, since Compose matches containers by label and would just recreate/destroy a renamed one on the next `up`). Only the single most recent fallback is kept per container — any older `clean-fallback` image for that same container is deleted right before the new one is created, so these don't accumulate across repeated `CLEAN` runs. Named volumes are left untouched. If the fresh deploy turns out broken, the previous container's exact state is still available as an image — list them with `docker images | grep clean-fallback` and restore manually with `docker run` using the same volume/network flags as the corresponding service in `docker-compose.yml`.
+**`CLEAN` details:** images are pulled *before* the old containers are stopped — Pi-hole is this stack's own DNS resolver, so pulling only after teardown would leave the host unable to resolve registry hostnames on a self-hosted-DNS Pi. Before removal, each old container is snapshotted via `docker commit` into a `<name>:clean-fallback-<timestamp>` image (a plain rename isn't enough, since Compose matches containers by label and would just recreate/destroy a renamed one on the next `up`). Only the single most recent fallback is kept per container — any older `clean-fallback` image for that same container is deleted right before the new one is created, so these don't accumulate across repeated `CLEAN` runs. Named volumes are left untouched.
+
+### Rolling back a bad `CLEAN` deploy
+
+Every container gets a fallback snapshot, but **in practice Pi-hole is the only one you'd realistically need to roll back** — it's the single point of failure this whole mechanism exists to protect (the stack's own DNS resolver), and the rest (Grafana, Prometheus, the exporters, etc.) can just be redeployed or debugged normally without urgency. If a fresh Pi-hole image turns out broken:
+
+```bash
+# 1. Find the fallback image
+docker images | grep pihole | grep clean-fallback
+
+# 2. Stop and remove the broken container
+docker stop pihole
+docker rm pihole
+
+# 3. Run the fallback image with the same flags pihole normally uses
+#    (from docker-compose.yml: host networking, NET_ADMIN, etc-pihole bind mount)
+docker run -d --name pihole --network host --cap-add NET_ADMIN \
+  --restart unless-stopped \
+  -v "$(pwd)/etc-pihole:/etc/pihole" \
+  pihole:clean-fallback-<timestamp>
+```
+
+`./etc-pihole` is a bind mount, not baked into the image, so all of Pi-hole's actual state (gravity database, custom blocklists, settings) is unaffected either way — this only rolls back the *software*, not the data.
+
+This container is no longer Compose-managed (no Compose labels), so before your next `./run.sh` run, `docker stop pihole && docker rm pihole` first — otherwise Compose will fail with a "name already in use" error trying to recreate it.
+
+For any other service, the same pattern applies — swap in that service's own volume/network/cap flags from `docker-compose.yml`.
 
 ---
 
