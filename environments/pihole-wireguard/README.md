@@ -358,6 +358,10 @@ If `docker compose ps` (or Prometheus's own container-health view) shows `speedt
 
 If it's *actually* down (no speed test results in the logs at all, or DNS/connection errors like `Couldn't resolve host name (HostNotFoundException)`), the exporter needs outbound internet access and working DNS — check `docker exec speedtest-exporter getent hosts www.speedtest.net` resolves. After moving this stack to a new Pi/IP, existing containers can end up with a stale host-DNS-forwarding address baked into their `/etc/resolv.conf` (Docker computes this once, at container-creation time, and never updates it) — `docker compose up -d --force-recreate` regenerates it against the current network config.
 
+### Blackbox exporter — external HTTP targets fail with "network is unreachable"
+
+If `docker logs blackbox-exporter` shows errors like `dial tcp [2404:...]:443: connect: network is unreachable` for external targets (`https://google.com`, `https://github.com`) while everything else (Pi-hole admin, Grafana, Uptime Kuma, `1.1.1.1` ping) works fine, this is IPv4/IPv6 mismatch, not a real outage: the address in brackets is an IPv6 address — DNS resolved the target's `AAAA` record, but this stack's Docker bridge network has no IPv6 route out. The `icmp` and `dns_google` blackbox modules already pin `preferred_ip_protocol: ip4`, but `http_2xx` didn't — added, so all three modules now consistently force IPv4 for probes.
+
 ### darkstat
 
 `darkstat` shows hostnames for LAN devices by resolving IPs through reverse DNS, using whatever DNS server the host itself is configured with (it runs with `network_mode: host`, same as Pi-hole). If devices show up as bare IP addresses instead of names, check Pi-hole's **Settings → DNS → Conditional Forwarding** — it needs to be enabled and pointed at your router for Pi-hole to answer reverse lookups for locally-leased IPs. Without it, Pi-hole (or whatever your resolver is) has no local PTR records to return, and darkstat falls back to showing the raw IP.

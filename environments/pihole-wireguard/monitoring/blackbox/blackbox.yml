@@ -7,6 +7,7 @@ modules:
       valid_status_codes: []  # empty = accept any 2xx
       method: GET
       no_follow_redirects: false
+      preferred_ip_protocol: ip4
       tls_config:
         insecure_skip_verify: true
 
