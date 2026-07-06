@@ -12,8 +12,9 @@ This is not a Docker environment — it runs directly on the host and has no con
 |------|------|-------------|
 | tmux | [github.com/tmux/tmux](https://github.com/tmux/tmux) | Terminal multiplexer — persists sessions across SSH disconnects and splits one terminal into panes/windows |
 | fastfetch | [github.com/fastfetch-cli/fastfetch](https://github.com/fastfetch-cli/fastfetch) | Fast system info display (OS, CPU, RAM, uptime) shown on login — neofetch replacement written in C |
-| PADD | [github.com/pi-hole/PADD](https://github.com/pi-hole/PADD) | Pi-hole live stats dashboard for the terminal — shows query rates, blocked %, top domains; displayed on login if `padd.sh` is present in `~` |
 | TigerVNC | [tigervnc.org](https://tigervnc.org) | High-performance VNC server — streams the full Pi desktop to any VNC client at 1920×1080, auto-starts on boot via systemd |
+
+Note: [PADD](https://github.com/pi-hole/PADD) (Pi-hole's terminal stats dashboard) is wired up by the `pihole-wireguard` environment, not this one — see its README.
 
 ---
 
@@ -23,7 +24,6 @@ This is not a Docker environment — it runs directly on the host and has no con
 2. **Installs packages** listed in `packages.txt` (one package name per line, `#` for comments)
 3. **Injects a `.bashrc` block** (idempotent — safe to re-run; old block is replaced, not duplicated):
    - Runs `tmux new-session -A` — attaches to an existing tmux session or creates one
-   - Runs `~/padd.sh` if it exists (Pi-hole PADD dashboard)
    - Runs `fastfetch` if installed (system info display)
 4. **Installs and configures TigerVNC** — see below
 

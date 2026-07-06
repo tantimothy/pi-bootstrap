@@ -139,6 +139,12 @@ Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s passwor
    docker compose up -d --force-recreate wg-easy
    ```
 
+### PADD on login (optional)
+
+Every `run.sh` invocation idempotently wires up a `.bashrc` block that runs `~/padd.sh` ([PADD](https://github.com/pi-hole/PADD), Pi-hole's terminal stats dashboard) on login, if that file exists — this repo doesn't download or manage PADD itself, only the login launcher. If you're also running the `pi-barebones` environment on the same Pi (which prints `fastfetch` on login), this block is always inserted *before* pi-barebones' block regardless of which environment you deployed first, so `fastfetch` still runs last.
+
+The API password is written to `/etc/pihole/cli_pw` (owned by your user, `chmod 600`) rather than passed as a `--secret` command-line argument — PADD auto-reads that file if present, which avoids the password being visible via `ps aux` to any other user on the system for as long as PADD is running, not just recorded in shell history.
+
 ---
 
 ## 💾 Data Directories
@@ -259,14 +265,17 @@ Pre-provisioned dashboards appear in the **Pi Network** folder — they are *not
 | Dashboard | Grafana ID | Shows |
 |-----------|-----------|-------|
 | Pi-hole | 10176 | DNS queries/sec, blocked %, top clients, top blocked domains |
-| WireGuard | 12177 | Per-peer received/sent bytes, last handshake timestamp |
+| WireGuard | *(none — hand-authored, committed to this repo)* | Per-peer sent/received rate, time since last handshake, cumulative totals |
+| WireGuard (community) | 17251 | Per-peer received/sent bytes gauge, throughput over time, handshake state timeline |
 | Node Exporter Full | 1860 | CPU, RAM, disk, filesystem, network I/O, system load |
 | Blackbox Exporter | 7587 | HTTP response times, probe success/fail, ping latency, DNS check |
 | Speedtest | 13665 | Download/upload speed and ping history over time |
 
+Both WireGuard dashboards use the same metric names/labels as this stack's `wireguard-exporter` (`wireguard_sent_bytes_total`/`wireguard_received_bytes_total`/`wireguard_latest_handshake_seconds`, labeled by `allowed_ips`) — community dashboard **12177** does not, despite its generic name, and isn't downloaded for that reason (see the WireGuard exporter troubleshooting note below).
+
 If dashboards are missing (no internet at deploy time), import them manually:
 1. Grafana sidebar → **Dashboards** → **Import**
-2. Enter the dashboard ID from the table above
+2. Enter the dashboard ID from the table above (the hand-authored WireGuard one has no ID — re-run `./run.sh` instead, or copy `monitoring/grafana/dashboards/wireguard.json` from this repo)
 3. Select **Prometheus** as the datasource and click **Import**
 
 If a dashboard is present but its panels show "Datasource not found" instead of data, `run.sh` downloaded it before it existed locally and the datasource-variable rewrite (`${DS_...}` → your Prometheus datasource) didn't cover every variable name a given community dashboard uses. Fix by re-running the rewrite against the existing file and restarting Grafana:
@@ -313,7 +322,7 @@ docker compose up -d --force-recreate pihole-exporter
 
 If `docker compose ps` shows `wireguard-exporter` stuck restarting, and `docker logs wireguard-exporter` repeats `error: The argument '--prepend_sudo <prepend_sudo>' requires a value but none was supplied` — that's the container's own crash loop, not a shell/`sudo` issue on the host. The `mindflavor/prometheus-wireguard-exporter` image's default `CMD` is just `["-a"]` (a flag with no value); `docker-compose.yml` overrides `command: ["-a", "true"]` to fix this, so make sure you're on a version of this repo that includes that override.
 
-If the WireGuard Grafana dashboard shows "No data" on every panel despite `wireguard-exporter` scraping successfully (check Prometheus → Status → Targets, job `wireguard` should show `up`), you're likely on an older deploy that downloaded community dashboard ID 12177 — it queries `wireguard_peer_*_bytes_total`/`wireguard_peer_info`, which is a *different* exporter's metric naming scheme, not this one's (`wireguard_sent_bytes_total`/`wireguard_received_bytes_total`/`wireguard_latest_handshake_seconds`). Delete `monitoring/grafana/dashboards/wireguard.json` and redeploy (`REBUILD_POLICY=FAST ./run.sh`) to pick up the hand-authored dashboard that's committed to this repo and matches the real metric names.
+If the WireGuard Grafana dashboard shows "No data" on every panel despite `wireguard-exporter` scraping successfully (check Prometheus → Status → Targets, job `wireguard` should show `up`), you're likely on an older deploy that downloaded community dashboard ID 12177 — it queries `wireguard_peer_*_bytes_total`/`wireguard_peer_info`, which is a *different* exporter's metric naming scheme, not this one's (`wireguard_sent_bytes_total`/`wireguard_received_bytes_total`/`wireguard_latest_handshake_seconds`). Delete `monitoring/grafana/dashboards/wireguard.json` and `monitoring/grafana/dashboards/wireguard-community.json` and redeploy (`REBUILD_POLICY=FAST ./run.sh`) to pick up the hand-authored dashboard plus community dashboard 17251, both of which match the real metric names.
 
 ### darkstat
 
