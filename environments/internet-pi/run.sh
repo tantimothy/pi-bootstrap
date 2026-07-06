@@ -75,8 +75,13 @@ if [ "$POLICY" = "TEARDOWN" ]; then
 fi
 
 # ---------------------------------------------------------------------------------------
-# 3. FAST policy: if all expected containers are running, exit early
+# 3. FAST policy: report current state, but always reconcile via Ansible below
 # ---------------------------------------------------------------------------------------
+# Deliberately does NOT exit early even when everything's already up — Ansible
+# is idempotent (it only touches what's actually drifted), so falling through
+# to re-run the playbook is what lets a config.yml-affecting .env change (or
+# an internet-pi upstream update) take effect on a plain FAST run, instead of
+# requiring CLEAN.
 if [ "$POLICY" = "FAST" ]; then
     EXPECTED=()
     [ "$PIHOLE_ENABLE" = "true" ]     && EXPECTED+=(pihole)
@@ -89,11 +94,9 @@ if [ "$POLICY" = "FAST" ]; then
     done
 
     if [ "$ALL_UP" = "true" ] && [ "${#EXPECTED[@]}" -gt 0 ]; then
-        echo "✅ [FAST POLICY] Internet Pi containers are active."
-        [ "$PIHOLE_ENABLE" = "true" ]     && echo "🌍 Pi-hole Admin:     http://${HOST_IP}/admin"
-        [ "$MONITORING_ENABLE" = "true" ] && echo "📊 Grafana Dashboard: http://${HOST_IP}:3030/"
-        echo "=========================================================="
-        exit 0
+        echo "✅ [FAST POLICY] Internet Pi containers are active — reconciling via Ansible (idempotent, no forced re-pull)..."
+    else
+        echo "🛠️  [FAST POLICY] One or more containers missing or stopped — deploying..."
     fi
 fi
 
