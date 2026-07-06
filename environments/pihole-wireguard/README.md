@@ -141,7 +141,7 @@ Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s passwor
 
 ### PADD on login (optional)
 
-Every `run.sh` invocation idempotently wires up a `.bashrc` block that runs `~/padd.sh` ([PADD](https://github.com/pi-hole/PADD), Pi-hole's terminal stats dashboard) on login, if that file exists — this repo doesn't download or manage PADD itself, only the login launcher. If you're also running the `pi-barebones` environment on the same Pi (which prints `fastfetch` on login), this block is always inserted *before* pi-barebones' block regardless of which environment you deployed first, so `fastfetch` still runs last.
+Every `run.sh` invocation idempotently wires up a `.bashrc` block that runs `~/padd.sh` ([PADD](https://github.com/pi-hole/PADD), Pi-hole's terminal stats dashboard) on login, if that file exists — this repo doesn't download or manage PADD itself, only the login launcher. If you're also running the `pi-barebones` environment on the same Pi, the login order is always **tmux → PADD → fastfetch**, regardless of which environment you deploy first or how many times either re-runs: `pi-barebones` always re-pins its tmux block to the very top and its fastfetch block to the very bottom of `.bashrc`, and this PADD block always inserts itself immediately before the fastfetch block.
 
 The API password is written to `/etc/pihole/cli_pw` (owned by your user, `chmod 600`) rather than passed as a `--secret` command-line argument — PADD auto-reads that file if present, which avoids the password being visible via `ps aux` to any other user on the system for as long as PADD is running, not just recorded in shell history.
 

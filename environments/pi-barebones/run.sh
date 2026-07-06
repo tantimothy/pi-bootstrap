@@ -6,9 +6,18 @@ PACKAGE_FILE="$SCRIPT_DIR/packages.txt"
 TMUX_SOURCE="$SCRIPT_DIR/.tmux.conf"
 BASHRC="$HOME/.bashrc"
 
-# Unique block markers for idempotency inside .bashrc
-MARKER_START="# >>> PI INITIAL SETUP START >>>"
-MARKER_END="# <<< PI INITIAL SETUP END <<<"
+# Unique block markers for idempotency inside .bashrc.
+# Split into two independently-positioned blocks (rather than one combined
+# block) so tmux always runs first and fastfetch always runs last, even
+# with other environments (e.g. pihole-wireguard's PADD launcher) injecting
+# their own block in between.
+TMUX_MARKER_START="# >>> PI TMUX SETUP START >>>"
+TMUX_MARKER_END="# <<< PI TMUX SETUP END <<<"
+FASTFETCH_MARKER_START="# >>> PI FASTFETCH SETUP START >>>"
+FASTFETCH_MARKER_END="# <<< PI FASTFETCH SETUP END <<<"
+# Old combined block from before the split — cleaned up on upgrade
+LEGACY_MARKER_START="# >>> PI INITIAL SETUP START >>>"
+LEGACY_MARKER_END="# <<< PI INITIAL SETUP END <<<"
 
 echo "🔄 Starting Raspberry Pi first-time initialization..."
 
@@ -52,17 +61,37 @@ echo "✏️ Updating $BASHRC with initialization blocks..."
 
 touch "$BASHRC"
 
-if grep -qF "$MARKER_START" "$BASHRC"; then
-    echo "🧹 Cleaned old configurations from .bashrc to enforce idempotency."
-    sed -i "/$MARKER_START/,/$MARKER_END/d" "$BASHRC"
+# Migrate away from the old single combined block, if present
+if grep -qF "$LEGACY_MARKER_START" "$BASHRC"; then
+    echo "🧹 Migrating old combined .bashrc block to the new split format."
+    sed -i "/$LEGACY_MARKER_START/,/$LEGACY_MARKER_END/d" "$BASHRC"
 fi
 
-{
-    echo ""
-    echo "$MARKER_START"
-    cat "$SCRIPT_DIR/.bashrc"
-    echo "$MARKER_END"
-} >> "$BASHRC"
+# tmux block: always re-pinned to the very top of .bashrc, so it runs
+# before anything else (including blocks injected by other environments)
+if grep -qF "$TMUX_MARKER_START" "$BASHRC"; then
+    sed -i "/$TMUX_MARKER_START/,/$TMUX_MARKER_END/d" "$BASHRC"
+fi
+TMUX_BLOCK=$(cat <<BLOCK
+$TMUX_MARKER_START
+$(cat "$SCRIPT_DIR/.bashrc.tmux")
+$TMUX_MARKER_END
+BLOCK
+)
+{ echo "$TMUX_BLOCK"; echo ""; cat "$BASHRC"; } > "${BASHRC}.tmp" && mv "${BASHRC}.tmp" "$BASHRC"
+
+# fastfetch block: always re-pinned to the very bottom of .bashrc, so it
+# runs last regardless of what other blocks are injected in between
+if grep -qF "$FASTFETCH_MARKER_START" "$BASHRC"; then
+    sed -i "/$FASTFETCH_MARKER_START/,/$FASTFETCH_MARKER_END/d" "$BASHRC"
+fi
+FASTFETCH_BLOCK=$(cat <<BLOCK
+$FASTFETCH_MARKER_START
+$(cat "$SCRIPT_DIR/.bashrc.fastfetch")
+$FASTFETCH_MARKER_END
+BLOCK
+)
+{ echo ""; echo "$FASTFETCH_BLOCK"; } >> "$BASHRC"
 
 echo "✅ Shell setup complete."
 

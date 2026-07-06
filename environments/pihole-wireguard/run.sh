@@ -96,9 +96,10 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 # 2b. PADD launcher — idempotent .bashrc block (mirrors pi-barebones' own
 #     MARKER_START/END pattern). padd.sh itself is user-managed, not
 #     downloaded by this script — this only wires up the login launcher.
-#     Always inserted *before* pi-barebones' block if present, so that
-#     environment's fastfetch (which is meant to run last) still ends up at
-#     the bottom of the login sequence regardless of deploy order.
+#     Always inserted *before* pi-barebones' fastfetch block if present (and
+#     after its tmux block, which pi-barebones always re-pins to the very
+#     top), so the login sequence is tmux → PADD → fastfetch regardless of
+#     which environment was deployed first.
 #
 #     PADD auto-reads /etc/pihole/cli_pw (if readable) before falling back
 #     to --secret or an interactive prompt, so the password is written there
@@ -109,7 +110,7 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 BASHRC="$HOME/.bashrc"
 PADD_MARKER_START="# >>> PIHOLE-WIREGUARD PADD START >>>"
 PADD_MARKER_END="# <<< PIHOLE-WIREGUARD PADD END <<<"
-PI_BAREBONES_MARKER_START="# >>> PI INITIAL SETUP START >>>"
+PI_FASTFETCH_MARKER_START="# >>> PI FASTFETCH SETUP START >>>"
 
 touch "$BASHRC"
 
@@ -134,15 +135,18 @@ $PADD_MARKER_END
 BASHRC_BLOCK
 )
 
-if grep -qF "$PI_BAREBONES_MARKER_START" "$BASHRC"; then
-    # pi-barebones' block already exists — insert ours immediately before it
-    awk -v block="$PADD_BLOCK" -v marker="$PI_BAREBONES_MARKER_START" '
+if grep -qF "$PI_FASTFETCH_MARKER_START" "$BASHRC"; then
+    # pi-barebones' fastfetch block already exists — insert ours immediately
+    # before it (pi-barebones' tmux block re-pins itself to the top on every
+    # run regardless, so this alone is enough to guarantee tmux -> PADD -> fastfetch)
+    awk -v block="$PADD_BLOCK" -v marker="$PI_FASTFETCH_MARKER_START" '
         index($0, marker) == 1 && !done { print block; done=1 }
         { print }
     ' "$BASHRC" > "${BASHRC}.tmp" && mv "${BASHRC}.tmp" "$BASHRC"
 else
-    # No pi-barebones block yet — append at the end. If pi-barebones is
-    # deployed later, its own script appends after this one, preserving order.
+    # No pi-barebones fastfetch block yet — append at the end. If
+    # pi-barebones is deployed later, its tmux block re-pins to the top and
+    # its fastfetch block appends after this one, preserving order.
     { echo ""; echo "$PADD_BLOCK"; } >> "$BASHRC"
 fi
 
