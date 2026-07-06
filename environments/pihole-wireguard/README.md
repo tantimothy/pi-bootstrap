@@ -187,9 +187,11 @@ Select a policy when deploying from the menu, or set `REBUILD_POLICY` when runni
 | `FAST` | Start stack if not running; skip if already active |
 | `STOP` | Pause containers (resumable with FAST) |
 | `TEARDOWN` | Stop + remove containers; data directories untouched |
-| `CLEAN` | Stop + remove + pull fresh images and redeploy |
+| `CLEAN` | Pull fresh images, snapshot old containers as a rollback fallback, then stop + remove + redeploy |
 | `INFO` | List data directories with sizes and useful commands |
 | `WIPE` | Delete persisted data directories (irreversible — back up first) |
+
+**`CLEAN` details:** images are pulled *before* the old containers are stopped — Pi-hole is this stack's own DNS resolver, so pulling only after teardown would leave the host unable to resolve registry hostnames on a self-hosted-DNS Pi. Before removal, each old container is snapshotted via `docker commit` into a `<name>:clean-fallback-<timestamp>` image (a plain rename isn't enough, since Compose matches containers by label and would just recreate/destroy a renamed one on the next `up`). Named volumes are left untouched. If the fresh deploy turns out broken, the previous container's exact state is still available as an image — list them with `docker images | grep clean-fallback`, restore manually with `docker run` using the same volume/network flags as the corresponding service in `docker-compose.yml`, and remove old fallback images once you're confident the new deploy is good (`docker rmi $(docker images -q --filter reference='*:clean-fallback-*')`) — they aren't cleaned up automatically.
 
 ---
 

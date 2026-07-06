@@ -278,17 +278,45 @@ if [ "$POLICY" = "FAST" ]; then
     fi
     echo "🛠️  [FAST POLICY] One or more containers missing or stopped — deploying..."
 elif [ "$POLICY" = "CLEAN" ]; then
-    echo "🧹 [CLEAN POLICY] Force eviction and zero-cache pipeline requested."
-    echo "🛑 Dismantling operational environments..."
-    $DOCKER_COMPOSE --env-file "$ENV_FILE" down --volumes --remove-orphans || true
+    echo "🧹 [CLEAN POLICY] Force fresh-image pipeline with rollback fallback."
 
-    echo "🗑️  Evicting local image layers (fresh pull will follow)..."
-    "$DOCKER" rmi pihole/pihole:latest ghcr.io/wg-easy/wg-easy:latest \
-        ekofr/pihole-exporter:latest mindflavor/prometheus-wireguard-exporter:latest \
-        prom/prometheus:latest grafana/grafana:latest \
-        louislam/uptime-kuma:latest prom/node-exporter:latest \
-        ghcr.io/miguelndecarvalho/speedtest-exporter:latest \
-        prom/blackbox-exporter:latest 2>/dev/null || true
+    # Pull fresh images BEFORE tearing anything down. Pi-hole is this stack's
+    # own DNS resolver — if we stop it first (as the old order did), the host
+    # loses DNS and the subsequent pull can't resolve registry hostnames at
+    # all, breaking a self-hosted-DNS Pi's ability to ever CLEAN itself.
+    # Pulling while the old containers (Pi-hole included) are still up avoids
+    # the chicken-and-egg problem entirely, and `docker compose pull` always
+    # checks the registry for the latest digest regardless of local cache, so
+    # this still gets a truly fresh set of images.
+    echo "📥 Pulling fresh image layers while Pi-hole is still up to serve DNS..."
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" pull
+
+    # Stop and snapshot the current containers into standalone fallback
+    # images before removing them. A plain `docker rename` isn't enough here:
+    # Compose matches existing containers by their project/service *labels*,
+    # not by current container name, so a renamed-but-still-labeled container
+    # would just get found and recreated (destroyed) by the very next
+    # `docker compose up`. `docker commit` produces a fully independent image
+    # with no Compose labels, so it's immune to that and is a real rollback.
+    FALLBACK_TAG="clean-fallback-$(date +%s)"
+    echo "🛑 Stopping current containers and snapshotting them as a rollback fallback..."
+    for name in "${CONTAINER_NAMES[@]}"; do
+        if "$DOCKER" inspect "$name" &>/dev/null; then
+            "$DOCKER" stop "$name" &>/dev/null || true
+            "$DOCKER" commit "$name" "${name}:${FALLBACK_TAG}" &>/dev/null || true
+        fi
+    done
+
+    # Named volumes are deliberately left alone (no --volumes) since the goal
+    # is a recoverable rollback, not a wipe; only the containers themselves
+    # (already snapshotted above) are removed so Compose can create fresh
+    # ones in their place.
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" down --remove-orphans || true
+
+    echo "ℹ️  Old containers snapshotted as <name>:${FALLBACK_TAG} images."
+    echo "   List them:   docker images | grep clean-fallback"
+    echo "   Restore one: docker run --name <name> --restart unless-stopped <original volume/network flags from docker-compose.yml> <name>:${FALLBACK_TAG}"
+    echo "   Clean up once confirmed unneeded: docker rmi \$(docker images -q --filter reference='*:clean-fallback-*')"
 else
     echo "❌ Error: Unrecognized runtime policy context profile: '${POLICY}'" >&2
     exit 1
@@ -298,7 +326,12 @@ fi
 # 5. Pipeline Layer Pulling & Detached Launch Execution
 # ---------------------------------------------------------------------------------------
 echo "📥 Orchestrating container deployment manifest layers..."
-$DOCKER_COMPOSE --env-file "$ENV_FILE" pull
+if [ "$POLICY" != "CLEAN" ]; then
+    # CLEAN already pulled above, before teardown, to avoid the DNS
+    # chicken-and-egg problem. Pulling again here would run after Pi-hole
+    # is down and fail on a self-hosted-DNS Pi.
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" pull
+fi
 
 echo "🦅 Launching system infrastructure nodes into background space..."
 $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
