@@ -1,6 +1,6 @@
 # Pi Barebones — First-Time Pi Initialization
 
-Bootstraps a fresh Raspberry Pi OS install with a minimal quality-of-life setup: installs packages from `packages.txt`, drops a `.tmux.conf` into your home directory, and injects a `.bashrc` block that auto-attaches a tmux session and runs a system info screen on every login.
+Bootstraps a fresh Raspberry Pi OS install with a minimal quality-of-life setup: installs packages from `packages.txt`, drops a `.tmux.conf` into your home directory, and injects two `.bashrc` blocks that auto-attach a tmux session on login and run a system info screen at the very end of it.
 
 This is not a Docker environment — it runs directly on the host and has no containers.
 
@@ -22,12 +22,14 @@ Note: [PADD](https://github.com/pi-hole/PADD) (Pi-hole's terminal stats dashboar
 
 1. **Copies `.tmux.conf`** from this directory to `~/.tmux.conf` if the file exists
 2. **Installs packages** listed in `packages.txt` (one package name per line, `#` for comments)
-3. **Injects a `.bashrc` block** (idempotent — safe to re-run; old block is replaced, not duplicated):
-   - Runs `tmux new-session -A` — attaches to an existing tmux session or creates one
-   - Runs `fastfetch` if installed (system info display)
+3. **Injects two `.bashrc` blocks** (idempotent — safe to re-run; old blocks are replaced, not duplicated), kept separate and independently positioned rather than one combined block so other environments can inject their own login-time commands in between:
+   - **tmux block**, always re-pinned to the very top of `.bashrc` — runs `tmux new-session -A` (attaches to an existing tmux session or creates one)
+   - **fastfetch block**, always re-pinned to the very bottom of `.bashrc` — runs `fastfetch` if installed (system info display)
+
+   For example, `pihole-wireguard`'s PADD launcher block inserts itself between these two, so the login sequence is always tmux → PADD → fastfetch regardless of which environment you deploy first.
 4. **Installs and configures TigerVNC** — see below
 
-The `.bashrc` injection uses marker comments so re-running the script cleanly replaces the previous block rather than appending duplicate lines.
+The `.bashrc` injections use marker comments so re-running the script cleanly replaces the previous blocks rather than appending duplicate lines.
 
 ---
 
@@ -148,7 +150,7 @@ sudo systemctl restart vncserver@1.service
 
 | Policy | Action |
 |--------|--------|
-| `FAST` | Install missing packages and update `.bashrc` block |
+| `FAST` | Install missing packages and update `.bashrc` blocks |
 | `STOP` | No-op — no running services to stop |
 | `TEARDOWN` | No-op — no containers to remove |
 | `CLEAN` | Same as FAST (re-runs setup idempotently) |
@@ -166,8 +168,9 @@ sudo systemctl restart vncserver@1.service
 # Attach to the tmux session
 tmux attach
 
-# View current .bashrc injected block
-grep -A20 'PI INITIAL SETUP START' ~/.bashrc
+# View current .bashrc injected blocks
+grep -A5 'PI TMUX SETUP START' ~/.bashrc
+grep -A5 'PI FASTFETCH SETUP START' ~/.bashrc
 
 # Check VNC server status
 systemctl status vncserver@1.service

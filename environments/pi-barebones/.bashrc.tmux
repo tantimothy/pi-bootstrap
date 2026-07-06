@@ -3,6 +3,3 @@ if [ -z "$TMUX" ]; then
     tmux new-session -t 0 -s "client_$$" \; set-option destroy-unattached on 2>/dev/null \
     || tmux new-session -s 0
 fi
-
-cd ~
-if [ -f /usr/bin/fastfetch ]; then fastfetch; fi
