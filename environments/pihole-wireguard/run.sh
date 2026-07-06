@@ -272,7 +272,13 @@ done
 if [ "$POLICY" = "FAST" ]; then
     if [ "$ALL_RUNNING" = "true" ]; then
         echo "✅ [FAST POLICY] Stack containers are active and serving traffic."
-        echo "🚀 Maximizing platform uptime. Bypassing execution pipeline."
+        echo "🔎 Reconciling against docker-compose.yml (no image pull) in case it changed..."
+        # `docker compose up -d` only recreates containers whose config
+        # actually changed (e.g. a healthcheck/env/volume edit) and no-ops
+        # instantly for the rest — this is what lets a compose-only change
+        # take effect on a plain FAST run without needing the heavier CLEAN
+        # policy's image pull, or a manual `docker compose up -d`.
+        $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
         echo "=========================================================="
         exit 0
     fi
