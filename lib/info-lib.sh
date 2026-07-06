@@ -194,7 +194,18 @@ _info_delete() {
 
 run_info() {
     if [ "$ACTION" = "list" ]; then
-        _info_list
+        # Pipe through less so long output (many data dirs/volumes/useful
+        # commands) can be scrolled instead of flying past the terminal.
+        # Falls back to plain output when there's no interactive terminal to
+        # scroll in (e.g. a non-interactive `curl | bash` deploy) or `less`
+        # isn't installed. -F: exit immediately if content fits on one
+        # screen (behaves like plain output for short lists). -X: don't
+        # clear the screen on exit, so the info stays visible afterward.
+        if [ -t 1 ] && command -v less &>/dev/null; then
+            _info_list | less -FX
+        else
+            _info_list
+        fi
     elif [ "$ACTION" = "delete" ]; then
         if [ "${#DATA_DIRS[@]}" -eq 0 ] && [ "${#NAMED_VOLUMES[@]}" -eq 0 ]; then
             echo ""
