@@ -303,6 +303,16 @@ elif [ "$POLICY" = "CLEAN" ]; then
     for name in "${CONTAINER_NAMES[@]}"; do
         if "$DOCKER" inspect "$name" &>/dev/null; then
             "$DOCKER" stop "$name" &>/dev/null || true
+
+            # Only ever keep the single most recent fallback per container —
+            # drop any older clean-fallback snapshot for this name before
+            # creating the new one, so these don't accumulate across repeated
+            # CLEAN runs.
+            OLD_FALLBACKS=$("$DOCKER" images --format '{{.Repository}}:{{.Tag}}' --filter "reference=${name}:clean-fallback-*") || true
+            if [ -n "$OLD_FALLBACKS" ]; then
+                "$DOCKER" rmi $OLD_FALLBACKS &>/dev/null || true
+            fi
+
             "$DOCKER" commit "$name" "${name}:${FALLBACK_TAG}" &>/dev/null || true
         fi
     done
@@ -313,10 +323,9 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # ones in their place.
     $DOCKER_COMPOSE --env-file "$ENV_FILE" down --remove-orphans || true
 
-    echo "ℹ️  Old containers snapshotted as <name>:${FALLBACK_TAG} images."
+    echo "ℹ️  Old containers snapshotted as <name>:${FALLBACK_TAG} images (previous fallback per container, if any, was replaced)."
     echo "   List them:   docker images | grep clean-fallback"
     echo "   Restore one: docker run --name <name> --restart unless-stopped <original volume/network flags from docker-compose.yml> <name>:${FALLBACK_TAG}"
-    echo "   Clean up once confirmed unneeded: docker rmi \$(docker images -q --filter reference='*:clean-fallback-*')"
 else
     echo "❌ Error: Unrecognized runtime policy context profile: '${POLICY}'" >&2
     exit 1
