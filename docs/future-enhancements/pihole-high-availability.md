@@ -14,8 +14,8 @@ until it's back up. There's no failover today.
 
 ```
                     ┌─────────────────┐
-      clients ────► │   VIP (float)    │ ◄──── owned by whichever node currently
-     (DHCP/DNS)      │  e.g. 192.168.1.10│      has the highest VRRP priority
+      clients ────► │   VIP (float)    │ ◄──── owned by whichever node is
+     (DHCP/DNS)      │  e.g. 192.168.1.10│      currently MASTER (see below)
                     └────────┬─────────┘
                              │
         ┌────────────────────┼────────────────────┐
@@ -28,12 +28,15 @@ until it's back up. There's no failover today.
 ```
 
 Clients point DNS at the **VIP**, never at any node's real address.
-Whichever node currently holds the highest **`HA_PRIORITY`** owns the VIP.
-This isn't fixed at exactly two nodes — VRRP natively supports any number
-of routers in one group, so adding capacity is just deploying another Pi
-with its own unique `HA_PRIORITY`, and retiring one is just decommissioning
-it; no relabeling of "the primary" or "the secondary" required, since
-nothing is hardcoded to a 2-node pair.
+`HA_PRIORITY` decides who wins the VIP *at initial election* (cold start,
+or after whoever was serving genuinely fails) — but not automatically ever
+after; see [Preemption](#preemption-a-returning-node-must-not-silently-become-the-source-of-truth)
+below for why a node coming back online doesn't just reclaim the VIP the
+instant it's reachable again. This isn't fixed at exactly two nodes — VRRP
+natively supports any number of routers in one group, so adding capacity
+is just deploying another Pi with its own unique `HA_PRIORITY`, and
+retiring one is just decommissioning it; no relabeling of "the primary" or
+"the secondary" required, since nothing is hardcoded to a 2-node pair.
 
 All nodes sit on the same L2 subnet — this design assumes that and doesn't
 work unmodified across VLANs, since VRRP's heartbeat is multicast and
@@ -62,9 +65,12 @@ BACKUP, even if it currently believes itself to be MASTER. So the
 split-brain window is bounded exactly to the duration of the network
 partition itself — the instant every node can hear each other again, all
 but the single highest-priority one step down automatically.
-`HA_PRIORITY` is the single source of truth for who wins; nothing else
-needs to "decide" a tie, and it scales to any node count without new logic
-— the highest number always wins, however many nodes are in the group.
+`HA_PRIORITY` is the single source of truth for resolving *this* kind of
+tie — a genuine simultaneous election, where multiple nodes are booting up
+or reconnecting at once with no clear incumbent. Nothing else needs to
+"decide" that case, and it scales to any node count without new logic.
+This is a narrower claim than "the highest number always wins" — see the
+next section for the case where it must deliberately *not* win.
 
 The remaining real risk during a partition isn't which node *should*
 win — it's that more than one is answering DNS/DHCP on the LAN at once.
@@ -72,6 +78,34 @@ For a home LAN where all nodes share one switch, this is a narrow,
 short-lived condition (the switch itself failing takes down connectivity
 for everyone regardless of which node has the VIP), so it's treated as an
 accepted residual risk rather than solved with additional hardware.
+
+## Preemption: a returning node must not silently become the source of truth
+
+VRRP's *default* behavior is **preemption**: if a node with higher
+`HA_PRIORITY` than the current MASTER comes online (or reconnects after a
+partition), it immediately reclaims MASTER — purely because its number is
+higher, with no regard for whether its data is actually current.
+
+That default is actively dangerous for this design. Say Pi A
+(`HA_PRIORITY=200`) was MASTER, crashed, and Pi B (`HA_PRIORITY=150`) has
+been covering for hours — new WireGuard peers added, new DHCP leases
+handed out, blocklist updates. Sync (as described throughout this doc)
+always flows from *whoever is currently active* outward. The instant Pi A
+comes back online and preempts, sync direction follows it: Pi A becomes
+the source, and everything Pi B accumulated while covering gets
+silently overwritten by Pi A's stale, pre-crash state. Nothing errors —
+it just quietly loses hours of real changes.
+
+**Fix: set `nopreempt` in every node's `vrrp_instance` block in
+`keepalived.conf`.** With
+preemption disabled, `HA_PRIORITY` still resolves a genuine simultaneous
+election (see above), but a node that returns after being down does
+*not* forcibly retake MASTER just because its number is higher — it
+rejoins as BACKUP and stays there, quietly catching up via the normal
+sync path, until whoever is *currently* MASTER actually fails. Only then
+does priority ordering matter again, among whichever nodes are left. This
+means `HA_PRIORITY` is better read as "who wins when there's genuinely no
+incumbent," not "who's supposed to be in charge at all times."
 
 ## Components
 
@@ -205,7 +239,10 @@ shape:
   (`state MASTER` if it turns out to be the highest currently seen, `state
   BACKUP` otherwise — keepalived figures this out itself at runtime, it
   doesn't need to be decided by `run.sh`), plus `HA_VIP`, `HA_INTERFACE`,
-  and `HA_VRRP_PASSWORD`.
+  `HA_VRRP_PASSWORD`, and **`nopreempt`** (see
+  [Preemption](#preemption-a-returning-node-must-not-silently-become-the-source-of-truth)
+  above — without this, a returning node can silently become the sync
+  source and overwrite real changes with its own stale state).
 - Install a keepalived **notify script** referenced by that config, which
   on transition to MASTER: enables Pi-hole's DHCP (`dhcp.active true`) and
   starts `wg-easy`; on transition to BACKUP: disables DHCP and stops
@@ -230,6 +267,13 @@ shape:
 
 ## Open questions for whoever picks this up
 
+- **`nopreempt` + static `state MASTER`/`BACKUP` interaction.** keepalived
+  documentation generally recommends pairing `nopreempt` with every node
+  configured `state BACKUP` (letting priority alone determine the initial
+  MASTER at first boot, rather than hardcoding `state MASTER` anywhere) —
+  worth confirming the exact interaction before assuming the straightforward
+  reading above is correct, since getting this wrong could reintroduce the
+  same stale-reclaim problem `nopreempt` is meant to solve.
 - **Syncing via the VIP's SSH host key.** Since `HA_VIP` moves between
   physical nodes, an SSH-based sync tool (gravity-sync) connecting to it
   will see a different SSH host key depending on which node currently
