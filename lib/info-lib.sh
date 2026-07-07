@@ -3,12 +3,18 @@
 #
 # The calling info.sh must set before sourcing this file:
 #   SCRIPT_DIR   — absolute path to the environment directory
-#   ACTION       — "list" or "delete"
+#   ACTION       — "list", "delete", or "manifest" (the last is used by the
+#                  repo root's backup.sh — see run_info()'s manifest branch)
 #
 # Arrays (always declare these; set to () if unused):
-#   DATA_DIRS + DATA_DESCRIPTIONS
+#   DATA_DIRS + DATA_DESCRIPTIONS       — also what backup.sh backs up (paths
+#                                         are preserved as-is, wherever they
+#                                         actually live: inside this
+#                                         environment's own directory or
+#                                         elsewhere, e.g. $HOME)
 #   INSTALL_DIRS + INSTALL_DESCRIPTIONS
-#   NAMED_VOLUMES + NAMED_VOLUME_DESCRIPTIONS
+#   NAMED_VOLUMES + NAMED_VOLUME_DESCRIPTIONS  — also what backup.sh snapshots
+#                                                 via a throwaway container
 #
 # Optional arrays (declare as () if unused):
 #   WIPE_PARENT_DIRS     — parent dirs to rm -rf after DATA_DIRS are deleted (e.g. ~/internet-monitoring)
@@ -85,6 +91,16 @@ _info_list() {
     echo "💡 Useful Commands:"
     echo "$USEFUL_COMMANDS"
     echo ""
+}
+
+_info_manifest() {
+    local i
+    for i in "${!DATA_DIRS[@]}"; do
+        [ -d "${DATA_DIRS[$i]}" ] && echo "DIR:${DATA_DIRS[$i]}"
+    done
+    for i in "${!NAMED_VOLUMES[@]}"; do
+        echo "VOL:${NAMED_VOLUMES[$i]}"
+    done
 }
 
 _info_delete() {
@@ -214,5 +230,10 @@ run_info() {
         else
             _info_delete
         fi
+    elif [ "$ACTION" = "manifest" ]; then
+        # Machine-readable "DIR:<path>" / "VOL:<name>" lines for backup.sh —
+        # deliberately not piped through less (that's for the human-facing
+        # "list" action only).
+        _info_manifest
     fi
 }
