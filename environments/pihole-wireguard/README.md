@@ -268,6 +268,8 @@ On a Pi with a desktop environment, run once from the repo root:
 | **Grafana** | `http://localhost:<GRAFANA_PORT>` in default browser |
 | **Uptime Kuma** | `http://localhost:<UPTIME_KUMA_PORT>` in default browser |
 | **WireGuard Dashboard** | `http://localhost:<WG_UI_PORT>` in default browser |
+| **darkstat** | `http://localhost:<DARKSTAT_PORT>` in default browser |
+| **Dozzle** | `http://localhost:<DOZZLE_PORT>` in default browser |
 
 Each entry tries `xdg-open` first, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox` in case no default browser handler is configured on your system — covering both the older Debian wrapper names and the current Raspberry Pi OS (Bookworm+) package names.
 

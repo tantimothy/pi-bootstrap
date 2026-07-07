@@ -4,6 +4,7 @@
 #   Grafana              — opens browser to the monitoring dashboard
 #   Uptime Kuma          — opens browser to the uptime monitor
 #   WireGuard Dashboard  — opens browser to the wg-easy peer manager
+#   Dozzle               — opens browser to the container log viewer
 
 set -euo pipefail
 
@@ -16,6 +17,7 @@ ENTRIES=(
     pi-bootstrap-uptime-kuma
     pi-bootstrap-wireguard
     pi-bootstrap-darkstat
+    pi-bootstrap-dozzle
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
@@ -48,6 +50,7 @@ GRAFANA_PORT=$(env_val "GRAFANA_PORT"    "3030")
 UPTIME_PORT=$(env_val  "UPTIME_KUMA_PORT" "3001")
 WG_PORT=$(env_val      "WG_UI_PORT"      "51821")
 DARKSTAT_PORT=$(env_val "DARKSTAT_PORT"  "667")
+DOZZLE_PORT=$(env_val   "DOZZLE_PORT"    "8888")
 
 # Build a shell command that tries several launchers in turn. A bare
 # `xdg-open` silently does nothing on some Pi desktop images that lack a
@@ -127,3 +130,15 @@ Categories=Network;System;
 Terminal=false
 EOF
 echo "  ✓  darkstat        (http://localhost:$DARKSTAT_PORT)"
+
+cat > "$APPS_DIR/pi-bootstrap-dozzle.desktop" << EOF
+[Desktop Entry]
+Name=Dozzle (Logs)
+Comment=Real-time log viewer for every container on this host
+Exec=bash -c "$(open_cmd "http://localhost:$DOZZLE_PORT")"
+Icon=utilities-terminal
+Type=Application
+Categories=Network;System;
+Terminal=false
+EOF
+echo "  ✓  Dozzle          (http://localhost:$DOZZLE_PORT)"
