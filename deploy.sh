@@ -415,16 +415,52 @@ if [ "$SELECTED_PATH" = "_restore" ]; then
         exit 1
     fi
 
-    TEMP_ARCHIVE_PATH=$(mktemp)
-    dialog --clear --title " Restore From Backup " \
-        --inputbox "Path to the backup .tar.gz archive:" 10 70 "$PROJECT_DIR/" \
-        2> "$TEMP_ARCHIVE_PATH"
-    ARCHIVE_EXIT=$?
-    ARCHIVE_PATH=$(cat "$TEMP_ARCHIVE_PATH")
-    rm -f "$TEMP_ARCHIVE_PATH"
+    # Offer a pick-list of backups found in $PROJECT_DIR (where "[Backup]
+    # Create Backup Archive" writes by default), newest first, plus a manual
+    # entry option in case the archive was moved or transferred in from
+    # elsewhere. Degrades gracefully to just the manual option if none found.
+    FOUND_ARCHIVES=()
+    while IFS= read -r f; do
+        FOUND_ARCHIVES+=("$f")
+    done < <(find "$PROJECT_DIR" -maxdepth 1 -name 'pi-bootstrap-backup-*.tar.gz' 2>/dev/null | sort -r)
 
-    if [ $ARCHIVE_EXIT -ne 0 ] || [ -z "$ARCHIVE_PATH" ]; then
+    ARCHIVE_MENU_OPTIONS=()
+    ARCHIVE_MENU_PATHS=()
+    ARCHIVE_MENU_INDEX=1
+    for f in "${FOUND_ARCHIVES[@]}"; do
+        ARCHIVE_SIZE=$(du -h "$f" 2>/dev/null | cut -f1)
+        ARCHIVE_MENU_OPTIONS+=( "$ARCHIVE_MENU_INDEX" "$(basename "$f")  ($ARCHIVE_SIZE)" )
+        ARCHIVE_MENU_PATHS+=("$f")
+        ((ARCHIVE_MENU_INDEX++))
+    done
+    ARCHIVE_MENU_OPTIONS+=( "E" "Enter a path manually..." )
+
+    TEMP_ARCHIVE_CHOICE=$(mktemp)
+    dialog --clear --title " Restore From Backup " \
+        --menu "Choose a backup archive to restore from:" 18 70 10 \
+        "${ARCHIVE_MENU_OPTIONS[@]}" 2> "$TEMP_ARCHIVE_CHOICE"
+    CHOICE_EXIT=$?
+    ARCHIVE_CHOICE=$(cat "$TEMP_ARCHIVE_CHOICE")
+    rm -f "$TEMP_ARCHIVE_CHOICE"
+
+    if [ $CHOICE_EXIT -ne 0 ] || [ -z "$ARCHIVE_CHOICE" ]; then
         clear; echo "❌ Restore cancelled."; exit 0
+    fi
+
+    if [ "$ARCHIVE_CHOICE" = "E" ]; then
+        TEMP_ARCHIVE_PATH=$(mktemp)
+        dialog --clear --title " Restore From Backup " \
+            --inputbox "Path to the backup .tar.gz archive:" 10 70 "$PROJECT_DIR/" \
+            2> "$TEMP_ARCHIVE_PATH"
+        ARCHIVE_EXIT=$?
+        ARCHIVE_PATH=$(cat "$TEMP_ARCHIVE_PATH")
+        rm -f "$TEMP_ARCHIVE_PATH"
+
+        if [ $ARCHIVE_EXIT -ne 0 ] || [ -z "$ARCHIVE_PATH" ]; then
+            clear; echo "❌ Restore cancelled."; exit 0
+        fi
+    else
+        ARCHIVE_PATH="${ARCHIVE_MENU_PATHS[$((ARCHIVE_CHOICE - 1))]}"
     fi
 
     # restore.sh itself prompts (which environment, then a "type yes" confirm
