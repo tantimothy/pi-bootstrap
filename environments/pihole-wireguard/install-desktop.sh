@@ -5,11 +5,14 @@
 #   Uptime Kuma          — opens browser to the uptime monitor
 #   WireGuard Dashboard  — opens browser to the wg-easy peer manager
 #   Dozzle               — opens browser to the container log viewer
+#   Pi-hole + WireGuard Info — opens the generated post-deploy-info.html
 
 set -euo pipefail
 
 ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APPS_DIR="${APPS_DIR:-${HOME}/.local/share/applications}"
+REPO_DIR="${REPO_DIR:-$(cd "$ENV_DIR/../.." && pwd)}"
+source "$REPO_DIR/lib/desktop-lib.sh"
 
 ENTRIES=(
     pi-bootstrap-pihole
@@ -18,10 +21,11 @@ ENTRIES=(
     pi-bootstrap-wireguard
     pi-bootstrap-darkstat
     pi-bootstrap-dozzle
+    pi-bootstrap-pihole-wireguard-info
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
-    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; done
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
     exit 0
 fi
 
@@ -31,7 +35,7 @@ mkdir -p "$APPS_DIR"
 # If it isn't (or was deployed before and has since been torn down), remove
 # any stale entries so the menu doesn't accumulate broken shortcuts.
 if ! docker ps -a --filter "name=^/pihole$" -q 2>/dev/null | grep -q .; then
-    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; done
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
     echo "  ⚠  pihole-wireguard: container 'pihole' not found — skipping (deploy the environment first)"
     exit 0
 fi
@@ -52,25 +56,6 @@ WG_PORT=$(env_val      "WG_UI_PORT"      "51821")
 DARKSTAT_PORT=$(env_val "DARKSTAT_PORT"  "667")
 DOZZLE_PORT=$(env_val   "DOZZLE_PORT"    "8888")
 
-# Build a shell command that tries several launchers in turn. A bare
-# `xdg-open` silently does nothing on some Pi desktop images that lack a
-# configured default browser handler, so fall back through common
-# alternatives — including the current Raspberry Pi OS (Debian Bookworm+)
-# package names, "chromium" and "firefox", not the older "chromium-browser"
-# / "firefox-esr" wrapper names some other distros use. Inlined into each
-# Exec= (rather than a shared function) since the desktop launcher spawns a
-# fresh process with no access to functions defined in this installer script.
-BROWSER_FALLBACKS=(xdg-open x-www-browser sensible-browser chromium-browser chromium firefox-esr firefox)
-
-open_cmd() {
-    local url="$1" cmd="" b
-    for b in "${BROWSER_FALLBACKS[@]}"; do
-        [ -n "$cmd" ] && cmd+=" || "
-        cmd+="$b $url 2>/dev/null"
-    done
-    printf '%s' "$cmd"
-}
-
 cat > "$APPS_DIR/pi-bootstrap-pihole.desktop" << EOF
 [Desktop Entry]
 Name=Pi-hole Admin
@@ -81,6 +66,7 @@ Type=Application
 Categories=Network;System;
 Terminal=false
 EOF
+install_desktop_icon "pi-bootstrap-pihole"
 echo "  ✓  Pi-hole Admin  (http://localhost:$PIHOLE_PORT/admin)"
 
 cat > "$APPS_DIR/pi-bootstrap-grafana.desktop" << EOF
@@ -93,6 +79,7 @@ Type=Application
 Categories=Network;System;
 Terminal=false
 EOF
+install_desktop_icon "pi-bootstrap-grafana"
 echo "  ✓  Grafana         (http://localhost:$GRAFANA_PORT)"
 
 cat > "$APPS_DIR/pi-bootstrap-uptime-kuma.desktop" << EOF
@@ -105,6 +92,7 @@ Type=Application
 Categories=Network;System;
 Terminal=false
 EOF
+install_desktop_icon "pi-bootstrap-uptime-kuma"
 echo "  ✓  Uptime Kuma     (http://localhost:$UPTIME_PORT)"
 
 cat > "$APPS_DIR/pi-bootstrap-wireguard.desktop" << EOF
@@ -117,6 +105,7 @@ Type=Application
 Categories=Network;
 Terminal=false
 EOF
+install_desktop_icon "pi-bootstrap-wireguard"
 echo "  ✓  WireGuard       (http://localhost:$WG_PORT)"
 
 cat > "$APPS_DIR/pi-bootstrap-darkstat.desktop" << EOF
@@ -129,6 +118,7 @@ Type=Application
 Categories=Network;System;
 Terminal=false
 EOF
+install_desktop_icon "pi-bootstrap-darkstat"
 echo "  ✓  darkstat        (http://localhost:$DARKSTAT_PORT)"
 
 cat > "$APPS_DIR/pi-bootstrap-dozzle.desktop" << EOF
@@ -141,4 +131,12 @@ Type=Application
 Categories=Network;System;
 Terminal=false
 EOF
+install_desktop_icon "pi-bootstrap-dozzle"
 echo "  ✓  Dozzle          (http://localhost:$DOZZLE_PORT)"
+
+# Ensure post-deploy-info.html exists even if INFO has never been opened
+# from the menu yet (run.sh already generates it right after deploy, but
+# this is a cheap, idempotent safety net either way).
+bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+install_info_icon "pi-bootstrap-pihole-wireguard-info" "Pi-hole + WireGuard Info" "$ENV_DIR/post-deploy-info.html"
+echo "  ✓  Info page       (post-deploy-info.html)"

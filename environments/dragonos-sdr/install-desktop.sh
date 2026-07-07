@@ -3,21 +3,24 @@
 #   GQRX                — X11 window via socket passthrough
 #   GNU Radio Companion — X11 window via socket passthrough
 #   SDR Tools Menu      — TUI launcher in a terminal emulator
+#   DragonOS SDR Info   — opens the generated post-deploy-info.html
 
 set -euo pipefail
 
 ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APPS_DIR="${APPS_DIR:-${HOME}/.local/share/applications}"
 REPO_DIR="${REPO_DIR:-$(cd "$ENV_DIR/../.." && pwd)}"
+source "$REPO_DIR/lib/desktop-lib.sh"
 
 ENTRIES=(
     pi-bootstrap-gqrx
     pi-bootstrap-gnuradio
     pi-bootstrap-sdr-menu
+    pi-bootstrap-dragonos-sdr-info
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
-    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; done
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
     exit 0
 fi
 
@@ -39,7 +42,7 @@ fi
 # If it hasn't been launched (or the marker was cleared by TEARDOWN since),
 # clean up any stale entries too.
 if [ ! -f "$ENV_DIR/.deployed" ]; then
-    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; done
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
     echo "  ⚠  dragonos-sdr: not deployed — skipping (deploy the environment first)"
     exit 0
 fi
@@ -64,6 +67,7 @@ Type=Application
 Categories=HamRadio;Science;
 Terminal=false
 EOF
+install_desktop_icon "pi-bootstrap-gqrx"
 echo "  ✓  GQRX (DragonOS)"
 
 cat > "$APPS_DIR/pi-bootstrap-gnuradio.desktop" << EOF
@@ -76,6 +80,7 @@ Type=Application
 Categories=HamRadio;Science;
 Terminal=false
 EOF
+install_desktop_icon "pi-bootstrap-gnuradio"
 echo "  ✓  GNU Radio Companion (DragonOS)"
 
 # Attach to a running container if available; otherwise launch fresh
@@ -89,4 +94,11 @@ Type=Application
 Categories=HamRadio;Science;
 Terminal=true
 EOF
+install_desktop_icon "pi-bootstrap-sdr-menu"
 echo "  ✓  SDR Tools Menu (DragonOS)"
+
+# Ensure post-deploy-info.html exists even if INFO has never been opened
+# from the menu yet (this is a cheap, idempotent safety net).
+bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+install_info_icon "pi-bootstrap-dragonos-sdr-info" "DragonOS SDR Info" "$ENV_DIR/post-deploy-info.html"
+echo "  ✓  Info page (DragonOS SDR)"
