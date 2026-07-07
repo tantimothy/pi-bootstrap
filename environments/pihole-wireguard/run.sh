@@ -230,33 +230,54 @@ fi
 # host with more than one active interface (e.g. both eth0 and wlan0 up
 # simultaneously), that detection is unreliable — it can succeed once and
 # then fail entirely on a later recreate ("NO EXTERNAL NAMESERVERS
-# DEFINED"), breaking every container's external DNS resolution. Pinning
-# Docker's daemon-level "dns" setting to this host's own real LAN IP (where
-# Pi-hole already listens on 0.0.0.0:53) removes the guesswork entirely.
+# DEFINED"), breaking every container's external DNS resolution.
+#
+# Rather than hardcoding a specific IP (pinning to Pi-hole's own address
+# would make every container on the host depend on Pi-hole's uptime for
+# DNS — including during this very stack's own routine CLEAN redeploys,
+# which tear Pi-hole down briefly), this discovers whatever DNS server the
+# network's DHCP server is actually advertising right now, via a one-off,
+# non-disruptive DHCP discovery probe (nmap's broadcast-dhcp-discover sends
+# a DHCPDISCOVER and reads the OFFER; it never completes a DHCPREQUEST, so
+# it doesn't touch this host's own — statically configured — addressing).
+# That's normally the router itself, but this way it's whatever the
+# network's actual DHCP server says, not a guess baked into this script.
 #
 # Only acts if /etc/docker/daemon.json doesn't exist yet, so it never
 # clobbers an existing custom config — if you already have one without a
-# "dns" key, add "dns": ["<this-host's-LAN-IP>"] to it yourself and restart
-# Docker. This also means the one-time `systemctl restart docker` this
-# triggers (which restarts EVERY container on the host, not just this
-# stack) only ever happens on a genuinely fresh setup.
-if [ -n "$HOST_IP" ] && [ "$HOST_IP" != "localhost" ] && [ ! -f /etc/docker/daemon.json ]; then
-    echo "   Setting Docker daemon-level DNS to ${HOST_IP}..."
-    sudo mkdir -p /etc/docker
-    sudo tee /etc/docker/daemon.json > /dev/null << EOF
+# "dns" key, add one yourself and restart Docker. This also means the
+# one-time `systemctl restart docker` this triggers (which restarts EVERY
+# container on the host, not just this stack) only ever happens on a
+# genuinely fresh setup.
+if [ ! -f /etc/docker/daemon.json ]; then
+    PRIMARY_IFACE=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')
+    DHCP_DNS=""
+    if [ -n "$PRIMARY_IFACE" ]; then
+        command -v nmap &>/dev/null || sudo apt-get install -y nmap > /dev/null 2>&1
+        DHCP_DNS=$(sudo nmap --script broadcast-dhcp-discover -e "$PRIMARY_IFACE" 2>/dev/null \
+            | grep "Domain Name Server:" | head -1 | awk -F': ' '{print $2}' | awk -F',' '{print $1}' | tr -d ' \r')
+    fi
+
+    if [ -n "$DHCP_DNS" ]; then
+        echo "   Setting Docker daemon-level DNS to ${DHCP_DNS} (discovered via DHCP on ${PRIMARY_IFACE})..."
+        sudo mkdir -p /etc/docker
+        sudo tee /etc/docker/daemon.json > /dev/null << EOF
 {
-  "dns": ["${HOST_IP}"]
+  "dns": ["${DHCP_DNS}"]
 }
 EOF
-    echo "   🔄 Restarting Docker to apply it (restarts every container on this host)..."
-    sudo systemctl restart docker
-    # Wait for the daemon to actually accept connections again rather than
-    # a blind sleep — "restart" returning doesn't guarantee the API is
-    # ready yet.
-    for _ in $(seq 1 30); do
-        "$DOCKER" ps &>/dev/null && break
-        sleep 1
-    done
+        echo "   🔄 Restarting Docker to apply it (restarts every container on this host)..."
+        sudo systemctl restart docker
+        # Wait for the daemon to actually accept connections again rather
+        # than a blind sleep — "restart" returning doesn't guarantee the
+        # API is ready yet.
+        for _ in $(seq 1 30); do
+            "$DOCKER" ps &>/dev/null && break
+            sleep 1
+        done
+    else
+        echo "   ⚠️  Could not discover a DHCP-provided DNS server — skipping the Docker daemon DNS pin. If containers hit DNS instability later, configure /etc/docker/daemon.json manually."
+    fi
 fi
 
 echo "✅ Host DNS resilience configured."

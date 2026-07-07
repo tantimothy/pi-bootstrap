@@ -49,16 +49,19 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 
 3. **Host DNS Resilience (handled automatically by `run.sh`):** since this Pi ends up being its own DNS resolver, `run.sh` configures two host-level fixes on every run (both idempotent — safe to re-run, and only ever act once):
    - **Resolvconf's loopback-truncation bug** — Debian's `resolvconf` silently drops any nameserver listed *after* the first loopback address (`127.*`) when regenerating `/etc/resolv.conf`. That means even if your netplan config lists a fallback nameserver (e.g. your router) after `127.0.0.1`, it never actually reaches `/etc/resolv.conf` — and the whole host loses DNS the instant Pi-hole goes down (a crash, `TEARDOWN`, or mid-`CLEAN`). `run.sh` sets `TRUNCATE_NAMESERVER_LIST_AFTER_LOOPBACK_ADDRESS=no` in `/etc/default/resolvconf` to fix this — Pi-hole still stays the *primary* resolver, but a fallback actually works now.
-   - **Docker's per-container DNS instability** — Docker computes a DNS-forwarding target once, per container, by inspecting the host's network state at creation time. On a host with more than one active interface (e.g. both `eth0` and `wlan0` up simultaneously — common if you haven't disabled Wi-Fi after wiring in Ethernet), that detection is unreliable: it can succeed once and then fail entirely on a later recreate (`docker exec <container> cat /etc/resolv.conf` showing `# NO EXTERNAL NAMESERVERS DEFINED`), breaking every container's ability to resolve external hostnames. `run.sh` pins Docker's daemon-level `dns` setting (`/etc/docker/daemon.json`) to this host's own real LAN IP (Pi-hole already listens on `0.0.0.0:53`, so it's reachable there) — this only happens if `daemon.json` doesn't already exist, so it never clobbers a custom config, and the one-time `systemctl restart docker` this triggers (which restarts *every* container on the host) only ever fires on a genuinely fresh setup.
+   - **Docker's per-container DNS instability** — Docker computes a DNS-forwarding target once, per container, by inspecting the host's network state at creation time. On a host with more than one active interface (e.g. both `eth0` and `wlan0` up simultaneously — common if you haven't disabled Wi-Fi after wiring in Ethernet), that detection is unreliable: it can succeed once and then fail entirely on a later recreate (`docker exec <container> cat /etc/resolv.conf` showing `# NO EXTERNAL NAMESERVERS DEFINED`), breaking every container's ability to resolve external hostnames. `run.sh` fixes this by pinning Docker's daemon-level `dns` setting (`/etc/docker/daemon.json`) to a stable target — but deliberately **not** to Pi-hole's own IP, since that would make every container on the host depend on Pi-hole's uptime for DNS (including during this very stack's own routine `CLEAN` redeploys, which tear Pi-hole down briefly). Instead, `run.sh` runs a one-off, non-disruptive DHCP discovery probe (`nmap --script broadcast-dhcp-discover`) to ask the network's actual DHCP server what DNS it's currently advertising (normally your router) and pins that — it never completes a lease, so it doesn't touch this Pi's own (statically configured) addressing. This only happens if `daemon.json` doesn't already exist, so it never clobbers a custom config, and the one-time `systemctl restart docker` this triggers (which restarts *every* container on the host) only ever fires on a genuinely fresh setup.
 
-   If you ever need to redo this by hand (e.g. `daemon.json` already existed so `run.sh` skipped it):
+   If you ever need to redo this by hand (e.g. `daemon.json` already existed so `run.sh` skipped it, or you removed `pihole-wireguard` and need to update/remove a stale pin):
    ```bash
    echo 'TRUNCATE_NAMESERVER_LIST_AFTER_LOOPBACK_ADDRESS=no' | sudo tee -a /etc/default/resolvconf
    sudo resolvconf -u
 
+   # Discover what your router is actually advertising via DHCP (swap eth0 for your primary interface)
+   sudo nmap --script broadcast-dhcp-discover -e eth0
+
    sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
    {
-     "dns": ["<this Pi's LAN IP, e.g. 192.168.1.75>"]
+     "dns": ["<the \"Domain Name Server\" value from the command above, usually your router>"]
    }
    EOF
    sudo systemctl restart docker   # restarts every container on this host
