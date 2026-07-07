@@ -17,6 +17,14 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER="${DOCKER_CMD:-docker}"
 if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 
+# Some data dirs contain files written by containers that run as root inside
+# their bind mount (e.g. wg-easy's wg0.json/wg0.conf) — reading those back
+# out needs root too, regardless of who owns the rest of a given directory.
+# Always reading via sudo is simplest and avoids guessing which specific
+# files need it; ownership of the final archive is handed back to the
+# invoking user at the end.
+SUDO_TAR="sudo tar"
+
 INCLUDE_ENV=true
 OUT_DIR="$(pwd)"
 
@@ -46,11 +54,40 @@ INCLUDED_ENVS=()
 append_to_archive() {
     local archive_prefix="$1" src_dir="$2" src_name="$3"
     if [ "$FIRST_APPEND" = "true" ]; then
-        tar --transform "s#^#${archive_prefix}#" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
+        $SUDO_TAR --transform "s#^#${archive_prefix}#" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
         FIRST_APPEND=false
     else
-        tar --transform "s#^#${archive_prefix}#" -rf "$ARCHIVE" -C "$src_dir" "$src_name"
+        $SUDO_TAR --transform "s#^#${archive_prefix}#" -rf "$ARCHIVE" -C "$src_dir" "$src_name"
     fi
+}
+
+# Mirrors each environment's own "deployed" signal (the same one
+# install-desktop.sh uses to decide whether to show a desktop shortcut) —
+# a leftover .env from configuring-but-not-deploying an environment in the
+# TUI wizard shouldn't make backup.sh treat it as having real data.
+is_deployed() {
+    local env_name="$1" env_path="$2"
+    case "$env_name" in
+        pihole-wireguard)
+            $DOCKER ps -a --filter "name=^/pihole$" -q 2>/dev/null | grep -q .
+            ;;
+        dragonos-sdr|kali-pentest)
+            [ -f "${env_path}.deployed" ]
+            ;;
+        nanoclaw)
+            systemctl list-unit-files "nanoclaw.service" --no-legend 2>/dev/null | grep -q nanoclaw
+            ;;
+        internet-pi)
+            local install_path
+            install_path=$(grep -E '^INTERNET_PI_INSTALL_PATH=' "${env_path}.env" 2>/dev/null | cut -d= -f2-)
+            [ -d "${install_path:-/home/pi/internet-pi}" ]
+            ;;
+        *)
+            # Unknown/future environment type — don't block it, just let
+            # its actual manifest content (or lack of it) decide.
+            true
+            ;;
+    esac
 }
 
 echo "🗄️  Building backup archive..."
@@ -59,6 +96,11 @@ echo ""
 for ENV_PATH in "$REPO_DIR"/environments/*/; do
     ENV_NAME="$(basename "$ENV_PATH")"
     [ -f "$ENV_PATH/info.sh" ] || continue
+
+    if ! is_deployed "$ENV_NAME" "$ENV_PATH"; then
+        echo "   ⏭️  $ENV_NAME (not deployed — skipping, even though a .env may exist from configuring it in the TUI)"
+        continue
+    fi
 
     ENV_HAS_CONTENT=false
 
@@ -113,6 +155,11 @@ if [ "$FIRST_APPEND" = "true" ]; then
     echo "❌ Nothing to back up — no .env files or existing data found in any environment." >&2
     exit 1
 fi
+
+# $ARCHIVE was built via $SUDO_TAR, so it's root-owned — hand it back to the
+# invoking user now so a plain, non-root gzip (and later use of the .gz) is
+# guaranteed to work regardless of root's umask.
+sudo chown "$(id -u):$(id -g)" "$ARCHIVE"
 
 echo ""
 echo "🗜️  Compressing..."
