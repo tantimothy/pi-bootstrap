@@ -165,25 +165,35 @@ echo "✅ Local host storage layout initialized cleanly."
 #     is set in .env). Patches ONLY the addressing/gateway/nameservers fields of
 #     whichever interfaces are named — everything else already in each
 #     interface's existing netplan file (WiFi SSID/password, NetworkManager
-#     UUIDs, etc.) is left completely untouched. Applied via `netplan try`,
-#     which auto-reverts within ~120s unless interactively confirmed, so a
-#     bad config can't lock you out of SSH permanently. Idempotent: only
-#     actually re-applies netplan if something changed.
+#     UUIDs, etc.) is left completely untouched.
+#
+#     Two independent safety layers, since this touches live network config:
+#     (1) nothing is written to /etc/netplan at all until you explicitly
+#         confirm the exact changes shown — default is NO if you just press
+#         Enter — and (2) even after confirming, it's applied via
+#         `netplan try`, which auto-reverts within ~120s unless separately
+#         confirmed again, so a config that looks fine but doesn't actually
+#         work still can't lock you out of SSH permanently.
+#
+#     Idempotent: if nothing needs to change, this is a silent no-op — no
+#     prompt, nothing to confirm, on every routine redeploy.
 # ---------------------------------------------------------------------------------------
 if [ -n "${NETWORK_STATIC_IPS:-}" ]; then
-    echo "🔧 Configuring host network interfaces..."
+    echo "🔧 Checking host network interface configuration..."
     if [ -z "${NETWORK_GATEWAY:-}" ]; then
         echo "⚠️  NETWORK_STATIC_IPS is set but NETWORK_GATEWAY is empty — skipping network interface configuration." >&2
     else
         python3 -c "import yaml" 2>/dev/null || sudo apt-get install -y python3-yaml > /dev/null 2>&1
 
-        NETPLAN_RESULT=$(sudo python3 - "$NETWORK_GATEWAY" "$NETWORK_STATIC_IPS" << 'PYEOF'
-import sys, glob, yaml
+        NETPLAN_STAGING="$(mktemp -d)"
+        sudo python3 - "$NETWORK_GATEWAY" "$NETWORK_STATIC_IPS" "$NETPLAN_STAGING" << 'PYEOF'
+import sys, glob, os, yaml
 
 gateway = sys.argv[1]
 # "eth0:192.168.1.75 wlan0:" -> {"eth0": "192.168.1.75", "wlan0": ""}
 # An empty IP means: put that interface on DHCP instead of static.
 pairs = dict(p.split(":", 1) for p in sys.argv[2].split() if ":" in p)
+staging = sys.argv[3]
 
 changed = False
 for path in sorted(glob.glob("/etc/netplan/*.yaml") + glob.glob("/etc/netplan/*.yml")):
@@ -214,8 +224,10 @@ for path in sorted(glob.glob("/etc/netplan/*.yaml") + glob.glob("/etc/netplan/*.
                     "routes": [{"to": "0.0.0.0/0", "via": gateway, "metric": metric}],
                     "nameservers": {"addresses": ["127.0.0.1", gateway]},
                 }
+                summary = f"static {ip}/24, gateway {gateway}, DNS [127.0.0.1, {gateway}]"
             else:
                 new_cfg = {"dhcp4": True}
+                summary = "DHCP"
 
             if {k: cfg.get(k) for k in new_cfg} != new_cfg:
                 cfg.update(new_cfg)
@@ -223,22 +235,40 @@ for path in sorted(glob.glob("/etc/netplan/*.yaml") + glob.glob("/etc/netplan/*.
                     if stale_key not in new_cfg:
                         cfg.pop(stale_key, None)
                 file_modified = True
+                changed = True
+                print(f"   {iface} ({os.path.basename(path)}): {summary}")
 
     if file_modified:
-        with open(path, "w") as f:
+        staged_path = os.path.join(staging, os.path.basename(path))
+        with open(staged_path, "w") as f:
             yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
-        changed = True
+        with open(staged_path + ".origpath", "w") as f:
+            f.write(path)
 
-print("CHANGED" if changed else "UNCHANGED")
+with open(os.path.join(staging, ".result"), "w") as f:
+    f.write("CHANGED" if changed else "UNCHANGED")
 PYEOF
-)
+
+        NETPLAN_RESULT=$(sudo cat "$NETPLAN_STAGING/.result" 2>/dev/null || echo "UNCHANGED")
 
         if [ "$NETPLAN_RESULT" = "CHANGED" ]; then
-            echo "🔄 Applying network config via 'netplan try' (auto-reverts in ~120s unless confirmed)..."
-            sudo netplan try --timeout 120
+            echo ""
+            read -rp "Apply the network changes shown above? [y/N] " NETPLAN_CONFIRM
+            if [ "$NETPLAN_CONFIRM" = "y" ] || [ "$NETPLAN_CONFIRM" = "Y" ]; then
+                for staged in "$NETPLAN_STAGING"/*.yaml "$NETPLAN_STAGING"/*.yml; do
+                    [ -e "$staged" ] || continue
+                    ORIG_PATH=$(sudo cat "${staged}.origpath" 2>/dev/null)
+                    [ -n "$ORIG_PATH" ] && sudo cp "$staged" "$ORIG_PATH"
+                done
+                echo "🔄 Applying network config via 'netplan try' (auto-reverts in ~120s unless confirmed)..."
+                sudo netplan try --timeout 120
+            else
+                echo "❌ Network configuration changes skipped (default: no)."
+            fi
         else
             echo "✅ Network interfaces already match the desired configuration."
         fi
+        sudo rm -rf "$NETPLAN_STAGING"
     fi
 fi
 
