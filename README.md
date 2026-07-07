@@ -65,6 +65,30 @@ New entries appear in the menu automatically on Raspberry Pi OS; no manual refre
 
 ---
 
+## 💾 Backup & Restore
+
+`backup.sh` builds one archive containing every deployed environment's persistent data (data directories + named Docker volumes) and, by default, each environment's `.env` file. This is also available as menu options in `./deploy.sh` — "[Backup] Create Backup Archive" and "[Backup] Restore From Archive":
+
+```bash
+./backup.sh                    # back up every environment, .env included
+./backup.sh --no-env           # exclude .env files (data dirs/volumes only)
+./backup.sh -o /path/to/dir    # write the archive somewhere other than the current directory
+```
+
+The archive is only ever written **locally** — copying it to another machine (`scp`, `rsync`, a USB drive, cloud sync, AirDrop, whatever) is up to you. That keeps this deliberately dependency-free: no assumptions about SSH keys, network access, or the destination machine's OS. A `.tar.gz` opens the same way on Linux, macOS, and Windows.
+
+```bash
+./restore.sh <path-to-backup.tar.gz>              # interactive: pick which environment to restore
+./restore.sh <path-to-backup.tar.gz> <env-name>   # restore one specific environment
+./restore.sh <path-to-backup.tar.gz> all          # restore every environment in the archive
+```
+
+Restoring works the same whether it's the same Pi or a brand new machine — clone this repo, run `./restore.sh`, then redeploy each restored environment via `./deploy.sh` (or its `run.sh`, `REBUILD_POLICY=FAST`). Each environment's data directories are restored to their exact original absolute paths (some live inside `environments/<env>/`, others under `$HOME` — `restore.sh` preserves whichever it was), and named Docker volumes are recreated and repopulated from their own nested archive inside the backup.
+
+**Security note:** since `.env` files (containing Pi-hole/Grafana passwords, WireGuard keys config, API tokens, etc.) are included by default, treat a backup archive as sensitive — it's only as safe as wherever you send it.
+
+---
+
 ## 🏗️ How It Works
 
 ### Routing Priority

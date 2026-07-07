@@ -187,12 +187,14 @@ done
 MENU_OPTIONS+=( "M" "[Manage] List & Delete Containers" )
 MENU_OPTIONS+=( "D" "[Desktop] Install Desktop Entries" )
 MENU_OPTIONS+=( "U" "[Desktop] Uninstall Desktop Entries" )
+MENU_OPTIONS+=( "B" "[Backup] Create Backup Archive" )
+MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
 
 # Present the Menu
 TEMP_FILE=$(mktemp)
 dialog --clear \
     --title " Raspberry Pi Deployment Center " \
-    --menu "Choose a configuration workspace to deploy:" 18 70 10 \
+    --menu "Choose a configuration workspace to deploy:" 20 70 12 \
     "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
 EXIT_STATUS=$?
@@ -212,6 +214,10 @@ elif [ "$SELECTED_NUM" = "D" ]; then
     SELECTED_PATH="_desktop"
 elif [ "$SELECTED_NUM" = "U" ]; then
     SELECTED_PATH="_desktop_uninstall"
+elif [ "$SELECTED_NUM" = "B" ]; then
+    SELECTED_PATH="_backup"
+elif [ "$SELECTED_NUM" = "R" ]; then
+    SELECTED_PATH="_restore"
 else
     SELECTED_PATH="${ENV_PATHS[$((SELECTED_NUM - 1))]}"
 fi
@@ -381,6 +387,51 @@ if [ "$SELECTED_PATH" = "_desktop_uninstall" ]; then
     fi
     echo "🗑️  Removing all pi-bootstrap desktop entries..."
     bash "$DESKTOP_SCRIPT" --uninstall
+    exit 0
+fi
+
+# ==========================================
+# BACKUP
+# ==========================================
+if [ "$SELECTED_PATH" = "_backup" ]; then
+    clear
+    BACKUP_SCRIPT="$PROJECT_DIR/backup.sh"
+    if [ ! -f "$BACKUP_SCRIPT" ]; then
+        echo "❌ backup.sh not found at $PROJECT_DIR"
+        exit 1
+    fi
+    bash "$BACKUP_SCRIPT" -o "$PROJECT_DIR"
+    exit 0
+fi
+
+# ==========================================
+# RESTORE FROM BACKUP
+# ==========================================
+if [ "$SELECTED_PATH" = "_restore" ]; then
+    clear
+    RESTORE_SCRIPT="$PROJECT_DIR/restore.sh"
+    if [ ! -f "$RESTORE_SCRIPT" ]; then
+        echo "❌ restore.sh not found at $PROJECT_DIR"
+        exit 1
+    fi
+
+    TEMP_ARCHIVE_PATH=$(mktemp)
+    dialog --clear --title " Restore From Backup " \
+        --inputbox "Path to the backup .tar.gz archive:" 10 70 "$PROJECT_DIR/" \
+        2> "$TEMP_ARCHIVE_PATH"
+    ARCHIVE_EXIT=$?
+    ARCHIVE_PATH=$(cat "$TEMP_ARCHIVE_PATH")
+    rm -f "$TEMP_ARCHIVE_PATH"
+
+    if [ $ARCHIVE_EXIT -ne 0 ] || [ -z "$ARCHIVE_PATH" ]; then
+        clear; echo "❌ Restore cancelled."; exit 0
+    fi
+
+    # restore.sh itself prompts (which environment, then a "type yes" confirm
+    # per environment) — hand off to its own plain-terminal interactive flow
+    # rather than re-implementing that inside dialog menus.
+    clear
+    bash "$RESTORE_SCRIPT" "$ARCHIVE_PATH"
     exit 0
 fi
 
