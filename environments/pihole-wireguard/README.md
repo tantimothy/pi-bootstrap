@@ -47,6 +47,23 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
    sudo systemctl restart systemd-resolved
    ```
 
+3. **Host DNS Resilience (handled automatically by `run.sh`):** since this Pi ends up being its own DNS resolver, `run.sh` configures two host-level fixes on every run (both idempotent — safe to re-run, and only ever act once):
+   - **Resolvconf's loopback-truncation bug** — Debian's `resolvconf` silently drops any nameserver listed *after* the first loopback address (`127.*`) when regenerating `/etc/resolv.conf`. That means even if your netplan config lists a fallback nameserver (e.g. your router) after `127.0.0.1`, it never actually reaches `/etc/resolv.conf` — and the whole host loses DNS the instant Pi-hole goes down (a crash, `TEARDOWN`, or mid-`CLEAN`). `run.sh` sets `TRUNCATE_NAMESERVER_LIST_AFTER_LOOPBACK_ADDRESS=no` in `/etc/default/resolvconf` to fix this — Pi-hole still stays the *primary* resolver, but a fallback actually works now.
+   - **Docker's per-container DNS instability** — Docker computes a DNS-forwarding target once, per container, by inspecting the host's network state at creation time. On a host with more than one active interface (e.g. both `eth0` and `wlan0` up simultaneously — common if you haven't disabled Wi-Fi after wiring in Ethernet), that detection is unreliable: it can succeed once and then fail entirely on a later recreate (`docker exec <container> cat /etc/resolv.conf` showing `# NO EXTERNAL NAMESERVERS DEFINED`), breaking every container's ability to resolve external hostnames. `run.sh` pins Docker's daemon-level `dns` setting (`/etc/docker/daemon.json`) to this host's own real LAN IP (Pi-hole already listens on `0.0.0.0:53`, so it's reachable there) — this only happens if `daemon.json` doesn't already exist, so it never clobbers a custom config, and the one-time `systemctl restart docker` this triggers (which restarts *every* container on the host) only ever fires on a genuinely fresh setup.
+
+   If you ever need to redo this by hand (e.g. `daemon.json` already existed so `run.sh` skipped it):
+   ```bash
+   echo 'TRUNCATE_NAMESERVER_LIST_AFTER_LOOPBACK_ADDRESS=no' | sudo tee -a /etc/default/resolvconf
+   sudo resolvconf -u
+
+   sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+   {
+     "dns": ["<this Pi's LAN IP, e.g. 192.168.1.75>"]
+   }
+   EOF
+   sudo systemctl restart docker   # restarts every container on this host
+   ```
+
 ---
 
 ## 🚀 Deployment & Automation Guide
@@ -365,6 +382,10 @@ If it's *actually* down (no speed test results in the logs at all, or DNS/connec
 ### Blackbox exporter — external HTTP targets fail with "network is unreachable"
 
 If `docker logs blackbox-exporter` shows errors like `dial tcp [2404:...]:443: connect: network is unreachable` for external targets (`https://google.com`, `https://github.com`) while everything else (Pi-hole admin, Grafana, Uptime Kuma, `1.1.1.1` ping) works fine, this is IPv4/IPv6 mismatch, not a real outage: the address in brackets is an IPv6 address — DNS resolved the target's `AAAA` record, but this stack's Docker bridge network has no IPv6 route out. The `icmp` and `dns_google` blackbox modules already pin `preferred_ip_protocol: ip4`, but `http_2xx` didn't — added, so all three modules now consistently force IPv4 for probes.
+
+### Blackbox exporter (or any container) — external DNS fails with "server misbehaving"
+
+If `docker logs blackbox-exporter` (or any other container) shows `lookup <host> on 127.0.0.11:53: server misbehaving` for *external* hostnames, while internal container names (`grafana`, `uptime-kuma`) still resolve fine, and `docker exec <container> cat /etc/resolv.conf` shows `# NO EXTERNAL NAMESERVERS DEFINED` — this is the Docker per-container DNS instability described in the "Host DNS Resilience" step under **Prerequisites** above: Docker failed to detect a valid host DNS-forwarding target for this specific container at creation time (more likely on a host with more than one active network interface). `run.sh` now pins a stable one via `/etc/docker/daemon.json` on first deploy — if you're hitting this on an existing setup, apply it manually per that Prerequisites step (a one-time `systemctl restart docker`), then recreate the affected container(s).
 
 ### darkstat
 

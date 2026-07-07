@@ -202,7 +202,67 @@ sudo systemctl enable nftables > /dev/null 2>&1 || true
 echo "✅ Host network prerequisites configured."
 
 # ---------------------------------------------------------------------------------------
-# 3c. Grafana / Prometheus monitoring setup
+# 3c. Host DNS Resilience — since this Pi is its own DNS resolver, two
+#     separate failure modes need covering: (1) the host's own resolver
+#     needs a working fallback for whenever Pi-hole itself is down (crash,
+#     TEARDOWN, mid-CLEAN), and (2) Docker's per-container DNS forwarding
+#     needs to be stable rather than re-derived (unreliably) on every
+#     container creation. Both blocks are idempotent — safe to re-run.
+# ---------------------------------------------------------------------------------------
+echo "🔧 Configuring host DNS resilience..."
+
+# (1) Debian's resolvconf silently drops any nameserver listed after the
+# first loopback address (127.*) when regenerating /etc/resolv.conf — so
+# even if netplan lists a fallback nameserver (e.g. your router) after
+# 127.0.0.1, it never actually reaches /etc/resolv.conf, and the whole host
+# loses DNS the moment Pi-hole goes down. Disabling this restores the
+# fallback without changing which nameserver is tried first.
+if command -v resolvconf &>/dev/null; then
+    if ! grep -qs "TRUNCATE_NAMESERVER_LIST_AFTER_LOOPBACK_ADDRESS=no" /etc/default/resolvconf 2>/dev/null; then
+        echo "   Disabling resolvconf's nameserver truncation after loopback addresses..."
+        echo 'TRUNCATE_NAMESERVER_LIST_AFTER_LOOPBACK_ADDRESS=no' | sudo tee -a /etc/default/resolvconf > /dev/null
+        sudo resolvconf -u 2>/dev/null || true
+    fi
+fi
+
+# (2) Docker computes a per-container DNS-forwarding target once, at
+# container-creation time, by inspecting the host's network state. On a
+# host with more than one active interface (e.g. both eth0 and wlan0 up
+# simultaneously), that detection is unreliable — it can succeed once and
+# then fail entirely on a later recreate ("NO EXTERNAL NAMESERVERS
+# DEFINED"), breaking every container's external DNS resolution. Pinning
+# Docker's daemon-level "dns" setting to this host's own real LAN IP (where
+# Pi-hole already listens on 0.0.0.0:53) removes the guesswork entirely.
+#
+# Only acts if /etc/docker/daemon.json doesn't exist yet, so it never
+# clobbers an existing custom config — if you already have one without a
+# "dns" key, add "dns": ["<this-host's-LAN-IP>"] to it yourself and restart
+# Docker. This also means the one-time `systemctl restart docker` this
+# triggers (which restarts EVERY container on the host, not just this
+# stack) only ever happens on a genuinely fresh setup.
+if [ -n "$HOST_IP" ] && [ "$HOST_IP" != "localhost" ] && [ ! -f /etc/docker/daemon.json ]; then
+    echo "   Setting Docker daemon-level DNS to ${HOST_IP}..."
+    sudo mkdir -p /etc/docker
+    sudo tee /etc/docker/daemon.json > /dev/null << EOF
+{
+  "dns": ["${HOST_IP}"]
+}
+EOF
+    echo "   🔄 Restarting Docker to apply it (restarts every container on this host)..."
+    sudo systemctl restart docker
+    # Wait for the daemon to actually accept connections again rather than
+    # a blind sleep — "restart" returning doesn't guarantee the API is
+    # ready yet.
+    for _ in $(seq 1 30); do
+        "$DOCKER" ps &>/dev/null && break
+        sleep 1
+    done
+fi
+
+echo "✅ Host DNS resilience configured."
+
+# ---------------------------------------------------------------------------------------
+# 3d. Grafana / Prometheus monitoring setup
 #     Downloads community dashboards on first deploy (skips if files already exist).
 # ---------------------------------------------------------------------------------------
 echo "📊 Setting up monitoring directories..."
