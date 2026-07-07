@@ -161,6 +161,88 @@ mkdir -p "${SCRIPT_DIR}/darkstat-db"
 echo "✅ Local host storage layout initialized cleanly."
 
 # ---------------------------------------------------------------------------------------
+# 3a. Host Network Interface Configuration (optional — only if NETWORK_STATIC_IPS
+#     is set in .env). Patches ONLY the addressing/gateway/nameservers fields of
+#     whichever interfaces are named — everything else already in each
+#     interface's existing netplan file (WiFi SSID/password, NetworkManager
+#     UUIDs, etc.) is left completely untouched. Applied via `netplan try`,
+#     which auto-reverts within ~120s unless interactively confirmed, so a
+#     bad config can't lock you out of SSH permanently. Idempotent: only
+#     actually re-applies netplan if something changed.
+# ---------------------------------------------------------------------------------------
+if [ -n "${NETWORK_STATIC_IPS:-}" ]; then
+    echo "🔧 Configuring host network interfaces..."
+    if [ -z "${NETWORK_GATEWAY:-}" ]; then
+        echo "⚠️  NETWORK_STATIC_IPS is set but NETWORK_GATEWAY is empty — skipping network interface configuration." >&2
+    else
+        python3 -c "import yaml" 2>/dev/null || sudo apt-get install -y python3-yaml > /dev/null 2>&1
+
+        NETPLAN_RESULT=$(sudo python3 - "$NETWORK_GATEWAY" "$NETWORK_STATIC_IPS" << 'PYEOF'
+import sys, glob, yaml
+
+gateway = sys.argv[1]
+# "eth0:192.168.1.75 wlan0:" -> {"eth0": "192.168.1.75", "wlan0": ""}
+# An empty IP means: put that interface on DHCP instead of static.
+pairs = dict(p.split(":", 1) for p in sys.argv[2].split() if ":" in p)
+
+changed = False
+for path in sorted(glob.glob("/etc/netplan/*.yaml") + glob.glob("/etc/netplan/*.yml")):
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        continue
+
+    network = data.get("network") or {}
+    file_modified = False
+    for section in ("ethernets", "wifis"):
+        for iface, cfg in (network.get(section) or {}).items():
+            if iface not in pairs or cfg is None:
+                continue
+            ip = pairs[iface]
+            if ip:
+                # Preserve an existing default route's metric if there is
+                # one, so re-running this doesn't reshuffle route priority.
+                existing_metric = None
+                for r in (cfg.get("routes") or []):
+                    if r.get("to") in ("0.0.0.0/0", "default"):
+                        existing_metric = r.get("metric")
+                metric = existing_metric if existing_metric is not None else (100 if section == "ethernets" else 600)
+                new_cfg = {
+                    "dhcp4": False,
+                    "addresses": [f"{ip}/24"],
+                    "routes": [{"to": "0.0.0.0/0", "via": gateway, "metric": metric}],
+                    "nameservers": {"addresses": ["127.0.0.1", gateway]},
+                }
+            else:
+                new_cfg = {"dhcp4": True}
+
+            if {k: cfg.get(k) for k in new_cfg} != new_cfg:
+                cfg.update(new_cfg)
+                for stale_key in ("addresses", "routes", "nameservers"):
+                    if stale_key not in new_cfg:
+                        cfg.pop(stale_key, None)
+                file_modified = True
+
+    if file_modified:
+        with open(path, "w") as f:
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+        changed = True
+
+print("CHANGED" if changed else "UNCHANGED")
+PYEOF
+)
+
+        if [ "$NETPLAN_RESULT" = "CHANGED" ]; then
+            echo "🔄 Applying network config via 'netplan try' (auto-reverts in ~120s unless confirmed)..."
+            sudo netplan try --timeout 120
+        else
+            echo "✅ Network interfaces already match the desired configuration."
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------------------
 # 3b. Host System Prerequisites (nftables masquerade + IP forwarding)
 #     wg-easy runs with network_mode: host so the host kernel handles NAT.
 #     This block is idempotent — safe to re-run on every deploy.
