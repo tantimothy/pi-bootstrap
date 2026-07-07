@@ -24,6 +24,7 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 | [Node Exporter](https://github.com/prometheus/node_exporter) | `node-exporter` | *(host net, internal)* | Pi host system metrics — CPU, RAM, disk, network I/O exposed to Prometheus |
 | [Speedtest Exporter](https://github.com/MiguelNdeCarvalho/speedtest-exporter) | `speedtest-exporter` | *(internal)* | Runs a full internet speed test when Prometheus scrapes it (every 30 min by default) |
 | [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | `blackbox-exporter` | *(internal)* | HTTP health checks, ICMP ping latency, and DNS resolution probes for all local services |
+| [Dozzle](https://dozzle.dev) | `dozzle` | 8888 (web) | Real-time log viewer for every container on this host — read-only, no start/stop/exec capability |
 
 ---
 
@@ -122,6 +123,9 @@ cat /etc/pivpn/wireguard/setupVars.conf   # look for pivpnHOST=
 # (older PiVPN versions: /etc/pivpn/setupVars.conf)
 ```
 PiVPN has no simple re-edit-and-restart flow for changing this value like `wg-easy` does — changing it typically means re-running PiVPN's setup or hand-editing `setupVars.conf` and regenerating client configs (`pivpn -qr` / `pivpn -add`).
+
+### Dozzle has no login by default
+Unlike every other web UI in this stack (Pi-hole, Grafana, wg-easy, Uptime Kuma), Dozzle ships with **no built-in authentication** — anyone who can reach `DOZZLE_PORT` gets full read access to every container's logs. It's read-only (no start/stop/exec capability), but logs can still contain sensitive data. Only expose it on a trusted LAN/VPN, or add authentication yourself per [Dozzle's docs](https://dozzle.dev) if you need it reachable more broadly.
 
 ### Changing the WireGuard dashboard login password
 Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s password is set via `PASSWORD_HASH` at startup:

@@ -11,6 +11,7 @@ ACTION="${1:-list}"
 : "${UPTIME_KUMA_PORT:=3001}"
 : "${WG_UI_PORT:=51821}"
 : "${WG_PORT:=51820}"
+: "${DOZZLE_PORT:=8888}"
 
 # Resolve the host's LAN IP so these URLs are actually usable from another
 # device — "localhost" only means something on the Pi's own terminal.
@@ -39,6 +40,7 @@ USEFUL_COMMANDS="🌐 Web UIs:
    http://${HOST_IP}:${UPTIME_KUMA_PORT}                            # Uptime Kuma
    http://${HOST_IP}:${WG_UI_PORT}                                  # WireGuard Dashboard (wg-easy)
    http://${HOST_IP}:${DARKSTAT_PORT}                               # darkstat network traffic
+   http://${HOST_IP}:${DOZZLE_PORT}                                 # Dozzle — live logs for every container
 
    docker exec -it pihole pihole setpassword                        # Change Pi-hole admin password
    docker exec -it wg-easy wg show                                  # Show connected WireGuard peers and transfer stats
@@ -87,6 +89,11 @@ USEFUL_COMMANDS="🌐 Web UIs:
       this only rolls back the software. Before the next ./run.sh, stop+rm
       this container first (it has no Compose labels, so Compose will hit a
       \"name already in use\" error trying to recreate it otherwise).
+   🪵  Dozzle (log viewer) has NO built-in login by default — it's read-only
+      (no start/stop/exec capability, just tails logs), but those logs can
+      contain sensitive data. Only expose it on a trusted LAN/VPN, or check
+      Dozzle's own docs for adding authentication if you need it exposed
+      more broadly.
 
 📊 Backup named volumes:
    docker run --rm -v prometheus_data:/data -v \$(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data

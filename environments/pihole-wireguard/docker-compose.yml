@@ -190,6 +190,21 @@ services:
       pihole_wg_net:
     restart: unless-stopped
 
+  # Real-time log viewer for every container on this host (read-only — no
+  # start/stop/exec capability, just tails logs). Needs the Docker socket to
+  # list containers and stream their logs; mounted read-only since Dozzle
+  # itself never needs to write to it.
+  dozzle:
+    container_name: dozzle
+    image: amir20/dozzle:latest
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+    ports:
+      - "${DOZZLE_PORT:-8888}:8080"
+    networks:
+      pihole_wg_net:
+    restart: unless-stopped
+
 volumes:
   prometheus_data:
   grafana_data:
