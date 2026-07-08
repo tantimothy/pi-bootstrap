@@ -154,20 +154,12 @@ _info_html() {
 <meta charset="utf-8">
 <title>${title}</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-         max-width: 850px; margin: 2rem auto; padding: 0 1.25rem;
-         background: #0d1117; color: #c9d1d9; }
-  h1 { font-size: 1.35rem; border-bottom: 1px solid #30363d; padding-bottom: 0.6rem; }
-  /* Preformatted terminal-style text keeps its original alignment (no
-     wrapping); a horizontal scrollbar handles any line too long for the
-     viewport instead of the browser reflowing (and thereby mangling) the
-     hand-padded columns in the source text. */
-  pre { white-space: pre; overflow-x: auto; background: #161b22;
-        padding: 1rem 1.25rem; border-radius: 8px; line-height: 1.55;
-        font-size: 0.92rem; }
-  a { color: #58a6ff; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  footer { color: #6e7681; font-size: 0.8rem; margin-top: 1.5rem; }
+  body { margin: 1.5rem; }
+  /* No max-width "card" here on purpose — this is preformatted terminal
+     text with long hand-aligned lines; constraining the width just forces
+     a cramped horizontal scrollbar. Left at the browser default (full
+     window width), it fits without one for anything but extreme cases. */
+  footer { color: #666; font-size: 0.85rem; margin-top: 1.5rem; }
 </style>
 </head>
 <body>
