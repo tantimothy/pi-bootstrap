@@ -12,10 +12,15 @@ cd pi-bootstrap
 Or run directly on a fresh Pi without cloning:
 
 ```bash
-curl -sSL -H "Authorization: token <your_github_token>" \
-  -H "Accept: application/vnd.github.v3.raw" \
-  https://tantimothy:<your_github_token>@raw.githubusercontent.com/tantimothy/pi-bootstrap/master/deploy.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tantimothy/pi-bootstrap/master/deploy.sh | bash
 ```
+
+No auth needed — this repo is public. (If you're running this against a private fork, add
+`-H "Authorization: token <your_github_token>"` — but skip any `username:token@` in the URL
+itself; embedding credentials in a URL is what triggers GitHub's abuse/scraping rate-limiting,
+and the `-f` flag matters here too: without it, curl treats an HTTP error response — including
+a 429 rate-limit page — as "success" and pipes its body straight into `bash`, which is exactly
+what executes as garbled commands instead of failing cleanly.)
 
 ---
 
