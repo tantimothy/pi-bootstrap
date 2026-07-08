@@ -110,6 +110,7 @@ Before building or running the container, ensure your Raspberry Pi environment i
 By default, Linux loads a digital TV tuner driver (`dvb_usb_rtl28xxu`) when an RTL-SDR is plugged in. This locks the physical hardware registers and prevents SDR applications from binding to the device.
 
 Run this command on your **host Raspberry Pi** to release the lock:
+
 ```bash
 sudo echo "blacklist dvb_usb_rtl28xxu" | sudo tee /etc/modprobe.d/blacklist-rtl.conf
 ```
@@ -141,6 +142,7 @@ docker build -t dragonos-pi .
 Instead of executing a static `docker run` block with hardcoded flags, use the accompanying deployment wrapper script. It programmatically sources your tailored `.env` variables, ensures safe permissions, respects system policies, and triggers container initialization.
 
 Execute the script from your non-interactive or interactive pipeline terminal:
+
 ```bash
 chmod +x run.sh
 ./run.sh
@@ -213,6 +215,7 @@ Persistent data is stored on the host and survives container removal:
 | `./workspace/msf_data/` | Metasploit Framework data — workspaces, loot, credentials |
 
 **Back up before any destructive operation:**
+
 ```bash
 cp -r environments/dragonos-sdr/workspace ~/backup/
 ```
