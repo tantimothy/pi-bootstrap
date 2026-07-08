@@ -180,10 +180,11 @@ services:
       - SETUID
       - SETGID
     # ARP flux mitigation, matching upstream's recommendation for accurate
-    # scans under host networking.
-    sysctls:
-      net.ipv4.conf.all.arp_ignore: 1
-      net.ipv4.conf.all.arp_announce: 2
+    # scans under host networking. NOT set here as a Compose `sysctls:`
+    # entry — under network_mode: host, Docker/runc rejects per-container
+    # sysctls entirely ("not allowed in host network namespace"), since
+    # there's no network namespace of its own to scope them to. run.sh sets
+    # these two directly on the host instead (idempotent, safe to re-run).
     volumes:
       - './netalertx-data:/data'
       - '/etc/localtime:/etc/localtime:ro'
