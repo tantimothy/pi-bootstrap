@@ -34,15 +34,23 @@ NAMED_VOLUME_DESCRIPTIONS=(
 )
 DATA_DIRS_LABEL="📁 Persistent Data Directories (local):"
 DELETE_CONFIRM_MSG=$'This permanently deletes all listed directories and Docker volumes.\nWireGuard peer configs will be unrecoverable.'
-USEFUL_COMMANDS="🌐 Web UIs:
-   http://${HOST_IP}:${PIHOLE_WEB_PORT}/admin                       # Pi-hole Admin
-   http://${HOST_IP}:${GRAFANA_PORT}                                # Grafana dashboards (username: admin)
-   http://${HOST_IP}:${UPTIME_KUMA_PORT}                            # Uptime Kuma
-   http://${HOST_IP}:${WG_UI_PORT}                                  # WireGuard Dashboard (wg-easy)
-   http://${HOST_IP}:${DARKSTAT_PORT}                               # darkstat network traffic
-   http://${HOST_IP}:${DOZZLE_PORT}                                 # Dozzle — live logs for every container
-
-   docker exec -it pihole pihole setpassword                        # Change Pi-hole admin password
+WEB_UI_NAMES=(
+    "Pi-hole Admin"
+    "Grafana dashboards (username: admin)"
+    "Uptime Kuma"
+    "WireGuard Dashboard (wg-easy)"
+    "darkstat network traffic"
+    "Dozzle — live logs for every container"
+)
+WEB_UI_URLS=(
+    "http://${HOST_IP}:${PIHOLE_WEB_PORT}/admin"
+    "http://${HOST_IP}:${GRAFANA_PORT}"
+    "http://${HOST_IP}:${UPTIME_KUMA_PORT}"
+    "http://${HOST_IP}:${WG_UI_PORT}"
+    "http://${HOST_IP}:${DARKSTAT_PORT}"
+    "http://${HOST_IP}:${DOZZLE_PORT}"
+)
+USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                        # Change Pi-hole admin password
    docker exec -it wg-easy wg show                                  # Show connected WireGuard peers and transfer stats
    docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'pass'        # Generate new bcrypt hash for PASSWORD_HASH
    docker logs -f pihole                                            # Pi-hole live logs

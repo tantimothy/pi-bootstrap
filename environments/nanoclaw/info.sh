@@ -37,9 +37,9 @@ DATA_DIRS_LABEL="📁 Persistent Data Directories (back these up):"
 INSTALL_DIRS_LABEL="📂 Install Directories (can be re-cloned by CLEAN):"
 DELETE_INSTALL_DIRS=false
 DELETE_CONFIRM_MSG="All conversation history and memory will be lost."
-USEFUL_COMMANDS="🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}
-
-${SERVICE_COMMANDS}
+WEB_UI_NAMES=("NanoClaw Web Interface")
+WEB_UI_URLS=("http://${HOST_IP}:${NANOCLAW_PORT}")
+USEFUL_COMMANDS="${SERVICE_COMMANDS}
    docker ps --filter name=nanoclaw                                # List agent containers
    cd ${INSTALL_PATH} && bash setup/add-whatsapp.sh                # Add WhatsApp channel
    cd ${INSTALL_PATH} && bash setup/add-telegram.sh                # Add Telegram channel
