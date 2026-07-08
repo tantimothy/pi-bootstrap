@@ -158,6 +158,12 @@ echo "📁 Executing pre-emptive volume generation routines..."
 mkdir -p "${SCRIPT_DIR}/etc-pihole"
 mkdir -p "${SCRIPT_DIR}/etc-wireguard"
 mkdir -p "${SCRIPT_DIR}/darkstat-db"
+# Pre-created here (rather than left for Docker to auto-create as a
+# bind-mount target) specifically so it's owned by whoever is running this
+# script, not by whatever internal UID the container happens to write as —
+# Docker only auto-creates a missing bind-mount source as root, and never
+# retroactively re-owns an already-existing directory.
+mkdir -p "${SCRIPT_DIR}/netalertx-data"
 echo "✅ Local host storage layout initialized cleanly."
 
 # ---------------------------------------------------------------------------------------
@@ -312,6 +318,22 @@ fi
 sudo systemctl enable nftables > /dev/null 2>&1 || true
 
 echo "✅ Host network prerequisites configured."
+
+# ---------------------------------------------------------------------------------------
+# 3b-2. NetAlertX ARP-flux mitigation. NetAlertX also runs with
+#       network_mode: host, and its upstream compose file recommends these
+#       two sysctls for accurate ARP scanning — but Docker/runc reject
+#       per-container `sysctls:` entries entirely under host networking
+#       ("not allowed in host network namespace", since there's no network
+#       namespace of its own to scope them to), so they have to be set on
+#       the host directly instead. Idempotent — safe to re-run.
+# ---------------------------------------------------------------------------------------
+sudo tee /etc/sysctl.d/netalertx.conf > /dev/null << 'EOF'
+net.ipv4.conf.all.arp_ignore=1
+net.ipv4.conf.all.arp_announce=2
+EOF
+sudo sysctl -w net.ipv4.conf.all.arp_ignore=1 > /dev/null
+sudo sysctl -w net.ipv4.conf.all.arp_announce=2 > /dev/null
 
 # ---------------------------------------------------------------------------------------
 # 3c. Host DNS Resilience — since this Pi is its own DNS resolver, two

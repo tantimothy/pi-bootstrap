@@ -32,6 +32,7 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 ## 🛠️ Prerequisites
 
 1. **Docker & Compose Plugin Installed:**
+
    ```bash
    sudo apt-get update
    sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
@@ -39,6 +40,7 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 
 2. **Free Up Port 53 (DNS Conflict):**
    If your Pi OS runs a local stub resolver (`systemd-resolved`) that binds to port 53, disable it to allow Pi-hole to bind to the host interface:
+
    ```bash
    # Check if port 53 is occupied
    sudo lsof -i :53
@@ -57,6 +59,7 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
    - **Docker's per-container DNS instability** — Docker computes a DNS-forwarding target once, per container, by inspecting the host's network state at creation time. On a host with more than one active interface (e.g. both `eth0` and `wlan0` up simultaneously — common if you haven't disabled Wi-Fi after wiring in Ethernet), that detection is unreliable: it can succeed once and then fail entirely on a later recreate (`docker exec <container> cat /etc/resolv.conf` showing `# NO EXTERNAL NAMESERVERS DEFINED`), breaking every container's ability to resolve external hostnames. `run.sh` fixes this by pinning Docker's daemon-level `dns` setting (`/etc/docker/daemon.json`) to a stable target — but deliberately **not** to Pi-hole's own IP, since that would make every container on the host depend on Pi-hole's uptime for DNS (including during this very stack's own routine `CLEAN` redeploys, which tear Pi-hole down briefly). Instead, `run.sh` runs a one-off, non-disruptive DHCP discovery probe (`nmap --script broadcast-dhcp-discover`) to ask the network's actual DHCP server what DNS it's currently advertising (normally your router) and pins that — it never completes a lease, so it doesn't touch this Pi's own (statically configured) addressing. This only happens if `daemon.json` doesn't already exist, so it never clobbers a custom config, and the one-time `systemctl restart docker` this triggers (which restarts *every* container on the host) only ever fires on a genuinely fresh setup.
 
    If you ever need to redo this by hand (e.g. `daemon.json` already existed so `run.sh` skipped it, or you removed `pihole-wireguard` and need to update/remove a stale pin):
+
    ```bash
    echo 'TRUNCATE_NAMESERVER_LIST_AFTER_LOOPBACK_ADDRESS=no' | sudo tee -a /etc/default/resolvconf
    sudo resolvconf -u
@@ -164,14 +167,17 @@ Same caveat as Dozzle — NetAlertX ships with **no authentication enabled out o
 Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s password is set via `PASSWORD_HASH` at startup:
 
 1. Generate a new bcrypt hash:
+
    ```bash
    docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'your_new_password'
    ```
 2. Put the hash in `.env`, single-quoted (its `$` characters get mangled by `run.sh`'s `source .env` if left unquoted):
+
    ```
    PASSWORD_HASH='$2y$12$...'
    ```
 3. Recreate the container so it picks up the new value:
+
    ```bash
    docker compose up -d --force-recreate wg-easy
    ```

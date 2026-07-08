@@ -95,6 +95,7 @@ Before building or running the container, ensure your Raspberry Pi environment i
 1. **Hardware:** A Raspberry Pi (4 or 5 recommended) running **Raspberry Pi OS (64-bit / Bookworm)**.
 2. **SDR Hardware:** An RTL-SDR dongle, HackRF, LimeSDR, or similar device.
 3. **Docker Engine:** Installed and configured to run without local `sudo`:
+
    ```bash
    sudo apt-get update
    sudo apt-get install docker.io -y
