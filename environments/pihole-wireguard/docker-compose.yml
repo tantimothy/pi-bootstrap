@@ -159,6 +159,47 @@ services:
       - NET_RAW
     restart: unless-stopped
 
+  # Network presence scanner — discovers every device on the LAN (ARP scan),
+  # alerts on new/unknown devices, and tracks online/offline history. Runs on
+  # host network for Layer 2 access (ARP), same requirement as darkstat.
+  # Security posture mirrors upstream's own hardened baseline compose file:
+  # read-only rootfs, all capabilities dropped except the specific ones ARP
+  # scanning actually needs, plus a tmpfs /tmp since the rootfs is read-only.
+  netalertx:
+    container_name: netalertx
+    image: ghcr.io/netalertx/netalertx:latest
+    network_mode: host
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    # ARP flux mitigation, matching upstream's recommendation for accurate
+    # scans under host networking.
+    sysctls:
+      net.ipv4.conf.all.arp_ignore: 1
+      net.ipv4.conf.all.arp_announce: 2
+    volumes:
+      - './netalertx-data:/data'
+      - '/etc/localtime:/etc/localtime:ro'
+      # Read-only access to Pi-hole's DHCP leases (if Pi-hole's own DHCP
+      # server is enabled) — lets the optional "Pi-hole - DHCP leases
+      # import" plugin resolve device names. Enable it from NetAlertX's own
+      # Settings > Plugins UI; it's not on by default.
+      - './etc-pihole:/pihole-data:ro'
+    tmpfs:
+      - "/tmp:mode=1700,rw,noexec,nosuid,nodev"
+    environment:
+      - LISTEN_ADDR=0.0.0.0
+      - PORT=${NETALERTX_PORT:-20211}
+      - GRAPHQL_PORT=${NETALERTX_GRAPHQL_PORT:-20212}
+    restart: unless-stopped
+
   # Internet speed test — runs a full Speedtest CLI test when Prometheus scrapes it
   speedtest-exporter:
     container_name: speedtest-exporter

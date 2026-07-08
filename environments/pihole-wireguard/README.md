@@ -25,6 +25,7 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 | [Speedtest Exporter](https://github.com/MiguelNdeCarvalho/speedtest-exporter) | `speedtest-exporter` | *(internal)* | Runs a full internet speed test when Prometheus scrapes it (every 30 min by default) |
 | [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | `blackbox-exporter` | *(internal)* | HTTP health checks, ICMP ping latency, and DNS resolution probes for all local services |
 | [Dozzle](https://dozzle.dev) | `dozzle` | 8888 (web) | Real-time log viewer for every container on this host — read-only, no start/stop/exec capability |
+| [NetAlertX](https://netalertx.com) | `netalertx` | 20211 (web) | Network presence scanner — ARP-based device discovery, new/unknown device alerts, online/offline history |
 
 ---
 
@@ -156,6 +157,9 @@ PiVPN has no simple re-edit-and-restart flow for changing this value like `wg-ea
 ### Dozzle has no login by default
 Unlike every other web UI in this stack (Pi-hole, Grafana, wg-easy, Uptime Kuma), Dozzle ships with **no built-in authentication** — anyone who can reach `DOZZLE_PORT` gets full read access to every container's logs. It's read-only (no start/stop/exec capability), but logs can still contain sensitive data. Only expose it on a trusted LAN/VPN, or add authentication yourself per [Dozzle's docs](https://dozzle.dev) if you need it reachable more broadly.
 
+### NetAlertX also has no login by default
+Same caveat as Dozzle — NetAlertX ships with **no authentication enabled out of the box**, and it sees the name/MAC/vendor/online-status of every device on your LAN, which is more sensitive than log output. Enable a password from its own **Settings → General** UI (`SETPWD_enable_password`) if you expose it beyond a trusted LAN/VPN — the default password once enabled is `123456`, change it immediately.
+
 ### Changing the WireGuard dashboard login password
 Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s password is set via `PASSWORD_HASH` at startup:
 
@@ -189,6 +193,7 @@ The API password is written to `/etc/pihole/cli_pw` (owned by your user, `chmod 
 | `./etc-pihole/` | Pi-hole config, gravity database, custom blocklists, local DNS records |
 | `./etc-wireguard/` | WireGuard server keys + all peer configs — **back this up; losing it invalidates every client VPN** |
 | `./darkstat-db/` | darkstat traffic database — per-host bandwidth history |
+| `./netalertx-data/` | NetAlertX config and device/scan history database |
 
 ### Named Docker Volumes
 
@@ -276,6 +281,7 @@ On a Pi with a desktop environment, run once from the repo root:
 | **WireGuard Dashboard** | `http://localhost:<WG_UI_PORT>` in default browser |
 | **darkstat** | `http://localhost:<DARKSTAT_PORT>` in default browser |
 | **Dozzle** | `http://localhost:<DOZZLE_PORT>` in default browser |
+| **NetAlertX** | `http://localhost:<NETALERTX_PORT>` in default browser |
 | **Pi-hole + WireGuard Info** | This environment's generated `post-deploy-info.html` in default browser |
 
 The application menu entry and the Desktop icon for each of these are two different desktop-entry flavors: the menu entry tries `xdg-open`, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox`, since the app menu here only lists `Type=Application` entries. The Desktop icon is a simpler `Type=Link` entry, opened directly by the default URL handler — `Type=Link` works fine as a Desktop icon but is silently filtered out of the application menu.
@@ -308,6 +314,7 @@ docker compose logs -f
 
 # Follow logs for individual services
 docker logs -f darkstat
+docker logs -f netalertx
 docker logs -f pihole
 docker logs -f grafana
 docker logs -f prometheus
@@ -369,6 +376,7 @@ Monitors are configured via the UI. Suggested monitors for this stack — **don'
 | Dozzle | HTTP(s) | `http://dozzle:8080` (same bridge network — use the container name and internal port **8080**, not the host-mapped port **8888** you'd use from a browser) |
 | DNS resolution (via Pi-hole) | DNS | resolve `google.com`, Resolver Server `<pi-lan-ip>` (see note below) |
 | darkstat | HTTP(s) | `http://host.docker.internal:667` |
+| NetAlertX | HTTP(s) | `http://host.docker.internal:20211` |
 | External internet | HTTP(s) | `https://1.1.1.1` or any external site |
 | Pi host ping | Ping | `host.docker.internal` |
 
@@ -411,6 +419,12 @@ If `docker logs blackbox-exporter` (or any other container) shows `lookup <host>
 ### darkstat
 
 `darkstat` shows hostnames for LAN devices by resolving IPs through reverse DNS, using whatever DNS server the host itself is configured with (it runs with `network_mode: host`, same as Pi-hole). If devices show up as bare IP addresses instead of names, check Pi-hole's **Settings → DNS → Conditional Forwarding** — it needs to be enabled and pointed at your router for Pi-hole to answer reverse lookups for locally-leased IPs. Without it, Pi-hole (or whatever your resolver is) has no local PTR records to return, and darkstat falls back to showing the raw IP.
+
+### NetAlertX
+
+`netalertx` runs with `network_mode: host` (same requirement as `darkstat`) for Layer 2 ARP scanning — it needs to see the real host interfaces directly, which a bridge network can't provide. It also runs with a read-only root filesystem and every capability dropped except the specific ones ARP scanning needs (`NET_ADMIN`, `NET_RAW`, `NET_BIND_SERVICE`, `CHOWN`, `SETUID`, `SETGID`), matching upstream's own hardened baseline compose file rather than a looser default.
+
+To resolve device names from Pi-hole's DHCP leases (if Pi-hole's own DHCP server is enabled), NetAlertX's `./etc-pihole` directory is bind-mounted read-only at `/pihole-data` inside the container — but the plugin itself isn't on by default. Enable it from NetAlertX's own **Settings → Plugins → "Pi-hole - DHCP leases import"**, and set `DHCPLSS_paths_to_check` to `['/pihole-data/dhcp.leases']`.
 
 ---
 
