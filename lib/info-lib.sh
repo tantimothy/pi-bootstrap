@@ -140,9 +140,75 @@ _linkify() {
     sed -E 's#(https?://[^[:space:]<]+)#<a href="\1" target="_blank" rel="noopener">\1</a>#g'
 }
 
+# Wraps 'single-quoted' spans in already-escaped prose with <code>, for
+# inline command/config fragments mentioned mid-sentence (e.g. 'pihole
+# setpassword') — the quote marks are dropped since <code>'s styling is
+# what sets it apart now. Only meant for prose; a code line's own quoting
+# (e.g. wgpw 'pass') stays untouched since it's already inside a <pre>.
+#
+# The opening/closing quote must each be a word boundary (preceded/
+# followed by a non-alphanumeric character or line start/end) — otherwise
+# apostrophes in contractions and possessives ("it's", "stack's") get
+# misread as quote marks, pairing across them and mangling everything
+# between two unrelated words.
+_inline_code() {
+    sed -E "s/([^a-zA-Z0-9]|^)'([^']+)'([^a-zA-Z0-9]|\$)/\1<code>\2<\/code>\3/g"
+}
+
+# Splits raw (unescaped) text into runs, tagged "code" or "prose", using
+# indentation as the signal — the same convention the source text already
+# uses visually: a line with no leading whitespace starts a new top-level
+# section (default: code, e.g. "Useful Commands"/"Backup named volumes");
+# "📌 Notes:" specifically switches to prose, where only an extra-indented
+# (8+ space) line — an embedded command snippet within a note — goes back
+# to code. Output: "<mode>\t<original line>", one per input line.
+_tag_mixed_content() {
+    awk '
+        BEGIN { mode = "code" }
+        /^📌 Notes:$/ { mode = "prose" }
+        !/^ / && $0 != "" && $0 != "📌 Notes:" { mode = "code" }
+        {
+            line_mode = mode
+            if (mode == "prose" && $0 ~ /^        /) line_mode = "code"
+            print line_mode "\t" $0
+        }
+    '
+}
+
+# Consumes _tag_mixed_content's output, grouping consecutive same-mode
+# lines into one block each — a <pre> for "code", a plain (still
+# wrapping) <div> for "prose", with 'single-quoted' fragments in prose
+# promoted to <code>.
+_render_mixed_content() {
+    local mode content cur_mode="" buffer=""
+    while IFS=$'\t' read -r mode content; do
+        if [ -n "$buffer" ] && [ "$mode" != "$cur_mode" ]; then
+            _emit_content_block "$cur_mode" "$buffer"
+            buffer=""
+        fi
+        cur_mode="$mode"
+        buffer+="${content}"$'\n'
+    done
+    [ -n "$buffer" ] && _emit_content_block "$cur_mode" "$buffer"
+}
+
+_emit_content_block() {
+    local mode="$1" text="$2" escaped
+    if [ "$mode" = "code" ]; then
+        escaped=$(printf '%s' "$text" | _html_escape | _linkify)
+        printf '<pre>%s</pre>\n' "$escaped"
+    else
+        escaped=$(printf '%s' "$text" | _html_escape | _linkify | _inline_code)
+        printf '<div class="prose">%s</div>\n' "$escaped"
+    fi
+}
+
 # Renders the same content as _info_list (data dirs, install dirs, volumes,
-# web UIs, useful commands) as a self-contained HTML page, with bare URLs
-# turned into clickable links wherever they appear.
+# web UIs, useful commands) as a self-contained HTML page. Data dirs/
+# volumes and web UIs are wholly command/tabular listings, so each gets a
+# single <pre> block; useful commands/notes/backup volumes are mixed
+# (commands plus prose notes with occasional embedded command snippets),
+# so that portion is split per-line via _tag_mixed_content instead.
 _info_html() {
     local out_file="$1"
     local title; title="pi-bootstrap: $(basename "$SCRIPT_DIR")"
@@ -155,26 +221,29 @@ _info_html() {
 <title>${title}</title>
 <style>
   body { margin: 1.5rem; }
-  /* <pre> isn't needed here — nothing depends on its monospace font, and
-     white-space: pre-wrap works on any element. Viewed on both mobile and
-     desktop, so the text has to reflow to whatever width is actually
-     available rather than assume one fixed width — pre-wrap wraps at
-     whitespace like normal paragraph text, and overflow-wrap only breaks
-     a token mid-word as a last resort (a URL wider than the whole
-     viewport), not eagerly like word-break would. Hand-aligned columns in
-     the source text won't stay aligned once a line wraps, but the
-     alternative (never wrapping) is unusable on a phone-width screen. */
-  #info { white-space: pre-wrap; overflow-wrap: break-word; }
+  /* Viewed on both mobile and desktop, so text has to reflow to whatever
+     width is actually available — pre-wrap wraps at whitespace like
+     normal paragraph text, and overflow-wrap only breaks a token
+     mid-word as a last resort (e.g. a URL wider than the whole
+     viewport), not eagerly like word-break would. */
+  pre, .prose { white-space: pre-wrap; overflow-wrap: break-word; }
+  pre, code { background: #f6f8fa; }
+  pre { padding: 0.75rem 1rem; border-radius: 6px; }
+  code { padding: 0.1rem 0.3rem; border-radius: 4px; }
   footer { color: #666; font-size: 0.85rem; margin-top: 1.5rem; }
 </style>
 </head>
 <body>
 <h1>${title}</h1>
-<div id="info">
 HTML
-        _info_list | _html_escape | _linkify
+        local dirs_text; dirs_text="$(_info_dirs_and_volumes_text)"
+        [ -n "$dirs_text" ] && printf '<pre>%s</pre>\n' "$(printf '%s' "$dirs_text" | _html_escape | _linkify)"
+
+        local web_ui_text; web_ui_text="$(_info_web_uis_text)"
+        [ -n "$web_ui_text" ] && printf '<pre>%s</pre>\n' "$(printf '%s' "$web_ui_text" | _html_escape | _linkify)"
+
+        _info_useful_commands_text | _tag_mixed_content | _render_mixed_content
         cat <<HTML
-</div>
 <footer>Generated $(date '+%Y-%m-%d %H:%M:%S %Z') — re-run this environment's run.sh, or "INFO" from ./deploy.sh, to refresh.</footer>
 </body>
 </html>
