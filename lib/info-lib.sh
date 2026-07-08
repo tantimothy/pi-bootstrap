@@ -6,6 +6,10 @@
 #   ACTION       — "list", "delete", or "manifest" (the last is used by the
 #                  repo root's backup.sh — see run_info()'s manifest branch)
 #
+# "list" also (re)generates SCRIPT_DIR/post-deploy-info.html — the same
+# content as the terminal listing, as a self-contained HTML page with any
+# web UI URLs in USEFUL_COMMANDS turned into clickable links.
+#
 # Arrays (always declare these; set to () if unused):
 #   DATA_DIRS + DATA_DESCRIPTIONS       — also what backup.sh backs up (paths
 #                                         are preserved as-is, wherever they
@@ -91,6 +95,58 @@ _info_list() {
     echo "💡 Useful Commands:"
     echo "$USEFUL_COMMANDS"
     echo ""
+}
+
+_html_escape() {
+    sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+# Wraps bare http(s) URLs in already-escaped text with clickable <a> tags.
+# Must run AFTER _html_escape — its regex assumes no literal "<"/">" survive
+# inside a URL, only "&amp;" entities, which browsers resolve fine in an href.
+_linkify() {
+    sed -E 's#(https?://[^[:space:]<]+)#<a href="\1" target="_blank" rel="noopener">\1</a>#g'
+}
+
+# Renders the same content as _info_list (data dirs, install dirs, volumes,
+# useful commands) as a self-contained HTML page, with any web UI URLs in
+# USEFUL_COMMANDS turned into clickable links — so it's still useful for
+# environments with no web UI at all, just without any links appearing.
+_info_html() {
+    local out_file="$1"
+    local title; title="pi-bootstrap: $(basename "$SCRIPT_DIR")"
+    {
+        cat <<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${title}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         max-width: 850px; margin: 2rem auto; padding: 0 1.25rem;
+         background: #0d1117; color: #c9d1d9; }
+  h1 { font-size: 1.35rem; border-bottom: 1px solid #30363d; padding-bottom: 0.6rem; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #161b22;
+        padding: 1rem 1.25rem; border-radius: 8px; line-height: 1.55;
+        font-size: 0.92rem; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  footer { color: #6e7681; font-size: 0.8rem; margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+<h1>${title}</h1>
+<pre>
+HTML
+        _info_list | _html_escape | _linkify
+        cat <<HTML
+</pre>
+<footer>Generated $(date '+%Y-%m-%d %H:%M:%S %Z') — re-run this environment's run.sh, or "INFO" from ./deploy.sh, to refresh.</footer>
+</body>
+</html>
+HTML
+    } > "$out_file"
 }
 
 _info_manifest() {
@@ -210,6 +266,12 @@ _info_delete() {
 
 run_info() {
     if [ "$ACTION" = "list" ]; then
+        # Regenerated on every "list" — post-deploy (run.sh already calls
+        # this) and every time INFO is opened from the menu — so it's never
+        # stale, without needing a separate action or menu entry.
+        local html_file="${SCRIPT_DIR}/post-deploy-info.html"
+        _info_html "$html_file"
+
         # Pipe through less so long output (many data dirs/volumes/useful
         # commands) can be scrolled instead of flying past the terminal.
         # Falls back to plain output when there's no interactive terminal to
@@ -222,6 +284,7 @@ run_info() {
         else
             _info_list
         fi
+        echo "📄 HTML version with clickable links: $html_file"
     elif [ "$ACTION" = "delete" ]; then
         if [ "${#DATA_DIRS[@]}" -eq 0 ] && [ "${#NAMED_VOLUMES[@]}" -eq 0 ]; then
             echo ""

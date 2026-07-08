@@ -12,11 +12,15 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export APPS_DIR="${HOME}/.local/share/applications"
 export REPO_DIR
 
+source "$REPO_DIR/lib/desktop-lib.sh"
+export DESKTOP_DIR
+
 ACTION="${1:-install}"
 
 if [ "$ACTION" = "--uninstall" ]; then
     echo "Removing pi-bootstrap desktop entries..."
     rm -f "$APPS_DIR/pi-bootstrap.desktop"
+    remove_desktop_icon "pi-bootstrap"
     for script in "$REPO_DIR"/environments/*/install-desktop.sh; do
         [ -x "$script" ] && "$script" --uninstall
     done
@@ -39,6 +43,7 @@ Type=Application
 Categories=System;
 Terminal=true
 EOF
+install_desktop_icon "pi-bootstrap"
 echo "  ✓  pi-bootstrap (main dashboard)"
 
 # Delegate to each environment's own installer
@@ -50,6 +55,7 @@ done
 
 echo ""
 echo "✅  Done. Entries installed to $APPS_DIR"
+echo "   ...and mirrored as icons on the Desktop ($DESKTOP_DIR)"
 echo ""
 echo "Raspberry Pi OS picks up new entries automatically — no refresh needed."
 echo "If you're on XFCE or GNOME and an entry doesn't show up right away:"

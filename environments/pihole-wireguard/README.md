@@ -270,10 +270,13 @@ On a Pi with a desktop environment, run once from the repo root:
 | **WireGuard Dashboard** | `http://localhost:<WG_UI_PORT>` in default browser |
 | **darkstat** | `http://localhost:<DARKSTAT_PORT>` in default browser |
 | **Dozzle** | `http://localhost:<DOZZLE_PORT>` in default browser |
+| **Pi-hole + WireGuard Info** | This environment's generated `post-deploy-info.html` in default browser |
 
 Each entry tries `xdg-open` first, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox` in case no default browser handler is configured on your system — covering both the older Debian wrapper names and the current Raspberry Pi OS (Bookworm+) package names.
 
 Port values are read from your `.env` at install time. Re-run the script if you change ports.
+
+Every entry above is also mirrored onto your Desktop as a clickable icon, not just the application menu.
 
 The script checks whether the stack is deployed before registering entries — it prints a warning and exits cleanly if the `pihole` container doesn't exist yet, and removes any previously-installed entries if the stack has since been torn down. Deploy first, then re-run to install the entries.
 

@@ -43,13 +43,14 @@ On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once to register all
 ./install-desktop-entries.sh --uninstall
 ```
 
-This installs entries to `~/.local/share/applications/`. What each type does:
+This installs entries to `~/.local/share/applications/` (the application menu) **and** mirrors each one onto `~/Desktop` (or your actual XDG Desktop folder, if it differs) as a clickable icon — copied there executable and, where `gio` is available, marked "trusted" so it launches directly instead of showing as inert text or prompting to trust it on every click. What each type does:
 
 | Entry type | How it opens |
 |:---|:---|
 | GQRX, GNU Radio Companion | X11 socket passthrough — window appears directly on the Pi desktop |
 | SDR menu, Kali, NanoClaw | Opens in your desktop's default terminal emulator |
-| Pi-hole, Grafana, Uptime Kuma, WireGuard | Tries `xdg-open`, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox` against `localhost:<port>`, so the shortcut still works if no default browser handler is configured |
+| Pi-hole, Grafana, Uptime Kuma, WireGuard, darkstat, Dozzle | Tries `xdg-open`, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox` against `localhost:<port>`, so the shortcut still works if no default browser handler is configured |
+| `<Environment> Info` | Opens that environment's generated `post-deploy-info.html` (see below) using the same browser fallback chain |
 
 Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
 
@@ -62,6 +63,10 @@ Only environments that are actually deployed get entries. Re-running the install
 | dragonos-sdr, kali-pentest | A local `.deployed` marker that `run.sh` creates the moment it launches the container (these run with `--rm`, so a cached image alone doesn't prove the environment was actually used) |
 
 New entries appear in the menu automatically on Raspberry Pi OS; no manual refresh is needed.
+
+### 📄 Post-deploy info page
+
+Every environment's `info.sh` (both right after `run.sh` deploys it, and any time you open "INFO" from `./deploy.sh`) also (re)generates `environments/<env>/post-deploy-info.html` — a self-contained HTML page with the same data directories, useful commands, and notes as the terminal listing, except any web UI URLs are clickable links. It's not tracked in git (regenerated fresh each time) but is opened directly by that environment's `<Environment> Info` desktop entry above.
 
 ---
 
