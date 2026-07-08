@@ -22,6 +22,11 @@
 #
 # Optional arrays (declare as () if unused):
 #   WIPE_PARENT_DIRS     — parent dirs to rm -rf after DATA_DIRS are deleted (e.g. ~/internet-monitoring)
+#   WEB_UI_NAMES + WEB_UI_URLS  — parallel arrays of clickable web UIs; the
+#                                 HTML page renders these as a table, the
+#                                 terminal listing as an aligned list. Skip
+#                                 for non-http endpoints (e.g. a VNC address)
+#                                 — put those in USEFUL_COMMANDS as plain text.
 #
 # Optional scalars (library provides defaults):
 #   DATA_DIRS_LABEL      — heading for the data dirs section
@@ -32,9 +37,10 @@
 #   DELETE_INSTALL_DIRS  — "true" to include INSTALL_DIRS in the wipe (default: false)
 #   USEFUL_COMMANDS      — multiline string of commands to display (bash-interpolated in info.sh)
 
-_info_list() {
-    echo ""
-
+# The data-dirs/install-dirs/volumes portion — factored out so _info_html
+# can reuse it in the <pre> block without also pulling in the web UIs
+# section, which it renders as a separate HTML table instead.
+_info_dirs_and_volumes_text() {
     if [ "${#DATA_DIRS[@]}" -gt 0 ]; then
         echo "${DATA_DIRS_LABEL:-📁 Persistent Data Directories:}"
         local i
@@ -91,10 +97,36 @@ _info_list() {
         echo "   ${NO_DATA_MSG:-(none)}"
         echo ""
     fi
+}
 
+# Plain-text web UI list for the terminal — right-pads each URL to the
+# longest one so the names line up in a column, the same way a manually
+# hand-padded line would, just computed instead of guessed.
+_info_web_uis_text() {
+    if [ -n "${WEB_UI_NAMES+x}" ] && [ "${#WEB_UI_NAMES[@]}" -gt 0 ]; then
+        echo "🌐 Web UIs:"
+        local i maxlen=0
+        for i in "${!WEB_UI_URLS[@]}"; do
+            [ "${#WEB_UI_URLS[$i]}" -gt "$maxlen" ] && maxlen="${#WEB_UI_URLS[$i]}"
+        done
+        for i in "${!WEB_UI_NAMES[@]}"; do
+            printf '   %-*s   %s\n' "$maxlen" "${WEB_UI_URLS[$i]}" "${WEB_UI_NAMES[$i]}"
+        done
+        echo ""
+    fi
+}
+
+_info_useful_commands_text() {
     echo "💡 Useful Commands:"
     echo "$USEFUL_COMMANDS"
     echo ""
+}
+
+_info_list() {
+    echo ""
+    _info_dirs_and_volumes_text
+    _info_web_uis_text
+    _info_useful_commands_text
 }
 
 _html_escape() {
@@ -109,9 +141,10 @@ _linkify() {
 }
 
 # Renders the same content as _info_list (data dirs, install dirs, volumes,
-# useful commands) as a self-contained HTML page, with any web UI URLs in
-# USEFUL_COMMANDS turned into clickable links — so it's still useful for
-# environments with no web UI at all, just without any links appearing.
+# useful commands) as a self-contained HTML page. Web UIs get their own
+# table (clickable, not squeezed into the preformatted block); everything
+# else stays in a <pre> block with bare URLs still turned into links, so
+# it's still useful for environments with no WEB_UI_NAMES at all.
 _info_html() {
     local out_file="$1"
     local title; title="pi-bootstrap: $(basename "$SCRIPT_DIR")"
@@ -127,7 +160,16 @@ _info_html() {
          max-width: 850px; margin: 2rem auto; padding: 0 1.25rem;
          background: #0d1117; color: #c9d1d9; }
   h1 { font-size: 1.35rem; border-bottom: 1px solid #30363d; padding-bottom: 0.6rem; }
-  pre { white-space: pre-wrap; word-break: break-word; background: #161b22;
+  h2 { font-size: 1.05rem; margin-top: 1.75rem; }
+  table { border-collapse: collapse; width: 100%; background: #161b22; border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 0.55rem 0.9rem; border-bottom: 1px solid #21262d; }
+  th { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr:last-child td { border-bottom: none; }
+  /* Preformatted terminal-style text keeps its original alignment (no
+     wrapping); a horizontal scrollbar handles any line too long for the
+     viewport instead of the browser reflowing (and thereby mangling) the
+     hand-padded columns in the source text. */
+  pre { white-space: pre; overflow-x: auto; background: #161b22;
         padding: 1rem 1.25rem; border-radius: 8px; line-height: 1.55;
         font-size: 0.92rem; }
   a { color: #58a6ff; text-decoration: none; }
@@ -137,9 +179,29 @@ _info_html() {
 </head>
 <body>
 <h1>${title}</h1>
+HTML
+        if [ -n "${WEB_UI_NAMES+x}" ] && [ "${#WEB_UI_NAMES[@]}" -gt 0 ]; then
+            cat <<HTML
+<h2>🌐 Web UIs</h2>
+<table>
+<tbody>
+HTML
+            local i esc_name esc_url
+            for i in "${!WEB_UI_NAMES[@]}"; do
+                esc_name=$(printf '%s' "${WEB_UI_NAMES[$i]}" | _html_escape)
+                esc_url=$(printf '%s' "${WEB_UI_URLS[$i]}" | _html_escape)
+                printf '<tr><td>%s</td><td><a href="%s" target="_blank" rel="noopener">%s</a></td></tr>\n' \
+                    "$esc_name" "$esc_url" "$esc_url"
+            done
+            cat <<HTML
+</tbody>
+</table>
+HTML
+        fi
+        cat <<HTML
 <pre>
 HTML
-        _info_list | _html_escape | _linkify
+        { _info_dirs_and_volumes_text; _info_useful_commands_text; } | _html_escape | _linkify
         cat <<HTML
 </pre>
 <footer>Generated $(date '+%Y-%m-%d %H:%M:%S %Z') — re-run this environment's run.sh, or "INFO" from ./deploy.sh, to refresh.</footer>

@@ -16,11 +16,15 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 [ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
-WEB_UIS=""
-[ "$PIHOLE_ENABLE" = "true" ]     && WEB_UIS="${WEB_UIS}   http://${HOST_IP}/admin                                                          # Pi-hole Admin
-"
-[ "$MONITORING_ENABLE" = "true" ] && WEB_UIS="${WEB_UIS}   http://${HOST_IP}:3030                                                           # Grafana dashboards
-"
+WEB_UI_NAMES=(); WEB_UI_URLS=()
+if [ "$PIHOLE_ENABLE" = "true" ]; then
+    WEB_UI_NAMES+=("Pi-hole Admin")
+    WEB_UI_URLS+=("http://${HOST_IP}/admin")
+fi
+if [ "$MONITORING_ENABLE" = "true" ]; then
+    WEB_UI_NAMES+=("Grafana dashboards")
+    WEB_UI_URLS+=("http://${HOST_IP}:3030")
+fi
 
 DATA_DIRS=("$HOME/pi-hole" "$HOME/internet-monitoring/grafana" "$HOME/internet-monitoring/prometheus")
 WIPE_PARENT_DIRS=("$HOME/internet-monitoring")
@@ -36,9 +40,7 @@ DATA_DIRS_LABEL="📁 Persistent Data Directories (back these up):"
 INSTALL_DIRS_LABEL="📂 Install Directories (can be re-cloned):"
 DELETE_INSTALL_DIRS=true
 DELETE_CONFIRM_MSG="All Pi-hole settings and Grafana dashboards will be lost."
-USEFUL_COMMANDS="🌐 Web UIs:
-${WEB_UIS}
-   cd ${INSTALL_PATH} && ansible-playbook main.yml -i inventory.ini              # Re-run playbook
+USEFUL_COMMANDS="   cd ${INSTALL_PATH} && ansible-playbook main.yml -i inventory.ini              # Re-run playbook
    cd ${INSTALL_PATH} && git pull && ansible-playbook main.yml -i inventory.ini  # Update + re-run
    docker logs -f pihole                                                          # Pi-hole live logs
    docker logs -f grafana                                                         # Grafana live logs
