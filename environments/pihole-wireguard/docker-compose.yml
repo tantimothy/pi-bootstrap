@@ -167,6 +167,7 @@ services:
   ntopng-redis:
     container_name: ntopng-redis
     image: redis:alpine
+    profiles: ["ntopng"]
     command: ["redis-server", "--bind", "127.0.0.1", "--protected-mode", "yes"]
     volumes:
       - './ntopng-redis-data:/data'
@@ -179,6 +180,7 @@ services:
   ntopng:
     container_name: ntopng
     image: ntop/ntopng:latest
+    profiles: ["ntopng"]
     depends_on:
       - ntopng-redis
     command: >-

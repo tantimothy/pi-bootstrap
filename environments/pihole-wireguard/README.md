@@ -375,6 +375,7 @@ Monitors are configured via the UI. Suggested monitors for this stack — **don'
 | Pi-hole web UI | HTTP(s) | `http://host.docker.internal/admin` |
 | WireGuard web UI | HTTP(s) | `http://host.docker.internal:51821` |
 | Grafana | HTTP(s) | `http://grafana:3000` (same bridge network — use the container name and internal port, not the host-mapped one) |
+| Dozzle | HTTP(s) | `http://dozzle:8080` (same bridge network — use the container name and internal port, not the host-mapped one) |
 | DNS resolution (via Pi-hole) | DNS | resolve `google.com`, Resolver Server `<pi-lan-ip>` (see note below) |
 | darkstat | HTTP(s) | `http://host.docker.internal:667` |
 | ntopng | HTTP(s) | `http://host.docker.internal:3002` |
