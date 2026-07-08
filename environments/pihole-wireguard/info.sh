@@ -12,6 +12,7 @@ ACTION="${1:-list}"
 : "${WG_UI_PORT:=51821}"
 : "${WG_PORT:=51820}"
 : "${DOZZLE_PORT:=8888}"
+: "${NETALERTX_PORT:=20211}"
 
 # Resolve the host's LAN IP so these URLs are actually usable from another
 # device — "localhost" only means something on the Pi's own terminal.
@@ -19,11 +20,12 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 [ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
-DATA_DIRS=("$SCRIPT_DIR/etc-pihole" "$SCRIPT_DIR/etc-wireguard" "$SCRIPT_DIR/darkstat-db")
+DATA_DIRS=("$SCRIPT_DIR/etc-pihole" "$SCRIPT_DIR/etc-wireguard" "$SCRIPT_DIR/darkstat-db" "$SCRIPT_DIR/netalertx-data")
 DATA_DESCRIPTIONS=(
     "Pi-hole config, gravity database, custom blocklists, local DNS records"
     "WireGuard server keys + all peer configs — losing this invalidates every client VPN"
     "darkstat traffic database — per-host bandwidth history"
+    "NetAlertX config and device/scan history database"
 )
 INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()
 NAMED_VOLUMES=("prometheus_data" "grafana_data" "uptime_kuma_data")
@@ -41,6 +43,7 @@ WEB_UI_NAMES=(
     "WireGuard Dashboard (wg-easy)"
     "darkstat network traffic"
     "Dozzle — live logs for every container"
+    "NetAlertX — network device scanner and new-device alerts"
 )
 WEB_UI_URLS=(
     "http://${HOST_IP}:${PIHOLE_WEB_PORT}/admin"
@@ -49,6 +52,7 @@ WEB_UI_URLS=(
     "http://${HOST_IP}:${WG_UI_PORT}"
     "http://${HOST_IP}:${DARKSTAT_PORT}"
     "http://${HOST_IP}:${DOZZLE_PORT}"
+    "http://${HOST_IP}:${NETALERTX_PORT}"
 )
 USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                        # Change Pi-hole admin password
    docker exec -it wg-easy wg show                                  # Show connected WireGuard peers and transfer stats
@@ -58,6 +62,7 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
    docker logs -f grafana                                           # Grafana live logs
    docker logs -f darkstat                                          # darkstat logs
    docker logs -f uptime-kuma                                       # Uptime Kuma live logs
+   docker logs -f netalertx                                         # NetAlertX live logs
    docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps           # Full stack status
 
 📌 Notes:
@@ -102,6 +107,15 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
       contain sensitive data. Only expose it on a trusted LAN/VPN, or check
       Dozzle's own docs for adding authentication if you need it exposed
       more broadly.
+   🕵️  NetAlertX also has NO login by default — set SETPWD_enable_password
+      via its own Settings > General UI if you want one (default password is
+      then '123456', which you should change immediately). It sees every
+      device on your LAN, so treat exposure the same as Dozzle: trusted
+      LAN/VPN only unless you've enabled auth.
+   🔌 NetAlertX's optional Pi-hole DHCP-leases plugin needs enabling
+      manually: Settings > Plugins > 'Pi-hole - DHCP leases import', set
+      DHCPLSS_paths_to_check to ['/pihole-data/dhcp.leases'] — that only
+      resolves anything if Pi-hole's own DHCP server is enabled.
 
 📊 Backup named volumes:
    docker run --rm -v prometheus_data:/data -v \$(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
