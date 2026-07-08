@@ -141,8 +141,8 @@ _linkify() {
 }
 
 # Renders the same content as _info_list (data dirs, install dirs, volumes,
-# web UIs, useful commands) as a self-contained HTML page — one <pre> block,
-# with bare URLs turned into clickable links wherever they appear.
+# web UIs, useful commands) as a self-contained HTML page, with bare URLs
+# turned into clickable links wherever they appear.
 _info_html() {
     local out_file="$1"
     local title; title="pi-bootstrap: $(basename "$SCRIPT_DIR")"
@@ -155,20 +155,26 @@ _info_html() {
 <title>${title}</title>
 <style>
   body { margin: 1.5rem; }
-  /* No max-width "card" here on purpose — this is preformatted terminal
-     text with long hand-aligned lines; constraining the width just forces
-     a cramped horizontal scrollbar. Left at the browser default (full
-     window width), it fits without one for anything but extreme cases. */
+  /* <pre> isn't needed here — nothing depends on its monospace font, and
+     white-space: pre-wrap works on any element. Viewed on both mobile and
+     desktop, so the text has to reflow to whatever width is actually
+     available rather than assume one fixed width — pre-wrap wraps at
+     whitespace like normal paragraph text, and overflow-wrap only breaks
+     a token mid-word as a last resort (a URL wider than the whole
+     viewport), not eagerly like word-break would. Hand-aligned columns in
+     the source text won't stay aligned once a line wraps, but the
+     alternative (never wrapping) is unusable on a phone-width screen. */
+  #info { white-space: pre-wrap; overflow-wrap: break-word; }
   footer { color: #666; font-size: 0.85rem; margin-top: 1.5rem; }
 </style>
 </head>
 <body>
 <h1>${title}</h1>
-<pre>
+<div id="info">
 HTML
         _info_list | _html_escape | _linkify
         cat <<HTML
-</pre>
+</div>
 <footer>Generated $(date '+%Y-%m-%d %H:%M:%S %Z') — re-run this environment's run.sh, or "INFO" from ./deploy.sh, to refresh.</footer>
 </body>
 </html>
