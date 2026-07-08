@@ -6,7 +6,6 @@
 #   Uptime Kuma          — opens browser to the uptime monitor
 #   WireGuard Dashboard  — opens browser to the wg-easy peer manager
 #   Dozzle               — opens browser to the container log viewer
-#   ntopng                — opens browser to the deep traffic analysis UI
 #   Pi-hole + WireGuard Info — opens the generated post-deploy-info.html
 
 set -euo pipefail
@@ -26,7 +25,6 @@ ENTRIES=(
     pi-bootstrap-wireguard
     pi-bootstrap-darkstat
     pi-bootstrap-dozzle
-    pi-bootstrap-ntopng
     pi-bootstrap-pihole-wireguard-info
 )
 
@@ -65,7 +63,6 @@ UPTIME_PORT=$(env_val  "UPTIME_KUMA_PORT" "3001")
 WG_PORT=$(env_val      "WG_UI_PORT"      "51821")
 DARKSTAT_PORT=$(env_val "DARKSTAT_PORT"  "667")
 DOZZLE_PORT=$(env_val   "DOZZLE_PORT"    "8888")
-NTOPNG_PORT=$(env_val   "NTOPNG_PORT"    "3002")
 
 install_link_icon "pi-bootstrap-pihole" "Pi-hole Admin" \
     "DNS ad-blocker — blocklist management, query log, client stats" \
@@ -96,11 +93,6 @@ install_link_icon "pi-bootstrap-dozzle" "Dozzle (Logs)" \
     "Real-time log viewer for every container on this host" \
     "http://localhost:$DOZZLE_PORT" "utilities-terminal" "$CATEGORY"
 echo "  ✓  Dozzle          (http://localhost:$DOZZLE_PORT)"
-
-install_link_icon "pi-bootstrap-ntopng" "ntopng (Deep Traffic Analysis)" \
-    "Per-flow traffic analysis, DPI, and historical trends — default login admin/admin" \
-    "http://localhost:$NTOPNG_PORT" "network-wired" "$CATEGORY"
-echo "  ✓  ntopng          (http://localhost:$NTOPNG_PORT)"
 
 # Ensure post-deploy-info.html exists even if INFO has never been opened
 # from the menu yet (run.sh already generates it right after deploy, but

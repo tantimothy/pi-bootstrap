@@ -25,8 +25,6 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 | [Speedtest Exporter](https://github.com/MiguelNdeCarvalho/speedtest-exporter) | `speedtest-exporter` | *(internal)* | Runs a full internet speed test when Prometheus scrapes it (every 30 min by default) |
 | [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | `blackbox-exporter` | *(internal)* | HTTP health checks, ICMP ping latency, and DNS resolution probes for all local services |
 | [Dozzle](https://dozzle.dev) | `dozzle` | 8888 (web) | Real-time log viewer for every container on this host — read-only, no start/stop/exec capability |
-| [ntopng](https://www.ntop.org/products/traffic-analysis/ntop/) | `ntopng` | 3002 (web) | Deep per-flow traffic analysis, DPI (nDPI), and historical trends — complements darkstat's simpler always-on view. **Off by default** — see [Enabling / disabling ntopng](#enabling--disabling-ntopng) |
-| ntopng-redis | `ntopng-redis` | *(internal, loopback-only)* | Backs ntopng's historical/timeseries data. **Off by default**, tied to the same toggle as `ntopng` |
 
 ---
 
@@ -158,9 +156,6 @@ PiVPN has no simple re-edit-and-restart flow for changing this value like `wg-ea
 ### Dozzle has no login by default
 Unlike every other web UI in this stack (Pi-hole, Grafana, wg-easy, Uptime Kuma), Dozzle ships with **no built-in authentication** — anyone who can reach `DOZZLE_PORT` gets full read access to every container's logs. It's read-only (no start/stop/exec capability), but logs can still contain sensitive data. Only expose it on a trusted LAN/VPN, or add authentication yourself per [Dozzle's docs](https://dozzle.dev) if you need it reachable more broadly.
 
-### ntopng ships with default admin/admin credentials
-Unlike Grafana (`GRAFANA_ADMIN_PASSWORD`) or Pi-hole (`FTLCONF_webserver_api_password`), there's no env var to pre-seed a different ntopng password — it always starts with the default `admin`/`admin` login and prompts you to change it the first time you sign in. Change it immediately on first login; until you do, anyone who can reach `NTOPNG_PORT` has full access to per-flow traffic data for your whole LAN.
-
 ### Changing the WireGuard dashboard login password
 Unlike Pi-hole, there's no in-container command for this — `wg-easy`'s password is set via `PASSWORD_HASH` at startup:
 
@@ -194,8 +189,6 @@ The API password is written to `/etc/pihole/cli_pw` (owned by your user, `chmod 
 | `./etc-pihole/` | Pi-hole config, gravity database, custom blocklists, local DNS records |
 | `./etc-wireguard/` | WireGuard server keys + all peer configs — **back this up; losing it invalidates every client VPN** |
 | `./darkstat-db/` | darkstat traffic database — per-host bandwidth history |
-| `./ntopng-data/` | ntopng's own local state (host/interface config, license if any) |
-| `./ntopng-redis-data/` | ntopng's Redis-backed historical/timeseries data — per-flow trends over days/weeks |
 
 ### Named Docker Volumes
 
@@ -233,20 +226,6 @@ Select a policy when deploying from the menu, or set `REBUILD_POLICY` when runni
 | `WIPE` | Delete persisted data directories (irreversible — back up first) |
 
 **`CLEAN` details:** images are pulled *before* the old containers are stopped — Pi-hole is this stack's own DNS resolver, so pulling only after teardown would leave the host unable to resolve registry hostnames on a self-hosted-DNS Pi. Before removal, each old container is snapshotted via `docker commit` into a `<name>:clean-fallback` image (a plain rename isn't enough, since Compose matches containers by label and would just recreate/destroy a renamed one on the next `up`). The tag is fixed, not timestamped — only the single most recent fallback is ever kept per container, since `docker commit` just moves the tag to the new image and the previous one is cleaned up right after, so the rollback command below never changes. Named volumes are left untouched.
-
-### Enabling / disabling ntopng
-
-`ntopng` and `ntopng-redis` are gated behind the `NTOPNG_ENABLE` variable in `.env` (`true`/`false`, **default `false`**) — they're heavyweight (nDPI + their own Redis instance) compared to the rest of this stack, so they're opt-in rather than deployed automatically.
-
-```bash
-# in environments/pihole-wireguard/.env
-NTOPNG_ENABLE=true    # or false
-```
-```bash
-./run.sh
-```
-
-Flipping it to `true` and re-running deploys both containers alongside whatever's already running. Flipping it back to `false` and re-running **removes just those two containers** — nothing else in the stack is touched or restarted. Their data directories (`./ntopng-data`, `./ntopng-redis-data`) are left on disk either way, so re-enabling later picks up where it left off. `STOP` and `TEARDOWN` always act on `ntopng`/`ntopng-redis` regardless of the current toggle state, so pausing or fully tearing down the stack still catches them.
 
 ### Rolling back a bad `CLEAN` deploy
 
@@ -297,7 +276,6 @@ On a Pi with a desktop environment, run once from the repo root:
 | **WireGuard Dashboard** | `http://localhost:<WG_UI_PORT>` in default browser |
 | **darkstat** | `http://localhost:<DARKSTAT_PORT>` in default browser |
 | **Dozzle** | `http://localhost:<DOZZLE_PORT>` in default browser |
-| **ntopng** | `http://localhost:<NTOPNG_PORT>` in default browser |
 | **Pi-hole + WireGuard Info** | This environment's generated `post-deploy-info.html` in default browser |
 
 The application menu entry and the Desktop icon for each of these are two different desktop-entry flavors: the menu entry tries `xdg-open`, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox`, since the app menu here only lists `Type=Application` entries. The Desktop icon is a simpler `Type=Link` entry, opened directly by the default URL handler — `Type=Link` works fine as a Desktop icon but is silently filtered out of the application menu.
@@ -330,7 +308,6 @@ docker compose logs -f
 
 # Follow logs for individual services
 docker logs -f darkstat
-docker logs -f ntopng
 docker logs -f pihole
 docker logs -f grafana
 docker logs -f prometheus
@@ -392,7 +369,6 @@ Monitors are configured via the UI. Suggested monitors for this stack — **don'
 | Dozzle | HTTP(s) | `http://dozzle:8080` (same bridge network — use the container name and internal port **8080**, not the host-mapped port **8888** you'd use from a browser) |
 | DNS resolution (via Pi-hole) | DNS | resolve `google.com`, Resolver Server `<pi-lan-ip>` (see note below) |
 | darkstat | HTTP(s) | `http://host.docker.internal:667` |
-| ntopng | HTTP(s) | `http://host.docker.internal:3002` |
 | External internet | HTTP(s) | `https://1.1.1.1` or any external site |
 | Pi host ping | Ping | `host.docker.internal` |
 
@@ -435,14 +411,6 @@ If `docker logs blackbox-exporter` (or any other container) shows `lookup <host>
 ### darkstat
 
 `darkstat` shows hostnames for LAN devices by resolving IPs through reverse DNS, using whatever DNS server the host itself is configured with (it runs with `network_mode: host`, same as Pi-hole). If devices show up as bare IP addresses instead of names, check Pi-hole's **Settings → DNS → Conditional Forwarding** — it needs to be enabled and pointed at your router for Pi-hole to answer reverse lookups for locally-leased IPs. Without it, Pi-hole (or whatever your resolver is) has no local PTR records to return, and darkstat falls back to showing the raw IP.
-
-### ntopng
-
-`ntopng` and `ntopng-redis` both run with `network_mode: host` (needed for raw packet capture on the real interface, same as darkstat) — this means Docker's bridge-network service discovery doesn't apply between them, so `ntopng` reaches Redis over `127.0.0.1:6379` rather than the `ntopng-redis` container name. `ntopng-redis` is started with `--bind 127.0.0.1 --protected-mode yes` specifically because host networking would otherwise expose an unauthenticated Redis instance to your entire LAN, not just this Pi.
-
-**The official `ntop/ntopng` Docker image only publishes `linux/amd64`** — no ARM build exists under any tag, confirmed against Docker Hub's own API. Pulling it on a Pi crash-loops with `docker logs ntopng` showing `exec /run.sh: exec format error`. Because of this, `ntopng` is **built locally** from `./ntopng/Dockerfile` instead of pulled — `docker compose build` always runs natively on whatever CPU it's invoked on, so building it on the Pi itself targets the Pi's real architecture (arm64/armhf) automatically. The Dockerfile installs ntopng from ntop's own apt repository (`packages.ntop.org/RaspberryPI/apt-ntop.deb`), closely mirroring ntop's own official ARM64 build recipe ([`Dockerfile.ntopng_arm64.dev`](https://github.com/ntop/docker-ntop/blob/master/Dockerfile.ntopng_arm64.dev)).
-
-This local-build path is unverified on real Raspberry Pi hardware as part of this repo — in particular, whether ntop's Raspberry-Pi-specific apt repo has packages for your exact Debian release (Bookworm vs. Trixie) isn't something that could be confirmed from a sandboxed dev environment (`packages.ntop.org` is outside what that environment can reach at all). If `docker compose build ntopng` (or the `ntopng` step during `./run.sh`) fails, the build log will show which apt step failed — that's the first thing to check.
 
 ---
 
