@@ -177,9 +177,12 @@ services:
   # Deep traffic analysis — per-flow breakdown, DPI (nDPI), historical
   # trends via ntopng-redis. Complements darkstat's simpler always-on
   # byte-counter view rather than replacing it.
+  # Built locally (see ./ntopng/Dockerfile) rather than pulled — the
+  # official ntop/ntopng image only ever publishes linux/amd64, which
+  # crash-loops with "exec format error" on a Pi's ARM CPU.
   ntopng:
     container_name: ntopng
-    image: ntop/ntopng:latest
+    build: ./ntopng
     profiles: ["ntopng"]
     depends_on:
       - ntopng-redis
