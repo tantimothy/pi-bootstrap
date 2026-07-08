@@ -155,10 +155,15 @@ _info_html() {
 <title>${title}</title>
 <style>
   body { margin: 1.5rem; }
-  /* No max-width "card" here on purpose — this is preformatted terminal
-     text with long hand-aligned lines; constraining the width just forces
-     a cramped horizontal scrollbar. Left at the browser default (full
-     window width), it fits without one for anything but extreme cases. */
+  /* Viewed on both mobile and desktop, so the text has to reflow to
+     whatever width is actually available rather than assume one fixed
+     width — pre-wrap wraps at whitespace like a normal paragraph would,
+     and overflow-wrap only breaks a token mid-word as a last resort (a
+     URL wider than the whole viewport), not eagerly like word-break
+     would. Hand-aligned columns in the source text won't stay aligned
+     once a line wraps, but the alternative (never wrapping) is unusable
+     on a phone-width screen. */
+  pre { white-space: pre-wrap; overflow-wrap: break-word; }
   footer { color: #666; font-size: 0.85rem; margin-top: 1.5rem; }
 </style>
 </head>
