@@ -107,6 +107,13 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
       contain sensitive data. Only expose it on a trusted LAN/VPN, or check
       Dozzle's own docs for adding authentication if you need it exposed
       more broadly.
+   📡 NetAlertX shows NO devices until you set its scan subnet — this isn't
+      auto-detected. Settings > General Settings > SCAN_SUBNETS, e.g.
+      ['192.168.1.0/24 --interface=eth0'] (match your actual LAN subnet and
+      interface). First scan after saving takes a few minutes. If it's still
+      empty, test directly: docker exec -it netalertx arp-scan
+      --interface=eth0 192.168.1.0/24 — 'IPv4: (none)' means the interface
+      name is wrong.
    🕵️  NetAlertX also has NO login by default — set SETPWD_enable_password
       via its own Settings > General UI if you want one (default password is
       then '123456', which you should change immediately). It sees every
