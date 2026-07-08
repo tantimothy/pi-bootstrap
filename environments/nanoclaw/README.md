@@ -89,6 +89,7 @@ Persistent data lives inside the install path and survives `TEARDOWN`:
 The install directory itself (`~/nanoclaw/`) can be re-cloned by the `CLEAN` policy; the `groups/` and `data/` subdirectories are what actually need backing up.
 
 **Back up before CLEAN or WIPE:**
+
 ```bash
 cp -r ~/nanoclaw/groups ~/backup/nanoclaw-groups
 cp -r ~/nanoclaw/data   ~/backup/nanoclaw-data

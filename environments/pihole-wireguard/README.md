@@ -80,6 +80,7 @@ This repository utilizes a dual-stage configuration safety engine:
 2. A gatekeeper deployment orchestrator (`run.sh`) validates the runtime state and intercepts policies before invoking Docker.
 
 ### 1. Clone the Repository
+
 ```bash
 git clone <your-repo-url>
 cd <your-repo-name>
@@ -87,6 +88,7 @@ cd <your-repo-name>
 
 ### 2. Generate Your VPN UI Web Password Hash
 `wg-easy` requires a securely hashed password for its management dashboard. Run this single-use container to generate a hash of your chosen plaintext password:
+
 ```bash
 docker run --rm -it ghcr.io/wg-easy/wg-easy wgpw 'your_secure_password_here'
 ```
@@ -124,12 +126,14 @@ To allow external mobile devices to connect back to your WireGuard instance safe
 
 ### `FTLCONF_webserver_api_password` (Pi-hole admin password)
 Seeds the Pi-hole web UI admin password into `./etc-pihole/pihole.toml` — but **only on first container creation**. Once `pihole.toml` exists, changing this value in `.env` has no further effect; recreating the container will not pick up a new value. To change the password afterward:
+
 ```bash
 docker exec -it pihole pihole setpassword
 ```
 
 ### `WG_HOST` (WireGuard public endpoint)
 Must be a publicly reachable IP address or DDNS hostname — this is what `wg-easy` writes into every client config so remote devices know where to connect. Unlike `FTLCONF_webserver_api_password`, this one *is* read fresh on every container start:
+
 ```bash
 # edit WG_HOST in .env, then:
 docker compose up -d --force-recreate wg-easy
@@ -138,6 +142,7 @@ Note that any client `.conf`/QR code you already downloaded is a static snapshot
 
 #### Finding the equivalent value on a different Pi running PiVPN instead
 If another one of your Pis runs WireGuard via **PiVPN** rather than this `wg-easy` stack, there's no `.env`/`WG_HOST` variable to read — PiVPN has its own config layout. To find the public host/endpoint it's using:
+
 ```bash
 # Option 1: read it straight off an already-generated client config
 grep Endpoint ~/configs/*.conf
@@ -194,6 +199,7 @@ The API password is written to `/etc/pihole/cli_pw` (owned by your user, `chmod 
 | `uptime_kuma_data` | Uptime Kuma database — all monitors, notification channels, incident history |
 
 **Back up before any destructive operation:**
+
 ```bash
 # Local directories
 cp -r environments/pihole-wireguard/etc-pihole  ~/backup/
@@ -340,6 +346,7 @@ If dashboards are missing (no internet at deploy time), import them manually:
 3. Select **Prometheus** as the datasource and click **Import**
 
 If a dashboard is present but its panels show "Datasource not found" instead of data, `run.sh` downloaded it before it existed locally and the datasource-variable rewrite (`${DS_...}` → your Prometheus datasource) didn't cover every variable name a given community dashboard uses. Fix by re-running the rewrite against the existing file and restarting Grafana:
+
 ```bash
 cd environments/pihole-wireguard/monitoring/grafana/dashboards/
 sed -i -E 's/\$\{DS_[A-Za-z0-9_-]+\}/prometheus/g' <dashboard>.json
@@ -373,6 +380,7 @@ Uptime Kuma supports notifications via Telegram, Discord, Slack, email, ntfy, an
 ### Notes on Pi-hole exporter authentication
 
 `pihole-exporter` authenticates with Pi-hole v6's API using the same password as `FTLCONF_webserver_api_password`. If you later change the Pi-hole password via `pihole setpassword`, update `FTLCONF_webserver_api_password` in `.env` to match and recreate the exporter:
+
 ```bash
 docker compose up -d --force-recreate pihole-exporter
 ```

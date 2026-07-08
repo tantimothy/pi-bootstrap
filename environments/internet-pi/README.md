@@ -91,6 +91,7 @@ Choose one. If you want both Pi-hole and WireGuard, use `pihole-wireguard`.
 The data directories above are NOT touched by CLEAN — only the install directory is removed and re-cloned.
 
 **Back up before WIPE:**
+
 ```bash
 cp -r ~/pi-hole                      ~/backup/
 cp -r ~/internet-monitoring/grafana  ~/backup/
