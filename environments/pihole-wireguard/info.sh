@@ -12,6 +12,7 @@ ACTION="${1:-list}"
 : "${WG_UI_PORT:=51821}"
 : "${WG_PORT:=51820}"
 : "${DOZZLE_PORT:=8888}"
+: "${NTOPNG_PORT:=3002}"
 
 # Resolve the host's LAN IP so these URLs are actually usable from another
 # device — "localhost" only means something on the Pi's own terminal.
@@ -19,11 +20,13 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 [ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
-DATA_DIRS=("$SCRIPT_DIR/etc-pihole" "$SCRIPT_DIR/etc-wireguard" "$SCRIPT_DIR/darkstat-db")
+DATA_DIRS=("$SCRIPT_DIR/etc-pihole" "$SCRIPT_DIR/etc-wireguard" "$SCRIPT_DIR/darkstat-db" "$SCRIPT_DIR/ntopng-data" "$SCRIPT_DIR/ntopng-redis-data")
 DATA_DESCRIPTIONS=(
     "Pi-hole config, gravity database, custom blocklists, local DNS records"
     "WireGuard server keys + all peer configs — losing this invalidates every client VPN"
     "darkstat traffic database — per-host bandwidth history"
+    "ntopng's own local state (host/interface config, license if any)"
+    "ntopng's Redis-backed historical/timeseries data — per-flow trends over days/weeks"
 )
 INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()
 NAMED_VOLUMES=("prometheus_data" "grafana_data" "uptime_kuma_data")
@@ -41,6 +44,7 @@ WEB_UI_NAMES=(
     "WireGuard Dashboard (wg-easy)"
     "darkstat network traffic"
     "Dozzle — live logs for every container"
+    "ntopng deep traffic analysis (default login: admin/admin)"
 )
 WEB_UI_URLS=(
     "http://${HOST_IP}:${PIHOLE_WEB_PORT}/admin"
@@ -49,6 +53,7 @@ WEB_UI_URLS=(
     "http://${HOST_IP}:${WG_UI_PORT}"
     "http://${HOST_IP}:${DARKSTAT_PORT}"
     "http://${HOST_IP}:${DOZZLE_PORT}"
+    "http://${HOST_IP}:${NTOPNG_PORT}"
 )
 USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                        # Change Pi-hole admin password
    docker exec -it wg-easy wg show                                  # Show connected WireGuard peers and transfer stats
@@ -58,6 +63,7 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
    docker logs -f grafana                                           # Grafana live logs
    docker logs -f darkstat                                          # darkstat logs
    docker logs -f uptime-kuma                                       # Uptime Kuma live logs
+   docker logs -f ntopng                                            # ntopng live logs
    docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps           # Full stack status
 
 📌 Notes:
@@ -102,6 +108,14 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
       contain sensitive data. Only expose it on a trusted LAN/VPN, or check
       Dozzle's own docs for adding authentication if you need it exposed
       more broadly.
+   🔒 ntopng ships with default admin/admin credentials — you'll be prompted
+      to change the password on first login. There's no env var to pre-seed
+      a different one, so this step can't be skipped or automated.
+   🐘 ntopng is OFF by default (it's heavyweight — nDPI + its own Redis
+      instance). Toggle it via NTOPNG_ENABLE=true/false in .env, then
+      re-run ./run.sh. Turning it off removes just the ntopng/ntopng-redis
+      containers — the rest of the stack is untouched, and their data
+      directories are left on disk either way.
 
 📊 Backup named volumes:
    docker run --rm -v prometheus_data:/data -v \$(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
