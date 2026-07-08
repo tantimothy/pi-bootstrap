@@ -71,6 +71,9 @@ is_deployed() {
         pihole-wireguard)
             $DOCKER ps -a --filter "name=^/pihole$" -q 2>/dev/null | grep -q .
             ;;
+        ntopng)
+            $DOCKER ps -a --filter "name=^/ntopng$" -q 2>/dev/null | grep -q .
+            ;;
         dragonos-sdr|kali-pentest)
             [ -f "${env_path}.deployed" ]
             ;;

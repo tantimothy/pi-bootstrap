@@ -1,0 +1,36 @@
+services:
+  # Backs ntopng's historical/timeseries data (per-flow trends over days,
+  # not just live traffic). Host-networked and bound to loopback only —
+  # ntopng reaches it over 127.0.0.1 since they share the host's network
+  # namespace, and --protected-mode is a second guard against it ever being
+  # reachable from the LAN (unauthenticated Redis with no password set).
+  ntopng-redis:
+    container_name: ntopng-redis
+    image: redis:alpine
+    command: ["redis-server", "--bind", "127.0.0.1", "--protected-mode", "yes"]
+    volumes:
+      - './ntopng-redis-data:/data'
+    network_mode: host
+    restart: unless-stopped
+
+  # Deep traffic analysis — per-flow breakdown, DPI (nDPI), historical
+  # trends via ntopng-redis.
+  # Built locally (see ./Dockerfile) rather than pulled — the official
+  # ntop/ntopng image only ever publishes linux/amd64, which crash-loops
+  # with "exec format error" on a Pi's ARM CPU.
+  ntopng:
+    container_name: ntopng
+    build: .
+    depends_on:
+      - ntopng-redis
+    command: >-
+      -i ${NTOPNG_INTERFACES:-eth0}
+      -w ${NTOPNG_PORT:-3002}
+      -r 127.0.0.1:6379
+    volumes:
+      - './ntopng-data:/var/lib/ntopng'
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    restart: unless-stopped

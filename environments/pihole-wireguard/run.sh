@@ -41,10 +41,7 @@ POLICY="${REBUILD_POLICY:-FAST}"
 if [ "$POLICY" = "STOP" ]; then
     echo "🛑 [STOP] Pausing pihole-wireguard stack (containers preserved)..."
     cd "$SCRIPT_DIR"
-    # --profile ntopng included unconditionally here (regardless of the
-    # current NTOPNG_ENABLE setting) so a running ntopng/ntopng-redis pauses
-    # along with everything else rather than being left running.
-    $DOCKER_COMPOSE --profile ntopng --env-file "$ENV_FILE" stop || true
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" stop || true
     echo "✅ Stack paused. Run with FAST to resume."
     exit 0
 fi
@@ -53,9 +50,7 @@ fi
 if [ "$POLICY" = "TEARDOWN" ]; then
     echo "🗑️  [TEARDOWN] Stopping and removing pihole-wireguard stack..."
     cd "$SCRIPT_DIR"
-    # --profile ntopng included unconditionally so a full teardown always
-    # removes ntopng/ntopng-redis too, regardless of NTOPNG_ENABLE.
-    $DOCKER_COMPOSE --profile ntopng --env-file "$ENV_FILE" down --remove-orphans || true
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" down --remove-orphans || true
     echo "✅ Stack torn down."
     exit 0
 fi
@@ -92,32 +87,6 @@ fi
 : "${DARKSTAT_PORT:=667}"
 : "${DARKSTAT_INTERFACES:=eth0}"
 : "${DOZZLE_PORT:=8888}"
-: "${NTOPNG_ENABLE:=false}"
-
-# ntopng is optional and heavyweight (nDPI + its own Redis instance), gated
-# behind the "ntopng" Compose profile — NTOPNG_PROFILE_ARGS activates it for
-# pull/up only when NTOPNG_ENABLE=true.
-NTOPNG_PROFILE_ARGS=()
-if [ "${NTOPNG_ENABLE}" = "true" ]; then
-    NTOPNG_PROFILE_ARGS=(--profile ntopng)
-fi
-
-# Toggling NTOPNG_ENABLE from true to false removes it from the active
-# profile set, but `docker compose up`/`down` only ever act on services in
-# the *currently* active profile set — an inactive-profile container isn't
-# treated as an orphan, so it would otherwise keep running untouched. Remove
-# it directly by name instead, so a toggle-off is a clean, surgical removal
-# that never touches any other container. Data in ./ntopng-data and
-# ./ntopng-redis-data is left on disk either way.
-remove_ntopng_if_disabled() {
-    [ "${NTOPNG_ENABLE}" = "true" ] && return 0
-    for n in ntopng ntopng-redis; do
-        if "$DOCKER" inspect "$n" &>/dev/null; then
-            echo "🧹 NTOPNG_ENABLE is not 'true' — removing existing '$n' container (data preserved on disk)..."
-            "$DOCKER" rm -f "$n" &>/dev/null || true
-        fi
-    done
-}
 
 # Detect host LAN IP so post-deploy URLs are immediately clickable/copyable
 HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
@@ -483,9 +452,6 @@ echo "✅ Monitoring setup complete."
 # 4. Advanced Policy Engine Routing State Machine
 # ---------------------------------------------------------------------------------------
 CONTAINER_NAMES=("pihole" "wg-easy" "pihole-exporter" "wireguard-exporter" "prometheus" "grafana" "uptime-kuma" "node-exporter" "speedtest-exporter" "blackbox-exporter" "darkstat" "dozzle")
-if [ "${NTOPNG_ENABLE}" = "true" ]; then
-    CONTAINER_NAMES+=("ntopng" "ntopng-redis")
-fi
 ALL_RUNNING=true
 
 for name in "${CONTAINER_NAMES[@]}"; do
@@ -506,8 +472,7 @@ if [ "$POLICY" = "FAST" ]; then
         # instantly for the rest — this is what lets a compose-only change
         # take effect on a plain FAST run without needing the heavier CLEAN
         # policy's image pull, or a manual `docker compose up -d`.
-        $DOCKER_COMPOSE "${NTOPNG_PROFILE_ARGS[@]}" --env-file "$ENV_FILE" up -d --remove-orphans
-        remove_ntopng_if_disabled
+        $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
         echo "=========================================================="
         exit 0
     fi
@@ -524,7 +489,7 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # checks the registry for the latest digest regardless of local cache, so
     # this still gets a truly fresh set of images.
     echo "📥 Pulling fresh image layers while Pi-hole is still up to serve DNS..."
-    $DOCKER_COMPOSE "${NTOPNG_PROFILE_ARGS[@]}" --env-file "$ENV_FILE" pull
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" pull
 
     # Stop and snapshot the current containers into standalone fallback
     # images before removing them. A plain `docker rename` isn't enough here:
@@ -558,7 +523,7 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # is a recoverable rollback, not a wipe; only the containers themselves
     # (already snapshotted above) are removed so Compose can create fresh
     # ones in their place.
-    $DOCKER_COMPOSE "${NTOPNG_PROFILE_ARGS[@]}" --env-file "$ENV_FILE" down --remove-orphans || true
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" down --remove-orphans || true
 
     echo "ℹ️  Old containers snapshotted as <name>:${FALLBACK_TAG} images (previous fallback per container, if any, was replaced)."
     echo "   List them:   docker images | grep clean-fallback"
@@ -576,12 +541,11 @@ if [ "$POLICY" != "CLEAN" ]; then
     # CLEAN already pulled above, before teardown, to avoid the DNS
     # chicken-and-egg problem. Pulling again here would run after Pi-hole
     # is down and fail on a self-hosted-DNS Pi.
-    $DOCKER_COMPOSE "${NTOPNG_PROFILE_ARGS[@]}" --env-file "$ENV_FILE" pull
+    $DOCKER_COMPOSE --env-file "$ENV_FILE" pull
 fi
 
 echo "🦅 Launching system infrastructure nodes into background space..."
-$DOCKER_COMPOSE "${NTOPNG_PROFILE_ARGS[@]}" --env-file "$ENV_FILE" up -d --remove-orphans
-remove_ntopng_if_disabled
+$DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 
 # ---------------------------------------------------------------------------------------
 # 6. Pipeline Sanity Validation & Telemetry Output
