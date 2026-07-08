@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Shared helper for all environments' install-desktop.sh scripts (and the
-# root install-desktop-entries.sh) — mirrors a just-written application-menu
-# entry onto the user's Desktop too, so it shows as a clickable icon there
-# and not just in the menu.
+# Shared helpers for all environments' install-desktop.sh scripts (and the
+# root install-desktop-entries.sh): registering entries in the application
+# menu ($APPS_DIR), mirroring them onto the Desktop ($DESKTOP_DIR) as
+# clickable icons, and grouping each environment's entries into their own
+# application-menu submenu.
 #
-# The calling script must already have written "$APPS_DIR/<name>.desktop"
-# before calling install_desktop_icon <name>.
+# For command-launcher entries (Exec=..., e.g. GQRX, a terminal session),
+# write "$APPS_DIR/<name>.desktop" yourself, then call
+# install_desktop_icon <name> to mirror it onto the Desktop as-is.
+#
+# For URL-opening entries (web UIs, the generated info page), call
+# install_link_icon/install_info_icon instead — see their comments for why
+# they write two different desktop-entry flavors rather than one shared file.
 
 APPS_DIR="${APPS_DIR:-${HOME}/.local/share/applications}"
 
@@ -13,18 +19,31 @@ DESKTOP_DIR="${DESKTOP_DIR:-}"
 [ -z "$DESKTOP_DIR" ] && DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || true)"
 [ -z "$DESKTOP_DIR" ] && DESKTOP_DIR="${HOME}/Desktop"
 
-# Copies $APPS_DIR/<name>.desktop onto the Desktop, marked executable (and,
-# where supported, "trusted" via gio) — most file managers refuse to launch
-# a desktop file that isn't both, showing it as inert text or popping a
-# "trust this launcher?" confirmation on every single click otherwise.
+# Makes a .desktop file launchable from a file manager's Desktop view —
+# executable, and where supported, "trusted" via gio. Most file managers
+# refuse to launch one that isn't both, showing it as inert text or
+# popping a "trust this launcher?" confirmation on every single click
+# otherwise. Not needed for the $APPS_DIR copy — application MENUS parse
+# .desktop files directly regardless of the executable bit; this only
+# matters for the Desktop-icon copy, which a file manager treats as a
+# double-clickable file like any other.
+_mark_desktop_file_launchable() {
+    local file="$1"
+    chmod +x "$file"
+    if command -v gio &>/dev/null; then
+        gio set "$file" metadata::trusted true 2>/dev/null || true
+    fi
+}
+
+# Copies $APPS_DIR/<name>.desktop onto the Desktop as-is. Used for entries
+# where the menu and Desktop-icon versions should be identical (anything
+# that runs a command rather than opens a URL — see install_link_icon for
+# the URL case, which needs two different flavors instead of a copy).
 install_desktop_icon() {
     local name="$1"
     mkdir -p "$DESKTOP_DIR"
     cp -f "$APPS_DIR/${name}.desktop" "$DESKTOP_DIR/${name}.desktop"
-    chmod +x "$DESKTOP_DIR/${name}.desktop"
-    if command -v gio &>/dev/null; then
-        gio set "$DESKTOP_DIR/${name}.desktop" metadata::trusted true 2>/dev/null || true
-    fi
+    _mark_desktop_file_launchable "$DESKTOP_DIR/${name}.desktop"
 }
 
 remove_desktop_icon() {
@@ -32,13 +51,49 @@ remove_desktop_icon() {
     rm -f "$DESKTOP_DIR/${name}.desktop"
 }
 
-# Writes (menu + Desktop icon) a Type=Link desktop entry — opens a URL
-# directly via the desktop environment's own default handler. No Exec=, no
-# shell command, and (unlike Type=Application) most file managers don't
-# apply an "untrusted launcher" prompt to these since nothing is executed.
+# Builds a shell command that tries several launchers in turn for a given
+# URL/file. A bare `xdg-open` silently does nothing on some Pi desktop
+# images that lack a configured default browser handler, so fall back
+# through common alternatives — including the current Raspberry Pi OS
+# (Debian Bookworm+) package names, "chromium" and "firefox", not the older
+# "chromium-browser" / "firefox-esr" wrapper names some other distros use.
+BROWSER_FALLBACKS=(xdg-open x-www-browser sensible-browser chromium-browser chromium firefox-esr firefox)
+
+open_cmd() {
+    local url="$1" cmd="" b
+    for b in "${BROWSER_FALLBACKS[@]}"; do
+        [ -n "$cmd" ] && cmd+=" || "
+        cmd+="$b $url 2>/dev/null"
+    done
+    printf '%s' "$cmd"
+}
+
+# Writes a URL-opening shortcut as two different desktop-entry flavors,
+# since the two contexts behave differently on this desktop environment:
+#   - $APPS_DIR/<name>.desktop: Type=Application + Exec= browser-fallback
+#     chain. The application MENU only lists Type=Application entries —
+#     Type=Link is valid per spec but gets silently filtered out of the
+#     menu here, even though it's the better fit semantically.
+#   - $DESKTOP_DIR/<name>.desktop: Type=Link. Opens directly via the
+#     desktop's default URL handler with no wrapper script, and (unlike
+#     Type=Application) doesn't trigger an "untrusted launcher" prompt on
+#     the Desktop icon.
 install_link_icon() {
     local name="$1" display_name="$2" comment="$3" url="$4" icon="$5" categories="$6"
+
     cat > "$APPS_DIR/${name}.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=${display_name}
+Comment=${comment}
+Exec=bash -c "$(open_cmd "$url")"
+Icon=${icon}
+Categories=${categories}
+Terminal=false
+EOF
+
+    mkdir -p "$DESKTOP_DIR"
+    cat > "$DESKTOP_DIR/${name}.desktop" << EOF
 [Desktop Entry]
 Type=Link
 Name=${display_name}
@@ -47,7 +102,7 @@ URL=${url}
 Icon=${icon}
 Categories=${categories}
 EOF
-    install_desktop_icon "$name"
+    _mark_desktop_file_launchable "$DESKTOP_DIR/${name}.desktop"
 }
 
 # Writes (menu + Desktop icon) a shortcut that opens an environment's
