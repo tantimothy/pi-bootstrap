@@ -111,6 +111,11 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
    🔒 ntopng ships with default admin/admin credentials — you'll be prompted
       to change the password on first login. There's no env var to pre-seed
       a different one, so this step can't be skipped or automated.
+   🐘 ntopng is OFF by default (it's heavyweight — nDPI + its own Redis
+      instance). Toggle it via NTOPNG_ENABLE=true/false in .env, then
+      re-run ./run.sh. Turning it off removes just the ntopng/ntopng-redis
+      containers — the rest of the stack is untouched, and their data
+      directories are left on disk either way.
 
 📊 Backup named volumes:
    docker run --rm -v prometheus_data:/data -v \$(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data

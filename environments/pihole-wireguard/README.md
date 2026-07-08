@@ -25,8 +25,8 @@ The deployment lifecycle is integrated with an automated TUI dashboard wizard th
 | [Speedtest Exporter](https://github.com/MiguelNdeCarvalho/speedtest-exporter) | `speedtest-exporter` | *(internal)* | Runs a full internet speed test when Prometheus scrapes it (every 30 min by default) |
 | [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | `blackbox-exporter` | *(internal)* | HTTP health checks, ICMP ping latency, and DNS resolution probes for all local services |
 | [Dozzle](https://dozzle.dev) | `dozzle` | 8888 (web) | Real-time log viewer for every container on this host — read-only, no start/stop/exec capability |
-| [ntopng](https://www.ntop.org/products/traffic-analysis/ntop/) | `ntopng` | 3002 (web) | Deep per-flow traffic analysis, DPI (nDPI), and historical trends — complements darkstat's simpler always-on view |
-| ntopng-redis | `ntopng-redis` | *(internal, loopback-only)* | Backs ntopng's historical/timeseries data |
+| [ntopng](https://www.ntop.org/products/traffic-analysis/ntop/) | `ntopng` | 3002 (web) | Deep per-flow traffic analysis, DPI (nDPI), and historical trends — complements darkstat's simpler always-on view. **Off by default** — see [Enabling / disabling ntopng](#enabling--disabling-ntopng) |
+| ntopng-redis | `ntopng-redis` | *(internal, loopback-only)* | Backs ntopng's historical/timeseries data. **Off by default**, tied to the same toggle as `ntopng` |
 
 ---
 
@@ -233,6 +233,20 @@ Select a policy when deploying from the menu, or set `REBUILD_POLICY` when runni
 | `WIPE` | Delete persisted data directories (irreversible — back up first) |
 
 **`CLEAN` details:** images are pulled *before* the old containers are stopped — Pi-hole is this stack's own DNS resolver, so pulling only after teardown would leave the host unable to resolve registry hostnames on a self-hosted-DNS Pi. Before removal, each old container is snapshotted via `docker commit` into a `<name>:clean-fallback` image (a plain rename isn't enough, since Compose matches containers by label and would just recreate/destroy a renamed one on the next `up`). The tag is fixed, not timestamped — only the single most recent fallback is ever kept per container, since `docker commit` just moves the tag to the new image and the previous one is cleaned up right after, so the rollback command below never changes. Named volumes are left untouched.
+
+### Enabling / disabling ntopng
+
+`ntopng` and `ntopng-redis` are gated behind the `NTOPNG_ENABLE` variable in `.env` (`true`/`false`, **default `false`**) — they're heavyweight (nDPI + their own Redis instance) compared to the rest of this stack, so they're opt-in rather than deployed automatically.
+
+```bash
+# in environments/pihole-wireguard/.env
+NTOPNG_ENABLE=true    # or false
+```
+```bash
+./run.sh
+```
+
+Flipping it to `true` and re-running deploys both containers alongside whatever's already running. Flipping it back to `false` and re-running **removes just those two containers** — nothing else in the stack is touched or restarted. Their data directories (`./ntopng-data`, `./ntopng-redis-data`) are left on disk either way, so re-enabling later picks up where it left off. `STOP` and `TEARDOWN` always act on `ntopng`/`ntopng-redis` regardless of the current toggle state, so pausing or fully tearing down the stack still catches them.
 
 ### Rolling back a bad `CLEAN` deploy
 
