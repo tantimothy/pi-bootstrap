@@ -272,11 +272,11 @@ On a Pi with a desktop environment, run once from the repo root:
 | **Dozzle** | `http://localhost:<DOZZLE_PORT>` in default browser |
 | **Pi-hole + WireGuard Info** | This environment's generated `post-deploy-info.html` in default browser |
 
-Each entry tries `xdg-open` first, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox` in case no default browser handler is configured on your system — covering both the older Debian wrapper names and the current Raspberry Pi OS (Bookworm+) package names.
+Each entry is a `Type=Link` desktop file, opened directly by your desktop environment's own default URL handler — no wrapper script, no browser-fallback chain. This needs *some* default handler registered for `http://`/`file://` URLs (automatic on stock Raspberry Pi OS Desktop, which ships Chromium pre-registered); on a minimal setup with no browser ever configured as default, these can silently no-op on click.
 
 Port values are read from your `.env` at install time. Re-run the script if you change ports.
 
-Every entry above is also mirrored onto your Desktop as a clickable icon, not just the application menu.
+Every entry above is also mirrored onto your Desktop as a clickable icon, not just the application menu, and all seven are grouped into their own "Pi-hole + WireGuard" submenu in the application menu rather than scattering into Internet/System Tools.
 
 The script checks whether the stack is deployed before registering entries — it prints a warning and exits cleanly if the `pihole` container doesn't exist yet, and removes any previously-installed entries if the stack has since been torn down. Deploy first, then re-run to install the entries.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Pi-hole + WireGuard desktop entries:
+# Pi-hole + WireGuard desktop entries (all grouped in their own "Pi-hole +
+# WireGuard" application-menu submenu, not scattered into Internet/System):
 #   Pi-hole Admin        — opens browser to the admin web UI
 #   Grafana              — opens browser to the monitoring dashboard
 #   Uptime Kuma          — opens browser to the uptime monitor
@@ -14,6 +15,9 @@ APPS_DIR="${APPS_DIR:-${HOME}/.local/share/applications}"
 REPO_DIR="${REPO_DIR:-$(cd "$ENV_DIR/../.." && pwd)}"
 source "$REPO_DIR/lib/desktop-lib.sh"
 
+MENU_ID="pihole-wireguard"
+CATEGORY="X-PiBootstrap-${MENU_ID};"
+
 ENTRIES=(
     pi-bootstrap-pihole
     pi-bootstrap-grafana
@@ -26,6 +30,7 @@ ENTRIES=(
 
 if [ "${1:-}" = "--uninstall" ]; then
     for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+    remove_submenu "$MENU_ID"
     exit 0
 fi
 
@@ -36,10 +41,13 @@ mkdir -p "$APPS_DIR"
 # any stale entries so the menu doesn't accumulate broken shortcuts.
 if ! docker ps -a --filter "name=^/pihole$" -q 2>/dev/null | grep -q .; then
     for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+    remove_submenu "$MENU_ID"
     echo "  ⚠  pihole-wireguard: container 'pihole' not found — skipping (deploy the environment first)"
     exit 0
 fi
 echo "  pihole-wireguard: deployed ✓"
+
+register_submenu "$MENU_ID" "Pi-hole + WireGuard" "network-server"
 
 # Read a value from .env with a fallback default
 env_val() {
@@ -56,87 +64,39 @@ WG_PORT=$(env_val      "WG_UI_PORT"      "51821")
 DARKSTAT_PORT=$(env_val "DARKSTAT_PORT"  "667")
 DOZZLE_PORT=$(env_val   "DOZZLE_PORT"    "8888")
 
-cat > "$APPS_DIR/pi-bootstrap-pihole.desktop" << EOF
-[Desktop Entry]
-Name=Pi-hole Admin
-Comment=DNS ad-blocker — blocklist management, query log, client stats
-Exec=bash -c "$(open_cmd "http://localhost:$PIHOLE_PORT/admin")"
-Icon=network-server
-Type=Application
-Categories=Network;System;
-Terminal=false
-EOF
-install_desktop_icon "pi-bootstrap-pihole"
+install_link_icon "pi-bootstrap-pihole" "Pi-hole Admin" \
+    "DNS ad-blocker — blocklist management, query log, client stats" \
+    "http://localhost:$PIHOLE_PORT/admin" "network-server" "$CATEGORY"
 echo "  ✓  Pi-hole Admin  (http://localhost:$PIHOLE_PORT/admin)"
 
-cat > "$APPS_DIR/pi-bootstrap-grafana.desktop" << EOF
-[Desktop Entry]
-Name=Grafana (Pi Network)
-Comment=Monitoring dashboards — Pi-hole metrics, WireGuard peers, node and speedtest
-Exec=bash -c "$(open_cmd "http://localhost:$GRAFANA_PORT")"
-Icon=utilities-system-monitor
-Type=Application
-Categories=Network;System;
-Terminal=false
-EOF
-install_desktop_icon "pi-bootstrap-grafana"
+install_link_icon "pi-bootstrap-grafana" "Grafana (Pi Network)" \
+    "Monitoring dashboards — Pi-hole metrics, WireGuard peers, node and speedtest" \
+    "http://localhost:$GRAFANA_PORT" "utilities-system-monitor" "$CATEGORY"
 echo "  ✓  Grafana         (http://localhost:$GRAFANA_PORT)"
 
-cat > "$APPS_DIR/pi-bootstrap-uptime-kuma.desktop" << EOF
-[Desktop Entry]
-Name=Uptime Kuma
-Comment=Service uptime and health monitoring dashboard
-Exec=bash -c "$(open_cmd "http://localhost:$UPTIME_PORT")"
-Icon=network-server
-Type=Application
-Categories=Network;System;
-Terminal=false
-EOF
-install_desktop_icon "pi-bootstrap-uptime-kuma"
+install_link_icon "pi-bootstrap-uptime-kuma" "Uptime Kuma" \
+    "Service uptime and health monitoring dashboard" \
+    "http://localhost:$UPTIME_PORT" "network-server" "$CATEGORY"
 echo "  ✓  Uptime Kuma     (http://localhost:$UPTIME_PORT)"
 
-cat > "$APPS_DIR/pi-bootstrap-wireguard.desktop" << EOF
-[Desktop Entry]
-Name=WireGuard VPN Dashboard
-Comment=WireGuard peer management — add or remove clients, view connection status
-Exec=bash -c "$(open_cmd "http://localhost:$WG_PORT")"
-Icon=network-vpn
-Type=Application
-Categories=Network;
-Terminal=false
-EOF
-install_desktop_icon "pi-bootstrap-wireguard"
+install_link_icon "pi-bootstrap-wireguard" "WireGuard VPN Dashboard" \
+    "WireGuard peer management — add or remove clients, view connection status" \
+    "http://localhost:$WG_PORT" "network-vpn" "$CATEGORY"
 echo "  ✓  WireGuard       (http://localhost:$WG_PORT)"
 
-cat > "$APPS_DIR/pi-bootstrap-darkstat.desktop" << EOF
-[Desktop Entry]
-Name=darkstat (Traffic)
-Comment=Per-host network bandwidth usage and protocol breakdown
-Exec=bash -c "$(open_cmd "http://localhost:$DARKSTAT_PORT")"
-Icon=network-wired
-Type=Application
-Categories=Network;System;
-Terminal=false
-EOF
-install_desktop_icon "pi-bootstrap-darkstat"
+install_link_icon "pi-bootstrap-darkstat" "darkstat (Traffic)" \
+    "Per-host network bandwidth usage and protocol breakdown" \
+    "http://localhost:$DARKSTAT_PORT" "network-wired" "$CATEGORY"
 echo "  ✓  darkstat        (http://localhost:$DARKSTAT_PORT)"
 
-cat > "$APPS_DIR/pi-bootstrap-dozzle.desktop" << EOF
-[Desktop Entry]
-Name=Dozzle (Logs)
-Comment=Real-time log viewer for every container on this host
-Exec=bash -c "$(open_cmd "http://localhost:$DOZZLE_PORT")"
-Icon=utilities-terminal
-Type=Application
-Categories=Network;System;
-Terminal=false
-EOF
-install_desktop_icon "pi-bootstrap-dozzle"
+install_link_icon "pi-bootstrap-dozzle" "Dozzle (Logs)" \
+    "Real-time log viewer for every container on this host" \
+    "http://localhost:$DOZZLE_PORT" "utilities-terminal" "$CATEGORY"
 echo "  ✓  Dozzle          (http://localhost:$DOZZLE_PORT)"
 
 # Ensure post-deploy-info.html exists even if INFO has never been opened
 # from the menu yet (run.sh already generates it right after deploy, but
 # this is a cheap, idempotent safety net either way).
 bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
-install_info_icon "pi-bootstrap-pihole-wireguard-info" "Pi-hole + WireGuard Info" "$ENV_DIR/post-deploy-info.html"
+install_info_icon "pi-bootstrap-pihole-wireguard-info" "Pi-hole + WireGuard Info" "$ENV_DIR/post-deploy-info.html" "$CATEGORY"
 echo "  ✓  Info page       (post-deploy-info.html)"

@@ -43,16 +43,18 @@ On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once to register all
 ./install-desktop-entries.sh --uninstall
 ```
 
-This installs entries to `~/.local/share/applications/` (the application menu) **and** mirrors each one onto `~/Desktop` (or your actual XDG Desktop folder, if it differs) as a clickable icon — copied there executable and, where `gio` is available, marked "trusted" so it launches directly instead of showing as inert text or prompting to trust it on every click. What each type does:
+This installs entries to `~/.local/share/applications/` (the application menu) **and** mirrors each one onto `~/Desktop` (or your actual XDG Desktop folder, if it differs) as a clickable icon — copied there executable and, where `gio` is available, marked "trusted" so it launches directly instead of showing as inert text or prompting to trust it on every click. Each environment also gets its own submenu (e.g. "Pi-hole + WireGuard") in the application menu, instead of its entries scattering into existing folders like Internet or System Tools. What each type does:
 
 | Entry type | How it opens |
 |:---|:---|
 | GQRX, GNU Radio Companion | X11 socket passthrough — window appears directly on the Pi desktop |
 | SDR menu, Kali, NanoClaw | Opens in your desktop's default terminal emulator |
-| Pi-hole, Grafana, Uptime Kuma, WireGuard, darkstat, Dozzle | Tries `xdg-open`, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox` against `localhost:<port>`, so the shortcut still works if no default browser handler is configured |
-| `<Environment> Info` | Opens that environment's generated `post-deploy-info.html` (see below) using the same browser fallback chain |
+| Pi-hole, Grafana, Uptime Kuma, WireGuard, darkstat, Dozzle | A `Type=Link` desktop entry pointing at `http://localhost:<port>` — opened directly by the desktop environment's own default URL handler, no wrapper script involved |
+| `<Environment> Info` | Same `Type=Link` mechanism, pointed at that environment's generated `post-deploy-info.html` (see below) via a `file://` URL |
 
 Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
+
+`Type=Link` entries need the desktop environment to have *some* default handler registered for `http://`/`file://` URLs (typically automatic once a browser is installed) — on a minimal setup with no browser ever configured as default, these can silently no-op on click. Stock Raspberry Pi OS Desktop images ship Chromium pre-registered, so this is expected to just work there.
 
 Only environments that are actually deployed get entries. Re-running the installer keeps the menu in sync: it registers entries for anything newly deployed, and removes entries for anything that isn't (or was undeployed since) — so stale shortcuts don't linger. "Deployed" is detected differently per environment, since each has a different way of showing it's actually running rather than just built:
 
