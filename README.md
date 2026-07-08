@@ -12,10 +12,19 @@ cd pi-bootstrap
 Or run directly on a fresh Pi without cloning:
 
 ```bash
-curl -sSL -H "Authorization: token <your_github_token>" \
-  -H "Accept: application/vnd.github.v3.raw" \
-  https://tantimothy:<your_github_token>@raw.githubusercontent.com/tantimothy/pi-bootstrap/master/deploy.sh | bash
+curl -fsSL -A "pi-bootstrap-installer" https://raw.githubusercontent.com/tantimothy/pi-bootstrap/master/deploy.sh | bash
 ```
+
+`raw.githubusercontent.com` is served by a CDN with its own abuse/rate-limiting layer, separate
+from the GitHub API's normal limits — it can return a 429 "scraping" page if hit repeatedly in
+a short window (e.g. re-running this a few times while testing/debugging) or from a request
+that looks like generic bot traffic (no auth, no distinguishing User-Agent). If you hit that,
+wait a few minutes and retry, or just use the `git clone` method above instead — it doesn't go
+through this raw-content path at all, so it isn't subject to the same rate-limiting.
+
+The `-f` flag matters either way: without it, curl treats any HTTP error response — including
+that 429 page — as "success" and pipes its body straight into `bash`, which executes it as
+garbled commands instead of failing cleanly.
 
 ---
 
