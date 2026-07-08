@@ -12,6 +12,9 @@ APPS_DIR="${APPS_DIR:-${HOME}/.local/share/applications}"
 REPO_DIR="${REPO_DIR:-$(cd "$ENV_DIR/../.." && pwd)}"
 source "$REPO_DIR/lib/desktop-lib.sh"
 
+MENU_ID="dragonos-sdr"
+CATEGORY="X-PiBootstrap-${MENU_ID};"
+
 ENTRIES=(
     pi-bootstrap-gqrx
     pi-bootstrap-gnuradio
@@ -21,6 +24,7 @@ ENTRIES=(
 
 if [ "${1:-}" = "--uninstall" ]; then
     for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+    remove_submenu "$MENU_ID"
     exit 0
 fi
 
@@ -43,11 +47,13 @@ fi
 # clean up any stale entries too.
 if [ ! -f "$ENV_DIR/.deployed" ]; then
     for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+    remove_submenu "$MENU_ID"
     echo "  ⚠  dragonos-sdr: not deployed — skipping (deploy the environment first)"
     exit 0
 fi
 
 echo "  dragonos-sdr: deployed ✓"
+register_submenu "$MENU_ID" "DragonOS SDR" "gqrx"
 SDR_CONTAINER="sdr-dragonos-core"
 if [ -f "$ENV_FILE" ]; then
     _c=$(grep '^CONTAINER_NAME=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'"); [ -n "$_c" ] && SDR_CONTAINER=$_c
@@ -64,7 +70,7 @@ Comment=Software Defined Radio receiver — spectrum waterfall, FM/AM/SSB/CW dem
 Exec=bash -c "xhost +local: >/dev/null 2>&1; docker run $X11 $SDR_IMAGE gqrx"
 Icon=gqrx
 Type=Application
-Categories=HamRadio;Science;
+Categories=${CATEGORY}
 Terminal=false
 EOF
 install_desktop_icon "pi-bootstrap-gqrx"
@@ -77,7 +83,7 @@ Comment=Visual signal processing flowgraph editor
 Exec=bash -c "xhost +local: >/dev/null 2>&1; docker run $X11 $SDR_IMAGE gnuradio-companion"
 Icon=gnuradio-grc
 Type=Application
-Categories=HamRadio;Science;
+Categories=${CATEGORY}
 Terminal=false
 EOF
 install_desktop_icon "pi-bootstrap-gnuradio"
@@ -91,7 +97,7 @@ Comment=Interactive SDR launcher — rtl_fm, dump1090, hackrf, APRS, ACARS and m
 Exec=bash -c "docker exec -it $SDR_CONTAINER /usr/local/bin/sdr-menu.sh 2>/dev/null || docker run -it --rm --device /dev/bus/usb $SDR_IMAGE"
 Icon=utilities-terminal
 Type=Application
-Categories=HamRadio;Science;
+Categories=${CATEGORY}
 Terminal=true
 EOF
 install_desktop_icon "pi-bootstrap-sdr-menu"
@@ -100,5 +106,5 @@ echo "  ✓  SDR Tools Menu (DragonOS)"
 # Ensure post-deploy-info.html exists even if INFO has never been opened
 # from the menu yet (this is a cheap, idempotent safety net).
 bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
-install_info_icon "pi-bootstrap-dragonos-sdr-info" "DragonOS SDR Info" "$ENV_DIR/post-deploy-info.html"
+install_info_icon "pi-bootstrap-dragonos-sdr-info" "DragonOS SDR Info" "$ENV_DIR/post-deploy-info.html" "$CATEGORY"
 echo "  ✓  Info page (DragonOS SDR)"
