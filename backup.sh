@@ -156,6 +156,14 @@ if [ "$FIRST_APPEND" = "true" ]; then
     exit 1
 fi
 
+# Only now do we know exactly which environments actually ended up in the
+# archive — rename it to include their names instead of a bare timestamp,
+# so it's identifiable at a glance without having to open it.
+ENV_SUFFIX=$(IFS='+'; echo "${INCLUDED_ENVS[*]}")
+FINAL_ARCHIVE="$OUT_DIR/pi-bootstrap-backup-${TIMESTAMP}-${ENV_SUFFIX}.tar"
+mv "$ARCHIVE" "$FINAL_ARCHIVE"
+ARCHIVE="$FINAL_ARCHIVE"
+
 # $ARCHIVE was built via $SUDO_TAR, so it's root-owned — hand it back to the
 # invoking user now so a plain, non-root gzip (and later use of the .gz) is
 # guaranteed to work regardless of root's umask.
