@@ -272,7 +272,7 @@ On a Pi with a desktop environment, run once from the repo root:
 | **Dozzle** | `http://localhost:<DOZZLE_PORT>` in default browser |
 | **Pi-hole + WireGuard Info** | This environment's generated `post-deploy-info.html` in default browser |
 
-Each entry is a `Type=Link` desktop file, opened directly by your desktop environment's own default URL handler — no wrapper script, no browser-fallback chain. This needs *some* default handler registered for `http://`/`file://` URLs (automatic on stock Raspberry Pi OS Desktop, which ships Chromium pre-registered); on a minimal setup with no browser ever configured as default, these can silently no-op on click.
+The application menu entry and the Desktop icon for each of these are two different desktop-entry flavors: the menu entry tries `xdg-open`, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox`, since the app menu here only lists `Type=Application` entries. The Desktop icon is a simpler `Type=Link` entry, opened directly by the default URL handler — `Type=Link` works fine as a Desktop icon but is silently filtered out of the application menu.
 
 Port values are read from your `.env` at install time. Re-run the script if you change ports.
 
