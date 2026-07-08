@@ -141,10 +141,8 @@ _linkify() {
 }
 
 # Renders the same content as _info_list (data dirs, install dirs, volumes,
-# useful commands) as a self-contained HTML page. Web UIs get their own
-# table (clickable, not squeezed into the preformatted block); everything
-# else stays in a <pre> block with bare URLs still turned into links, so
-# it's still useful for environments with no WEB_UI_NAMES at all.
+# web UIs, useful commands) as a self-contained HTML page — one <pre> block,
+# with bare URLs turned into clickable links wherever they appear.
 _info_html() {
     local out_file="$1"
     local title; title="pi-bootstrap: $(basename "$SCRIPT_DIR")"
@@ -160,11 +158,6 @@ _info_html() {
          max-width: 850px; margin: 2rem auto; padding: 0 1.25rem;
          background: #0d1117; color: #c9d1d9; }
   h1 { font-size: 1.35rem; border-bottom: 1px solid #30363d; padding-bottom: 0.6rem; }
-  h2 { font-size: 1.05rem; margin-top: 1.75rem; }
-  table { border-collapse: collapse; width: 100%; background: #161b22; border-radius: 8px; overflow: hidden; }
-  th, td { text-align: left; padding: 0.55rem 0.9rem; border-bottom: 1px solid #21262d; }
-  th { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
-  tr:last-child td { border-bottom: none; }
   /* Preformatted terminal-style text keeps its original alignment (no
      wrapping); a horizontal scrollbar handles any line too long for the
      viewport instead of the browser reflowing (and thereby mangling) the
@@ -179,29 +172,9 @@ _info_html() {
 </head>
 <body>
 <h1>${title}</h1>
-HTML
-        if [ -n "${WEB_UI_NAMES+x}" ] && [ "${#WEB_UI_NAMES[@]}" -gt 0 ]; then
-            cat <<HTML
-<h2>🌐 Web UIs</h2>
-<table>
-<tbody>
-HTML
-            local i esc_name esc_url
-            for i in "${!WEB_UI_NAMES[@]}"; do
-                esc_name=$(printf '%s' "${WEB_UI_NAMES[$i]}" | _html_escape)
-                esc_url=$(printf '%s' "${WEB_UI_URLS[$i]}" | _html_escape)
-                printf '<tr><td>%s</td><td><a href="%s" target="_blank" rel="noopener">%s</a></td></tr>\n' \
-                    "$esc_name" "$esc_url" "$esc_url"
-            done
-            cat <<HTML
-</tbody>
-</table>
-HTML
-        fi
-        cat <<HTML
 <pre>
 HTML
-        { _info_dirs_and_volumes_text; _info_useful_commands_text; } | _html_escape | _linkify
+        _info_list | _html_escape | _linkify
         cat <<HTML
 </pre>
 <footer>Generated $(date '+%Y-%m-%d %H:%M:%S %Z') — re-run this environment's run.sh, or "INFO" from ./deploy.sh, to refresh.</footer>
