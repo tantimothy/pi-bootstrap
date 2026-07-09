@@ -106,6 +106,9 @@ if [ "$POLICY" = "TEARDOWN" ]; then
         echo "$AGENT_CONTAINERS" | xargs docker stop 2>/dev/null || true
         echo "$AGENT_CONTAINERS" | xargs docker rm   2>/dev/null || true
     fi
+    # Best-effort — immediately removes now-stale desktop entries rather than
+    # leaving them until the next manual install-desktop-entries.sh run.
+    [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
     echo "✅ Service and containers removed."
     exit 0
 fi
@@ -120,6 +123,9 @@ if [ "$POLICY" = "FAST" ]; then
         echo ""
         echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
         echo "=========================================================="
+        # Best-effort refresh in case NANOCLAW_PORT (or anything else read
+        # from .env) changed since entries were last installed.
+        [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
         exit 0
     fi
 
@@ -130,6 +136,7 @@ if [ "$POLICY" = "FAST" ]; then
         echo "✅ NanoClaw started."
         echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
         echo "=========================================================="
+        [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
         exit 0
     fi
 fi
@@ -193,4 +200,5 @@ bash nanoclaw.sh
 echo "=========================================================="
 echo "🏁 NanoClaw Setup Complete"
 echo "=========================================================="
+[ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
 bash "$SCRIPT_DIR/info.sh" list
