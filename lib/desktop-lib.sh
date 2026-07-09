@@ -171,3 +171,117 @@ _refresh_menu_cache() {
     command -v xdg-desktop-menu &>/dev/null && xdg-desktop-menu forceupdate --mode user 2>/dev/null
     return 0
 }
+
+# Reads a value from $ENV_DIR/.env with a fallback default — used to build
+# port-based Exec=/URL= entries that reflect the user's actual configuration
+# rather than a hardcoded default. $ENV_DIR must already be set by the
+# calling install-desktop.sh (same convention run_desktop_install below
+# uses for its other inputs).
+env_val() {
+    local key="$1" default="$2"
+    local val
+    val=$(grep "^${key}=" "$ENV_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d "\"'" | head -1)
+    echo "${val:-$default}"
+}
+
+# Generic driver for a per-environment install-desktop.sh — handles
+# --uninstall, the "is this actually deployed" check, submenu registration,
+# looping over entries, and the info-page hookup, so each environment's own
+# install-desktop.sh only needs to declare data and call this once as its
+# last line: `run_desktop_install "$@"` (forwarding its own $1 so
+# --uninstall keeps working).
+#
+# The caller sets these before calling:
+#
+#   MENU_ID, MENU_NAME, MENU_ICON     — passed to register_submenu.
+#                                       Categories= is derived from MENU_ID
+#                                       automatically — never set it yourself.
+#   DEPLOYED_CHECK_KIND               — "container" | "marker" | "systemd"
+#   DEPLOYED_CHECK_VALUE              — container name / marker file path /
+#                                        systemd unit name, matching the kind
+#   NOT_DEPLOYED_MSG                  — optional override for the "skipping"
+#                                        message; sensible defaults exist per kind
+#
+#   Parallel arrays, one row per entry (declare ENTRY_IDS=() if there are
+#   none besides the info entry below):
+#     ENTRY_IDS, ENTRY_NAMES, ENTRY_COMMENTS, ENTRY_ICONS, ENTRY_KINDS
+#     ENTRY_TARGETS   — a URL for "link" entries (→ install_link_icon), or a
+#                       full Exec= command string for "exec" entries (→ a
+#                       raw Type=Application .desktop file, for anything
+#                       that isn't a plain URL open — X11 passthrough,
+#                       docker exec, a terminal launcher, etc.)
+#     ENTRY_TERMINAL  — exec entries only; "true"/"false", defaults to "false"
+#
+#   INFO_ID, INFO_NAME                 — this environment's own "<Name> Info" entry
+_desktop_is_deployed() {
+    case "$DEPLOYED_CHECK_KIND" in
+        container) docker ps -a --filter "name=^/${DEPLOYED_CHECK_VALUE}$" -q 2>/dev/null | grep -q . ;;
+        marker)    [ -f "$DEPLOYED_CHECK_VALUE" ] ;;
+        systemd)   systemctl list-unit-files "$DEPLOYED_CHECK_VALUE" --no-legend 2>/dev/null | grep -q "$DEPLOYED_CHECK_VALUE" ;;
+        *)
+            echo "run_desktop_install: unknown DEPLOYED_CHECK_KIND '${DEPLOYED_CHECK_KIND:-<unset>}'" >&2
+            return 1
+            ;;
+    esac
+}
+
+run_desktop_install() {
+    local category="X-PiBootstrap-${MENU_ID};"
+    local all_ids=("${ENTRY_IDS[@]}" "$INFO_ID")
+
+    if [ "${1:-}" = "--uninstall" ]; then
+        for e in "${all_ids[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+        remove_submenu "$MENU_ID"
+        return 0
+    fi
+
+    mkdir -p "$APPS_DIR"
+
+    if ! _desktop_is_deployed; then
+        for e in "${all_ids[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+        remove_submenu "$MENU_ID"
+        local default_msg
+        case "$DEPLOYED_CHECK_KIND" in
+            container) default_msg="container '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
+            systemd)   default_msg="service '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
+            *)         default_msg="not deployed — skipping (deploy the environment first)" ;;
+        esac
+        echo "  ⚠  ${MENU_ID}: ${NOT_DEPLOYED_MSG:-$default_msg}"
+        return 0
+    fi
+    echo "  ${MENU_ID}: deployed ✓"
+
+    register_submenu "$MENU_ID" "$MENU_NAME" "${MENU_ICON:-utilities-terminal}"
+
+    local i
+    for i in "${!ENTRY_IDS[@]}"; do
+        case "${ENTRY_KINDS[$i]}" in
+            link)
+                install_link_icon "${ENTRY_IDS[$i]}" "${ENTRY_NAMES[$i]}" "${ENTRY_COMMENTS[$i]}" \
+                    "${ENTRY_TARGETS[$i]}" "${ENTRY_ICONS[$i]}" "$category"
+                ;;
+            exec)
+                cat > "$APPS_DIR/${ENTRY_IDS[$i]}.desktop" << EOF
+[Desktop Entry]
+Name=${ENTRY_NAMES[$i]}
+Comment=${ENTRY_COMMENTS[$i]}
+Exec=${ENTRY_TARGETS[$i]}
+Icon=${ENTRY_ICONS[$i]}
+Type=Application
+Categories=${category}
+Terminal=${ENTRY_TERMINAL[$i]:-false}
+EOF
+                install_desktop_icon "${ENTRY_IDS[$i]}"
+                ;;
+            *)
+                echo "run_desktop_install: unknown ENTRY_KINDS[$i] '${ENTRY_KINDS[$i]}'" >&2
+                continue
+                ;;
+        esac
+        echo "  ✓  ${ENTRY_NAMES[$i]}"
+    done
+
+    bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+    install_info_icon "$INFO_ID" "$INFO_NAME" "$ENV_DIR/post-deploy-info.html" "$category"
+    echo "  ✓  Info page"
+}
