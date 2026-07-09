@@ -156,15 +156,22 @@ Drop a folder into `environments/` — `deploy.sh` discovers it automatically.
 ```text
 environments/
 └── my-environment/
-    ├── .env.example        # required: drives the TUI config form
+    ├── .env.example        # drives the TUI config form — skip only if there's
+    │                       # truly nothing to configure (see pi-barebones)
     ├── run.sh              # archetype 1: custom script (highest priority)
     ├── docker-compose.yml  # archetype 2: multi-container stack
-    └── Dockerfile          # archetype 3: single container (lowest priority)
+    ├── Dockerfile          # archetype 3: single container (lowest priority)
+    ├── info.sh             # required — see below
+    ├── install-desktop.sh  # recommended if there's a web UI — see below
+    └── README.md           # Services & Ports, Data Directories, Desktop
+                             # Integration, Useful Commands, security notes
 ```
+
+`info.sh` and `install-desktop.sh` aren't one of the three deploy archetypes — every environment needs its own regardless of which archetype it uses. They're covered separately below since they're easy to miss (nothing on the `deploy.sh` discovery path requires them, but other scripts silently depend on them).
 
 ### `.env.example` Format
 
-Every variable needs a `#` comment immediately above it — that comment becomes the form label shown to the user:
+Only skip this file if the environment genuinely has nothing to configure — no ports, no secrets, no container names to declare (`pi-barebones` is the one environment that does without it). Every variable needs a `#` comment immediately above it — that comment becomes the form label shown to the user:
 
 ```ini
 # Name used by the dashboard to track container state.
@@ -245,3 +252,89 @@ services:
 ### Archetype 3: `Dockerfile` (Single Container Fallback)
 
 No `run.sh` or `docker-compose.yml` needed. The orchestrator builds the image, injects variables via `--env-file .env`, and maps port 80. For anything beyond a basic single-container setup, use Archetype 1 or 2 instead.
+
+### `info.sh` (Required)
+
+Every one of the seven current environments has one — it's not optional in practice. `run.sh` calls it at the end of every deploy for the post-deploy summary; `deploy.sh`'s `INFO` and `WIPE` policies delegate to it entirely (they don't touch containers directly at all); `backup.sh` invokes it with a `manifest` action to discover which data directories and named volumes to archive; and it's what generates `post-deploy-info.html`, the page the desktop "Info" icon opens. Skip it and INFO, WIPE, backup, and the info desktop entry all silently do nothing for that environment.
+
+All the actual logic lives in `lib/info-lib.sh` — your `info.sh` just sets some variables and arrays, then sources it:
+
+```bash
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ACTION="${1:-list}"
+
+[ -f "$SCRIPT_DIR/.env" ] && { set -a; source "$SCRIPT_DIR/.env"; set +a; }
+
+DATA_DIRS=("$SCRIPT_DIR/my-app-data")
+DATA_DESCRIPTIONS=("My app's config and database")
+INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()
+NAMED_VOLUMES=(); NAMED_VOLUME_DESCRIPTIONS=()
+WEB_UI_NAMES=("My App")
+WEB_UI_URLS=("http://${HOST_IP}:${WEB_PORT:-8080}")
+USEFUL_COMMANDS="   docker logs -f my-app"
+
+source "$REPO_DIR/lib/info-lib.sh"
+run_info
+```
+
+`ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), or `manifest` (machine-readable, used by `backup.sh` — you never call this yourself). Declare every array even if empty (`INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()`) — `lib/info-lib.sh`'s own header comment documents the full set, including the optional ones (`WIPE_PARENT_DIRS`, `DATA_DIRS_LABEL`, `DELETE_CONFIRM_MSG`, etc.).
+
+### `install-desktop.sh` (Recommended if there's a web UI)
+
+Skip this only if the environment has no browser-launchable target at all (`pi-barebones` has none; `internet-pi`'s ports come from an externally-managed Ansible playbook rather than this repo's own `.env`, which is why it doesn't have one either — worth reconsidering if that ever changes). `install-desktop-entries.sh` at the repo root discovers these automatically via `environments/*/install-desktop.sh` — nothing else needs registering it.
+
+The pattern, using `lib/desktop-lib.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APPS_DIR="${APPS_DIR:-${HOME}/.local/share/applications}"
+REPO_DIR="${REPO_DIR:-$(cd "$ENV_DIR/../.." && pwd)}"
+source "$REPO_DIR/lib/desktop-lib.sh"
+
+MENU_ID="my-environment"
+CATEGORY="X-PiBootstrap-${MENU_ID};"
+ENTRIES=(pi-bootstrap-my-app pi-bootstrap-my-environment-info)
+
+if [ "${1:-}" = "--uninstall" ]; then
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+    remove_submenu "$MENU_ID"
+    exit 0
+fi
+
+mkdir -p "$APPS_DIR"
+
+# Only install entries if actually deployed — remove stale ones otherwise
+if ! docker ps -a --filter "name=^/my-app$" -q 2>/dev/null | grep -q .; then
+    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+    remove_submenu "$MENU_ID"
+    exit 0
+fi
+
+register_submenu "$MENU_ID" "My Environment" "network-server"
+
+install_link_icon "pi-bootstrap-my-app" "My App" "What it does" \
+    "http://localhost:8080" "network-server" "$CATEGORY"
+
+bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+install_info_icon "pi-bootstrap-my-environment-info" "My Environment Info" \
+    "$ENV_DIR/post-deploy-info.html" "$CATEGORY"
+```
+
+Every environment gets its **own submenu** (`register_submenu`) rather than scattering entries into existing categories like Internet or System Tools — every `.desktop` entry for this environment must use *only* `X-PiBootstrap-<menu_id>;` as its `Categories=`, not a standard category alongside it. `install_link_icon` writes both the application-menu entry (`Type=Application`, browser-fallback `Exec=`) and the Desktop icon (`Type=Link`) — these are deliberately two different desktop-entry flavors, not the same file copied twice, because `Type=Link` is silently filtered out of the menu on some desktop environments.
+
+### Registering with `backup.sh`
+
+Unlike `info.sh`/`install-desktop.sh` (discovered automatically per-environment), "is this environment actually deployed, or just configured-but-never-run" is a manually-maintained `case` statement inside the **root** `backup.sh`'s `is_deployed()` function — add your environment there so `backup.sh` doesn't skip its data or, conversely, doesn't try to back up an empty shell that was only ever set up in the TUI wizard:
+
+```bash
+my-environment)
+    $DOCKER ps -a --filter "name=^/my-app$" -q 2>/dev/null | grep -q .
+    ;;
+```
+
+Environments without a case here fall through to the default (`*) true ;;`) — always treated as deployed, which is harmless but less precise than an explicit check.
