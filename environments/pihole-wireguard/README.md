@@ -430,6 +430,8 @@ If `docker logs blackbox-exporter` (or any other container) shows `lookup <host>
 
 `netalertx` runs with `network_mode: host` (same requirement as `darkstat`) for Layer 2 ARP scanning — it needs to see the real host interfaces directly, which a bridge network can't provide. It also runs with a read-only root filesystem and every capability dropped except the specific ones ARP scanning needs (`NET_ADMIN`, `NET_RAW`, `NET_BIND_SERVICE`, `CHOWN`, `SETUID`, `SETGID`), matching upstream's own hardened baseline compose file rather than a looser default.
 
+**NetAlertX shows zero devices until you configure its scan subnet — this is not auto-detected on first deploy.** Log in at `http://<pi-ip>:<NETALERTX_PORT>` → **Settings → General Settings**, and set `SCAN_SUBNETS` to your actual LAN subnet and interface, e.g. `['192.168.1.0/24 --interface=eth0']`. The first scan after saving takes a few minutes. If it's still empty afterward, run `docker exec -it netalertx arp-scan --interface=eth0 192.168.1.0/24` (adjust interface/subnet) directly — `IPv4: (none)` or `Using 0.0.0.0` means the interface name is wrong; a clean scan with no results usually means a firewall/VLAN is blocking Layer 2 visibility to that subnet.
+
 To resolve device names from Pi-hole's DHCP leases (if Pi-hole's own DHCP server is enabled), NetAlertX's `./etc-pihole` directory is bind-mounted read-only at `/pihole-data` inside the container — but the plugin itself isn't on by default. Enable it from NetAlertX's own **Settings → Plugins → "Pi-hole - DHCP leases import"**, and set `DHCPLSS_paths_to_check` to `['/pihole-data/dhcp.leases']`.
 
 ---
