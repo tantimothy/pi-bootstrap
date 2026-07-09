@@ -69,6 +69,15 @@ _desktop_remove_all_for_menu() {
         [ -f "$f" ] || continue
         grep -qF "$tag" "$f" 2>/dev/null && rm -f "$f"
     done
+    # Without this, the function's own exit status is whatever the last
+    # grep happened to return — 1 ("no match") whenever the very last file
+    # in the glob isn't tagged for this environment. Called as a bare
+    # statement under set -e, that silently aborts the entire calling
+    # script (install-desktop.sh) the moment ANY other environment's
+    # desktop entries happen to exist in the same shared $APPS_DIR/
+    # $DESKTOP_DIR — which is the normal case with more than one
+    # environment installed.
+    return 0
 }
 
 # Builds a shell command that tries several launchers in turn for a given
