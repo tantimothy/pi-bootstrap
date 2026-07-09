@@ -51,6 +51,35 @@ remove_desktop_icon() {
     rm -f "$DESKTOP_DIR/${name}.desktop"
 }
 
+# Removes every .desktop file (in both $APPS_DIR and $DESKTOP_DIR) tagged
+# with a given environment's Categories=, regardless of what that
+# environment's install-desktop.sh *currently* declares as its entries.
+#
+# Deliberately not driven by an ENTRY_IDS list: if an entry was renamed or
+# removed since the last successful install (e.g. a service split out into
+# its own environment), a list-driven cleanup would never even know that ID
+# existed, leaving its .desktop file orphaned forever. The Categories= tag
+# already written into every file this environment ever created is a
+# reliable, self-healing marker of ownership that doesn't drift.
+_desktop_remove_all_for_menu() {
+    local menu_id="$1"
+    local tag="Categories=X-PiBootstrap-${menu_id};"
+    local f
+    for f in "$APPS_DIR"/*.desktop "$DESKTOP_DIR"/*.desktop; do
+        [ -f "$f" ] || continue
+        grep -qF "$tag" "$f" 2>/dev/null && rm -f "$f"
+    done
+    # Without this, the function's own exit status is whatever the last
+    # grep happened to return — 1 ("no match") whenever the very last file
+    # in the glob isn't tagged for this environment. Called as a bare
+    # statement under set -e, that silently aborts the entire calling
+    # script (install-desktop.sh) the moment ANY other environment's
+    # desktop entries happen to exist in the same shared $APPS_DIR/
+    # $DESKTOP_DIR — which is the normal case with more than one
+    # environment installed.
+    return 0
+}
+
 # Builds a shell command that tries several launchers in turn for a given
 # URL/file. A bare `xdg-open` silently does nothing on some Pi desktop
 # images that lack a configured default browser handler, so fall back
@@ -227,10 +256,9 @@ _desktop_is_deployed() {
 
 run_desktop_install() {
     local category="X-PiBootstrap-${MENU_ID};"
-    local all_ids=("${ENTRY_IDS[@]}" "$INFO_ID")
 
     if [ "${1:-}" = "--uninstall" ]; then
-        for e in "${all_ids[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+        _desktop_remove_all_for_menu "$MENU_ID"
         remove_submenu "$MENU_ID"
         return 0
     fi
@@ -238,7 +266,7 @@ run_desktop_install() {
     mkdir -p "$APPS_DIR"
 
     if ! _desktop_is_deployed; then
-        for e in "${all_ids[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
+        _desktop_remove_all_for_menu "$MENU_ID"
         remove_submenu "$MENU_ID"
         local default_msg
         case "$DEPLOYED_CHECK_KIND" in
@@ -250,6 +278,11 @@ run_desktop_install() {
         return 0
     fi
     echo "  ${MENU_ID}: deployed ✓"
+
+    # Sweep before recreating — otherwise an entry ID renamed or removed
+    # since the last install (while still deployed, so the branch above
+    # never fires) would silently orphan its old .desktop file forever.
+    _desktop_remove_all_for_menu "$MENU_ID"
 
     register_submenu "$MENU_ID" "$MENU_NAME" "${MENU_ICON:-utilities-terminal}"
 
