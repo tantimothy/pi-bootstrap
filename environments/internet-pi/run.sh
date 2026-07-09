@@ -70,6 +70,11 @@ if [ "$POLICY" = "TEARDOWN" ]; then
         $DOCKER stop "$name" 2>/dev/null || true
         $DOCKER rm   "$name" 2>/dev/null || true
     done
+    # Best-effort — immediately removes now-stale desktop entries rather than
+    # leaving them until the next manual install-desktop-entries.sh run. A
+    # no-op today (this environment has no install-desktop.sh), kept for
+    # consistency with every other environment in case one is added later.
+    [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
     echo "✅ Containers removed."
     exit 0
 fi
@@ -226,4 +231,5 @@ ansible-playbook main.yml -i inventory.ini $ANSIBLE_EXTRA_FLAGS
 echo "=========================================================="
 echo "🏁 Internet Pi Deployment Complete!"
 echo "=========================================================="
+[ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
 bash "$SCRIPT_DIR/info.sh" list
