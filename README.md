@@ -285,7 +285,7 @@ run_info
 
 Skip this only if the environment has no browser-launchable target at all (`pi-barebones` has none; `internet-pi`'s ports come from an externally-managed Ansible playbook rather than this repo's own `.env`, which is why it doesn't have one either — worth reconsidering if that ever changes). `install-desktop-entries.sh` at the repo root discovers these automatically via `environments/*/install-desktop.sh` — nothing else needs registering it.
 
-The pattern, using `lib/desktop-lib.sh`:
+All the actual logic — `--uninstall`, the deployed check, submenu registration, looping over entries, the info-page hookup — lives in `lib/desktop-lib.sh`'s `run_desktop_install()`. Your `install-desktop.sh` just declares data (a few scalars plus parallel arrays, one row per entry) and calls it once as the last line:
 
 ```bash
 #!/usr/bin/env bash
@@ -297,35 +297,29 @@ REPO_DIR="${REPO_DIR:-$(cd "$ENV_DIR/../.." && pwd)}"
 source "$REPO_DIR/lib/desktop-lib.sh"
 
 MENU_ID="my-environment"
-CATEGORY="X-PiBootstrap-${MENU_ID};"
-ENTRIES=(pi-bootstrap-my-app pi-bootstrap-my-environment-info)
+MENU_NAME="My Environment"
+MENU_ICON="network-server"
+DEPLOYED_CHECK_KIND="container"       # or "marker" or "systemd" — see below
+DEPLOYED_CHECK_VALUE="my-app"         # container name / marker file path / systemd unit
 
-if [ "${1:-}" = "--uninstall" ]; then
-    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
-    remove_submenu "$MENU_ID"
-    exit 0
-fi
+ENTRY_IDS=(pi-bootstrap-my-app)
+ENTRY_NAMES=("My App")
+ENTRY_COMMENTS=("What it does")
+ENTRY_ICONS=(network-server)
+ENTRY_KINDS=(link)                    # or "exec" — see below
+ENTRY_TARGETS=("http://localhost:$(env_val "WEB_PORT" "8080")")
 
-mkdir -p "$APPS_DIR"
+INFO_ID="pi-bootstrap-my-environment-info"
+INFO_NAME="My Environment Info"
 
-# Only install entries if actually deployed — remove stale ones otherwise
-if ! docker ps -a --filter "name=^/my-app$" -q 2>/dev/null | grep -q .; then
-    for e in "${ENTRIES[@]}"; do rm -f "$APPS_DIR/${e}.desktop"; remove_desktop_icon "$e"; done
-    remove_submenu "$MENU_ID"
-    exit 0
-fi
-
-register_submenu "$MENU_ID" "My Environment" "network-server"
-
-install_link_icon "pi-bootstrap-my-app" "My App" "What it does" \
-    "http://localhost:8080" "network-server" "$CATEGORY"
-
-bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
-install_info_icon "pi-bootstrap-my-environment-info" "My Environment Info" \
-    "$ENV_DIR/post-deploy-info.html" "$CATEGORY"
+run_desktop_install "$@"
 ```
 
-Every environment gets its **own submenu** (`register_submenu`) rather than scattering entries into existing categories like Internet or System Tools — every `.desktop` entry for this environment must use *only* `X-PiBootstrap-<menu_id>;` as its `Categories=`, not a standard category alongside it. `install_link_icon` writes both the application-menu entry (`Type=Application`, browser-fallback `Exec=`) and the Desktop icon (`Type=Link`) — these are deliberately two different desktop-entry flavors, not the same file copied twice, because `Type=Link` is silently filtered out of the menu on some desktop environments.
+`DEPLOYED_CHECK_KIND` covers the three mechanisms actually in use across the current environments — `container` (`docker ps -a --filter name=^/<value>$`, for anything that stays running), `marker` (a `.deployed` file `run.sh` touches right before launch, for `--rm` containers where a cached image alone doesn't prove it was ever used), or `systemd` (a registered unit, for host-level installs like `nanoclaw`).
+
+`ENTRY_KINDS[i]` is `link` for a plain URL open (→ `install_link_icon`, which writes both the application-menu entry and the Desktop icon — see below) or `exec` for anything that isn't a plain URL (X11 passthrough, `docker exec`, a terminal launcher — `ENTRY_TARGETS[i]` is then the full `Exec=` command string, and an optional `ENTRY_TERMINAL[i]` of `true`/`false` controls the `Terminal=` field, default `false`). `env_val KEY DEFAULT` (also in `lib/desktop-lib.sh`) reads a value from `$ENV_DIR/.env` with a fallback — the shared way to build port-based URLs/commands that reflect the user's actual configuration.
+
+Every environment gets its **own submenu** (`register_submenu`, called automatically by `run_desktop_install`) rather than scattering entries into existing categories like Internet or System Tools — `Categories=` is derived from `MENU_ID` automatically too, so never set it yourself. `install_link_icon` writes both the application-menu entry (`Type=Application`, browser-fallback `Exec=`) and the Desktop icon (`Type=Link`) — these are deliberately two different desktop-entry flavors, not the same file copied twice, because `Type=Link` is silently filtered out of the menu on some desktop environments.
 
 ### Registering with `backup.sh`
 
