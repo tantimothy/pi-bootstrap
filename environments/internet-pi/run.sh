@@ -223,6 +223,14 @@ fi
 
 ansible-playbook main.yml -i inventory.ini $ANSIBLE_EXTRA_FLAGS
 
+# CLEAN's container teardown above forces the playbook to pull fresh images
+# for everything; FAST is idempotent and doesn't force a re-pull (see the
+# comment on step 2), so it has nothing new to leave dangling. -f only
+# removes untagged images, never anything still referenced by a container.
+if [ "$POLICY" = "CLEAN" ]; then
+    $DOCKER image prune -f >/dev/null 2>&1 || true
+fi
+
 # ---------------------------------------------------------------------------------------
 # 10. Post-deploy output
 #     Delegates to info.sh so the "just deployed" summary and the on-demand

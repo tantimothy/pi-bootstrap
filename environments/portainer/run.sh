@@ -116,6 +116,13 @@ $DOCKER_COMPOSE --env-file "$ENV_FILE" pull
 echo "🦅 Launching Portainer..."
 $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 
+# Reached by both a real FAST deploy and CLEAN (the "already running" FAST
+# reconcile above exits early without pulling, so it never reaches here) —
+# either path can leave the previous image dangling once `up` retags
+# `:latest` onto a newer pull. -f only removes untagged/dangling images,
+# never anything still referenced by a container.
+"$DOCKER" image prune -f >/dev/null 2>&1 || true
+
 # ---------------------------------------------------------------------------------------
 # Post-deploy output — delegates to info.sh so the "just deployed" summary
 # and the on-demand INFO menu are always the exact same content.

@@ -575,6 +575,13 @@ fi
 echo "🦅 Launching system infrastructure nodes into background space..."
 $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 
+# Reached by both a real FAST deploy and CLEAN — either path can leave the
+# previous image dangling once `up` retags `:latest` onto a newer pull.
+# -f only removes untagged/dangling images, never anything still referenced
+# by a container (including the CLEAN fallback snapshots committed above,
+# which carry their own tag and are never "dangling").
+"$DOCKER" image prune -f >/dev/null 2>&1 || true
+
 # ---------------------------------------------------------------------------------------
 # 6. Pipeline Sanity Validation & Telemetry Output
 #    Delegates to info.sh so the "just deployed" summary and the on-demand

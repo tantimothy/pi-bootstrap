@@ -121,6 +121,13 @@ if [ "$POLICY" = "CLEAN" ]; then
 fi
 $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 
+# Reached by both a real FAST deploy and CLEAN — either path can leave the
+# previous image dangling (ntopng-redis via a newer pull, ntopng itself via
+# CLEAN's --no-cache local rebuild retagging over the old build). -f only
+# removes untagged/dangling images, never anything still referenced by a
+# container.
+"$DOCKER" image prune -f >/dev/null 2>&1 || true
+
 # ---------------------------------------------------------------------------------------
 # Post-deploy output — delegates to info.sh so the "just deployed" summary
 # and the on-demand INFO menu are always the exact same content.

@@ -141,6 +141,10 @@ if [ "${POLICY}" = "CLEAN" ]; then
         "${DOCKER}" rm "${CONTAINER_NAME}" >/dev/null 2>&1 || true
     fi
 
+    # Cleans up the now-dangling previous image retagged over above. -f only
+    # removes untagged images, never anything still referenced by a container.
+    "${DOCKER}" image prune -f >/dev/null 2>&1 || true
+
 elif [ "${POLICY}" = "FAST" ]; then
     if [ -n "${CONTAINER_EXISTS}" ]; then
         "${DOCKER}" rm "${CONTAINER_NAME}" >/dev/null 2>&1 || true
