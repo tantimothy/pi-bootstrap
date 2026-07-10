@@ -75,6 +75,8 @@ Select a policy when deploying from the `deploy.sh` menu, or set `REBUILD_POLICY
 
 No local bind-mount directories — everything Portainer persists lives in the named volume above.
 
+The volume name is pinned explicitly in `docker-compose.yml` (`name: portainer_data`) rather than left to Compose's default project-name prefixing. Without that, moving or re-cloning this environment into a differently-named directory would silently create a new, empty volume instead of reusing the existing one — orphaning your admin account and any other Portainer settings in the old, differently-prefixed volume. If you deployed this environment before this fix and then renamed/moved the directory, check `docker volume ls` for a leftover volume from the old path (e.g. `portainer-dockge_portainer_data`) — your original data is there, not lost, just disconnected.
+
 ---
 
 ## 🖥️ Desktop Integration
