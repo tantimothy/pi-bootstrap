@@ -74,6 +74,9 @@ is_deployed() {
         ntopng)
             $DOCKER ps -a --filter "name=^/ntopng$" -q 2>/dev/null | grep -q .
             ;;
+        portainer-dockge)
+            $DOCKER ps -a --filter "name=^/portainer$" -q 2>/dev/null | grep -q .
+            ;;
         dragonos-sdr|kali-pentest)
             [ -f "${env_path}.deployed" ]
             ;;

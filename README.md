@@ -39,6 +39,7 @@ garbled commands instead of failing cleanly.
 | [nanoclaw](environments/nanoclaw/) | AI / LLM tools — Ollama (local model inference), whisper.cpp (speech-to-text), Claude API integration |
 | [pi-barebones](environments/pi-barebones/) | Minimal Pi setup — tmux, fastfetch system info, PADD Pi-hole dashboard, custom `.bashrc` tweaks |
 | [ntopng](environments/ntopng/) | Deep per-flow traffic analysis — DPI (nDPI), historical/timeseries trends via Redis. Split out as its own environment since it's heavyweight; pairs well alongside pihole-wireguard on a Pi with headroom to spare |
+| [portainer-dockge](environments/portainer-dockge/) | Container visualization & management — Portainer (full container/network/volume management, live topology view) + Dockge (lightweight compose-stack management). General-purpose Docker tooling, useful alongside any other environment on this Pi |
 
 ---
 
@@ -59,7 +60,7 @@ This installs entries to `~/.local/share/applications/` (the application menu) *
 |:---|:---|
 | GQRX, GNU Radio Companion | X11 socket passthrough — window appears directly on the Pi desktop |
 | SDR menu, Kali, NanoClaw | Opens in your desktop's default terminal emulator |
-| Pi-hole, Grafana, Uptime Kuma, WireGuard, darkstat, Dozzle, ntopng | Menu: tries `xdg-open`, then falls back through several other browser launchers against `http://localhost:<port>`. Desktop icon: a `Type=Link` entry opened directly by the desktop's default URL handler |
+| Pi-hole, Grafana, Uptime Kuma, WireGuard, darkstat, Dozzle, ntopng, Portainer, Dockge | Menu: tries `xdg-open`, then falls back through several other browser launchers against `http://localhost:<port>`. Desktop icon: a `Type=Link` entry opened directly by the desktop's default URL handler |
 | `<Environment> Info` | Same as above, pointed at that environment's generated `post-deploy-info.html` (see below) via a `file://` URL |
 
 Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
@@ -72,6 +73,7 @@ Only environments that are actually deployed get entries. Re-running the install
 |:---|:---|
 | pihole-wireguard | The `pihole` container exists |
 | ntopng | The `ntopng` container exists |
+| portainer-dockge | The `portainer` container exists |
 | nanoclaw | The `nanoclaw.service` systemd unit is registered |
 | dragonos-sdr, kali-pentest | A local `.deployed` marker that `run.sh` creates the moment it launches the container (these run with `--rm`, so a cached image alone doesn't prove the environment was actually used) |
 

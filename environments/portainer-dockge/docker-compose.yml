@@ -1,0 +1,42 @@
+services:
+  # Full Docker management UI — containers, images, networks, volumes,
+  # start/stop/exec, live stats. Confirmed multi-arch (amd64/arm64/armv7)
+  # directly against the Docker Hub registry API before adding this.
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ce:latest
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - 'portainer_data:/data'
+    ports:
+      - "${PORTAINER_PORT:-9000}:9000"
+      - "${PORTAINER_HTTPS_PORT:-9443}:9443"
+    restart: unless-stopped
+
+  # Compose-stack manager — a lighter, stack-focused companion to Portainer
+  # from the same author as Uptime Kuma. Manages docker-compose.yml stacks
+  # under ./stacks (its own scratch directory, deliberately NOT pointed at
+  # this repo's environments/ — see README's Security & Design Notes for why).
+  #
+  # DOCKGE_STACKS_DIR must be an ABSOLUTE path, and the host-side and
+  # container-side paths must be IDENTICAL (Dockge's own requirement: it
+  # invokes `docker compose` against this path via the mounted socket, which
+  # talks to the *host* dockerd, so the path has to resolve correctly there,
+  # not just inside this container). run.sh computes and exports this as an
+  # absolute path before calling `docker compose`, so it works regardless of
+  # where this repo is actually cloned.
+  dockge:
+    container_name: dockge
+    image: louislam/dockge:1
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - './dockge-data:/app/data'
+      - '${DOCKGE_STACKS_DIR}:${DOCKGE_STACKS_DIR}'
+    environment:
+      - DOCKGE_STACKS_DIR=${DOCKGE_STACKS_DIR}
+    ports:
+      - "${DOCKGE_PORT:-5001}:5001"
+    restart: unless-stopped
+
+volumes:
+  portainer_data:
