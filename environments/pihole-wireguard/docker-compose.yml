@@ -248,9 +248,25 @@ services:
     restart: unless-stopped
 
 volumes:
+  # Pinned to literal names instead of letting Compose auto-prefix them with
+  # the project name (derived from this directory's name) — otherwise
+  # renaming or re-cloning this environment into a differently-named
+  # directory silently creates brand-new empty volumes instead of reusing
+  # the existing ones, orphaning Prometheus/Grafana/Uptime Kuma's data. Same
+  # issue that actually happened to the portainer_data volume; see
+  # environments/portainer/docker-compose.yml.
+  #
+  # Pinned to "pihole-wireguard_<name>" (Compose's own current
+  # auto-generated prefix for this directory), NOT the cleaner unprefixed
+  # name — this environment already has a live deployment, so matching
+  # what's actually running right now avoids silently orphaning months of
+  # Prometheus/Grafana/Uptime Kuma history the moment this fix is applied.
   prometheus_data:
+    name: pihole-wireguard_prometheus_data
   grafana_data:
+    name: pihole-wireguard_grafana_data
   uptime_kuma_data:
+    name: pihole-wireguard_uptime_kuma_data
 
 networks:
   pihole_wg_net:

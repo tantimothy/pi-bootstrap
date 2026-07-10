@@ -28,7 +28,7 @@ DATA_DESCRIPTIONS=(
     "NetAlertX config and device/scan history database"
 )
 INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()
-NAMED_VOLUMES=("prometheus_data" "grafana_data" "uptime_kuma_data")
+NAMED_VOLUMES=("pihole-wireguard_prometheus_data" "pihole-wireguard_grafana_data" "pihole-wireguard_uptime_kuma_data")
 NAMED_VOLUME_DESCRIPTIONS=(
     "Prometheus time-series metrics (peer transfer stats, Pi-hole query history)"
     "Grafana database — saved dashboards, alert rules, user preferences"
@@ -125,8 +125,8 @@ USEFUL_COMMANDS="   docker exec -it pihole pihole setpassword                   
       resolves anything if Pi-hole's own DHCP server is enabled.
 
 📊 Backup named volumes:
-   docker run --rm -v prometheus_data:/data -v \$(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
-   docker run --rm -v grafana_data:/data -v \$(pwd):/backup alpine tar czf /backup/grafana_data.tar.gz /data"
+   docker run --rm -v pihole-wireguard_prometheus_data:/data -v \$(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
+   docker run --rm -v pihole-wireguard_grafana_data:/data -v \$(pwd):/backup alpine tar czf /backup/grafana_data.tar.gz /data"
 
 source "$REPO_DIR/lib/info-lib.sh"
 run_info

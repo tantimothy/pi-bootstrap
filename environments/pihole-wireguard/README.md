@@ -205,9 +205,11 @@ The API password is written to `/etc/pihole/cli_pw` (owned by your user, `chmod 
 
 | Volume | Contents |
 |--------|---------|
-| `prometheus_data` | Prometheus time-series metrics — Pi-hole query counts, WireGuard peer transfer history |
-| `grafana_data` | Grafana database — dashboard definitions, alert rules, user preferences |
-| `uptime_kuma_data` | Uptime Kuma database — all monitors, notification channels, incident history |
+| `pihole-wireguard_prometheus_data` | Prometheus time-series metrics — Pi-hole query counts, WireGuard peer transfer history |
+| `pihole-wireguard_grafana_data` | Grafana database — dashboard definitions, alert rules, user preferences |
+| `pihole-wireguard_uptime_kuma_data` | Uptime Kuma database — all monitors, notification channels, incident history |
+
+Volume names are pinned explicitly in `docker-compose.yml` rather than left to Compose's default project-name prefixing, so they stay stable if this environment is ever renamed or re-cloned into a differently-named directory. They're pinned to `pihole-wireguard_<name>` — matching Compose's current auto-generated prefix for this directory — rather than a cleaner unprefixed name, specifically so an existing deployment doesn't get silently orphaned by this pin itself.
 
 **Back up before any destructive operation:**
 
@@ -217,8 +219,8 @@ cp -r environments/pihole-wireguard/etc-pihole  ~/backup/
 cp -r environments/pihole-wireguard/etc-wireguard ~/backup/
 
 # Named volumes
-docker run --rm -v prometheus_data:/data -v $(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
-docker run --rm -v grafana_data:/data -v $(pwd):/backup alpine tar czf /backup/grafana_data.tar.gz /data
+docker run --rm -v pihole-wireguard_prometheus_data:/data -v $(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
+docker run --rm -v pihole-wireguard_grafana_data:/data -v $(pwd):/backup alpine tar czf /backup/grafana_data.tar.gz /data
 ```
 
 ---
