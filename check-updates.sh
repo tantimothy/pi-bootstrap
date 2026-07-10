@@ -64,9 +64,30 @@ _dockerfile_for_image() {
 # anything: apt-get update only refreshes local package-list metadata, and
 # pulling the base tag never touches the already-running container.
 check_locally_built() {
-    local name="$1" image_ref="$2" container_id="$3"
+    local name="$1" image_ref="$2" container_id="$3" pull_output="$4"
 
-    if ! $DOCKER exec "$container_id" sh -c 'command -v apt-get' >/dev/null 2>&1; then
+    local dockerfile
+    dockerfile=$(_dockerfile_for_image "$image_ref") || true
+
+    local has_apt=false
+    $DOCKER exec "$container_id" sh -c 'command -v apt-get' >/dev/null 2>&1 && has_apt=true
+
+    # Neither a Dockerfile this repo recognizes as one of its own local
+    # builds, nor apt-get inside — this isn't a known local build at all,
+    # so the pull almost certainly SHOULD have succeeded (e.g. a normal
+    # registry image like prom/prometheus) and something else went wrong
+    # instead: a Docker Hub rate limit, DNS, a network blip. Surface the
+    # actual pull error rather than a generic "skipped," which otherwise
+    # looks identical to a genuinely local, never-pullable image like
+    # darkstat or ntopng and hides what's actually worth investigating.
+    if [ -z "$dockerfile" ] && [ "$has_apt" = "false" ]; then
+        echo "❓  $name ($image_ref) — pull failed, and this isn't a recognized local build:"
+        echo "$pull_output" | sed 's/^/       /'
+        SKIPPED=$((SKIPPED + 1))
+        return
+    fi
+
+    if [ "$has_apt" = "false" ]; then
         echo "⏭️   $name ($image_ref) — skipped, not pullable and not apt-based"
         SKIPPED=$((SKIPPED + 1))
         return
@@ -116,7 +137,7 @@ while IFS=$'\t' read -r NAME IMAGE_REF CONTAINER_ID; do
 
     PULL_OUTPUT=$($DOCKER pull "$IMAGE_REF" 2>&1)
     if [ $? -ne 0 ]; then
-        check_locally_built "$NAME" "$IMAGE_REF" "$CONTAINER_ID"
+        check_locally_built "$NAME" "$IMAGE_REF" "$CONTAINER_ID" "$PULL_OUTPUT"
         continue
     fi
 
@@ -133,7 +154,7 @@ done < <($DOCKER ps --format '{{.Names}}\t{{.Image}}\t{{.ID}}')
 
 echo ""
 echo "=========================================================="
-echo "📊 ${#UPDATES_AVAILABLE[@]} update(s) available, $UP_TO_DATE up to date, $SKIPPED skipped (no registry entry, not apt-based)"
+echo "📊 ${#UPDATES_AVAILABLE[@]} update(s) available, $UP_TO_DATE up to date, $SKIPPED skipped/failed (see ⏭️/❓ lines above for why)"
 if [ ${#UPDATES_AVAILABLE[@]} -gt 0 ]; then
     echo ""
     echo "Already pulled (or checked live via apt) — nothing further to download."
