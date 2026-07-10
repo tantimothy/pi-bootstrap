@@ -1,0 +1,17 @@
+services:
+  # Full Docker management UI — containers, images, networks, volumes,
+  # start/stop/exec, live stats. Confirmed multi-arch (amd64/arm64/armv7)
+  # directly against the Docker Hub registry API before adding this.
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ce:latest
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - 'portainer_data:/data'
+    ports:
+      - "${PORTAINER_PORT:-9000}:9000"
+      - "${PORTAINER_HTTPS_PORT:-9443}:9443"
+    restart: unless-stopped
+
+volumes:
+  portainer_data:

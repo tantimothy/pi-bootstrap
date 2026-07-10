@@ -328,21 +328,30 @@ LOKI_ENABLE=false
 ## Visualizing the current container topology
 
 The diagrams above are accurate as of this doc's writing but static — they
-won't update themselves as the stack changes. Two complementary options
-for live visibility, discussed but not yet added:
+won't update themselves as the stack changes.
 
-- **[Portainer](https://www.portainer.io/)** — actively maintained, ARM64
-  builds available, browser-based container/network/volume management.
-  Doesn't draw a literal connection-graph diagram, but shows every running
+- **[Portainer](https://www.portainer.io/)** — now deployed as its own
+  `environments/portainer/` environment. Actively maintained, ARM64 builds
+  available, browser-based container/network/volume management. Doesn't
+  draw a literal connection-graph diagram, but shows every running
   container, which Docker network(s) each belongs to, resource usage, logs,
   and gives start/stop/exec access beyond Dozzle's read-only view. The
   most practical general-purpose recommendation for "see what's actually
   running on this Pi" day to day.
-- **[Dockge](https://github.com/louislam/dockge)** — lighter-weight,
-  focused specifically on managing `docker-compose.yml` stacks (edit,
-  redeploy, view logs per-stack) rather than full container management.
-  Worth considering instead of Portainer if the goal is mainly "manage the
-  compose files this repo generates," not general Docker administration.
+- **[Dockge](https://github.com/louislam/dockge)** was tried alongside
+  Portainer in the same environment and then dropped. Its whole value
+  proposition — managing `docker-compose.yml` stacks by editing them
+  through its own UI — only works for stacks whose compose file physically
+  lives under its own stacks directory; it can't "adopt" an existing
+  environment's compose file in place without copying it in (permanently
+  forking it from the git-tracked original, with no sync back) or
+  symlinking it (which doesn't actually work, since only Dockge's own
+  stacks directory is bind-mounted into its container — a symlink pointing
+  outside that directory resolves to a path that doesn't exist from the
+  container's point of view). Neither fits this repo's model of
+  `environments/` as the single, git-tracked source of truth, so it's not
+  part of this repo. Portainer's Containers view already covers "see and
+  control what's running" without taking over any environment's lifecycle.
 - Neither replaces an actual network-topology diagram like the ones above
   — tools that did this well (Weave Scope) are no longer maintained. For
   now, the practical answer is: regenerate a diagram like this one by hand
