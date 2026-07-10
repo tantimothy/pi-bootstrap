@@ -15,3 +15,9 @@ services:
 
 volumes:
   portainer_data:
+    # Pinned to a literal name instead of letting Compose auto-prefix it with
+    # the project name (derived from this directory's name) — otherwise
+    # renaming or re-cloning this environment into a differently-named
+    # directory silently creates a brand-new empty volume instead of reusing
+    # the existing one, orphaning whatever was in it (e.g. the admin account).
+    name: portainer_data
