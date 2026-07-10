@@ -20,4 +20,13 @@ volumes:
     # renaming or re-cloning this environment into a differently-named
     # directory silently creates a brand-new empty volume instead of reusing
     # the existing one, orphaning whatever was in it (e.g. the admin account).
-    name: portainer_data
+    #
+    # Pinned to "portainer_portainer_data" (matching the auto-generated name
+    # this environment's own prior rename already produced), NOT the cleaner
+    # unprefixed "portainer_data" — an earlier version of this fix pinned to
+    # the clean name and got it backwards: since a deployment already exists
+    # under this exact directory, "portainer_portainer_data" is what's
+    # actually live right now. Pinning to anything else would silently
+    # orphan it and force yet another admin account recreation, the same
+    # class of bug this fix exists to prevent.
+    name: portainer_portainer_data

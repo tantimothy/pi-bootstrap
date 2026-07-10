@@ -16,7 +16,7 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 
 DATA_DIRS=(); DATA_DESCRIPTIONS=()
 INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()
-NAMED_VOLUMES=("portainer_data")
+NAMED_VOLUMES=("portainer_portainer_data")
 NAMED_VOLUME_DESCRIPTIONS=(
     "Portainer's own app state — users, endpoints, stacks it manages"
 )
