@@ -154,8 +154,11 @@ if [ ${#ENV_DIRS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# Build menu options — numeric tags so users can jump with a keypress
-MENU_OPTIONS=()
+# Build the Environments submenu — numeric tags so users can jump with a
+# keypress. Kept separate from the top-level MENU_OPTIONS below so the main
+# menu itself stays a short, fixed list of action categories instead of
+# growing by one row per environment.
+ENV_OPTIONS=()
 ENV_PATHS=()    # parallel array: index (1-based) → actual directory path
 MENU_INDEX=1
 
@@ -179,18 +182,21 @@ for dir in "${ENV_DIRS[@]}"; do
     fi
 
     ENV_PATHS+=("$dir")
-    MENU_OPTIONS+=( "$MENU_INDEX" "$TYPE /$folder_name$COMPAT_TAG" )
+    ENV_OPTIONS+=( "$MENU_INDEX" "$TYPE /$folder_name$COMPAT_TAG" )
     ((MENU_INDEX++))
 done
 
-# Append management actions — use letters so they don't clash with numeric env slots
-MENU_OPTIONS+=( "M" "[Manage] List & Delete Containers" )
+# Top-level menu — a fixed set of action categories, not one row per
+# environment or per sub-action. Environments live behind "Environments";
+# container/image listing, deleting, and image-update checking/applying all
+# live behind "[Manage] Containers & Images" (see the _manage block below).
+MENU_OPTIONS=()
+MENU_OPTIONS+=( "E" "Environments" )
+MENU_OPTIONS+=( "M" "[Manage] Containers & Images" )
 MENU_OPTIONS+=( "D" "[Desktop] Install Desktop Entries" )
 MENU_OPTIONS+=( "U" "[Desktop] Uninstall Desktop Entries" )
 MENU_OPTIONS+=( "B" "[Backup] Create Backup Archive" )
 MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
-MENU_OPTIONS+=( "C" "[Check] Check for Image Updates" )
-MENU_OPTIONS+=( "A" "[Check] Apply Flagged Updates" )
 
 # Everything from here down repeats until the user explicitly cancels the
 # top-level menu below (the one true "quit" gesture) — every OTHER action's
@@ -202,7 +208,7 @@ while true; do
 TEMP_FILE=$(mktemp)
 dialog --clear \
     --title " Raspberry Pi Deployment Center " \
-    --menu "Choose a configuration workspace to deploy:" 20 70 12 \
+    --menu "Choose an action:" 15 60 6 \
     "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
 EXIT_STATUS=$?
@@ -215,8 +221,10 @@ if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_NUM" ]; then
     exit 0
 fi
 
-# Resolve numeric selection back to a directory path
-if [ "$SELECTED_NUM" = "M" ]; then
+# Resolve the selection to a dispatch target
+if [ "$SELECTED_NUM" = "E" ]; then
+    SELECTED_PATH="_environments"
+elif [ "$SELECTED_NUM" = "M" ]; then
     SELECTED_PATH="_manage"
 elif [ "$SELECTED_NUM" = "D" ]; then
     SELECTED_PATH="_desktop"
@@ -226,12 +234,38 @@ elif [ "$SELECTED_NUM" = "B" ]; then
     SELECTED_PATH="_backup"
 elif [ "$SELECTED_NUM" = "R" ]; then
     SELECTED_PATH="_restore"
-elif [ "$SELECTED_NUM" = "C" ]; then
-    SELECTED_PATH="_check_updates"
-elif [ "$SELECTED_NUM" = "A" ]; then
-    SELECTED_PATH="_apply_updates"
-else
-    SELECTED_PATH="${ENV_PATHS[$((SELECTED_NUM - 1))]}"
+fi
+
+# ==========================================
+# ENVIRONMENTS SUBMENU
+# ==========================================
+if [ "$SELECTED_PATH" = "_environments" ]; then
+    if [ ${#ENV_OPTIONS[@]} -eq 0 ]; then
+        clear
+        echo "ℹ️  No environments found under environments/."
+        read -rp "Press Enter to return to the menu..."
+        continue
+    fi
+
+    TEMP_ENV_FILE=$(mktemp)
+    dialog --clear \
+        --title " Environments " \
+        --menu "Choose a configuration workspace to deploy:" 20 70 12 \
+        "${ENV_OPTIONS[@]}" 2> "$TEMP_ENV_FILE"
+    ENV_EXIT=$?
+    SELECTED_ENV_NUM=$(cat "$TEMP_ENV_FILE")
+    rm -f "$TEMP_ENV_FILE"
+
+    if [ $ENV_EXIT -ne 0 ] || [ -z "$SELECTED_ENV_NUM" ]; then
+        clear
+        continue
+    fi
+
+    SELECTED_PATH="${ENV_PATHS[$((SELECTED_ENV_NUM - 1))]}"
+    # Falls through intentionally, not `continue` — SELECTED_PATH is now a
+    # real environment directory, so the rest of the script (the deployment
+    # policy selector onward) picks it up exactly as if it had been chosen
+    # directly from the main menu, same as before this submenu existed.
 fi
 
 # ==========================================
@@ -244,9 +278,11 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
     TEMP_MGMT_TYPE=$(mktemp)
     dialog --clear \
         --title " Docker Manager " \
-        --menu "What would you like to manage?" 10 60 2 \
-        "C" "Containers  (running & stopped)" \
-        "I" "Images      (all local images)" \
+        --menu "What would you like to manage?" 12 64 4 \
+        "C" "Containers    (list & delete running/stopped)" \
+        "I" "Images        (list & delete local images)" \
+        "U" "Check Updates (scan for out-of-date images)" \
+        "A" "Apply Updates (recreate just what's flagged)" \
         2> "$TEMP_MGMT_TYPE"
     MGMT_TYPE_EXIT=$?
     MGMT_TYPE=$(cat "$TEMP_MGMT_TYPE")
@@ -370,6 +406,38 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         echo "✅ Done."
         echo ""
         read -rp "Press Enter to return to the menu..."
+
+    # ------------------------------------------
+    # CHECK FOR IMAGE UPDATES (scan only)
+    # ------------------------------------------
+    elif [ "$MGMT_TYPE" = "U" ]; then
+        clear
+        CHECK_SCRIPT="$PROJECT_DIR/check-updates.sh"
+        if [ ! -f "$CHECK_SCRIPT" ]; then
+            echo "❌ check-updates.sh not found at $PROJECT_DIR"
+        else
+            DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT"
+        fi
+        echo ""
+        read -rp "Press Enter to return to the menu..."
+
+    # ------------------------------------------
+    # APPLY FLAGGED IMAGE UPDATES
+    # ------------------------------------------
+    elif [ "$MGMT_TYPE" = "A" ]; then
+        clear
+        CHECK_SCRIPT="$PROJECT_DIR/check-updates.sh"
+        if [ ! -f "$CHECK_SCRIPT" ]; then
+            echo "❌ check-updates.sh not found at $PROJECT_DIR"
+        else
+            # check-updates.sh --apply already confirms per-container before
+            # touching anything, so no extra dialog confirmation is added
+            # here — that would just be a redundant second prompt in front
+            # of the one that actually matters.
+            DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT" --apply
+        fi
+        echo ""
+        read -rp "Press Enter to return to the menu..."
     fi
     continue
 fi
@@ -406,44 +474,6 @@ if [ "$SELECTED_PATH" = "_desktop_uninstall" ]; then
     fi
     echo "🗑️  Removing all pi-bootstrap desktop entries..."
     bash "$DESKTOP_SCRIPT" --uninstall
-    echo ""
-    read -rp "Press Enter to return to the menu..."
-    continue
-fi
-
-# ==========================================
-# CHECK FOR IMAGE UPDATES
-# ==========================================
-if [ "$SELECTED_PATH" = "_check_updates" ]; then
-    clear
-    CHECK_SCRIPT="$PROJECT_DIR/check-updates.sh"
-    if [ ! -f "$CHECK_SCRIPT" ]; then
-        echo "❌ check-updates.sh not found at $PROJECT_DIR"
-        read -rp "Press Enter to return to the menu..."
-        continue
-    fi
-    DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT"
-    echo ""
-    read -rp "Press Enter to return to the menu..."
-    continue
-fi
-
-# ==========================================
-# APPLY FLAGGED IMAGE UPDATES
-# ==========================================
-if [ "$SELECTED_PATH" = "_apply_updates" ]; then
-    clear
-    CHECK_SCRIPT="$PROJECT_DIR/check-updates.sh"
-    if [ ! -f "$CHECK_SCRIPT" ]; then
-        echo "❌ check-updates.sh not found at $PROJECT_DIR"
-        read -rp "Press Enter to return to the menu..."
-        continue
-    fi
-    # check-updates.sh --apply already confirms per-container before
-    # touching anything, so no extra dialog confirmation is added here —
-    # that would just be a redundant second prompt in front of the one
-    # that actually matters.
-    DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT" --apply
     echo ""
     read -rp "Press Enter to return to the menu..."
     continue
