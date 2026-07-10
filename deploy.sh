@@ -191,6 +191,12 @@ MENU_OPTIONS+=( "B" "[Backup] Create Backup Archive" )
 MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
 MENU_OPTIONS+=( "C" "[Check] Check for Image Updates" )
 
+# Everything from here down repeats until the user explicitly cancels the
+# top-level menu below (the one true "quit" gesture) — every OTHER action's
+# completion or cancellation loops back here instead of exiting to the
+# shell, via `continue` at the end of each branch.
+while true; do
+
 # Present the Menu
 TEMP_FILE=$(mktemp)
 dialog --clear \
@@ -244,7 +250,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
     rm -f "$TEMP_MGMT_TYPE"
 
     if [ $MGMT_TYPE_EXIT -ne 0 ] || [ -z "$MGMT_TYPE" ]; then
-        clear; echo "ℹ️  Cancelled."; exit 0
+        clear; echo "ℹ️  Cancelled."; continue
     fi
 
     # ------------------------------------------
@@ -262,7 +268,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         if [ ${#CONTAINER_LIST[@]} -eq 0 ]; then
             dialog --clear --title " Container Manager " \
                 --msgbox "\nNo Docker containers found on this system." 8 50
-            clear; exit 0
+            clear; continue
         fi
 
         TEMP_MANAGE=$(mktemp)
@@ -277,7 +283,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         rm -f "$TEMP_MANAGE"
 
         if [ $MANAGE_EXIT -ne 0 ] || [ -z "$SELECTED_CONTAINERS" ]; then
-            clear; echo "ℹ️  No containers selected. Exiting."; exit 0
+            clear; echo "ℹ️  No containers selected."; continue
         fi
 
         CONFIRM_MSG="The following containers will be STOPPED and REMOVED:\n\n"
@@ -288,7 +294,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
 
         dialog --clear --title " Confirm Deletion " --yesno "$CONFIRM_MSG" 16 60
         if [ $? -ne 0 ]; then
-            clear; echo "ℹ️  Deletion cancelled."; exit 0
+            clear; echo "ℹ️  Deletion cancelled."; continue
         fi
 
         clear
@@ -301,6 +307,8 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
             $DOCKER_CMD rm "$C" >/dev/null 2>&1 && echo "removed." || echo "failed."
         done
         echo "✅ Done."
+        echo ""
+        read -rp "Press Enter to return to the menu..."
 
     # ------------------------------------------
     # IMAGE MANAGEMENT
@@ -320,7 +328,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         if [ ${#IMAGE_LIST[@]} -eq 0 ]; then
             dialog --clear --title " Image Manager " \
                 --msgbox "\nNo Docker images found on this system." 8 50
-            clear; exit 0
+            clear; continue
         fi
 
         TEMP_IMG=$(mktemp)
@@ -335,7 +343,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         rm -f "$TEMP_IMG"
 
         if [ $IMG_EXIT -ne 0 ] || [ -z "$SELECTED_IMAGES" ]; then
-            clear; echo "ℹ️  No images selected. Exiting."; exit 0
+            clear; echo "ℹ️  No images selected."; continue
         fi
 
         CONFIRM_MSG="The following images will be REMOVED:\n\n"
@@ -346,7 +354,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
 
         dialog --clear --title " Confirm Deletion " --yesno "$CONFIRM_MSG" 16 60
         if [ $? -ne 0 ]; then
-            clear; echo "ℹ️  Deletion cancelled."; exit 0
+            clear; echo "ℹ️  Deletion cancelled."; continue
         fi
 
         clear
@@ -357,8 +365,10 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
             $DOCKER_CMD rmi "$I" >/dev/null 2>&1 && echo "removed." || echo "failed (may be in use)."
         done
         echo "✅ Done."
+        echo ""
+        read -rp "Press Enter to return to the menu..."
     fi
-    exit 0
+    continue
 fi
 
 # ==========================================
@@ -369,13 +379,15 @@ if [ "$SELECTED_PATH" = "_desktop" ]; then
     DESKTOP_SCRIPT="$PROJECT_DIR/install-desktop-entries.sh"
     if [ ! -f "$DESKTOP_SCRIPT" ]; then
         echo "❌ install-desktop-entries.sh not found at $PROJECT_DIR"
-        exit 1
+        read -rp "Press Enter to return to the menu..."
+        continue
     fi
     echo "🖥️  Installing desktop entries for all deployed environments..."
     bash "$DESKTOP_SCRIPT"
     echo ""
     echo "✅ Desktop entries installed. Re-run to update after deploying new environments."
-    exit 0
+    read -rp "Press Enter to return to the menu..."
+    continue
 fi
 
 # ==========================================
@@ -386,11 +398,14 @@ if [ "$SELECTED_PATH" = "_desktop_uninstall" ]; then
     DESKTOP_SCRIPT="$PROJECT_DIR/install-desktop-entries.sh"
     if [ ! -f "$DESKTOP_SCRIPT" ]; then
         echo "❌ install-desktop-entries.sh not found at $PROJECT_DIR"
-        exit 1
+        read -rp "Press Enter to return to the menu..."
+        continue
     fi
     echo "🗑️  Removing all pi-bootstrap desktop entries..."
     bash "$DESKTOP_SCRIPT" --uninstall
-    exit 0
+    echo ""
+    read -rp "Press Enter to return to the menu..."
+    continue
 fi
 
 # ==========================================
@@ -401,12 +416,13 @@ if [ "$SELECTED_PATH" = "_check_updates" ]; then
     CHECK_SCRIPT="$PROJECT_DIR/check-updates.sh"
     if [ ! -f "$CHECK_SCRIPT" ]; then
         echo "❌ check-updates.sh not found at $PROJECT_DIR"
-        exit 1
+        read -rp "Press Enter to return to the menu..."
+        continue
     fi
     DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT"
     echo ""
     read -rp "Press Enter to return to the menu..."
-    exit 0
+    continue
 fi
 
 # ==========================================
@@ -417,10 +433,13 @@ if [ "$SELECTED_PATH" = "_backup" ]; then
     BACKUP_SCRIPT="$PROJECT_DIR/backup.sh"
     if [ ! -f "$BACKUP_SCRIPT" ]; then
         echo "❌ backup.sh not found at $PROJECT_DIR"
-        exit 1
+        read -rp "Press Enter to return to the menu..."
+        continue
     fi
     bash "$BACKUP_SCRIPT" -o "$PROJECT_DIR"
-    exit 0
+    echo ""
+    read -rp "Press Enter to return to the menu..."
+    continue
 fi
 
 # ==========================================
@@ -431,7 +450,8 @@ if [ "$SELECTED_PATH" = "_restore" ]; then
     RESTORE_SCRIPT="$PROJECT_DIR/restore.sh"
     if [ ! -f "$RESTORE_SCRIPT" ]; then
         echo "❌ restore.sh not found at $PROJECT_DIR"
-        exit 1
+        read -rp "Press Enter to return to the menu..."
+        continue
     fi
 
     # Offer a pick-list of backups found in $PROJECT_DIR (where "[Backup]
@@ -463,7 +483,7 @@ if [ "$SELECTED_PATH" = "_restore" ]; then
     rm -f "$TEMP_ARCHIVE_CHOICE"
 
     if [ $CHOICE_EXIT -ne 0 ] || [ -z "$ARCHIVE_CHOICE" ]; then
-        clear; echo "❌ Restore cancelled."; exit 0
+        clear; echo "❌ Restore cancelled."; continue
     fi
 
     if [ "$ARCHIVE_CHOICE" = "E" ]; then
@@ -476,7 +496,7 @@ if [ "$SELECTED_PATH" = "_restore" ]; then
         rm -f "$TEMP_ARCHIVE_PATH"
 
         if [ $ARCHIVE_EXIT -ne 0 ] || [ -z "$ARCHIVE_PATH" ]; then
-            clear; echo "❌ Restore cancelled."; exit 0
+            clear; echo "❌ Restore cancelled."; continue
         fi
     else
         ARCHIVE_PATH="${ARCHIVE_MENU_PATHS[$((ARCHIVE_CHOICE - 1))]}"
@@ -487,7 +507,9 @@ if [ "$SELECTED_PATH" = "_restore" ]; then
     # rather than re-implementing that inside dialog menus.
     clear
     bash "$RESTORE_SCRIPT" "$ARCHIVE_PATH"
-    exit 0
+    echo ""
+    read -rp "Press Enter to return to the menu..."
+    continue
 fi
 
 # ==========================================
@@ -513,7 +535,7 @@ rm -f "$TEMP_POLICY_FILE"  # Clean up temporary allocation file pointer
 if [ $POLICY_EXIT -ne 0 ] || [ -z "$REBUILD_POLICY" ]; then
     clear
     echo "❌ Deployment cancelled."
-    exit 0
+    continue
 fi
 
 clear
@@ -653,7 +675,8 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
             rm -f "$TEMP_FORM_OUT"
             clear
             echo "❌ Deployment halted: Missing mandatory parameters profile creation requirements."
-            exit 1
+            read -rp "Press Enter to return to the menu..."
+            continue
         fi
     fi
 fi
@@ -683,7 +706,9 @@ if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     else
         echo "ℹ️  No info.sh found for [$ENV_NAME]. No data directory information available."
     fi
-    exit 0
+    echo ""
+    read -rp "Press Enter to return to the menu..."
+    continue
 fi
 
 # 7. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
@@ -780,7 +805,9 @@ fi
 # Verify the execution status code of our build step before clearing
 if [ $DEPLOY_SUCCESS -ne 0 ]; then
     echo "❌ ERROR: Deployment task failed for [$ENV_NAME]. Review the terminal logs above."
-    exit 1
+    echo ""
+    read -rp "Press Enter to return to the menu..."
+    continue
 fi
 
 # 7. Completion message — wording matches the action that was actually taken
@@ -792,3 +819,9 @@ case "$REBUILD_POLICY" in
     INFO)     echo "✅ Environment [$ENV_NAME] info displayed." ;;
     *)        echo "✅ Environment [$ENV_NAME] deployed." ;;
 esac
+
+echo ""
+read -rp "Press Enter to return to the menu..."
+continue
+
+done
