@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Checks whether any currently-running container's image has a newer version
-# available upstream. Informational only — never restarts, recreates, or
-# pulls anything into use. This repo deliberately doesn't auto-update (see
-# docs/future-enhancements/pihole-wireguard-additional-services.md's "Not
-# recommended: Watchtower" section for why); this is the on-demand, you're-
-# still-in-control alternative to that.
+# available upstream. Scanning alone never restarts, recreates, or applies
+# anything — pulling only refreshes Docker's local cache. This repo
+# deliberately doesn't auto-update (see docs/future-enhancements/
+# pihole-wireguard-additional-services.md's "Not recommended: Watchtower"
+# section for why); this is the on-demand, you're-still-in-control
+# alternative to that. --apply is the one thing here that actually changes
+# anything, and it always asks first, per container.
 #
 # How it works: for each running container, this pulls its exact image
 # reference fresh — pulling only ever refreshes docker's LOCAL image cache;
@@ -20,7 +22,9 @@
 # compare against. For those, see check_locally_built() below instead.
 #
 # Usage:
-#   ./check-updates.sh
+#   ./check-updates.sh            # scan only, report what's out of date
+#   ./check-updates.sh --apply    # scan, then offer to recreate each
+#                                  # flagged container individually
 
 set -uo pipefail
 # Deliberately not "-e": one unpullable/locally-built image failing its pull
@@ -30,9 +34,123 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER="${DOCKER_CMD:-docker}"
 if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 
+if command -v docker-compose &>/dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+else
+    DOCKER_COMPOSE="$DOCKER compose"
+fi
+
+APPLY=false
+[ "${1:-}" = "--apply" ] && APPLY=true
+
 UP_TO_DATE=0
 SKIPPED=0
 UPDATES_AVAILABLE=()
+# Parallel to UPDATES_AVAILABLE — "pullable" (registry image, already fetched
+# during the scan, applying is just a recreate) or "local" (apt-based build,
+# applying means an actual rebuild first). Tracked separately so --apply
+# knows which mechanism each flagged container needs without re-deriving it.
+UPDATE_KINDS=()
+
+# Finds which environment directory a running container belongs to, and how
+# it's managed there — needed by --apply to know where to cd and which
+# mechanism applies: a compose service can be recreated on its own (leaving
+# every other service in that same stack untouched), but a plain-docker
+# environment (dragonos-sdr, kali-pentest) only has the one container, so
+# reusing that environment's own run.sh is simpler and safer than
+# reimplementing its build/run logic here. Echoes "<dir>|compose" or
+# "<dir>|plaindocker" on a match, nothing on no match.
+#
+# Compose services are matched by the exact `container_name:` line in that
+# environment's docker-compose.yml — not configurable per this repo's own
+# convention, so an exact string match is reliable. Plain-docker
+# environments have no such fixed anchor (CONTAINER_NAME is deliberately
+# user-configurable via .env there), so they're matched by reading whatever
+# CONTAINER_NAME is *actually* configured right now (.env if present, else
+# .env.example's default) — the same resolution order run.sh/deploy.sh
+# themselves already use.
+_resolve_environment_for_container() {
+    local name="$1" dir
+    for dir in "$REPO_DIR"/environments/*/; do
+        if [ -f "${dir}docker-compose.yml" ] && grep -qE "^[[:space:]]*container_name:[[:space:]]*${name}[[:space:]]*\$" "${dir}docker-compose.yml"; then
+            echo "${dir}|compose"
+            return 0
+        fi
+    done
+    for dir in "$REPO_DIR"/environments/*/; do
+        [ -f "${dir}run.sh" ] || continue
+        [ -f "${dir}docker-compose.yml" ] && continue
+        local cn=""
+        if [ -f "${dir}.env" ] && grep -q "^CONTAINER_NAME=" "${dir}.env"; then
+            cn=$(grep "^CONTAINER_NAME=" "${dir}.env" | cut -d= -f2- | tr -d "\"'")
+        elif [ -f "${dir}.env.example" ] && grep -q "^CONTAINER_NAME=" "${dir}.env.example"; then
+            cn=$(grep "^CONTAINER_NAME=" "${dir}.env.example" | cut -d= -f2-)
+        fi
+        local tok
+        for tok in $cn; do
+            if [ "$tok" = "$name" ]; then
+                echo "${dir}|plaindocker"
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+# Recreates a single flagged container with its already-fetched (registry
+# case) or freshly-rebuilt (local-build case) image, after an individual
+# y/N confirmation. The new image is always ready BEFORE the old container
+# is touched in every path below: registry images were already pulled
+# during the scan; compose-based local builds run `compose build` (which
+# only ever produces a new image — it doesn't touch the running container)
+# before the `--force-recreate` swap; plain-docker local builds delegate to
+# that environment's own run.sh CLEAN, which already only tears the old
+# container down after a successful rebuild (see dragonos-sdr/kali-pentest's
+# own CLEAN policy comments).
+apply_update() {
+    local name="$1" kind="$2" resolved dir env_kind
+
+    resolved=$(_resolve_environment_for_container "$name") || {
+        echo "   ⚠️  Couldn't determine which environment manages '$name' — apply it manually."
+        return
+    }
+    dir="${resolved%%|*}"
+    env_kind="${resolved##*|}"
+
+    if [ "$kind" = "local" ] && [ "$env_kind" = "plaindocker" ]; then
+        echo ""
+        echo "⚠️   $name is a locally-built image — applying this rebuilds it from"
+        echo "    scratch (apt-get install, no cache), which can take several minutes"
+        echo "    for a large image."
+    fi
+
+    local ans
+    read -rp "Recreate $name with the fresh image? [y/N] " ans
+    if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+        echo "   ⏭️  Skipped."
+        return
+    fi
+
+    if [ "$env_kind" = "plaindocker" ]; then
+        # Single-container environment — its own CLEAN already does exactly
+        # "rebuild, then only replace the running container once that
+        # succeeds," so there's no separate targeted mechanism to build here.
+        (cd "$dir" && REBUILD_POLICY=CLEAN DOCKER_CMD="$DOCKER" bash run.sh)
+        return
+    fi
+
+    # Compose-managed: --no-deps scopes the recreate to just this one
+    # service, leaving every other container in the same stack untouched.
+    (
+        cd "$dir" || exit 1
+        if [ "$kind" = "local" ]; then
+            echo "🛠️  Rebuilding $name (this does not affect the currently running container)..."
+            $DOCKER_COMPOSE build --no-cache "$name"
+        fi
+        echo "🔄 Recreating $name..."
+        $DOCKER_COMPOSE up -d --no-deps --force-recreate "$name"
+    )
+}
 
 # Maps a locally-built image reference back to the Dockerfile that built it
 # — needed only to find its FROM line for the base-image-drift check below.
@@ -118,6 +236,7 @@ check_locally_built() {
             echo "$upgradable" | sed 's/^/          /'
         fi
         UPDATES_AVAILABLE+=("$name")
+        UPDATE_KINDS+=("local")
     else
         echo "✅  $name ($image_ref) — up to date (base image + all installed apt packages current)"
         UP_TO_DATE=$((UP_TO_DATE + 1))
@@ -163,6 +282,7 @@ while IFS=$'\t' read -r NAME CONTAINER_ID; do
     else
         echo "⬆️   $NAME ($IMAGE_REF) — UPDATE AVAILABLE (pulled fresh; not applied yet)"
         UPDATES_AVAILABLE+=("$NAME")
+        UPDATE_KINDS+=("pullable")
     fi
 done < <($DOCKER ps --format '{{.Names}}\t{{.ID}}')
 
@@ -171,15 +291,27 @@ echo "=========================================================="
 echo "📊 ${#UPDATES_AVAILABLE[@]} update(s) available, $UP_TO_DATE up to date, $SKIPPED skipped/failed (see ⏭️/❓ lines above for why)"
 if [ ${#UPDATES_AVAILABLE[@]} -gt 0 ]; then
     echo ""
-    echo "Already pulled (or checked live via apt) — nothing further to download."
-    echo "To actually apply an update, redeploy that container's environment with"
-    echo "CLEAN (FAST won't pick it up on its own if the container is already"
-    echo "running):"
-    echo ""
-    for name in "${UPDATES_AVAILABLE[@]}"; do
-        echo "   $name"
-    done
-    echo ""
-    echo "   REBUILD_POLICY=CLEAN ./run.sh   # from that environment's directory"
+    if [ "$APPLY" = "true" ]; then
+        echo "Going through each flagged container — confirm individually:"
+        echo ""
+        for i in "${!UPDATES_AVAILABLE[@]}"; do
+            apply_update "${UPDATES_AVAILABLE[$i]}" "${UPDATE_KINDS[$i]}"
+        done
+        echo ""
+        echo "🧹 Cleaning up any now-dangling images from what was just rebuilt/recreated..."
+        $DOCKER image prune -f >/dev/null 2>&1 || true
+    else
+        echo "Already pulled (or checked live via apt) — nothing further to download."
+        echo "To apply these, either re-run with --apply to recreate just the flagged"
+        echo "containers individually, or redeploy the whole environment with CLEAN"
+        echo "(FAST won't pick it up on its own if the container is already running):"
+        echo ""
+        for name in "${UPDATES_AVAILABLE[@]}"; do
+            echo "   $name"
+        done
+        echo ""
+        echo "   ./check-updates.sh --apply      # just the flagged containers"
+        echo "   REBUILD_POLICY=CLEAN ./run.sh   # the whole environment, from its directory"
+    fi
 fi
 echo "=========================================================="

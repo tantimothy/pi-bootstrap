@@ -121,7 +121,15 @@ Also available as "[Check] Check for Image Updates" in `./deploy.sh`. For every 
 
 **Locally-built images** (e.g. `darkstat`, `ntopng`, `dragonos-sdr`, `kali-pentest` — all built from a Dockerfile via `apt-get`, not pulled from a registry) have no tag to `docker pull` and compare, so they're checked differently: `apt-get update` is run live inside the running container (read-only — it only refreshes package-list metadata, nothing is installed or restarted) to see if any installed apt package has a newer version, and the Dockerfile's own `FROM` line is checked by pulling that base tag fresh and comparing it against the image's actual build history. Either one being out of date is reported as an update available; an image with no `apt-get` at all (nothing in this repo currently) would be reported as skipped instead.
 
-This is informational only — it never restarts or recreates anything, matching this repo's deliberate choice not to auto-update (see `docs/future-enhancements/pihole-wireguard-additional-services.md`'s "Not recommended: Watchtower" section for why). To actually apply an update it reports, redeploy that container's environment with `REBUILD_POLICY=CLEAN ./run.sh`.
+A plain `./check-updates.sh` run is purely informational — it never restarts or recreates anything, matching this repo's deliberate choice not to auto-update (see `docs/future-enhancements/pihole-wireguard-additional-services.md`'s "Not recommended: Watchtower" section for why).
+
+To actually apply what it finds, either redeploy that container's whole environment with `REBUILD_POLICY=CLEAN ./run.sh`, or target just the flagged containers:
+
+```bash
+./check-updates.sh --apply
+```
+
+This re-runs the same scan, then asks individually — one `[y/N]` per flagged container, nothing is ever applied without an explicit yes — whether to recreate it right now. Everything else in that container's environment is left untouched (`docker compose up -d --no-deps --force-recreate <name>` for compose-managed services); locally-built apt images get an actual rebuild first (`docker compose build --no-cache`, or that environment's own `REBUILD_POLICY=CLEAN ./run.sh` for the single-container `dragonos-sdr`/`kali-pentest` environments) — the new image always finishes building before the old container is touched, so a failed rebuild never leaves you with nothing running. A container whose environment can't be determined is reported and left for you to apply manually.
 
 ---
 
