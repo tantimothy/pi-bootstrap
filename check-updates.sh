@@ -127,11 +127,25 @@ check_locally_built() {
 echo "🔍 Checking for image updates on all running containers..."
 echo ""
 
-while IFS=$'\t' read -r NAME IMAGE_REF CONTAINER_ID; do
+while IFS=$'\t' read -r NAME CONTAINER_ID; do
     [ -z "$NAME" ] && continue
 
     RUNNING_IMAGE_ID=$($DOCKER inspect "$CONTAINER_ID" --format '{{.Image}}' 2>/dev/null)
     if [ -z "$RUNNING_IMAGE_ID" ]; then
+        continue
+    fi
+
+    # NOT `docker ps --format '{{.Image}}'` — Docker silently falls back to a
+    # bare image ID there once the tag a container was created from no
+    # longer points at the image it's actually running (e.g. a later pull —
+    # including one from a PRIOR run of this very script — already moved
+    # that tag forward without the container being redeployed). `docker
+    # inspect --format '{{.Config.Image}}'` instead returns the original
+    # image reference the container was actually created with, which stays
+    # a stable, correct repo:tag string regardless of where the tag points
+    # now.
+    IMAGE_REF=$($DOCKER inspect "$CONTAINER_ID" --format '{{.Config.Image}}' 2>/dev/null)
+    if [ -z "$IMAGE_REF" ]; then
         continue
     fi
 
@@ -150,7 +164,7 @@ while IFS=$'\t' read -r NAME IMAGE_REF CONTAINER_ID; do
         echo "⬆️   $NAME ($IMAGE_REF) — UPDATE AVAILABLE (pulled fresh; not applied yet)"
         UPDATES_AVAILABLE+=("$NAME")
     fi
-done < <($DOCKER ps --format '{{.Names}}\t{{.Image}}\t{{.ID}}')
+done < <($DOCKER ps --format '{{.Names}}\t{{.ID}}')
 
 echo ""
 echo "=========================================================="
