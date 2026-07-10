@@ -109,6 +109,20 @@ Restoring works the same whether it's the same Pi or a brand new machine — clo
 
 ---
 
+## 🔍 Checking for Image Updates
+
+`FAST` deliberately doesn't pull a fresh image for a container that's already running (see the Policy Matrix below) — only `CLEAN` does. That means a container can quietly fall behind upstream indefinitely if you only ever redeploy with `FAST`. `check-updates.sh` answers "what's actually out of date right now" without touching anything:
+
+```bash
+./check-updates.sh
+```
+
+Also available as "[Check] Check for Image Updates" in `./deploy.sh`. For every currently-running container across every environment, it pulls that container's exact image reference fresh (refreshing only Docker's local cache — a running container keeps using the image ID it already started from, so this never disrupts anything live) and compares the freshly-pulled image ID against what's actually running. A mismatch means an update is available but not yet applied; images with no matching upstream registry entry (anything built locally, e.g. `ntopng`) are reported as skipped rather than as an error.
+
+This is informational only — it never restarts or recreates anything, matching this repo's deliberate choice not to auto-update (see `docs/future-enhancements/pihole-wireguard-additional-services.md`'s "Not recommended: Watchtower" section for why). To actually apply an update it reports, redeploy that container's environment with `REBUILD_POLICY=CLEAN ./run.sh`.
+
+---
+
 ## 🏗️ How It Works
 
 ### Routing Priority

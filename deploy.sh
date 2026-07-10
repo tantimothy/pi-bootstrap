@@ -189,6 +189,7 @@ MENU_OPTIONS+=( "D" "[Desktop] Install Desktop Entries" )
 MENU_OPTIONS+=( "U" "[Desktop] Uninstall Desktop Entries" )
 MENU_OPTIONS+=( "B" "[Backup] Create Backup Archive" )
 MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
+MENU_OPTIONS+=( "C" "[Check] Check for Image Updates" )
 
 # Present the Menu
 TEMP_FILE=$(mktemp)
@@ -218,6 +219,8 @@ elif [ "$SELECTED_NUM" = "B" ]; then
     SELECTED_PATH="_backup"
 elif [ "$SELECTED_NUM" = "R" ]; then
     SELECTED_PATH="_restore"
+elif [ "$SELECTED_NUM" = "C" ]; then
+    SELECTED_PATH="_check_updates"
 else
     SELECTED_PATH="${ENV_PATHS[$((SELECTED_NUM - 1))]}"
 fi
@@ -387,6 +390,22 @@ if [ "$SELECTED_PATH" = "_desktop_uninstall" ]; then
     fi
     echo "🗑️  Removing all pi-bootstrap desktop entries..."
     bash "$DESKTOP_SCRIPT" --uninstall
+    exit 0
+fi
+
+# ==========================================
+# CHECK FOR IMAGE UPDATES
+# ==========================================
+if [ "$SELECTED_PATH" = "_check_updates" ]; then
+    clear
+    CHECK_SCRIPT="$PROJECT_DIR/check-updates.sh"
+    if [ ! -f "$CHECK_SCRIPT" ]; then
+        echo "❌ check-updates.sh not found at $PROJECT_DIR"
+        exit 1
+    fi
+    DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT"
+    echo ""
+    read -rp "Press Enter to return to the menu..."
     exit 0
 fi
 
