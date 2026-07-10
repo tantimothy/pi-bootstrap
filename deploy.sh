@@ -596,19 +596,28 @@ clear
 ENV_NAME=$(basename "$SELECTED_PATH")
 echo "🚀 Target Selected: $ENV_NAME"
 
-# 4. Universal Targeted Teardown Pattern
-if [ "$REBUILD_POLICY" = "CLEAN" ]; then
-    echo "🛑 [CLEAN Policy] Tearing down active target environment container instances..."
-    
-    # Loop through each container name defined in the variable
-    for TARGET_CONTAINER in $TRACKING_NAME; do
-        if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q "^${TARGET_CONTAINER}$"; then
-            echo "   Stopping and removing: $TARGET_CONTAINER"
-            $DOCKER_CMD stop "$TARGET_CONTAINER" 2>/dev/null
-            $DOCKER_CMD rm "$TARGET_CONTAINER" 2>/dev/null
-        fi
-    done
-fi
+# 4. (Removed) — this used to unconditionally tear down the target
+# environment's containers by name before CLEAN even reached the archetype
+# routing below. Two real problems with that:
+#   1. TRACKING_NAME isn't computed until the "DYNAMIC CONTAINER
+#      IDENTIFICATION LAYER" further down — this ran BEFORE that, so on
+#      the very first deploy of a session it tore down nothing (empty
+#      variable), and on every deploy AFTER the first (deploy.sh is a
+#      persistent menu loop — see the while-loop wrapper below) it used
+#      whichever TRACKING_NAME was left over from the PREVIOUS environment
+#      selected, not the current one.
+#   2. Tearing down before anything new is built/pulled defeats the whole
+#      point of a safe CLEAN — every custom run.sh in this repo
+#      deliberately builds/pulls first and only tears down after a
+#      successful build, so a bad image never leaves nothing running.
+#      This step ran before run.sh was even invoked, silently undermining
+#      that safety property (and, for pihole-wireguard specifically,
+#      breaking its own CLEAN-rollback fallback snapshot: it needs the
+#      OLD container to still exist to `docker commit` it).
+# Teardown-for-CLEAN is now each archetype's own responsibility, done at
+# the correct point relative to its own build/pull — run.sh already does
+# this correctly; the docker-compose.yml/Dockerfile fallback branches below
+# now do too.
 
 # 5. Navigate into the folder cleanly using absolute context
 TARGET_WORKSPACE_DIR="$PROJECT_DIR/$SELECTED_PATH"
@@ -750,6 +759,22 @@ elif [ -f ".env.example" ] && grep -q "^CONTAINER_NAME=" .env.example; then
 fi
 # =======================================================
 
+# Pre-create data directories (as the invoking user) before Docker ever
+# touches them as a bind-mount target — Docker only ever auto-creates a
+# missing bind-mount source as root, which then isn't writable/manageable
+# by whoever is actually running this script (a real bug hit more than
+# once in this repo's own environments). Every environment's own run.sh
+# already does this itself; this only covers the generic docker-compose.yml/
+# Dockerfile fallback path, which has nowhere else to do it. Only relevant
+# for FAST/CLEAN, since STOP/TEARDOWN/INFO/WIPE never create anything, and
+# info.sh's own "list-dirs" action is the same environment-agnostic
+# DATA_DIRS manifest backup.sh and INFO/WIPE already rely on.
+if [ ! -f "run.sh" ] && [ -f "info.sh" ] && { [ "$REBUILD_POLICY" = "FAST" ] || [ "$REBUILD_POLICY" = "CLEAN" ]; }; then
+    while IFS= read -r dir; do
+        [ -n "$dir" ] && mkdir -p "$dir"
+    done < <(bash info.sh list-dirs 2>/dev/null)
+fi
+
 # 6. INFO / WIPE — delegate entirely to info.sh (environment-agnostic)
 if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     cd "$TARGET_WORKSPACE_DIR" || exit 1
@@ -793,14 +818,21 @@ elif [ -f "docker-compose.yml" ]; then
         $DOCKER_CMD compose down 2>/dev/null || true
         DEPLOY_SUCCESS=0
     elif [ "$REBUILD_POLICY" = "CLEAN" ]; then
-        echo "🐳 Docker Compose file detected [CLEAN]! Performing fresh stack teardown and rebuild..."
-        $DOCKER_CMD compose down 2>/dev/null
-        $DOCKER_CMD compose up --build --no-cache -d
-        DEPLOY_SUCCESS=$?
-        # --no-cache retags over the previous image, leaving it dangling.
-        # -f only removes untagged images, never anything still referenced
-        # by a container.
-        $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
+        echo "🐳 Docker Compose file detected [CLEAN]! Pulling/building fresh images before touching anything running..."
+        $DOCKER_CMD compose pull 2>/dev/null
+        if $DOCKER_CMD compose build --no-cache; then
+            echo "🛑 Fresh images ready — tearing down and relaunching..."
+            $DOCKER_CMD compose down 2>/dev/null || true
+            $DOCKER_CMD compose up -d
+            DEPLOY_SUCCESS=$?
+            # --no-cache retags over the previous image, leaving it dangling.
+            # -f only removes untagged images, never anything still
+            # referenced by a container.
+            $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
+        else
+            echo "❌ Build failed — leaving the existing stack untouched."
+            DEPLOY_SUCCESS=1
+        fi
     else
         echo "🐳 Docker Compose file detected [FAST]! Synchronizing stack changes using cached layer parameters..."
         $DOCKER_CMD compose up -d
@@ -818,9 +850,12 @@ elif [ -f "Dockerfile" ]; then
         $DOCKER_CMD rm   "$TRACKING_NAME" 2>/dev/null || true
         DEPLOY_SUCCESS=0
     elif [ "$REBUILD_POLICY" = "CLEAN" ]; then
-        echo "🛠️ Raw Dockerfile detected [CLEAN]! Executing zero-cache structural compilation..."
+        echo "🛠️ Raw Dockerfile detected [CLEAN]! Building fresh image before touching the running container..."
         $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
         if [ $? -eq 0 ]; then
+            echo "🛑 Fresh image ready — tearing down previous container..."
+            $DOCKER_CMD stop "$TRACKING_NAME" 2>/dev/null || true
+            $DOCKER_CMD rm   "$TRACKING_NAME" 2>/dev/null || true
             ENV_FLAGS=""
             if [ -f ".env" ]; then ENV_FLAGS="--env-file .env"; fi
             $DOCKER_CMD run -d --name "$TRACKING_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
@@ -862,6 +897,14 @@ if [ $DEPLOY_SUCCESS -ne 0 ]; then
     echo ""
     read -rp "Press Enter to return to the menu..."
     continue
+fi
+
+# Best-effort desktop-entry refresh for the generic docker-compose.yml/
+# Dockerfile fallback path only — every environment with its own run.sh
+# already does this itself at the end of run.sh, so doing it again here
+# would just be redundant (harmless, but pointless) work for those.
+if [ ! -f "run.sh" ] && [ -x "install-desktop.sh" ]; then
+    bash install-desktop.sh >/dev/null 2>&1 || true
 fi
 
 # 7. Completion message — wording matches the action that was actually taken

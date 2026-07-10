@@ -147,6 +147,8 @@ environments/your-env/
 └── 3. Dockerfile      →  builds and runs a single container on port 80
 ```
 
+Options 2 and 3 (no `run.sh`) still get the essentials generically, without writing any custom script: `CLEAN` builds/pulls fresh images *before* touching what's currently running (a failed build leaves the old container(s) untouched, same safety property every `run.sh` implements by hand), data directories from `info.sh`'s `DATA_DIRS` are pre-created before Docker ever touches them as a bind-mount target, and desktop entries refresh automatically after a successful deploy. What they still can't do without a real `run.sh`: any host-level setup (network config, sysctls, DNS resilience, etc.), and `check-updates.sh --apply` won't be able to target a bare `Dockerfile`-only environment (a `docker-compose.yml` is enough for that, though — it matches services by their `container_name:`).
+
 ### Permission Wrapper
 
 `deploy.sh` never assumes the user is in the `docker` group. It tests `/var/run/docker.sock` access and automatically prepends `sudo` if needed, exporting the resolved command as `$DOCKER_CMD` so all child environments inherit it.
@@ -305,7 +307,7 @@ source "$REPO_DIR/lib/info-lib.sh"
 run_info
 ```
 
-`ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), or `manifest` (machine-readable, used by `backup.sh` — you never call this yourself). Declare every array even if empty (`INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()`) — `lib/info-lib.sh`'s own header comment documents the full set, including the optional ones (`WIPE_PARENT_DIRS`, `DATA_DIRS_LABEL`, `DELETE_CONFIRM_MSG`, etc.).
+`ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), `manifest` (machine-readable, used by `backup.sh` — you never call this yourself), or `list-dirs` (machine-readable `DATA_DIRS` paths only, one per line — used by `deploy.sh`'s generic `docker-compose.yml`/`Dockerfile` fallback path to pre-create data directories before Docker touches them; also not something you call yourself). Declare every array even if empty (`INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()`) — `lib/info-lib.sh`'s own header comment documents the full set, including the optional ones (`WIPE_PARENT_DIRS`, `DATA_DIRS_LABEL`, `DELETE_CONFIRM_MSG`, etc.).
 
 ### `install-desktop.sh` (Recommended if there's a web UI)
 

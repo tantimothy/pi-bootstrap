@@ -400,5 +400,16 @@ run_info() {
         # deliberately not piped through less (that's for the human-facing
         # "list" action only).
         _info_manifest
+    elif [ "$ACTION" = "list-dirs" ]; then
+        # One absolute path per line, DATA_DIRS only — for deploy.sh's
+        # generic docker-compose.yml/Dockerfile fallback path to pre-create
+        # data directories (as the invoking user) before Docker ever
+        # touches them as a bind-mount target. A plain subset of
+        # _info_manifest's DIR: lines, without the VOL: ones or the "DIR:"
+        # prefix, so the caller can mkdir -p each line directly.
+        local i
+        for i in "${!DATA_DIRS[@]}"; do
+            echo "${DATA_DIRS[$i]}"
+        done
     fi
 }
