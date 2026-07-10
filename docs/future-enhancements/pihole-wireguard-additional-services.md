@@ -94,7 +94,7 @@ Unbound also runs DNS-rebinding protection by default (stripping private
 IPs out of externally-sourced answers via its built-in `private-address`
 list) — a security feature to keep, not a bug to work around.
 
-### 2. Reverse proxy + auth gate (Caddy or Nginx Proxy Manager + Authelia)
+### 2. Reverse proxy + auth gate (Caddy + Authelia)
 
 Closes the "no login by default" gap for Dozzle and NetAlertX properly,
 instead of leaving it as a documented caveat. Also collapses 8+ exposed
@@ -107,10 +107,10 @@ instead of a port number to remember.
   `host.docker.internal` for the host-networked services (`pihole`,
   `wg-easy`, `darkstat`, `netalertx`) — same pattern already used by
   `pihole-exporter`/`blackbox-exporter`.
-- **Authelia** (or `oauth2-proxy`) sits in front of the proxy as a
-  forward-auth target — one login, one session, gates every backend
-  uniformly rather than depending on each app's own (in two cases,
-  nonexistent) auth.
+- **Authelia** sits in front of the proxy as a forward-auth target — one
+  login, one session, gates every backend uniformly rather than depending
+  on each app's own (in two cases, nonexistent) auth. See
+  [Authelia in detail](#authelia-in-detail) below.
 - Once this is in place, backend host-port mappings (`GRAFANA_PORT`,
   `DOZZLE_PORT`, `NETALERTX_PORT`, etc.) can be dropped or rebound to
   `127.0.0.1` only — the proxy becomes the *only* way to reach any backend,
@@ -118,6 +118,100 @@ instead of a port number to remember.
 - Pi-hole's **Local DNS Records** feature maps the chosen subdomains
   (`grafana.home.arpa`, `logs.home.arpa`, ...) to the Pi's own IP, so this
   needs no external DNS registration.
+
+#### Reverse proxy comparison: Caddy vs. Traefik vs. Nginx Proxy Manager
+
+Three real candidates were considered. All three can terminate HTTPS with
+an auto-renewing certificate and forward-auth to Authelia — the difference
+is *how* they're configured and how well that matches this repo's own
+conventions.
+
+| | [Caddy](https://caddyserver.com/) | [Traefik](https://traefik.io/traefik/) | [Nginx Proxy Manager](https://nginxproxymanager.com/) |
+|---|---|---|---|
+| **Config format** | Single `Caddyfile`, plain text, git-trackable | YAML/TOML + (usually) Docker labels on every service | Web UI only — state lives in its own SQLite DB |
+| **Automatic HTTPS** | Yes, on by default, zero extra config for a public domain; self-signed/internal CA works fine for `.home.arpa` too | Yes, via its ACME resolver config | Yes, via a Let's Encrypt button in the UI |
+| **Docker-native discovery** | No — routes are declared explicitly in the Caddyfile | Yes — routes are declared as labels on each service and Traefik watches the Docker socket to pick them up automatically | No — routes ("proxy hosts") are added by hand through the UI |
+| **Forward-auth support** | Native `forward_auth` directive, built for exactly this | Native `ForwardAuth` middleware | Supported via a custom "Advanced" config snippet (not first-class) |
+| **Learning curve** | Low — a 10-service Caddyfile is genuinely about 30 lines | Medium/high — labels, middleware chaining, and Traefik's own routing model take longer to reason about | Low to use, but its GUI-first model doesn't fit a repo where everything else is a tracked config file |
+| **Fits this repo's philosophy** | Yes — matches the existing all-config-is-a-tracked-file approach (`docker-compose.yml`, `.env`, `prometheus.yml`, etc.) | Partially — the label-per-service pattern is itself declarative and git-trackable, but adds a second configuration surface (labels *and* a static/dynamic config file) for what is, here, a fixed and rarely-changing service list | No — its whole value proposition (a GUI so you don't need config files) actively works against `git diff`-able config, backup/restore via this repo's own `backup.sh`, and reproducible `docker-compose.yml`-only deploys |
+
+**Recommendation: Caddy.** This repo's service set is small and changes
+rarely (new services are added by editing `docker-compose.yml` and running
+`./run.sh`, not by spinning things up and down dynamically), which is
+exactly the case Traefik's dynamic label-discovery is built for but doesn't
+uniquely help with here — a static Caddyfile is just as easy to maintain
+for ~13 fixed services, with a much shallower learning curve and one
+config surface instead of two. Nginx Proxy Manager is worth naming as the
+better choice *only* if someone deploying this repo has never configured a
+reverse proxy before and wants a GUI to learn on — but its SQLite-backed
+state can't be committed to git, backed up by `backup.sh`'s existing
+data-directory/volume mechanism in a diffable way, or reviewed in a pull
+request the way every other config change in this repo is, which is a real
+architectural mismatch, not just a style preference. Traefik remains the
+right call if this repo ever moves toward dynamically-composed
+per-environment proxying (e.g. every environment auto-registering its own
+route the moment it's deployed) — worth revisiting if that shape of change
+happens later, but it would be solving a problem this repo doesn't have
+yet.
+
+#### Authelia in detail
+
+Authelia is a **forward-auth** server, not a proxy itself — it plugs into
+whichever proxy is chosen (Caddy, in the recommendation above) rather than
+replacing it.
+
+**How forward-auth works, concretely**: the browser requests
+`https://grafana.home.arpa`. Caddy's `forward_auth` directive intercepts
+this *before* forwarding to the real Grafana backend, and instead calls
+Authelia's own internal verification endpoint, passing along the original
+request's cookies/headers. Authelia checks whether there's a valid session
+cookie and whether its configured **access control rules** (per-domain,
+optionally per-user/per-group) allow this request. If yes, it returns
+`200` and Caddy proceeds to forward the original request to Grafana as
+normal — Grafana itself never sees a login screen or needs its own auth
+configured. If no valid session exists, Authelia returns `401`, and Caddy
+redirects the browser to Authelia's own login portal; after a successful
+login there, the browser is bounced back to the originally-requested
+subdomain with a valid session cookie now in place. One login covers every
+subdomain behind the proxy, including Dozzle and NetAlertX, which have no
+login of their own today.
+
+**Second factor / login methods**: Authelia supports TOTP (any standard
+authenticator app), WebAuthn/FIDO2 (hardware keys, platform authenticators
+like a phone's biometric unlock), and Duo Push, on top of a
+username/password first factor. For a home-Pi setup, TOTP is the practical
+default — no external dependency (Duo needs a Duo account; WebAuthn needs
+hardware most people don't have handy for every device they'd use).
+Authelia also ships a **built-in OIDC provider** (since v4.34) if a future
+service needs OAuth2/OIDC login rather than forward-auth specifically —
+not needed for anything in this stack today, but worth knowing it's there
+rather than reaching for a second identity tool later.
+
+**Storage backend — resolving the open question from an earlier draft of
+this doc**: Authelia needs two things, a **session store** and a
+**configuration/user storage backend**, and both have a "single instance"
+mode that avoids extra infrastructure:
+- Session store: in-memory is the default and is fine for a single Authelia
+  container (as this would be) — Redis is only required once Authelia runs
+  as multiple replicas that need to share session state, which doesn't
+  apply here.
+- Storage backend: SQLite is explicitly supported and sufficient for a
+  single-node deployment; Postgres/MySQL are only needed for
+  high-availability multi-instance setups. SQLite is the right choice here,
+  consistent with how this repo already prefers the simplest storage
+  option that fits a single-Pi deployment (e.g. Dozzle/NetAlertX using
+  local files rather than a database).
+
+**Operational gotcha worth flagging up front**: Authelia requires **SMTP
+to be configured** in order to send the verification email needed during
+second-factor device enrollment (e.g. confirming a new TOTP device or
+registering a WebAuthn key) — there's no way to skip this step for a
+purely-local deployment. A free/throwaway SMTP relay (a Gmail app
+password, a free-tier transactional-email provider, etc.) needs to be
+provisioned as a prerequisite, not discovered as a blocker mid-setup. This
+is a real setup cost worth calling out explicitly to whoever implements
+this, since it's easy to assume a fully-local, no-external-dependency
+authentication setup is possible here — it isn't, quite.
 
 ### 3. Loki + Promtail — log history and search
 
@@ -212,8 +306,8 @@ AUTHELIA_ENABLE=false             # only meaningful if REVERSE_PROXY_ENABLE=true
 LOKI_ENABLE=false
 ```
 
-- `docker-compose.yml`: new `unbound`, `caddy` (or `nginx-proxy-manager`),
-  `authelia`, `loki`, `promtail` services, each conditionally deployed —
+- `docker-compose.yml`: new `unbound`, `caddy`, `authelia`, `loki`,
+  `promtail` services, each conditionally deployed —
   mirrors the `ntopng`/`netalertx` addition pattern from earlier in this
   repo's history rather than introducing a new mechanism.
 - `run.sh`: if `UNBOUND_ENABLE=true`, rewrite `FTLCONF_dns_upstreams` to
@@ -262,14 +356,18 @@ for live visibility, discussed but not yet added:
   `FTLCONF_dns_upstreams` value, refuses to start if both are set, or some
   other rule — silently overriding a value the user explicitly set feels
   like the wrong default.
-- **Which reverse proxy.** Caddy has automatic HTTPS and a simpler config
-  format; Nginx Proxy Manager has a web UI for managing proxy hosts/certs
-  without editing config files by hand, which may suit this repo's
-  TUI-driven, config-file-averse philosophy better. Not resolved here.
-- **Authelia's own storage backend.** Authelia needs a user database and
-  session store (SQLite is fine for a single-Pi setup, but confirm it
-  doesn't need Redis/PostgreSQL for the scale here before committing to
-  the simplest option).
+- **Which reverse proxy — now resolved: Caddy.** See the
+  [comparison and recommendation](#reverse-proxy-comparison-caddy-vs-traefik-vs-nginx-proxy-manager)
+  above. Revisit only if this repo's deployment model shifts toward
+  dynamically-composed per-environment routing, which would favor Traefik
+  instead.
+- **Authelia's own storage backend — now resolved.** SQLite (storage) +
+  in-memory (sessions) are both explicitly sufficient for a single-node
+  deployment; Redis/PostgreSQL are only needed for multi-instance HA setups,
+  which doesn't apply here. See [Authelia in detail](#authelia-in-detail)
+  above. The one real prerequisite this surfaced: Authelia needs SMTP
+  configured for 2FA-enrollment emails, which isn't optional for any
+  deployment, local or not.
 - **Loki retention vs. SD card wear.** Unlike Prometheus's existing metrics
   retention (already a consideration in this stack), log volume from every
   container could grow quickly — needs an explicit retention policy
