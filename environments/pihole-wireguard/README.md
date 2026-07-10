@@ -209,6 +209,8 @@ The API password is written to `/etc/pihole/cli_pw` (owned by your user, `chmod 
 | `grafana_data` | Grafana database — dashboard definitions, alert rules, user preferences |
 | `uptime_kuma_data` | Uptime Kuma database — all monitors, notification channels, incident history |
 
+Volume names are pinned explicitly in `docker-compose.yml` rather than left to Compose's default project-name prefixing, so the plain names above (e.g. `prometheus_data`) are what actually shows up in `docker volume ls` and what the backup commands below reference directly — regardless of what directory this repo is cloned into.
+
 **Back up before any destructive operation:**
 
 ```bash
