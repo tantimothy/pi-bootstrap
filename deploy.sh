@@ -699,6 +699,10 @@ elif [ -f "docker-compose.yml" ]; then
         $DOCKER_CMD compose down 2>/dev/null
         $DOCKER_CMD compose up --build --no-cache -d
         DEPLOY_SUCCESS=$?
+        # --no-cache retags over the previous image, leaving it dangling.
+        # -f only removes untagged images, never anything still referenced
+        # by a container.
+        $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
     else
         echo "🐳 Docker Compose file detected [FAST]! Synchronizing stack changes using cached layer parameters..."
         $DOCKER_CMD compose up -d
@@ -723,6 +727,10 @@ elif [ -f "Dockerfile" ]; then
             if [ -f ".env" ]; then ENV_FLAGS="--env-file .env"; fi
             $DOCKER_CMD run -d --name "$TRACKING_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
             DEPLOY_SUCCESS=$?
+            # --no-cache retags over the previous image, leaving it dangling.
+            # -f only removes untagged images, never anything still
+            # referenced by a container.
+            $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
         else
             DEPLOY_SUCCESS=1
         fi
