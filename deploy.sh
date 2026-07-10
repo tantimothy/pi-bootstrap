@@ -190,6 +190,7 @@ MENU_OPTIONS+=( "U" "[Desktop] Uninstall Desktop Entries" )
 MENU_OPTIONS+=( "B" "[Backup] Create Backup Archive" )
 MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
 MENU_OPTIONS+=( "C" "[Check] Check for Image Updates" )
+MENU_OPTIONS+=( "A" "[Check] Apply Flagged Updates" )
 
 # Everything from here down repeats until the user explicitly cancels the
 # top-level menu below (the one true "quit" gesture) — every OTHER action's
@@ -227,6 +228,8 @@ elif [ "$SELECTED_NUM" = "R" ]; then
     SELECTED_PATH="_restore"
 elif [ "$SELECTED_NUM" = "C" ]; then
     SELECTED_PATH="_check_updates"
+elif [ "$SELECTED_NUM" = "A" ]; then
+    SELECTED_PATH="_apply_updates"
 else
     SELECTED_PATH="${ENV_PATHS[$((SELECTED_NUM - 1))]}"
 fi
@@ -420,6 +423,27 @@ if [ "$SELECTED_PATH" = "_check_updates" ]; then
         continue
     fi
     DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT"
+    echo ""
+    read -rp "Press Enter to return to the menu..."
+    continue
+fi
+
+# ==========================================
+# APPLY FLAGGED IMAGE UPDATES
+# ==========================================
+if [ "$SELECTED_PATH" = "_apply_updates" ]; then
+    clear
+    CHECK_SCRIPT="$PROJECT_DIR/check-updates.sh"
+    if [ ! -f "$CHECK_SCRIPT" ]; then
+        echo "❌ check-updates.sh not found at $PROJECT_DIR"
+        read -rp "Press Enter to return to the menu..."
+        continue
+    fi
+    # check-updates.sh --apply already confirms per-container before
+    # touching anything, so no extra dialog confirmation is added here —
+    # that would just be a redundant second prompt in front of the one
+    # that actually matters.
+    DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT" --apply
     echo ""
     read -rp "Press Enter to return to the menu..."
     continue
