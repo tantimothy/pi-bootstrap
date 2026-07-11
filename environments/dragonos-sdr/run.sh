@@ -92,7 +92,7 @@ if [ "${POLICY}" = "TEARDOWN" ]; then
 fi
 
 CONTAINER_RUNNING=$("${DOCKER}" ps --filter "name=^\/${CONTAINER_NAME}$" --format "{{.Names}}")
-CONTAINER_EXISTS=$("${DOCKER}" ps -a --filter "name=^\/\${CONTAINER_NAME}$" --format "{{.Names}}")
+CONTAINER_EXISTS=$("${DOCKER}" ps -a --filter "name=^\/${CONTAINER_NAME}$" --format "{{.Names}}")
 IMAGE_EXISTS=$("${DOCKER}" images -q "${DOCKER_IMAGE_TAG}" 2>/dev/null || true)
 
 if [ "${POLICY}" = "FAST" ]; then

@@ -114,6 +114,8 @@ fi
 
 cd "$PROJECT_DIR" || exit 1
 
+source "$PROJECT_DIR/lib/deploy-lib.sh"
+
 # --- DIAGNOSTIC BLOCK ---
 if [ ! -d "environments" ]; then
     dialog --title " Error " --msgbox "Missing directory: Could not find an 'environments/' folder at: $PROJECT_DIR" 8 60
@@ -596,19 +598,28 @@ clear
 ENV_NAME=$(basename "$SELECTED_PATH")
 echo "🚀 Target Selected: $ENV_NAME"
 
-# 4. Universal Targeted Teardown Pattern
-if [ "$REBUILD_POLICY" = "CLEAN" ]; then
-    echo "🛑 [CLEAN Policy] Tearing down active target environment container instances..."
-    
-    # Loop through each container name defined in the variable
-    for TARGET_CONTAINER in $TRACKING_NAME; do
-        if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q "^${TARGET_CONTAINER}$"; then
-            echo "   Stopping and removing: $TARGET_CONTAINER"
-            $DOCKER_CMD stop "$TARGET_CONTAINER" 2>/dev/null
-            $DOCKER_CMD rm "$TARGET_CONTAINER" 2>/dev/null
-        fi
-    done
-fi
+# 4. (Removed) — this used to unconditionally tear down the target
+# environment's containers by name before CLEAN even reached the archetype
+# routing below. Two real problems with that:
+#   1. TRACKING_NAME isn't computed until the "DYNAMIC CONTAINER
+#      IDENTIFICATION LAYER" further down — this ran BEFORE that, so on
+#      the very first deploy of a session it tore down nothing (empty
+#      variable), and on every deploy AFTER the first (deploy.sh is a
+#      persistent menu loop — see the while-loop wrapper below) it used
+#      whichever TRACKING_NAME was left over from the PREVIOUS environment
+#      selected, not the current one.
+#   2. Tearing down before anything new is built/pulled defeats the whole
+#      point of a safe CLEAN — every custom run.sh in this repo
+#      deliberately builds/pulls first and only tears down after a
+#      successful build, so a bad image never leaves nothing running.
+#      This step ran before run.sh was even invoked, silently undermining
+#      that safety property (and, for pihole-wireguard specifically,
+#      breaking its own CLEAN-rollback fallback snapshot: it needs the
+#      OLD container to still exist to `docker commit` it).
+# Teardown-for-CLEAN is now each archetype's own responsibility, done at
+# the correct point relative to its own build/pull — run.sh already does
+# this correctly; the docker-compose.yml/Dockerfile fallback branches below
+# now do too.
 
 # 5. Navigate into the folder cleanly using absolute context
 TARGET_WORKSPACE_DIR="$PROJECT_DIR/$SELECTED_PATH"
@@ -736,20 +747,6 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
 fi
 # =======================================================
 
-# =======================================================
-# 🔍 DYNAMIC CONTAINER IDENTIFICATION LAYER
-# =======================================================
-# Establish a fallback naming constraint pointing to the folder context
-TRACKING_NAME="$ENV_NAME"
-
-# Interrogate compiled configs or blueprints for an explicit container name override
-if [ -f ".env" ] && grep -q "^CONTAINER_NAME=" .env; then
-    TRACKING_NAME=$(grep "^CONTAINER_NAME=" .env | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-elif [ -f ".env.example" ] && grep -q "^CONTAINER_NAME=" .env.example; then
-    TRACKING_NAME=$(grep "^CONTAINER_NAME=" .env.example | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-fi
-# =======================================================
-
 # 6. INFO / WIPE — delegate entirely to info.sh (environment-agnostic)
 if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     cd "$TARGET_WORKSPACE_DIR" || exit 1
@@ -765,96 +762,13 @@ if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     continue
 fi
 
-# 7. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
-DEPLOY_SUCCESS=1
-
-# Ensure we are strictly pointing to the local workspace context directory
-cd "$TARGET_WORKSPACE_DIR" || exit 1
-
-if [ -f "run.sh" ]; then
-    echo "⚡ Custom run script detected! Executing run.sh..."
-    chmod +x run.sh
-    
-    # DYNAMIC FIX: Export user selected rebuild policy downstream to custom subscripts
-    export REBUILD_POLICY="$REBUILD_POLICY" 
-    export DOCKER_CMD
-    
-    # Execute the run script directly without altering user-permissions or local environmental directory paths
-    ./run.sh
-    DEPLOY_SUCCESS=$?
-
-elif [ -f "docker-compose.yml" ]; then
-    if [ "$REBUILD_POLICY" = "STOP" ]; then
-        echo "🛑 [STOP] Pausing Docker Compose stack (containers preserved)..."
-        $DOCKER_CMD compose stop 2>/dev/null || true
-        DEPLOY_SUCCESS=0
-    elif [ "$REBUILD_POLICY" = "TEARDOWN" ]; then
-        echo "🗑️  [TEARDOWN] Stopping and removing Docker Compose stack..."
-        $DOCKER_CMD compose down 2>/dev/null || true
-        DEPLOY_SUCCESS=0
-    elif [ "$REBUILD_POLICY" = "CLEAN" ]; then
-        echo "🐳 Docker Compose file detected [CLEAN]! Performing fresh stack teardown and rebuild..."
-        $DOCKER_CMD compose down 2>/dev/null
-        $DOCKER_CMD compose up --build --no-cache -d
-        DEPLOY_SUCCESS=$?
-        # --no-cache retags over the previous image, leaving it dangling.
-        # -f only removes untagged images, never anything still referenced
-        # by a container.
-        $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
-    else
-        echo "🐳 Docker Compose file detected [FAST]! Synchronizing stack changes using cached layer parameters..."
-        $DOCKER_CMD compose up -d
-        DEPLOY_SUCCESS=$?
-    fi
-
-elif [ -f "Dockerfile" ]; then
-    if [ "$REBUILD_POLICY" = "STOP" ]; then
-        echo "🛑 [STOP] Pausing container: $TRACKING_NAME"
-        $DOCKER_CMD stop "$TRACKING_NAME" 2>/dev/null || true
-        DEPLOY_SUCCESS=0
-    elif [ "$REBUILD_POLICY" = "TEARDOWN" ]; then
-        echo "🗑️  [TEARDOWN] Stopping and removing container: $TRACKING_NAME"
-        $DOCKER_CMD stop "$TRACKING_NAME" 2>/dev/null || true
-        $DOCKER_CMD rm   "$TRACKING_NAME" 2>/dev/null || true
-        DEPLOY_SUCCESS=0
-    elif [ "$REBUILD_POLICY" = "CLEAN" ]; then
-        echo "🛠️ Raw Dockerfile detected [CLEAN]! Executing zero-cache structural compilation..."
-        $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
-        if [ $? -eq 0 ]; then
-            ENV_FLAGS=""
-            if [ -f ".env" ]; then ENV_FLAGS="--env-file .env"; fi
-            $DOCKER_CMD run -d --name "$TRACKING_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
-            DEPLOY_SUCCESS=$?
-            # --no-cache retags over the previous image, leaving it dangling.
-            # -f only removes untagged images, never anything still
-            # referenced by a container.
-            $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
-        else
-            DEPLOY_SUCCESS=1
-        fi
-    else
-        echo "🛠️ Raw Dockerfile detected [FAST]! Checking execution context rules..."
-        if $DOCKER_CMD ps --format '{{.Names}}' | grep -q "^${TRACKING_NAME}$"; then
-            echo "✅ Container '$TRACKING_NAME' is active. Preserving application uptime status!"
-            DEPLOY_SUCCESS=0
-        elif $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q "^${TRACKING_NAME}$"; then
-            echo "🔄 Container '$TRACKING_NAME' is dormant. Triggering pipeline startup recovery..."
-            $DOCKER_CMD start "$TRACKING_NAME"
-            DEPLOY_SUCCESS=$?
-        else
-            echo "🛠️ Container sequence vacant. Building image and provisioning environment layers..."
-            $DOCKER_CMD build -t "$ENV_NAME:latest" .
-            if [ $? -eq 0 ]; then
-                ENV_FLAGS=""
-                if [ -f ".env" ]; then ENV_FLAGS="--env-file .env"; fi
-                $DOCKER_CMD run -d --name "$TRACKING_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
-                DEPLOY_SUCCESS=$?
-            else
-                DEPLOY_SUCCESS=1
-            fi
-        fi
-    fi
-fi
+# 7. ROUTING LOGIC & EXIT BOUNDARY CAPTURE — delegates to
+# lib/deploy-lib.sh's deploy_environment(), shared with check-updates.sh
+# --apply so both use the exact same archetype-dispatch mechanics (run.sh
+# delegation, or the safe build-before-teardown docker-compose.yml/
+# Dockerfile fallback) instead of duplicating them.
+deploy_environment "$TARGET_WORKSPACE_DIR" "$REBUILD_POLICY" "$DOCKER_CMD"
+DEPLOY_SUCCESS=$?
 
 # Verify the execution status code of our build step before clearing
 if [ $DEPLOY_SUCCESS -ne 0 ]; then

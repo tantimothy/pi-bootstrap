@@ -129,7 +129,7 @@ To actually apply what it finds, either redeploy that container's whole environm
 ./check-updates.sh --apply
 ```
 
-This re-runs the same scan, then asks individually — one `[y/N]` per flagged container, nothing is ever applied without an explicit yes — whether to recreate it right now. Everything else in that container's environment is left untouched (`docker compose up -d --no-deps --force-recreate <name>` for compose-managed services); locally-built apt images get an actual rebuild first (`docker compose build --no-cache`, or that environment's own `REBUILD_POLICY=CLEAN ./run.sh` for the single-container `dragonos-sdr`/`kali-pentest` environments) — the new image always finishes building before the old container is touched, so a failed rebuild never leaves you with nothing running. A container whose environment can't be determined is reported and left for you to apply manually.
+This re-runs the same scan, then asks individually — one `[y/N]` per flagged container, nothing is ever applied without an explicit yes — whether to recreate it right now. Everything else in that container's environment is left untouched (`docker compose up -d --no-deps --force-recreate <name>` for compose-managed services); locally-built apt images get an actual rebuild first (`docker compose build --no-cache` for compose-managed services, or `lib/deploy-lib.sh`'s shared `deploy_environment()` — the same mechanics `deploy.sh` itself uses — for single-container environments like `dragonos-sdr`/`kali-pentest`, with or without their own `run.sh`) — the new image always finishes building before the old container is touched, so a failed rebuild never leaves you with nothing running. A container whose environment can't be determined is reported and left for you to apply manually.
 
 ---
 
@@ -146,6 +146,8 @@ environments/your-env/
 ├── 2. docker-compose.yml  →  runs `docker compose up -d`
 └── 3. Dockerfile      →  builds and runs a single container on port 80
 ```
+
+Options 2 and 3 (no `run.sh`) still get the essentials generically, without writing any custom script: `CLEAN` builds/pulls fresh images *before* touching what's currently running (a failed build leaves the old container(s) untouched, same safety property every `run.sh` implements by hand), data directories from `info.sh`'s `DATA_DIRS` are pre-created before Docker ever touches them as a bind-mount target, desktop entries refresh automatically after a successful deploy, and `check-updates.sh --apply` can target them too (including a bare `Dockerfile`-only environment with no `run.sh` at all). This mechanics lives in `lib/deploy-lib.sh`'s `deploy_environment()`, shared by both `deploy.sh` and `check-updates.sh --apply` rather than duplicated between them. What they still can't do without a real `run.sh`: any host-level setup (network config, sysctls, DNS resilience, etc.).
 
 ### Permission Wrapper
 
@@ -305,7 +307,7 @@ source "$REPO_DIR/lib/info-lib.sh"
 run_info
 ```
 
-`ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), or `manifest` (machine-readable, used by `backup.sh` — you never call this yourself). Declare every array even if empty (`INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()`) — `lib/info-lib.sh`'s own header comment documents the full set, including the optional ones (`WIPE_PARENT_DIRS`, `DATA_DIRS_LABEL`, `DELETE_CONFIRM_MSG`, etc.).
+`ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), `manifest` (machine-readable, used by `backup.sh` — you never call this yourself), or `list-dirs` (machine-readable `DATA_DIRS` paths only, one per line — used by `deploy.sh`'s generic `docker-compose.yml`/`Dockerfile` fallback path to pre-create data directories before Docker touches them; also not something you call yourself). Declare every array even if empty (`INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()`) — `lib/info-lib.sh`'s own header comment documents the full set, including the optional ones (`WIPE_PARENT_DIRS`, `DATA_DIRS_LABEL`, `DELETE_CONFIRM_MSG`, etc.).
 
 ### `install-desktop.sh` (Recommended if there's a web UI)
 

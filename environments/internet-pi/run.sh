@@ -45,11 +45,6 @@ if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 # always in PATH inside non-interactive scripts — add it explicitly.
 export PATH="$HOME/.local/bin:$PATH"
 
-# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable
-HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-[ -z "$HOST_IP" ] && HOST_IP="localhost"
-
 # ---------------------------------------------------------------------------------------
 # 2. STOP / TEARDOWN — handle before anything else so no deploy logic runs
 # ---------------------------------------------------------------------------------------

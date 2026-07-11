@@ -31,6 +31,7 @@ set -uo pipefail
 # is an expected, common case here, not a reason to abort the whole scan.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$REPO_DIR/lib/deploy-lib.sh"
 DOCKER="${DOCKER_CMD:-docker}"
 if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 
@@ -56,10 +57,12 @@ UPDATE_KINDS=()
 # it's managed there — needed by --apply to know where to cd and which
 # mechanism applies: a compose service can be recreated on its own (leaving
 # every other service in that same stack untouched), but a plain-docker
-# environment (dragonos-sdr, kali-pentest) only has the one container, so
-# reusing that environment's own run.sh is simpler and safer than
-# reimplementing its build/run logic here. Echoes "<dir>|compose" or
-# "<dir>|plaindocker" on a match, nothing on no match.
+# environment (with or without its own run.sh — dragonos-sdr/kali-pentest
+# have one, but a bare Dockerfile-only environment doesn't need one) only
+# has the one container, so lib/deploy-lib.sh's deploy_environment() — the
+# same shared mechanics deploy.sh itself uses — handles it directly rather
+# than this script reimplementing build/run logic of its own. Echoes
+# "<dir>|compose" or "<dir>|plaindocker" on a match, nothing on no match.
 #
 # Compose services are matched by the exact `container_name:` line in that
 # environment's docker-compose.yml — not configurable per this repo's own
@@ -78,8 +81,8 @@ _resolve_environment_for_container() {
         fi
     done
     for dir in "$REPO_DIR"/environments/*/; do
-        [ -f "${dir}run.sh" ] || continue
         [ -f "${dir}docker-compose.yml" ] && continue
+        { [ -f "${dir}run.sh" ] || [ -f "${dir}Dockerfile" ]; } || continue
         local cn=""
         if [ -f "${dir}.env" ] && grep -q "^CONTAINER_NAME=" "${dir}.env"; then
             cn=$(grep "^CONTAINER_NAME=" "${dir}.env" | cut -d= -f2- | tr -d "\"'")
@@ -103,10 +106,10 @@ _resolve_environment_for_container() {
 # is touched in every path below: registry images were already pulled
 # during the scan; compose-based local builds run `compose build` (which
 # only ever produces a new image — it doesn't touch the running container)
-# before the `--force-recreate` swap; plain-docker local builds delegate to
-# that environment's own run.sh CLEAN, which already only tears the old
-# container down after a successful rebuild (see dragonos-sdr/kali-pentest's
-# own CLEAN policy comments).
+# before the `--force-recreate` swap; plain-docker environments delegate to
+# lib/deploy-lib.sh's deploy_environment() — the same shared mechanics
+# deploy.sh itself uses — whose CLEAN already only tears the old container
+# down after a successful rebuild.
 apply_update() {
     local name="$1" kind="$2" resolved dir env_kind
 
@@ -132,10 +135,11 @@ apply_update() {
     fi
 
     if [ "$env_kind" = "plaindocker" ]; then
-        # Single-container environment — its own CLEAN already does exactly
-        # "rebuild, then only replace the running container once that
-        # succeeds," so there's no separate targeted mechanism to build here.
-        (cd "$dir" && REBUILD_POLICY=CLEAN DOCKER_CMD="$DOCKER" bash run.sh)
+        # Single-container environment — deploy_environment's CLEAN already
+        # does exactly "rebuild, then only replace the running container
+        # once that succeeds," so there's no separate targeted mechanism
+        # to build here, and no run.sh requirement either.
+        deploy_environment "$dir" CLEAN "$DOCKER"
         return
     fi
 
