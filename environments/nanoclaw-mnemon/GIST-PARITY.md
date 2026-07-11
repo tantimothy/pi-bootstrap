@@ -6,7 +6,7 @@ The [VivianBalakrishnan gist](https://gist.github.com/VivianBalakrishnan/a7d4eec
 |---|---|---|
 | Core NanoClaw (channels, per-group agent containers) | ✅ Have | Yes — `run.sh` clones and runs it |
 | Persistent graph memory (mnemon) | ✅ Have | Yes — `apply_mnemon_patch()` in `run.sh`, byte-verified |
-| Wiki knowledge base (Karpathy LLM Wiki pattern) | 🟡 Partial | Mechanical half only (`scaffold-wiki.sh`); domain design is interactive by upstream design; **disconnected from mnemon — see "Gap: Wiki ≠ Downstream of Mnemon" below** |
+| Wiki knowledge base (Karpathy LLM Wiki pattern) | 🟡 Partial | Mechanical half only (`scaffold-wiki.sh`); domain design is interactive by upstream design; **no guaranteed pipeline from mnemon (unlike the gist), though incidental overlap is architecturally likely — see the Gap section below** |
 | Voice transcription — OpenAI Whisper API | ❌ Not built | No |
 | Voice transcription — local whisper.cpp | ❌ Not built | No |
 | Local vector embeddings (Ollama + `nomic-embed-text`) | ✅ Have — opt-in | Yes — `apply_mnemon_patch()` bakes `MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL` into the Dockerfile when set in `.env` (unset by default; requires a reachable Ollama daemon and `CLEAN` to activate) |
@@ -75,22 +75,24 @@ Net guidance, given all of the above: the only two reasons to override `MNEMON_E
 
 ---
 
-## 🔗 Gap: The Wiki Isn't Downstream of Mnemon (Unlike the Gist)
+## 🔗 Gap: No *Guaranteed* Pipeline From Mnemon to the Wiki (Unlike the Gist) — But Real Incidental Overlap Is Likely
 
-Surfaced answering a direct question, worth tracking explicitly rather than leaving implicit in the two sections above.
+Surfaced answering a direct question, then refined answering a sharper follow-up. First pass here called the two features fully "disconnected" — that overstates it. Corrected below.
 
-**What the gist actually does** (quoted already in the embeddings section above): raw sources → **mnemon** (extracts discrete facts) → **wiki** (synthesizes those facts into markdown pages). The wiki never reads raw sources directly — it's a compiled view of what mnemon already extracted.
+**What the gist actually does** (quoted already in the embeddings section above): raw sources → **mnemon** (extracts discrete facts) → **wiki** (synthesizes those facts into markdown pages), a *structured, guaranteed* data path — every wiki page traces back to mnemon facts, every time, by design.
 
-**What this environment actually does**: two independent features that don't talk to each other.
+**What this environment actually has is not that pipeline** — but it's also not two contexts that never touch:
 
-- `apply_mnemon_patch()` + `ensure_ollama_ready()` — mnemon's own graph memory (plus optional embeddings), operating on whatever the agent decides to `remember`/`link` during conversation. Fully automated, covered above.
-- `scaffold-wiki.sh` + NanoClaw's own `/add-karpathy-llm-wiki` skill — compiles wiki pages **straight from whatever you drop in a group's `sources/` folder**, with no mnemon involvement at all. This is a faithful implementation of NanoClaw's own skill (verified against its actual `SKILL.md` — see the README's "Optional: Karpathy LLM Wiki" section), just not a faithful implementation of *the gist's* wiki, which is fed by mnemon's facts rather than raw sources.
+- `apply_mnemon_patch()` installs mnemon's hooks (`mnemon setup --target claude-code --yes --global`) into `container/entrypoint.sh` — the **per-group agent container's** own entrypoint. That means mnemon's `SessionStart`/`UserPromptSubmit`/`Stop` hooks are active for *any* Claude Code session running in that specific group's container.
+- `/add-karpathy-llm-wiki`'s ongoing maintenance (as opposed to its one-time schema setup) isn't a separate process either — the skill wires wiki-ingest/query/lint instructions directly into that *same group's* `CLAUDE.md`/`CLAUDE.local.md` (its Step 3c). So the identical agent, in the identical session, handles both the group's live conversation and its wiki maintenance when instructed to.
 
-Two consequences worth being explicit about:
-1. **Naming mismatch on top of the architectural one**: this environment's scaffold uses `sources/` (NanoClaw's skill's own term); the gist and Karpathy's original idea file both say `raw/`. Same concept, different name — not itself a functional gap, but worth knowing if you're comparing directory listings against the gist's own description.
-2. **If you run both features on the same install**, you get mnemon's memory and a wiki that happens to exist in the same `groups/<group>/` tree, not a pipeline — nothing writes mnemon's facts into `sources/`, and nothing feeds the wiki compiler from `recall` output. Building the actual gist-accurate connection would mean either (a) having the wiki-compiling skill call `mnemon recall` as a source instead of (or alongside) `sources/` files, or (b) writing mnemon's `remember`/`link` output back out to `sources/` as it happens, so the existing wiki skill picks it up unmodified. Neither is built; this is a real, unstarted gap, not a config flag like the embeddings one turned out to be.
+Since Claude Code's hooks are session-wide, not scoped to "which skill is active," there's no code-level wall keeping the two apart. Concretely: while an agent is mid-ingest on a wiki source, the **Remind** hook is still firing on every prompt, still nudging "would `recall` help here?" — and the agent's own judgment (per mnemon's `GUIDELINE.md`) could pull in relevant memory and let it shape a wiki page. Symmetrically, the **Nudge** hook after a wiki-maintenance exchange could prompt the agent to `remember` something from it — which cuts both ways: it might capture something genuinely useful, or it might pollute mnemon's memory with file-bookkeeping trivia, since `GUIDELINE.md` has no way to know "this session happened to be doing wiki maintenance" is different from an ordinary conversation.
 
-**Not currently planned to be closed** — flagging status quo, not committing to build it. Revisit if it becomes a priority.
+**The precise distinction that matters**: the gist's connection is *structural and guaranteed* — wiki content is *defined* as a function of mnemon's facts. What exists here is *incidental and LLM-judgment-dependent* — it might happen on any given session, can't be relied on, isn't triggered by any explicit instruction, and produces no auditable trail of which wiki content (if any) was actually informed by a `recall` call. Nothing here amounts to the gist's pipeline; it's closer to "two features sharing a room and occasionally overhearing each other."
+
+**Naming mismatch on top of this**: this environment's scaffold uses `sources/` (NanoClaw's skill's own term); the gist and Karpathy's original idea file both say `raw/`. Same concept, different name.
+
+**Building the actual gist-accurate connection** would still mean something deliberate — the wiki skill explicitly calling `mnemon recall` as a documented ingest step, not hoping the agent's own judgment happens to do it. Not built; a real, unstarted piece of work, not a config flag like the embeddings gap turned out to be. **Not currently planned to be closed** — flagging status quo, not committing to build it. Revisit if it becomes a priority.
 
 ---
 
@@ -141,6 +143,6 @@ Already covered in the README's "Optional: Karpathy LLM Wiki" section — recapp
 
 ## Summary
 
-Three of five pieces are fully automated and verified now (core NanoClaw, mnemon, and mnemon's optional embeddings — the last of which looked like the hardest gap through two prior passes on this document and turned out to be a built-in config flag). One is half-automated with the interactive part staying manual by upstream design (wiki) — and, tracked separately above, architecturally disconnected from mnemon in a way the gist itself isn't, since NanoClaw's own wiki skill compiles from raw sources rather than from mnemon's facts. A whole ecosystem of external wiki alternatives is documented above too, if you want to look beyond NanoClaw's own skill. Voice transcription is the one piece that's still a genuine, unstarted build (known upstream skills, cross-distro translation needed). Sync is intentionally left as "point your own tool at an existing folder."
+Three of five pieces are fully automated and verified now (core NanoClaw, mnemon, and mnemon's optional embeddings — the last of which looked like the hardest gap through two prior passes on this document and turned out to be a built-in config flag). One is half-automated with the interactive part staying manual by upstream design (wiki) — and, tracked separately above, lacks the gist's own guaranteed mnemon-to-wiki pipeline, though because both features run in the same per-group agent session via Claude Code's own session-wide hooks, real but unreliable incidental overlap between them is architecturally likely, not impossible the way "disconnected" would imply. A whole ecosystem of external wiki alternatives is documented above too, if you want to look beyond NanoClaw's own skill. Voice transcription is the one piece that's still a genuine, unstarted build (known upstream skills, cross-distro translation needed). Sync is intentionally left as "point your own tool at an existing folder."
 
 Let me know if you want voice transcription started next — begin with the git-merge feasibility check against current `main`.
