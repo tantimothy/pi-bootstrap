@@ -33,7 +33,7 @@ fi
 
 ENTRY_IDS=(pi-bootstrap-nanoclaw)
 ENTRY_NAMES=("NanoClaw AI")
-ENTRY_COMMENTS=("Local AI tools — Ollama model inference, Whisper speech-to-text, Claude")
+ENTRY_COMMENTS=("Self-hosted Claude AI assistant — WhatsApp, Telegram, Slack, Discord, and more")
 ENTRY_ICONS=(utilities-terminal)
 ENTRY_KINDS=(exec)
 ENTRY_TARGETS=("bash -c \"cd '$ENV_DIR' && REBUILD_POLICY=FAST ./run.sh\"")
