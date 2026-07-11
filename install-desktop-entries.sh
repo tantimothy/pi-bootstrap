@@ -15,6 +15,17 @@ export REPO_DIR
 source "$REPO_DIR/lib/desktop-lib.sh"
 export DESKTOP_DIR
 
+# Same reasoning as run_desktop_install()'s own guard in lib/desktop-lib.sh
+# (each environment's install-desktop.sh would skip individually anyway) —
+# checked here too so this prints one clear message instead of one per
+# environment, and so the main dashboard launcher below is never written
+# either.
+if [[ "$(uname)" == "Darwin" ]]; then
+    echo "Desktop entries are Linux-only (XDG .desktop files have no macOS equivalent) — nothing to do here."
+    echo "On macOS, just run ./deploy.sh directly, or add it to your Dock/Login Items yourself."
+    exit 0
+fi
+
 ACTION="${1:-install}"
 
 if [ "$ACTION" = "--uninstall" ]; then

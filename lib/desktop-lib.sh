@@ -255,6 +255,19 @@ _desktop_is_deployed() {
 }
 
 run_desktop_install() {
+    # .desktop files, $APPS_DIR (~/.local/share/applications), and the
+    # xdg-desktop-menu submenu machinery below are all Linux/XDG concepts
+    # with no macOS equivalent — nothing here actually fails on macOS
+    # (every risky call is already guarded), so left unchecked this would
+    # silently write meaningless text files into ~/Desktop and a
+    # nonstandard ~/.local/share/applications folder instead of doing
+    # nothing. Skip cleanly instead, for both install and --uninstall —
+    # there's nothing to install and nothing to clean up either way.
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "  ⏭  ${MENU_ID}: skipped — desktop entries are Linux-only (XDG .desktop files have no macOS equivalent)"
+        return 0
+    fi
+
     local category="X-PiBootstrap-${MENU_ID};"
 
     if [ "${1:-}" = "--uninstall" ]; then

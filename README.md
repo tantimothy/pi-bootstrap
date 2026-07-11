@@ -45,6 +45,8 @@ garbled commands instead of failing cleanly.
 
 ## 🖥️ Desktop Menu Integration
 
+**Linux only** — `.desktop` files, `~/.local/share/applications`, and the `xdg-desktop-menu` submenu machinery this relies on are all XDG/Linux desktop-environment concepts with no macOS equivalent. On macOS, both `./install-desktop-entries.sh` and every individual environment's `install-desktop.sh` detect this and skip cleanly with a one-line message — nothing is written to `~/Desktop` or anywhere else. If you're running an environment (e.g. `nanoclaw` in `container` mode) on a Mac, just run `./deploy.sh` directly, or add it to your Dock/Login Items yourself; there's no equivalent auto-generated launcher on macOS today.
+
 On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once to register all environments as clickable desktop entries. This is also available as menu options in `./deploy.sh` — "[Desktop] Install Desktop Entries" and "[Desktop] Uninstall Desktop Entries":
 
 ```bash
