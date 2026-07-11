@@ -167,12 +167,35 @@ MENU_INDEX=1
 for dir in "${ENV_DIRS[@]}"; do
     folder_name=$(basename "$dir")
 
+    # run.sh, when present, is itself one of several subtypes depending on
+    # what it actually orchestrates underneath — shown here since "Custom
+    # run.sh" alone doesn't say much about what a given environment
+    # actually does. Detected cheaply from what's on disk / referenced in
+    # the script, not from any declared metadata:
     if [ -f "$dir/run.sh" ] ; then
-        TYPE="[Custom run.sh]"
+        # docker-compose.yml checked before Dockerfile: a compose file can
+        # itself reference a local Dockerfile via `build:` (ntopng does) —
+        # Compose is what run.sh actually calls in that case, so it takes
+        # priority over the Dockerfile's mere presence.
+        if [ -f "$dir/docker-compose.yml" ] ; then
+            TYPE="[run.sh + Compose]"
+        elif [ -f "$dir/Dockerfile" ] ; then
+            TYPE="[run.sh + Dockerfile]"
+        elif grep -q "git clone" "$dir/run.sh" 2>/dev/null ; then
+            TYPE="[run.sh: 3rd-party repo]"
+        else
+            TYPE="[run.sh: host-only]"
+        fi
     elif [ -f "$dir/docker-compose.yml" ] ; then
         TYPE="[Docker Compose]"
     elif [ -f "$dir/Dockerfile" ] ; then
-        TYPE="[Standalone Dockerfile]"
+        # No run.sh AND no docker-compose.yml — the generic fallback's
+        # `docker run` has no `-v` flag at all, so this can build and run a
+        # container but can never actually persist data to a bind mount.
+        # Discouraged in favor of a docker-compose.yml with `build: .`,
+        # which gets the same "no run.sh needed" simplicity plus real
+        # volume/port/flag support — see the README's Archetype section.
+        TYPE="[Dockerfile only — no volumes]"
     fi
 
     # Flag environments that require Linux host features when running on macOS.

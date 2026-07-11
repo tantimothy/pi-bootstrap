@@ -142,12 +142,13 @@ This re-runs the same scan, then asks individually — `[y/N/a=all/c=cancel]` pe
 ```text
 environments/your-env/
 │
-├── 1. run.sh          →  delegates everything to the script (most flexible)
-├── 2. docker-compose.yml  →  runs `docker compose up -d`
-└── 3. Dockerfile      →  builds and runs a single container on port 80
+├── 1. run.sh              →  delegates everything to the script (most flexible)
+└── 2. docker-compose.yml  →  runs `docker compose up -d` (generic fallback, no run.sh needed)
 ```
 
-Options 2 and 3 (no `run.sh`) still get the essentials generically, without writing any custom script: `CLEAN` builds/pulls fresh images *before* touching what's currently running (a failed build leaves the old container(s) untouched, same safety property every `run.sh` implements by hand), data directories from `info.sh`'s `DATA_DIRS` are pre-created before Docker ever touches them as a bind-mount target, desktop entries refresh automatically after a successful deploy, and `check-updates.sh --apply` can target them too (including a bare `Dockerfile`-only environment with no `run.sh` at all). This mechanics lives in `lib/deploy-lib.sh`'s `deploy_environment()`, shared by both `deploy.sh` and `check-updates.sh --apply` rather than duplicated between them. What they still can't do without a real `run.sh`: any host-level setup (network config, sysctls, DNS resilience, etc.).
+There's technically a third fallback `lib/deploy-lib.sh` still recognizes — a bare `Dockerfile` with neither of the above — but it's a trap, not a real option: its `docker run` invocation has **no `-v` flag at all**, so while it happily pre-creates `info.sh`'s `DATA_DIRS` on the host (same as option 2), it never actually mounts them into the container — anything the app writes there is lost the moment it's recreated. Nothing in this repo uses it today; every current single-container environment has either a `run.sh` or a `docker-compose.yml`. If your environment is genuinely "just one simple container," write a one-service `docker-compose.yml` with `build: .` pointing at your `Dockerfile` instead — same "no `run.sh` needed" simplicity, but with real volume/port/flag support, since Compose can express everything the bare-`Dockerfile` path can't.
+
+Option 2 (no `run.sh`) still gets the essentials generically, without writing any custom script: `CLEAN` builds/pulls fresh images *before* touching what's currently running (a failed build leaves the old container(s) untouched, same safety property every `run.sh` implements by hand), data directories from `info.sh`'s `DATA_DIRS` are pre-created before Docker ever touches them as a bind-mount target, desktop entries refresh automatically after a successful deploy, and `check-updates.sh --apply` can target it too. This mechanics lives in `lib/deploy-lib.sh`'s `deploy_environment()`, shared by both `deploy.sh` and `check-updates.sh --apply` rather than duplicated between them. What it still can't do without a real `run.sh`: any host-level setup (network config, sysctls, DNS resilience, etc.), an interactive attach/reattach session, dynamic container spawning, or rollback snapshotting.
 
 ### Permission Wrapper
 
@@ -186,16 +187,19 @@ environments/
 └── my-environment/
     ├── .env.example        # drives the TUI config form — skip only if there's
     │                       # truly nothing to configure (see pi-barebones)
-    ├── run.sh              # archetype 1: custom script (highest priority)
-    ├── docker-compose.yml  # archetype 2: multi-container stack
-    ├── Dockerfile          # archetype 3: single container (lowest priority)
+    ├── run.sh              # archetype 1: custom script (highest priority) —
+    │                       # itself one of a few subtypes, see below
+    ├── docker-compose.yml  # archetype 2: generic fallback, no run.sh needed
+    ├── Dockerfile          # optional — a local image run.sh builds itself, or
+    │                       # that docker-compose.yml's `build:` points at; never
+    │                       # used standalone, see "Routing Priority" above
     ├── info.sh             # required — see below
     ├── install-desktop.sh  # recommended if there's a web UI — see below
     └── README.md           # Services & Ports, Data Directories, Desktop
                              # Integration, Useful Commands, security notes
 ```
 
-`info.sh` and `install-desktop.sh` aren't one of the three deploy archetypes — every environment needs its own regardless of which archetype it uses. They're covered separately below since they're easy to miss (nothing on the `deploy.sh` discovery path requires them, but other scripts silently depend on them).
+`info.sh` and `install-desktop.sh` aren't one of the two deploy archetypes — every environment needs its own regardless of which archetype it uses. They're covered separately below since they're easy to miss (nothing on the `deploy.sh` discovery path requires them, but other scripts silently depend on them).
 
 ### `.env.example` Format
 
@@ -226,16 +230,28 @@ CONTAINER_NAME="pihole wg-easy prometheus grafana"
 
 ### Archetype 1: `run.sh` (Custom Script)
 
-**Use this when** you need something `lib/deploy-lib.sh`'s generic fallback (Archetypes 2/3) structurally cannot express — see the "Routing Priority" section above for exactly what the generic fallback already covers on its own (safe build-before-teardown `CLEAN`, data-dir pre-creation, desktop refresh). Concretely, that means:
+**Use this when** you need something Archetype 2's generic fallback structurally cannot express — see "Routing Priority" above for exactly what it already covers on its own (safe build-before-teardown `CLEAN`, data-dir pre-creation, desktop refresh). Concretely, that means:
 - Host-level configuration outside Docker entirely (sysctls, netplan/network config, nftables rules, systemd/launchd units, `apt-get install` on the host)
-- Hardware or network passthrough flags a `docker-compose.yml`/plain `docker run` alone can't combine with everything else the environment needs (`--privileged`, `--net=host`, `--device`, X11/PulseAudio socket forwarding)
-- A container lifecycle that isn't a static, discoverable set of containers at all (e.g. a host service that spawns containers dynamically at runtime)
-- An interactive, `--rm` foreground session with its own attach/reattach state machine (exec into a running container, `docker start` a dormant one, or launch fresh) — Compose's `up -d` model has no equivalent for this
+- An interactive, `--rm` foreground session with its own attach/reattach state machine (exec into a running container, `docker start` a dormant one, or launch fresh) — Compose's `up -d` model has no equivalent for this, regardless of what runtime flags the container itself needs
+- A container lifecycle that isn't a static, discoverable set of containers at all — a host service that spawns containers dynamically at runtime, or delegates entirely to an external installer
 - CLEAN rollback snapshotting, or any other deploy-time behavior beyond "build/pull, then swap"
 
-**What must be in the environment:** `run.sh` itself, checked into git as executable (`chmod +x` — `deploy.sh` defensively re-`chmod`s it before every run, but a non-executable `run.sh` still fails for anyone invoking it directly; this has bitten this repo before). It's fine to *also* have a `docker-compose.yml` alongside it (`pihole-wireguard` does) when Compose is the right fit for the containers themselves but the environment needs host-level prerequisites around it — `run.sh` still takes priority and is expected to invoke `$DOCKER_COMPOSE` itself in that case; the generic fallback is never reached.
+Note what's *not* on this list: hardware/network passthrough flags (`--privileged`, `--net=host`, `--device`) alone aren't a reason by themselves — `docker-compose.yml` can express all of those natively (`privileged:`, `network_mode: host`, `devices:`). `run.sh` earns its place when one of the flags above needs *combining* with them (an interactive attach state machine, for instance), not from the flags in isolation.
 
-**What its README must document:** a "⚙️ Why This Needs a Custom `run.sh`" section, listing concretely what it does that the generic fallback can't — not just "it's complex," but the specific flags/behaviors from the bullet list above. See `dragonos-sdr`, `kali-pentest`, `nanoclaw`, `pi-barebones`, and `pihole-wireguard`'s READMEs for real examples of each case. If you can't articulate a concrete reason, use Archetype 2 or 3 instead — `portainer` used to have a `run.sh` for no real reason beyond historical inertia, and it was removed once that became clear.
+**`run.sh` is itself one of a few subtypes**, depending on what it actually orchestrates underneath — `deploy.sh`'s own Environments menu labels each one accordingly (this list reflects what's actually in this repo today, not an exhaustive taxonomy — there may be others):
+
+| Subtype | Menu label | Real example(s) | What `run.sh` does |
+|---|---|---|---|
+| Calls a local `Dockerfile` directly | `[run.sh + Dockerfile]` | `dragonos-sdr`, `kali-pentest` | Builds/runs its own single container with an interactive attach/reattach state machine, plus `--privileged`/`--net=host`/`--device` |
+| Calls a local `docker-compose.yml` | `[run.sh + Compose]` | `pihole-wireguard`, `ntopng` | Compose owns the container(s); `run.sh` exists for host-level prerequisites around it (`pihole-wireguard`) or just a FAST-reattach shortcut before delegating to Compose (`ntopng`) |
+| Clones and delegates to a 3rd-party repo | `[run.sh: 3rd-party repo]` | `nanoclaw`, `internet-pi` | No local `Dockerfile`/`docker-compose.yml` at all — clones an external project and hands off to its own installer (`nanoclaw`'s interactive Node wizard, `internet-pi`'s `ansible-playbook`) |
+| Pure host provisioning, no containers | `[run.sh: host-only]` | `pi-barebones` | `apt-get install`, `.bashrc` injection, a `systemd`/`launchd` unit — never touches Docker at all |
+
+Whatever the subtype, the same rules apply:
+
+**What must be in the environment:** `run.sh` itself, checked into git as executable (`chmod +x` — `deploy.sh` defensively re-`chmod`s it before every run, but a non-executable `run.sh` still fails for anyone invoking it directly; this has bitten this repo before). It's fine to *also* have a `docker-compose.yml` and/or `Dockerfile` alongside it when one is the right fit for the container(s) themselves but the environment needs something extra around it — `run.sh` still takes priority and is expected to invoke `$DOCKER_COMPOSE`/`docker build` itself in that case; the generic fallback is never reached.
+
+**What its README must document:** a "⚙️ Why This Needs a Custom `run.sh`" section, listing concretely what it does that Archetype 2 can't — not just "it's complex," but the specific flags/behaviors from the bullet list above, and which subtype it is. See `dragonos-sdr`, `kali-pentest`, `nanoclaw`, `pi-barebones`, and `pihole-wireguard`'s READMEs for real examples of each case. If you can't articulate a concrete reason, use Archetype 2 instead — `portainer` used to have a `run.sh` for no real reason beyond historical inertia, and it was removed once that became clear.
 
 Key rules:
 - **Never** hardcode `docker` — use `DOCKER=${DOCKER_CMD:-docker}` to inherit the sudo wrapper
@@ -272,11 +288,11 @@ $DOCKER run -it --rm \
   "$IMAGE_NAME"
 ```
 
-### Archetype 2: `docker-compose.yml` (Multi-Container Stack)
+### Archetype 2: `docker-compose.yml` (Generic Fallback)
 
-**Use this when** the environment is one or more long-running services with no host-level configuration needed around them — this is the preferred archetype for anything that fits; only reach for Archetype 1 if you have a concrete reason from the list above.
+**Use this when** the environment is one or more long-running services with no host-level configuration needed around them — including a genuinely simple single-container one. This is the preferred archetype for anything that fits, and that includes cases that might look at first like they need a bare `Dockerfile`: a one-service compose file with `build: .` handles those too, with real volume/port/flag support the bare-`Dockerfile` fallback doesn't have (see "Routing Priority" above for why that fallback is best avoided entirely). Only reach for Archetype 1 if you have a concrete reason from the list above.
 
-**What must be in the environment:** `docker-compose.yml`, with every `container_name:` matching a name in `CONTAINER_NAME`. Docker Compose picks up the generated `.env` automatically — no explicit `--env-file` needed. `lib/deploy-lib.sh`'s generic fallback drives it directly (`compose pull` + `compose build --no-cache` before `compose down`/`compose up -d` on `CLEAN`, `compose stop`/`compose down` for `STOP`/`TEARDOWN`), so no `run.sh` is required at all unless something outside the stack itself is needed.
+**What must be in the environment:** `docker-compose.yml`, with every `container_name:` matching a name in `CONTAINER_NAME`. Docker Compose picks up the generated `.env` automatically — no explicit `--env-file` needed. `lib/deploy-lib.sh`'s generic fallback drives it directly (`compose pull` + `compose build --no-cache` before `compose down`/`compose up -d` on `CLEAN`, `compose stop`/`compose down` for `STOP`/`TEARDOWN`), so no `run.sh` is required at all unless something outside the stack itself is needed. `privileged:`, `network_mode: host`, `devices:`, and arbitrary `ports:`/`volumes:` are all fair game here — none of that requires `run.sh` on its own.
 
 **What its README must document:** the standard baseline — a Services & Ports table, Data Directories, Desktop Integration, Useful Commands (see the Folder Layout section above). No "why run.sh" section needed if there isn't one; that's the common, preferred case.
 
@@ -284,19 +300,11 @@ $DOCKER run -it --rm \
 services:
   myapp:
     container_name: my-app
-    image: myimage:latest
+    build: .              # or image: myimage:latest, if pulling from a registry
     ports:
       - "${WEB_PORT:-8080}:8080"
     restart: unless-stopped
 ```
-
-### Archetype 3: `Dockerfile` (Single Container Fallback)
-
-**Use this when** the environment is genuinely a single container with no unusual runtime flags. No `run.sh` or `docker-compose.yml` needed — the generic fallback builds the image, injects variables via `--env-file .env`, and runs it.
-
-**What must be in the environment:** just the `Dockerfile`. The one hard constraint: the generic fallback always launches with a hardcoded `docker run -d --name <name> --restart unless-stopped -p 80:80 <image>` — your container's app **must listen on port 80 internally**, on the default bridge network, with no `--privileged`/`--net=host`/`--device`/extra volume mounts. There's no `.env`-driven override for the port or any other flag today. If your app listens on a different port, or needs any flag this doesn't provide, use Archetype 1 or 2 instead — don't try to work around the port-80 constraint by proxying or remapping inside the container.
-
-**What its README must document:** the standard baseline (Services & Ports, Data Directories, etc.), same as Archetype 2 — plus explicitly noting that the app listens on port 80 internally, since that's otherwise a silent assumption baked into the generic fallback rather than something declared anywhere in the environment's own files.
 
 ### `info.sh` (Required)
 
