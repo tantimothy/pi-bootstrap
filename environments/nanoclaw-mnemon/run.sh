@@ -190,6 +190,90 @@ MNEMON_DOCKER_BLOCK
     fi
 }
 
+# ---------------------------------------------------------------------------------------
+# Only runs at all if MNEMON_EMBED_ENDPOINT is set — mnemon's embeddings are
+# opt-in (see .env.example), and this environment never touches Ollama
+# otherwise. Best-effort throughout: every failure path warns and returns 0
+# rather than aborting the deploy, since embeddings are optional — mnemon
+# itself falls back to graph-only recall if this endpoint stays unreachable.
+# Installation is gated behind an explicit y/N prompt; pulling a model is
+# not (lower-risk, and mirrors mnemon's own binary being auto-downloaded).
+# ---------------------------------------------------------------------------------------
+ensure_ollama_ready() {
+    [ -z "$MNEMON_EMBED_ENDPOINT" ] && return 0
+
+    local model="${MNEMON_EMBED_MODEL:-nomic-embed-text}"
+    local endpoint="$MNEMON_EMBED_ENDPOINT"
+    local is_local=false
+    case "$endpoint" in
+        *host.docker.internal*|*localhost*|*127.0.0.1*) is_local=true ;;
+    esac
+
+    echo "🔎 Checking Ollama at $endpoint (mnemon embeddings are enabled in .env)..."
+
+    if ! curl -fsS "${endpoint}/api/tags" >/dev/null 2>&1; then
+        if [ "$is_local" != "true" ]; then
+            echo "⚠️  $endpoint isn't reachable, and isn't a local address this script manages." >&2
+            echo "   mnemon will run graph-only until that endpoint is reachable — nothing else to do here." >&2
+            return 0
+        fi
+
+        if ! command -v ollama >/dev/null 2>&1; then
+            echo "⚠️  Ollama isn't installed on this host."
+            local reply=""
+            if [[ "$(uname)" == "Darwin" ]]; then
+                read -r -p "   Install it now via Homebrew? [y/N] " reply < /dev/tty 2>/dev/null || true
+            else
+                read -r -p "   Install it now via the official installer (curl | sh)? [y/N] " reply < /dev/tty 2>/dev/null || true
+            fi
+            if [[ "$reply" =~ ^[Yy]$ ]]; then
+                if [[ "$(uname)" == "Darwin" ]]; then
+                    if command -v brew >/dev/null 2>&1; then
+                        brew install ollama || echo "⚠️  brew install failed — install manually: https://ollama.com/download" >&2
+                    else
+                        echo "⚠️  Homebrew not found — install manually: https://ollama.com/download" >&2
+                    fi
+                else
+                    curl -fsSL https://ollama.com/install.sh | sh || echo "⚠️  Installer failed — install manually: https://ollama.com/download" >&2
+                fi
+            else
+                echo "   Skipping — mnemon will run graph-only until Ollama is reachable at $endpoint." >&2
+                return 0
+            fi
+        fi
+
+        if command -v ollama >/dev/null 2>&1 && ! curl -fsS "${endpoint}/api/tags" >/dev/null 2>&1; then
+            echo "🚀 Starting Ollama..."
+            if [[ "$(uname)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+                brew services start ollama >/dev/null 2>&1 || (nohup ollama serve >/dev/null 2>&1 &)
+            else
+                (nohup ollama serve >/dev/null 2>&1 &)
+            fi
+            local tries=0
+            while [ "$tries" -lt 10 ] && ! curl -fsS "${endpoint}/api/tags" >/dev/null 2>&1; do
+                sleep 1
+                tries=$((tries + 1))
+            done
+        fi
+
+        if ! curl -fsS "${endpoint}/api/tags" >/dev/null 2>&1; then
+            echo "⚠️  Still couldn't reach Ollama at $endpoint — mnemon will run graph-only for now." >&2
+            return 0
+        fi
+    fi
+
+    echo "✅ Ollama is reachable."
+
+    if curl -fsS "${endpoint}/api/tags" 2>/dev/null | grep -q "\"name\":\"${model}"; then
+        echo "✅ Model '$model' already pulled."
+    elif [ "$is_local" = "true" ] && command -v ollama >/dev/null 2>&1; then
+        echo "📥 Pulling '$model' (this can take a while the first time)..."
+        OLLAMA_HOST="${endpoint#http://}" ollama pull "$model" || echo "⚠️  Pull failed — mnemon will run graph-only until '$model' is available." >&2
+    else
+        echo "⚠️  '$model' isn't pulled on $endpoint and it's not a local daemon this script manages — pull it there yourself." >&2
+    fi
+}
+
 # Mounted at the SAME absolute path both on the host and inside the
 # orchestrator container — not remapped to some internal path like
 # /workspace. NanoClaw spawns per-conversation-group agent containers
@@ -254,6 +338,13 @@ else
     echo "📦 Install path exists. Pulling latest changes..."
     git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
 fi
+
+# Best-effort — only does anything if MNEMON_EMBED_ENDPOINT is set in .env.
+# Runs before the patch below so any warnings surface before the build
+# proceeds, though the patch itself doesn't depend on the outcome here —
+# the ENV lines get baked in regardless, this just tries to make sure
+# there's something actually listening on the other end.
+ensure_ollama_ready
 
 # Patch mnemon in BEFORE the orchestrator container ever builds NanoClaw's
 # own agent-sandbox image, so the very first build already includes it —

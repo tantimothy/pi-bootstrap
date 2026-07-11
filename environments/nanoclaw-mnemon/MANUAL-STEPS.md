@@ -84,7 +84,25 @@ ENV MNEMON_EMBED_MODEL=nomic-embed-text
 
 (`MNEMON_EMBED_MODEL` is only needed if you want something other than mnemon's own default, which already is `nomic-embed-text` — safe to omit.)
 
-**Prerequisites this doesn't automate**: an Ollama daemon actually running and reachable at that endpoint (`http://host.docker.internal:11434` reaches the host's own Ollama from Docker Desktop), and `ollama pull nomic-embed-text` run on that daemon. Setting the env vars alone does nothing without both of those in place first.
+**Getting Ollama itself ready** — `run.sh` now automates this part too (`ensure_ollama_ready()`), but by hand it's:
+
+```bash
+# 1. Check reachability
+curl -fsS http://host.docker.internal:11434/api/tags
+
+# 2. If unreachable, install Ollama
+brew install ollama                                    # macOS
+curl -fsSL https://ollama.com/install.sh | sh           # Linux
+
+# 3. Start it
+brew services start ollama                              # macOS, or:
+ollama serve &
+
+# 4. Pull the model
+ollama pull nomic-embed-text
+```
+
+If `MNEMON_EMBED_ENDPOINT` points somewhere other than `host.docker.internal`/`localhost`/`127.0.0.1` (a remote Ollama), none of the above applies — that's infrastructure you manage yourself, not something either this script or its automated equivalent touches.
 
 ## 5. Launch the second orchestrator container
 
@@ -142,4 +160,4 @@ That prints only the container IDs whose bind mounts actually trace back to `$IN
 
 ---
 
-That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a) and 5–6 on every fresh deploy (idempotently — re-running skips whatever's already done), step 7 via `scaffold-wiki.sh` on request, step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
+That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a, including Ollama's own setup) and 5–6 on every fresh deploy (idempotently — re-running skips whatever's already done), step 7 via `scaffold-wiki.sh` on request, step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
