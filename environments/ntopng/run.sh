@@ -71,11 +71,6 @@ fi
 : "${NTOPNG_INTERFACES:=eth0}"
 : "${NTOPNG_PORT:=3002}"
 
-# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable
-HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-[ -z "$HOST_IP" ] && HOST_IP="localhost"
-
 mkdir -p "${SCRIPT_DIR}/ntopng-data" "${SCRIPT_DIR}/ntopng-redis-data"
 
 # ---------------------------------------------------------------------------------------
