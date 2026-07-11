@@ -73,6 +73,18 @@ And from the configuration table:
 
 Net guidance, given all of the above: the only two reasons to override `MNEMON_EMBED_MODEL` from its default are multilingual support (`bge-m3`, `nomic-embed-text-v2-moe`, or `snowflake-arctic-embed2` — genuinely comparable options, not one obviously best) or hardware constraints (`all-minilm`, or Snowflake's own small tags). Everything else in the table is a lateral move in the same general-purpose English tier the default already occupies.
 
+**A caveat worth flagging, found while documenting OneCLI's role in this system** (see the "OneCLI" section below): NanoClaw's `container-runner.ts` unconditionally injects `HTTPS_PROXY` (verified directly, its own comment: "OneCLI gateway — injects HTTPS_PROXY + certs so container API calls are routed through the agent vault for credential injection") into *every* agent container, no exceptions. Our default `MNEMON_EMBED_ENDPOINT` (`http://host.docker.internal:11434`) uses plain HTTP, not HTTPS — under standard proxy-environment-variable conventions (`HTTPS_PROXY` only applies to `https://` URLs), that default should sidestep this entirely. But if you point `MNEMON_EMBED_ENDPOINT` at an HTTPS endpoint instead (a remote Ollama behind TLS, say), that traffic would get routed through OneCLI's proxy by default — which exists for Anthropic-style credential injection, not as a general-purpose passthrough, and would likely just break the connection. Neither `apply_mnemon_patch()` nor `ensure_ollama_ready()` currently sets `NO_PROXY`/`no_proxy` to guard against this, unlike `/add-ollama-provider`, which explicitly does for its own analogous case. Not fixed — flagging as a known gap specific to non-default (HTTPS) endpoints, since the documented default isn't affected.
+
+---
+
+## 🔐 OneCLI
+
+Not part of the gist, not something this environment adds — core NanoClaw infrastructure, present identically whether you deploy the plain `nanoclaw` environment or this one, since both clone the same upstream repo and run the same `nanoclaw.sh` wizard. Worth naming explicitly here since it came up investigating the caveat above, and because this environment's own README hadn't named it before (the plain `nanoclaw` environment's README already did).
+
+**What it is, verified directly against source, not assumed**: `setup/register-claude-token.sh` hard-requires the `onecli` binary with no fallback path (`command -v onecli >/dev/null || exit 1`) — it's how the wizard registers your Anthropic token into a local vault rather than writing it to `.env` or handing it to a container directly. `container-runner.ts` calls `onecli.applyContainerConfig(...)` on every agent-container spawn, injecting `HTTPS_PROXY` plus certs so the container's own outbound API calls get routed through OneCLI for credential injection at request time — and treats a failed apply as fatal ("OneCLI gateway not applied — refusing to spawn container without credentials"), so this isn't an optional or best-effort mechanism.
+
+This environment's `apply_mnemon_patch()`/`ensure_ollama_ready()` don't interact with OneCLI at all — mnemon is a separate Go binary making its own outbound requests, not going through Claude Code's own SDK/API-call path that OneCLI is built to intercept. The one place the two *could* interact is the `HTTPS_PROXY` caveat just above.
+
 ---
 
 ## 🔗 Gap: No *Guaranteed* Pipeline From Mnemon to the Wiki (Unlike the Gist) — But Real Incidental Overlap Is Likely
