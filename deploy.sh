@@ -114,6 +114,8 @@ fi
 
 cd "$PROJECT_DIR" || exit 1
 
+source "$PROJECT_DIR/lib/deploy-lib.sh"
+
 # --- DIAGNOSTIC BLOCK ---
 if [ ! -d "environments" ]; then
     dialog --title " Error " --msgbox "Missing directory: Could not find an 'environments/' folder at: $PROJECT_DIR" 8 60
@@ -745,36 +747,6 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
 fi
 # =======================================================
 
-# =======================================================
-# 🔍 DYNAMIC CONTAINER IDENTIFICATION LAYER
-# =======================================================
-# Establish a fallback naming constraint pointing to the folder context
-TRACKING_NAME="$ENV_NAME"
-
-# Interrogate compiled configs or blueprints for an explicit container name override
-if [ -f ".env" ] && grep -q "^CONTAINER_NAME=" .env; then
-    TRACKING_NAME=$(grep "^CONTAINER_NAME=" .env | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-elif [ -f ".env.example" ] && grep -q "^CONTAINER_NAME=" .env.example; then
-    TRACKING_NAME=$(grep "^CONTAINER_NAME=" .env.example | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-fi
-# =======================================================
-
-# Pre-create data directories (as the invoking user) before Docker ever
-# touches them as a bind-mount target — Docker only ever auto-creates a
-# missing bind-mount source as root, which then isn't writable/manageable
-# by whoever is actually running this script (a real bug hit more than
-# once in this repo's own environments). Every environment's own run.sh
-# already does this itself; this only covers the generic docker-compose.yml/
-# Dockerfile fallback path, which has nowhere else to do it. Only relevant
-# for FAST/CLEAN, since STOP/TEARDOWN/INFO/WIPE never create anything, and
-# info.sh's own "list-dirs" action is the same environment-agnostic
-# DATA_DIRS manifest backup.sh and INFO/WIPE already rely on.
-if [ ! -f "run.sh" ] && [ -f "info.sh" ] && { [ "$REBUILD_POLICY" = "FAST" ] || [ "$REBUILD_POLICY" = "CLEAN" ]; }; then
-    while IFS= read -r dir; do
-        [ -n "$dir" ] && mkdir -p "$dir"
-    done < <(bash info.sh list-dirs 2>/dev/null)
-fi
-
 # 6. INFO / WIPE — delegate entirely to info.sh (environment-agnostic)
 if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     cd "$TARGET_WORKSPACE_DIR" || exit 1
@@ -790,106 +762,13 @@ if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     continue
 fi
 
-# 7. ROUTING LOGIC & EXIT BOUNDARY CAPTURE
-DEPLOY_SUCCESS=1
-
-# Ensure we are strictly pointing to the local workspace context directory
-cd "$TARGET_WORKSPACE_DIR" || exit 1
-
-if [ -f "run.sh" ]; then
-    echo "⚡ Custom run script detected! Executing run.sh..."
-    chmod +x run.sh
-    
-    # DYNAMIC FIX: Export user selected rebuild policy downstream to custom subscripts
-    export REBUILD_POLICY="$REBUILD_POLICY" 
-    export DOCKER_CMD
-    
-    # Execute the run script directly without altering user-permissions or local environmental directory paths
-    ./run.sh
-    DEPLOY_SUCCESS=$?
-
-elif [ -f "docker-compose.yml" ]; then
-    if [ "$REBUILD_POLICY" = "STOP" ]; then
-        echo "🛑 [STOP] Pausing Docker Compose stack (containers preserved)..."
-        $DOCKER_CMD compose stop 2>/dev/null || true
-        DEPLOY_SUCCESS=0
-    elif [ "$REBUILD_POLICY" = "TEARDOWN" ]; then
-        echo "🗑️  [TEARDOWN] Stopping and removing Docker Compose stack..."
-        $DOCKER_CMD compose down 2>/dev/null || true
-        DEPLOY_SUCCESS=0
-    elif [ "$REBUILD_POLICY" = "CLEAN" ]; then
-        echo "🐳 Docker Compose file detected [CLEAN]! Pulling/building fresh images before touching anything running..."
-        $DOCKER_CMD compose pull 2>/dev/null
-        if $DOCKER_CMD compose build --no-cache; then
-            echo "🛑 Fresh images ready — tearing down and relaunching..."
-            $DOCKER_CMD compose down 2>/dev/null || true
-            $DOCKER_CMD compose up -d
-            DEPLOY_SUCCESS=$?
-            # --no-cache retags over the previous image, leaving it dangling.
-            # -f only removes untagged images, never anything still
-            # referenced by a container.
-            $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
-        else
-            echo "❌ Build failed — leaving the existing stack untouched."
-            DEPLOY_SUCCESS=1
-        fi
-    else
-        echo "🐳 Docker Compose file detected [FAST]! Synchronizing stack changes using cached layer parameters..."
-        $DOCKER_CMD compose up -d
-        DEPLOY_SUCCESS=$?
-    fi
-
-elif [ -f "Dockerfile" ]; then
-    if [ "$REBUILD_POLICY" = "STOP" ]; then
-        echo "🛑 [STOP] Pausing container: $TRACKING_NAME"
-        $DOCKER_CMD stop "$TRACKING_NAME" 2>/dev/null || true
-        DEPLOY_SUCCESS=0
-    elif [ "$REBUILD_POLICY" = "TEARDOWN" ]; then
-        echo "🗑️  [TEARDOWN] Stopping and removing container: $TRACKING_NAME"
-        $DOCKER_CMD stop "$TRACKING_NAME" 2>/dev/null || true
-        $DOCKER_CMD rm   "$TRACKING_NAME" 2>/dev/null || true
-        DEPLOY_SUCCESS=0
-    elif [ "$REBUILD_POLICY" = "CLEAN" ]; then
-        echo "🛠️ Raw Dockerfile detected [CLEAN]! Building fresh image before touching the running container..."
-        $DOCKER_CMD build --no-cache -t "$ENV_NAME:latest" .
-        if [ $? -eq 0 ]; then
-            echo "🛑 Fresh image ready — tearing down previous container..."
-            $DOCKER_CMD stop "$TRACKING_NAME" 2>/dev/null || true
-            $DOCKER_CMD rm   "$TRACKING_NAME" 2>/dev/null || true
-            ENV_FLAGS=""
-            if [ -f ".env" ]; then ENV_FLAGS="--env-file .env"; fi
-            $DOCKER_CMD run -d --name "$TRACKING_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
-            DEPLOY_SUCCESS=$?
-            # --no-cache retags over the previous image, leaving it dangling.
-            # -f only removes untagged images, never anything still
-            # referenced by a container.
-            $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
-        else
-            DEPLOY_SUCCESS=1
-        fi
-    else
-        echo "🛠️ Raw Dockerfile detected [FAST]! Checking execution context rules..."
-        if $DOCKER_CMD ps --format '{{.Names}}' | grep -q "^${TRACKING_NAME}$"; then
-            echo "✅ Container '$TRACKING_NAME' is active. Preserving application uptime status!"
-            DEPLOY_SUCCESS=0
-        elif $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q "^${TRACKING_NAME}$"; then
-            echo "🔄 Container '$TRACKING_NAME' is dormant. Triggering pipeline startup recovery..."
-            $DOCKER_CMD start "$TRACKING_NAME"
-            DEPLOY_SUCCESS=$?
-        else
-            echo "🛠️ Container sequence vacant. Building image and provisioning environment layers..."
-            $DOCKER_CMD build -t "$ENV_NAME:latest" .
-            if [ $? -eq 0 ]; then
-                ENV_FLAGS=""
-                if [ -f ".env" ]; then ENV_FLAGS="--env-file .env"; fi
-                $DOCKER_CMD run -d --name "$TRACKING_NAME" $ENV_FLAGS --restart unless-stopped -p 80:80 "$ENV_NAME:latest"
-                DEPLOY_SUCCESS=$?
-            else
-                DEPLOY_SUCCESS=1
-            fi
-        fi
-    fi
-fi
+# 7. ROUTING LOGIC & EXIT BOUNDARY CAPTURE — delegates to
+# lib/deploy-lib.sh's deploy_environment(), shared with check-updates.sh
+# --apply so both use the exact same archetype-dispatch mechanics (run.sh
+# delegation, or the safe build-before-teardown docker-compose.yml/
+# Dockerfile fallback) instead of duplicating them.
+deploy_environment "$TARGET_WORKSPACE_DIR" "$REBUILD_POLICY" "$DOCKER_CMD"
+DEPLOY_SUCCESS=$?
 
 # Verify the execution status code of our build step before clearing
 if [ $DEPLOY_SUCCESS -ne 0 ]; then
@@ -897,14 +776,6 @@ if [ $DEPLOY_SUCCESS -ne 0 ]; then
     echo ""
     read -rp "Press Enter to return to the menu..."
     continue
-fi
-
-# Best-effort desktop-entry refresh for the generic docker-compose.yml/
-# Dockerfile fallback path only — every environment with its own run.sh
-# already does this itself at the end of run.sh, so doing it again here
-# would just be redundant (harmless, but pointless) work for those.
-if [ ! -f "run.sh" ] && [ -x "install-desktop.sh" ]; then
-    bash install-desktop.sh >/dev/null 2>&1 || true
 fi
 
 # 7. Completion message — wording matches the action that was actually taken
