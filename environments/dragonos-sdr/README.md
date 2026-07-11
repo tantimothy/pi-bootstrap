@@ -8,6 +8,21 @@ The container includes a built-in **TUI (Text User Interface) launch menu** powe
 
 ---
 
+## ⚙️ Why This Needs a Custom `run.sh`
+
+`deploy.sh` can deploy a bare `Dockerfile` environment generically (build the image, `docker run` it) without any `run.sh` at all — but only with a hardcoded `-p 80:80` on the default bridge network, no extra flags. This environment needs several things that generic fallback structurally cannot express:
+
+- **`--privileged` and `--device "${HOST_SOUND_DEVICE}"`** — direct RTL-SDR/HackRF USB and `/dev/snd` audio hardware passthrough from *this specific* Pi.
+- **`--net=host`** — required for tools like `rtl_tcp` (network SDR server) and any TCP/UDP listeners the menu launches.
+- **X11 (`HOST_X11_UNIX_PATH`) and PulseAudio (`HOST_PULSE_NATIVE_SOCKET`, `HOST_PULSE_COOKIE_PATH`) socket forwarding** — lets GUI tools (GQRX, GNU Radio Companion) render a window and play audio on the host's own display/speakers, not just run headless.
+- **Config-drift fingerprinting** — hashes the host-specific settings above so a `FAST` reattach never silently uses stale USB/audio/display paths after you edit `.env`.
+- **The `.deployed` marker** — the container runs with `--rm`, so no lingering container/image state proves it was ever launched; `install-desktop.sh` reads this marker instead.
+- **TTY handling for the interactive menu** — `exec < /dev/tty` before `docker run -it` so the script still works when invoked through a non-interactive pipe (e.g. `curl | bash`).
+
+None of this is expressible via `docker-compose.yml` either (Compose has no per-service passthrough for the host's PulseAudio cookie file or a live USB-drift hash), so a custom `run.sh` is the only fit.
+
+---
+
 ## 🔧 Tools & Projects
 
 Base image: [debian:bookworm-slim](https://hub.docker.com/_/debian) — additional SDR tools from the Debian/Kali package catalog can be installed with `apt-get install` inside the container. The following are pre-installed by the Dockerfile:

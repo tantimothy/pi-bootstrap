@@ -21,6 +21,19 @@ Memory works in three layers:
 
 ---
 
+## ⚙️ Why This Needs a Custom `run.sh`
+
+`deploy.sh`'s generic fallback (no `run.sh`) only knows how to build/run a Docker image or `docker compose up` a stack — it has no concept of anything outside Docker. NanoClaw isn't a container at all at the top level; it's a host process, so almost everything here is structurally outside what any generic Docker-based fallback could ever do:
+
+- **OS-level service management** — registers and controls a `systemd` unit (Linux) or `launchd` plist (macOS), detected and driven via `systemctl`/`launchctl` rather than `docker`. Two different OS service managers, neither of which the generic fallback or `deploy-lib.sh` has any notion of.
+- **Cloning and handing off to an external installer** — `git clone`s the upstream NanoClaw repo, then hands the terminal over to its own interactive `nanoclaw.sh` setup wizard (Node.js/pnpm install, Anthropic API key registration, first channel config). This is a multi-step, stateful, interactive first-run flow — not a single `docker run`/`compose up`.
+- **Per-conversation-group container spawning** — NanoClaw itself creates and manages a separate Docker container per messaging channel/group at runtime; `run.sh` never touches those directly, so there's no single "the container" for a generic archetype to even target.
+- **TEARDOWN's agent-container sweep** — finds and removes every `nanoclaw-agent-v2-*`-prefixed container by image name pattern, since these are spawned dynamically by NanoClaw's own router, not declared anywhere `deploy.sh` could discover statically.
+
+None of this is a Docker Compose fit either — Compose describes a fixed set of services, but the actual containers here are created dynamically at runtime by the host process, one per conversation group, with a lifecycle only NanoClaw's own router controls.
+
+---
+
 ## 🔧 Tools & Projects
 
 | Tool | Link | Description |

@@ -4,6 +4,25 @@ This repository contains the infrastructure-as-code deployment for running a uni
 
 The deployment lifecycle is integrated with an automated TUI dashboard wizard that parses environment files dynamically, coupled with an advanced framework execution orchestrator (`run.sh`).
 
+---
+
+## ⚙️ Why This Needs a Custom `run.sh`
+
+This environment *does* have a `docker-compose.yml`, so unlike `dragonos-sdr`/`kali-pentest` it's not that Compose can't express the containers themselves — `deploy.sh`'s generic fallback (no `run.sh`) already handles a plain compose stack fine (pull/build before touching anything running, `up -d`/`down`/`stop`). What it can't do is anything outside Docker entirely, and this stack needs a lot of that before `docker compose up` is even safe to run:
+
+- **Static IP / netplan configuration** (optional, only if `NETWORK_STATIC_IPS` is set) — patches host netplan YAML addressing/gateway/nameserver fields via a Python helper, with an explicit confirmation prompt and a `netplan try` auto-revert safety net. No Docker archetype touches host networking config.
+- **nftables NAT + sysctl IP forwarding** — `wg-easy` runs with `network_mode: host` so the *host kernel* handles NAT for VPN traffic; this writes `/etc/sysctl.d/wireguard.conf`, an `/etc/nftables.d/wireguard.nft` masquerade rule, and wires it into `/etc/nftables.conf` for reboot persistence.
+- **NetAlertX ARP-scanning sysctls** — `arp_ignore`/`arp_announce` tuning that Docker/runc reject as a per-container `sysctls:` entry under host networking, so it has to be set on the host directly.
+- **Host DNS resilience** — two independent host-level fixes: disabling resolvconf's nameserver truncation after loopback addresses (otherwise the host loses its DNS fallback the moment Pi-hole goes down), and discovering the network's real DHCP-advertised DNS server (via a one-off `nmap` broadcast probe) to pin as Docker's own daemon-level DNS, since Docker's built-in detection is unreliable with more than one active host interface.
+- **PADD login launcher** — writes an idempotent `.bashrc` block that runs `~/padd.sh` on login, and writes Pi-hole's API password to `/etc/pihole/cli_pw` so PADD never has to take it as a visible CLI argument.
+- **Grafana dashboard provisioning** — downloads community dashboards on first deploy, rewriting each one's templated datasource variable (`${DS_...}`) to match the single Prometheus datasource this stack provisions.
+- **CLEAN's rollback fallback** — `docker commit`s every running container to a `<name>:clean-fallback` image *before* tearing it down, specifically because Compose matches existing containers by project/service labels rather than name, so a plain `docker rename` wouldn't survive the next `compose up`. The generic fallback's CLEAN has no rollback snapshot at all — it's build-then-swap only, with no explicit "restore the previous version" path.
+- **CLEAN's pull-before-teardown ordering, deliberately** — since Pi-hole may be this host's own DNS resolver, pulling fresh images has to happen *before* Pi-hole is stopped, or the pull itself can't resolve the registry hostname. The generic fallback's compose CLEAN already pulls before tearing down too, but doesn't know it needs to defer the *rollback snapshot* step until right before the swap, the way this script does.
+
+None of the host-level items above are things `docker-compose.yml` — or any generic Docker archetype — has syntax for at all; they're plain host configuration that has to happen around the container lifecycle, not inside it.
+
+---
+
 ## 🪐 Architecture & Networking
 
 - **Chained DNS Pipeline:** Pi-hole runs on the host network so it can serve DHCP to LAN devices and receive broadcast packets. `wg-easy` writes `WG_DNS` (default `10.8.0.1` — the Pi's WireGuard tunnel IP) into every peer config, so VPN clients use Pi-hole for DNS automatically.

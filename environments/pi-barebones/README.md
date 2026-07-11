@@ -6,6 +6,18 @@ This is not a Docker environment — it runs directly on the host and has no con
 
 ---
 
+## ⚙️ Why This Needs a Custom `run.sh`
+
+`deploy.sh`'s generic fallback only knows how to build/run a Docker image or `docker compose up` a stack — every one of its code paths assumes a `Dockerfile` or `docker-compose.yml` exists. This environment has neither, on purpose: everything it does is host-level provisioning with no container involved at all, so there's nothing for a Docker-based fallback to even discover:
+
+- **`apt-get install`** of packages listed in `packages.txt` — direct host package management, not a container image build.
+- **Idempotent `.bashrc` injection** — two independently-positioned marker-delimited blocks (tmux auto-attach, fastfetch on login), carefully ordered so other environments (e.g. `pihole-wireguard`'s PADD launcher) can insert their own block in between without disturbing tmux-first/fastfetch-last ordering. No Docker archetype has any notion of "edit the host user's shell rc file."
+- **TigerVNC install and systemd service setup** — installs `tigervnc-standalone-server`, resolves a Debian-version-dependent password utility (`vncpasswd` vs `tigervncpasswd`), writes `/etc/tigervnc/vncserver.users` and a `vncserver@.service` unit file, then enables/starts it via `systemctl`. This is host-level remote-desktop infrastructure, not something expressible as a container at all.
+
+Since there's no `Dockerfile`/`docker-compose.yml` for this environment, `deploy.sh` has literally nothing to fall back to without `run.sh` — it's the only archetype that fits.
+
+---
+
 ## 🔧 Tools & Projects
 
 | Tool | Link | Description |
