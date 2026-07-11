@@ -167,12 +167,35 @@ MENU_INDEX=1
 for dir in "${ENV_DIRS[@]}"; do
     folder_name=$(basename "$dir")
 
+    # run.sh, when present, is itself one of several subtypes depending on
+    # what it actually orchestrates underneath — shown here since "Custom
+    # run.sh" alone doesn't say much about what a given environment
+    # actually does. Detected cheaply from what's on disk / referenced in
+    # the script, not from any declared metadata:
     if [ -f "$dir/run.sh" ] ; then
-        TYPE="[Custom run.sh]"
+        # docker-compose.yml checked before Dockerfile: a compose file can
+        # itself reference a local Dockerfile via `build:` (ntopng does) —
+        # Compose is what run.sh actually calls in that case, so it takes
+        # priority over the Dockerfile's mere presence.
+        if [ -f "$dir/docker-compose.yml" ] ; then
+            TYPE="[run.sh + Compose]"
+        elif [ -f "$dir/Dockerfile" ] ; then
+            TYPE="[run.sh + Dockerfile]"
+        elif grep -q "git clone" "$dir/run.sh" 2>/dev/null ; then
+            TYPE="[run.sh: 3rd-party repo]"
+        else
+            TYPE="[run.sh: host-only]"
+        fi
     elif [ -f "$dir/docker-compose.yml" ] ; then
         TYPE="[Docker Compose]"
     elif [ -f "$dir/Dockerfile" ] ; then
-        TYPE="[Standalone Dockerfile]"
+        # No run.sh AND no docker-compose.yml — the generic fallback's
+        # `docker run` has no `-v` flag at all, so this can build and run a
+        # container but can never actually persist data to a bind mount.
+        # Discouraged in favor of a docker-compose.yml with `build: .`,
+        # which gets the same "no run.sh needed" simplicity plus real
+        # volume/port/flag support — see the README's Archetype section.
+        TYPE="[Dockerfile only — no volumes]"
     fi
 
     # Flag environments that require Linux host features when running on macOS.
@@ -561,16 +584,59 @@ fi
 # DEPLOYMENT POLICY SELECTOR MENU
 # ==========================================
 
+# Some environments' run.sh never branches on $POLICY/$REBUILD_POLICY at
+# all (pi-barebones is the only current example — pure host provisioning
+# that just re-runs the same idempotent setup every time) — for those,
+# STOP/TEARDOWN/CLEAN would all silently do the exact same thing as FAST,
+# which is actively misleading to present as distinct choices. Detected
+# by grepping run.sh for any POLICY reference at all, rather than
+# hardcoding environment names, so this stays correct if another
+# host-only environment is added later. Both flags are recomputed fresh
+# on every pass through deploy.sh's persistent menu loop (never appended
+# to), so a later environment never inherits a flag left over from a
+# previous one in the same session.
+POLICY_HAS_LIFECYCLE=true
+ENV_RUN_SH="$PROJECT_DIR/$SELECTED_PATH/run.sh"
+if [ -f "$ENV_RUN_SH" ] && ! grep -q "POLICY" "$ENV_RUN_SH"; then
+    POLICY_HAS_LIFECYCLE=false
+fi
+
+# WIPE is independently meaningless for an environment that declares no
+# data at all to delete (info.sh's DATA_DIRS/INSTALL_DIRS/NAMED_VOLUMES
+# all empty, per pi-barebones' info.sh) — checked separately from the
+# lifecycle flag above, since the two aren't inherently coupled.
+POLICY_HAS_WIPABLE_DATA=true
+ENV_INFO_SH="$PROJECT_DIR/$SELECTED_PATH/info.sh"
+if [ -f "$ENV_INFO_SH" ] \
+    && grep -qE '^DATA_DIRS=\(\);' "$ENV_INFO_SH" \
+    && grep -qE '^INSTALL_DIRS=\(\);' "$ENV_INFO_SH" \
+    && grep -qE '^NAMED_VOLUMES=\(\);' "$ENV_INFO_SH"; then
+    POLICY_HAS_WIPABLE_DATA=false
+fi
+
+POLICY_MENU_ITEMS=()
+if [ "$POLICY_HAS_LIFECYCLE" = "true" ]; then
+    POLICY_MENU_ITEMS+=(
+        "FAST"     "Start if not running; skip if already active"
+        "STOP"     "Pause running containers (resumable with FAST)"
+        "TEARDOWN" "Stop & remove containers — no reinstall"
+        "CLEAN"    "Stop, remove, and reinstall from scratch"
+    )
+else
+    POLICY_MENU_ITEMS+=(
+        "FAST"     "Run/re-run setup (always idempotent — safe to repeat)"
+    )
+fi
+POLICY_MENU_ITEMS+=( "INFO" "List data directories and useful commands" )
+if [ "$POLICY_HAS_WIPABLE_DATA" = "true" ]; then
+    POLICY_MENU_ITEMS+=( "WIPE" "Delete persisted data directories (backup first!)" )
+fi
+
 TEMP_POLICY_FILE=$(mktemp)
 dialog --clear \
     --title " Deployment Strategy Policy " \
-    --menu "Select how to process the configuration build lifecycle:" 19 70 6 \
-    "FAST"     "Start if not running; skip if already active" \
-    "STOP"     "Pause running containers (resumable with FAST)" \
-    "TEARDOWN" "Stop & remove containers — no reinstall" \
-    "CLEAN"    "Stop, remove, and reinstall from scratch" \
-    "INFO"     "List data directories and useful commands" \
-    "WIPE"     "Delete persisted data directories (backup first!)" \
+    --menu "Select how to process the configuration build lifecycle:" 19 70 "$((${#POLICY_MENU_ITEMS[@]} / 2))" \
+    "${POLICY_MENU_ITEMS[@]}" \
     2> "$TEMP_POLICY_FILE"
 
 POLICY_EXIT=$?
