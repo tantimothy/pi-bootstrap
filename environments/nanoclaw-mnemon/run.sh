@@ -143,6 +143,25 @@ apply_mnemon_patch() {
         local embed_env=""
         if [ -n "$MNEMON_EMBED_ENDPOINT" ]; then
             embed_env="ENV MNEMON_EMBED_ENDPOINT=${MNEMON_EMBED_ENDPOINT}"
+            # NanoClaw's own container-runner.ts unconditionally injects
+            # HTTPS_PROXY (+ certs) into every agent container for OneCLI's
+            # credential injection — verified directly against its source.
+            # That only affects https:// URLs by proxy-env-var convention,
+            # so our http:// default is unaffected, but if someone points
+            # this at an HTTPS endpoint instead, it would otherwise get
+            # silently routed through a proxy that isn't built to pass
+            # arbitrary traffic through. NO_PROXY/no_proxy sidesteps that —
+            # same fix /add-ollama-provider's own SKILL.md applies for its
+            # analogous ANTHROPIC_BASE_URL-redirection case. Set
+            # unconditionally (not just for https://) since it's a no-op
+            # for plain HTTP and this is cheap insurance either way.
+            local embed_host
+            embed_host=$(printf '%s' "$MNEMON_EMBED_ENDPOINT" | sed -E 's#^[a-zA-Z]+://##; s#[:/].*$##')
+            if [ -n "$embed_host" ]; then
+                embed_env="${embed_env}
+ENV NO_PROXY=${embed_host}
+ENV no_proxy=${embed_host}"
+            fi
             if [ -n "$MNEMON_EMBED_MODEL" ]; then
                 embed_env="${embed_env}
 ENV MNEMON_EMBED_MODEL=${MNEMON_EMBED_MODEL}"
