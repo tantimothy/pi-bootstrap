@@ -226,7 +226,16 @@ CONTAINER_NAME="pihole wg-easy prometheus grafana"
 
 ### Archetype 1: `run.sh` (Custom Script)
 
-Use this when you need host network config, kernel drivers, hardware pass-through (USB SDR, Wi-Fi card, GPS), or multi-step pre-deployment logic.
+**Use this when** you need something `lib/deploy-lib.sh`'s generic fallback (Archetypes 2/3) structurally cannot express — see the "Routing Priority" section above for exactly what the generic fallback already covers on its own (safe build-before-teardown `CLEAN`, data-dir pre-creation, desktop refresh). Concretely, that means:
+- Host-level configuration outside Docker entirely (sysctls, netplan/network config, nftables rules, systemd/launchd units, `apt-get install` on the host)
+- Hardware or network passthrough flags a `docker-compose.yml`/plain `docker run` alone can't combine with everything else the environment needs (`--privileged`, `--net=host`, `--device`, X11/PulseAudio socket forwarding)
+- A container lifecycle that isn't a static, discoverable set of containers at all (e.g. a host service that spawns containers dynamically at runtime)
+- An interactive, `--rm` foreground session with its own attach/reattach state machine (exec into a running container, `docker start` a dormant one, or launch fresh) — Compose's `up -d` model has no equivalent for this
+- CLEAN rollback snapshotting, or any other deploy-time behavior beyond "build/pull, then swap"
+
+**What must be in the environment:** `run.sh` itself, checked into git as executable (`chmod +x` — `deploy.sh` defensively re-`chmod`s it before every run, but a non-executable `run.sh` still fails for anyone invoking it directly; this has bitten this repo before). It's fine to *also* have a `docker-compose.yml` alongside it (`pihole-wireguard` does) when Compose is the right fit for the containers themselves but the environment needs host-level prerequisites around it — `run.sh` still takes priority and is expected to invoke `$DOCKER_COMPOSE` itself in that case; the generic fallback is never reached.
+
+**What its README must document:** a "⚙️ Why This Needs a Custom `run.sh`" section, listing concretely what it does that the generic fallback can't — not just "it's complex," but the specific flags/behaviors from the bullet list above. See `dragonos-sdr`, `kali-pentest`, `nanoclaw`, `pi-barebones`, and `pihole-wireguard`'s READMEs for real examples of each case. If you can't articulate a concrete reason, use Archetype 2 or 3 instead — `portainer` used to have a `run.sh` for no real reason beyond historical inertia, and it was removed once that became clear.
 
 Key rules:
 - **Never** hardcode `docker` — use `DOCKER=${DOCKER_CMD:-docker}` to inherit the sudo wrapper
@@ -265,7 +274,11 @@ $DOCKER run -it --rm \
 
 ### Archetype 2: `docker-compose.yml` (Multi-Container Stack)
 
-Docker Compose picks up the generated `.env` automatically. Match every `container_name:` in your compose file to the names in `CONTAINER_NAME`:
+**Use this when** the environment is one or more long-running services with no host-level configuration needed around them — this is the preferred archetype for anything that fits; only reach for Archetype 1 if you have a concrete reason from the list above.
+
+**What must be in the environment:** `docker-compose.yml`, with every `container_name:` matching a name in `CONTAINER_NAME`. Docker Compose picks up the generated `.env` automatically — no explicit `--env-file` needed. `lib/deploy-lib.sh`'s generic fallback drives it directly (`compose pull` + `compose build --no-cache` before `compose down`/`compose up -d` on `CLEAN`, `compose stop`/`compose down` for `STOP`/`TEARDOWN`), so no `run.sh` is required at all unless something outside the stack itself is needed.
+
+**What its README must document:** the standard baseline — a Services & Ports table, Data Directories, Desktop Integration, Useful Commands (see the Folder Layout section above). No "why run.sh" section needed if there isn't one; that's the common, preferred case.
 
 ```yaml
 services:
@@ -279,11 +292,15 @@ services:
 
 ### Archetype 3: `Dockerfile` (Single Container Fallback)
 
-No `run.sh` or `docker-compose.yml` needed. The orchestrator builds the image, injects variables via `--env-file .env`, and maps port 80. For anything beyond a basic single-container setup, use Archetype 1 or 2 instead.
+**Use this when** the environment is genuinely a single container with no unusual runtime flags. No `run.sh` or `docker-compose.yml` needed — the generic fallback builds the image, injects variables via `--env-file .env`, and runs it.
+
+**What must be in the environment:** just the `Dockerfile`. The one hard constraint: the generic fallback always launches with a hardcoded `docker run -d --name <name> --restart unless-stopped -p 80:80 <image>` — your container's app **must listen on port 80 internally**, on the default bridge network, with no `--privileged`/`--net=host`/`--device`/extra volume mounts. There's no `.env`-driven override for the port or any other flag today. If your app listens on a different port, or needs any flag this doesn't provide, use Archetype 1 or 2 instead — don't try to work around the port-80 constraint by proxying or remapping inside the container.
+
+**What its README must document:** the standard baseline (Services & Ports, Data Directories, etc.), same as Archetype 2 — plus explicitly noting that the app listens on port 80 internally, since that's otherwise a silent assumption baked into the generic fallback rather than something declared anywhere in the environment's own files.
 
 ### `info.sh` (Required)
 
-Every one of the seven current environments has one — it's not optional in practice. `run.sh` calls it at the end of every deploy for the post-deploy summary; `deploy.sh`'s `INFO` and `WIPE` policies delegate to it entirely (they don't touch containers directly at all); `backup.sh` invokes it with a `manifest` action to discover which data directories and named volumes to archive; and it's what generates `post-deploy-info.html`, the page the desktop "Info" icon opens. Skip it and INFO, WIPE, backup, and the info desktop entry all silently do nothing for that environment.
+Every current environment has one — it's not optional in practice. `run.sh` calls it at the end of every deploy for the post-deploy summary; `deploy.sh`'s `INFO` and `WIPE` policies delegate to it entirely (they don't touch containers directly at all); `backup.sh` invokes it with a `manifest` action to discover which data directories and named volumes to archive; and it's what generates `post-deploy-info.html`, the page the desktop "Info" icon opens. Skip it and INFO, WIPE, backup, and the info desktop entry all silently do nothing for that environment.
 
 All the actual logic lives in `lib/info-lib.sh` — your `info.sh` just sets some variables and arrays, then sources it:
 
