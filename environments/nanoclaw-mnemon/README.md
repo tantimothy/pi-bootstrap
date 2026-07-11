@@ -47,6 +47,8 @@ Both steps are applied **before** NanoClaw's own setup wizard builds the agent i
 
 **Memory storage**: mnemon writes to `/home/node/.claude/mnemon/` inside each agent container, which maps onto that conversation group's own `.claude/` directory under `$NANOCLAW_INSTALL_PATH/groups/<group>/` — memory is per-group by default (mnemon also supports an optional shared/global read-only store; this environment doesn't configure that, it's mnemon's own default per-agent behavior).
 
+**Optional hybrid graph+vector recall**: mnemon has this built in (`MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL`, defaulting to `nomic-embed-text`) — set `MNEMON_EMBED_ENDPOINT` in `.env` (see `.env.example`'s own comment, commented out by default) to bake it into the Dockerfile as a plain `ENV` line. Left unset, mnemon runs graph-only — its own documented default, not a degraded mode. Needs Ollama actually reachable from wherever the agent sandbox runs (`http://host.docker.internal:11434` on Docker Desktop), and `nomic-embed-text` pulled there, before it does anything — setting the variable alone doesn't install or start Ollama for you. Requires `CLEAN` to take effect on an already-deployed install, same as bumping `MNEMON_VERSION`.
+
 **Provider compatibility**: mnemon's Claude Code hooks only fire for groups running the default Claude provider. If you've configured a group with `"provider": "opencode"` or similar in its `container.json`, mnemon's hooks won't run for that group — check with `grep -H '"provider"' groups/*/container.json` inside the install path.
 
 ---

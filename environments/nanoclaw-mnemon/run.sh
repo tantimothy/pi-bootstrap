@@ -53,6 +53,13 @@ fi
 INSTALL_PATH="${NANOCLAW_INSTALL_PATH:-$HOME/nanoclaw-mnemon}"
 NANOCLAW_PORT="${NANOCLAW_PORT:-3081}"
 MNEMON_VERSION="${MNEMON_VERSION:-0.1.1}"
+# Opt-in — mnemon's own optional hybrid graph+vector recall (unset by
+# default, matching the plain nanoclaw environment's own OLLAMA_HOST stub
+# in .env.example: commented out until you actually have Ollama running
+# somewhere reachable). Left blank, mnemon runs graph-only, which is its
+# own documented default behavior, not a degraded mode.
+MNEMON_EMBED_ENDPOINT="${MNEMON_EMBED_ENDPOINT:-}"
+MNEMON_EMBED_MODEL="${MNEMON_EMBED_MODEL:-}"
 CONTAINER_NAME="nanoclaw-mnemon"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
 
@@ -127,6 +134,20 @@ apply_mnemon_patch() {
             echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
             return 1
         fi
+        # Both opt-in and unset by default — see MNEMON_EMBED_ENDPOINT's own
+        # comment above. Baked into the image as plain ENV (not forwarded
+        # per-container-spawn like /add-ollama-tool's OLLAMA_HOST) because
+        # mnemon runs inside NanoClaw's own container-runner.ts, which this
+        # environment doesn't patch — an image-level ENV is the only hook
+        # available without touching NanoClaw's TypeScript source.
+        local embed_env=""
+        if [ -n "$MNEMON_EMBED_ENDPOINT" ]; then
+            embed_env="ENV MNEMON_EMBED_ENDPOINT=${MNEMON_EMBED_ENDPOINT}"
+            if [ -n "$MNEMON_EMBED_MODEL" ]; then
+                embed_env="${embed_env}
+ENV MNEMON_EMBED_MODEL=${MNEMON_EMBED_MODEL}"
+            fi
+        fi
         local tmp; tmp=$(mktemp)
         {
             head -n "$((anchor - 1))" "$dockerfile"
@@ -139,6 +160,7 @@ RUN ARCH=\$(dpkg --print-architecture) && \\
     chmod +x /usr/local/bin/mnemon
 
 ENV MNEMON_DATA_DIR=/home/node/.claude/mnemon
+${embed_env}
 
 MNEMON_DOCKER_BLOCK
             tail -n "+${anchor}" "$dockerfile"
