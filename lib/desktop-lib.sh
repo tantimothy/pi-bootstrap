@@ -254,17 +254,37 @@ _desktop_is_deployed() {
     esac
 }
 
+_desktop_not_deployed_msg() {
+    local default_msg
+    case "$DEPLOYED_CHECK_KIND" in
+        container) default_msg="container '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
+        systemd)   default_msg="service '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
+        *)         default_msg="not deployed — skipping (deploy the environment first)" ;;
+    esac
+    echo "${NOT_DEPLOYED_MSG:-$default_msg}"
+}
+
 run_desktop_install() {
     # .desktop files, $APPS_DIR (~/.local/share/applications), and the
     # xdg-desktop-menu submenu machinery below are all Linux/XDG concepts
-    # with no macOS equivalent — nothing here actually fails on macOS
-    # (every risky call is already guarded), so left unchecked this would
-    # silently write meaningless text files into ~/Desktop and a
-    # nonstandard ~/.local/share/applications folder instead of doing
-    # nothing. Skip cleanly instead, for both install and --uninstall —
-    # there's nothing to install and nothing to clean up either way.
+    # with no macOS equivalent — skip all of that on macOS rather than
+    # silently writing meaningless text files into ~/Desktop and a
+    # nonstandard ~/.local/share/applications folder. The generated
+    # post-deploy-info.html itself has no such dependency though (plain
+    # self-contained HTML, no XDG/.desktop involvement) and is still
+    # useful without a clickable icon pointing at it — regenerate that on
+    # macOS instead of skipping entirely.
     if [[ "$(uname)" == "Darwin" ]]; then
-        echo "  ⏭  ${MENU_ID}: skipped — desktop entries are Linux-only (XDG .desktop files have no macOS equivalent)"
+        if [ "${1:-}" = "--uninstall" ]; then
+            echo "  ⏭  ${MENU_ID}: skipped — desktop entries are Linux-only (XDG .desktop files have no macOS equivalent)"
+            return 0
+        fi
+        if ! _desktop_is_deployed; then
+            echo "  ⚠  ${MENU_ID}: $(_desktop_not_deployed_msg)"
+            return 0
+        fi
+        bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+        echo "  ⏭  ${MENU_ID}: desktop icon skipped (macOS, no XDG equivalent) — generated ${ENV_DIR}/post-deploy-info.html"
         return 0
     fi
 
@@ -281,13 +301,7 @@ run_desktop_install() {
     if ! _desktop_is_deployed; then
         _desktop_remove_all_for_menu "$MENU_ID"
         remove_submenu "$MENU_ID"
-        local default_msg
-        case "$DEPLOYED_CHECK_KIND" in
-            container) default_msg="container '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
-            systemd)   default_msg="service '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
-            *)         default_msg="not deployed — skipping (deploy the environment first)" ;;
-        esac
-        echo "  ⚠  ${MENU_ID}: ${NOT_DEPLOYED_MSG:-$default_msg}"
+        echo "  ⚠  ${MENU_ID}: $(_desktop_not_deployed_msg)"
         return 0
     fi
     echo "  ${MENU_ID}: deployed ✓"
