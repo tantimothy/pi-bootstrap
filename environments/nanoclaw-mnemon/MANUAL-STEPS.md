@@ -16,6 +16,8 @@ CONTAINER_NAME="nanoclaw-mnemon"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
 NANOCLAW_PORT=3081                       # plain nanoclaw uses 3080
 MNEMON_VERSION=0.1.1                     # see releases: https://github.com/mnemon-dev/mnemon/releases
+MNEMON_EMBED_ENDPOINT=                   # optional, unset by default — see step 4
+MNEMON_EMBED_MODEL=                      # optional, unset by default — see step 4
 ```
 
 ## 2. Build a second orchestrator image
@@ -67,6 +69,22 @@ mnemon setup --target claude-code --yes --global >/dev/stderr 2>&1
 Both edits are idempotent by nature (re-applying them is only a problem if you paste them in twice by hand) — `grep -q 'MNEMON_VERSION' container/Dockerfile` and `grep -q 'mnemon setup' container/entrypoint.sh` tell you whether they're already there, which is exactly what this environment's own `apply_mnemon_patch()` checks before touching either file.
 
 Do this **before** NanoClaw's own setup wizard builds the agent-sandbox image (step 6) — otherwise you'll need to trigger a rebuild of that image afterward instead of getting it for free on the first build.
+
+### 4a. (Optional) Turn on mnemon's built-in hybrid graph+vector recall
+
+Mnemon ships with this — it's not something this environment or the gist's author built. Its own README documents `MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL` (defaulting to `nomic-embed-text`) as opt-in config: unset, mnemon runs graph-only, which is its own documented default, not a degraded mode.
+
+To enable it, add two more lines to the same `ENV MNEMON_DATA_DIR=...` block from step 4, before the closing `# ---- Bun runtime` marker:
+
+```dockerfile
+ENV MNEMON_DATA_DIR=/home/node/.claude/mnemon
+ENV MNEMON_EMBED_ENDPOINT=http://host.docker.internal:11434
+ENV MNEMON_EMBED_MODEL=nomic-embed-text
+```
+
+(`MNEMON_EMBED_MODEL` is only needed if you want something other than mnemon's own default, which already is `nomic-embed-text` — safe to omit.)
+
+**Prerequisites this doesn't automate**: an Ollama daemon actually running and reachable at that endpoint (`http://host.docker.internal:11434` reaches the host's own Ollama from Docker Desktop), and `ollama pull nomic-embed-text` run on that daemon. Setting the env vars alone does nothing without both of those in place first.
 
 ## 5. Launch the second orchestrator container
 
@@ -124,4 +142,4 @@ That prints only the container IDs whose bind mounts actually trace back to `$IN
 
 ---
 
-That's the whole thing `./run.sh` automates: steps 1–6 on every fresh deploy (idempotently — re-running skips whatever's already done), step 7 via `scaffold-wiki.sh` on request, step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
+That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a) and 5–6 on every fresh deploy (idempotently — re-running skips whatever's already done), step 7 via `scaffold-wiki.sh` on request, step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
