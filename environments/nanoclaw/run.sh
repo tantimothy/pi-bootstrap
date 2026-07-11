@@ -162,6 +162,14 @@ if [ "$DEPLOY_MODE" = "container" ]; then
     fi
 
     if ! $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/dist/index.js" 2>/dev/null; then
+        if [ ! -f "$INSTALL_PATH/nanoclaw.sh" ]; then
+            echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
+            git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
+            echo "✅ Clone complete."
+        else
+            echo "📦 Install path exists. Pulling latest changes..."
+            git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
+        fi
         echo ""
         echo "🧙 Handing off to the NanoClaw interactive setup wizard (inside the container)..."
         echo "   The wizard will ask for your Anthropic API key, channel setup, and more."
@@ -313,7 +321,7 @@ fi
 # ---------------------------------------------------------------------------------------
 if [ ! -d "$INSTALL_PATH" ]; then
     echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
-    git clone https://github.com/qwibitai/nanoclaw.git "$INSTALL_PATH"
+    git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
     echo "✅ Clone complete."
 else
     echo "📦 Install path exists. Pulling latest changes..."
