@@ -106,6 +106,20 @@ Since Claude Code's hooks are session-wide, not scoped to "which skill is active
 
 **Building the actual gist-accurate connection** would still mean something deliberate — the wiki skill explicitly calling `mnemon recall` as a documented ingest step, not hoping the agent's own judgment happens to do it. Not built; a real, unstarted piece of work, not a config flag like the embeddings gap turned out to be. **Not currently planned to be closed** — flagging status quo, not committing to build it. Revisit if it becomes a priority.
 
+### Manual bridge: a prompt instead of a pipeline
+
+Short of building the code fix above, a deliberate, well-worded prompt can approximate the connection on demand — the agent has both tool sets (`mnemon recall`, and, if scaffolded, wiki-writing) available; it's just not wired to combine them automatically. Tested this reasoning against a concrete example:
+
+> "Compile a fresh wiki into the /wiki directory. Query mnemon for our top 20 highest-importance entities and core concepts from the last month, synthesize them into comprehensive narrative pages, and cross-link them using Obsidian wiki-links."
+
+**What actually happens when an agent tries this**, checked against `mnemon`'s real CLI reference (`docs/USAGE.md`, fetched directly), not assumed:
+
+- Verified `recall` flags: `--limit`, `--intent` (`WHY`/`WHEN`/`ENTITY`/`GENERAL`), `--cat` (`preference`/`decision`/`fact`/`insight`/`context`/`general`), `--source`, `--basic`, `--verbose`. **No native importance-sort flag, no native date-range flag, and no native entity-vs-concept type filter** — `--cat`'s actual values don't distinguish "entity" from "concept" at all; entities are metadata attached to an insight via `remember --entities`, not a separately queryable type.
+- So a prompt like this **can't** resolve into one precise, deterministic `recall` call. What actually happens: the agent calls `recall` with a broad topic query (or `--basic` for looser matching) and a generous `--limit`, gets back a batch of JSON that *does* include `importance` and, with `--verbose`, timestamps — then filters/sorts/classifies that batch itself, in its own reasoning, to approximate "top 20 by importance, last month, entities vs. concepts." Real data comes back; the filtering precision is the agent's own judgment call, not a guarantee, and results would vary run to run.
+- Two prerequisites the prompt itself doesn't establish: the group's agent needs *both* mnemon and wiki tooling actually active (same opt-in-per-group caveat as everything else here — nothing automatic makes both present), and `/wiki` as an absolute path likely isn't right for this environment's layout (`groups/<group>/wiki/`, mounted at `/workspace/agent/wiki/` inside the container) — phrasing it relatively, or letting the agent resolve its own path from its own instructions, avoids that ambiguity.
+
+**Net take**: this is the honest way to get gist-parity behavior without the unstarted code fix — real, usable, and available today, but a judgment call each time it's run rather than a guaranteed pipeline. Good for an occasional "give me a state-of-the-memory wiki snapshot" ask; not a substitute for the deterministic ingest step described above if you want that connection to hold up unattended.
+
 ---
 
 ## 📚 The Karpathy-Pattern Ecosystem (it's not one project)
