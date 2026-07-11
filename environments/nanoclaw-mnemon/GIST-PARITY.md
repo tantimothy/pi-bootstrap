@@ -9,7 +9,7 @@ The [VivianBalakrishnan gist](https://gist.github.com/VivianBalakrishnan/a7d4eec
 | Wiki knowledge base (Karpathy LLM Wiki pattern) | 🟡 Partial | Mechanical half only (`scaffold-wiki.sh`); domain design is interactive by upstream design |
 | Voice transcription — OpenAI Whisper API | ❌ Not built | No |
 | Voice transcription — local whisper.cpp | ❌ Not built | No |
-| Local vector embeddings (Ollama + `nomic-embed-text`) | ❌ Not built — model + connectivity pinned down; two design paths below (gist-accurate, needs mnemon schema investigation, vs. wiki-scoped, lower risk) | No |
+| Local vector embeddings (Ollama + `nomic-embed-text`) | ❌ Not built, but trivial — it's a **built-in stock `mnemon` feature** (`MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL`), just not yet wired into `apply_mnemon_patch()`'s env forwarding | No — one env var away |
 | Obsidian/iCloud/rsync personal sync | ❌ Out of scope by design | Inherently personal, not automatable |
 
 ---
@@ -33,32 +33,33 @@ Two chained official skills: `/add-voice-transcription` (OpenAI API, prerequisit
 
 ## 🧠 Local Vector Embeddings (Ollama + `nomic-embed-text`)
 
-**Corrected below against the gist's actual text.** An earlier version of this section proposed scoping embeddings to the wiki corpus, treating them as complementary to (separate from) mnemon. Having re-fetched the gist directly rather than working from a paraphrase, that's backwards — here's what it actually describes, quoted:
+**Corrected twice now — this second correction reverses most of the first.** Two passes on this section, both worth showing rather than silently overwriting:
 
-- Three layers, in order: **raw sources → mnemon → wiki**.
-- Mnemon is described as a "custom CLI knowledge graph tool (SQLite + graph traversal)" that extracts and stores "discrete facts, insights, and style preferences" from raw sources.
-- **Embeddings live inside mnemon's own retrieval step, not at the wiki layer.** Quoted: the system "uses local vector embeddings (Ollama + nomic-embed-text) for semantic retrieval" to "run a semantic query against the graph using the user's message as input," and "relevant entries are injected as context before the agent responds." Concretely: `nomic-embed-text` embeds the live user message; that vector is compared against embedded mnemon facts; matches get pulled into context.
-- The wiki is pure synthesis **downstream of mnemon's facts**, with no embeddings involved at that layer at all: "synthesized markdown narratives compiled from mnemon facts." Karpathy's pattern is credited specifically as inspiration for this synthesis step, not the retrieval step: "the wiki pattern is inspired by [Karpathy's LLM Wiki] concept — extracting structured knowledge from raw sources rather than indexing them whole" — contrasted directly with plain RAG: "RAG retrieves text chunks; mnemon stores synthesised facts as discrete nodes."
+**Pass 1** (re-fetched the gist directly): found the real flow is raw sources → mnemon → wiki, with embeddings inside mnemon's own retrieval, not scoped to the wiki as originally proposed. Still accurate.
 
-**A consequence worth being explicit about**: the gist's "mnemon" is not simply the stock `mnemon-dev/mnemon` binary this environment installs via `/add-mnemon`. The real project's own docs, verified earlier in this work, never mention embeddings — `mnemon-dev/mnemon` is graph-based, not vector-based, full stop. So the gist author appears to have built their own Ollama-based semantic-query layer around mnemon's SQLite storage themselves — genuinely custom work beyond what `/add-mnemon` installs, not a documented mnemon feature. **This environment's own mnemon integration is the stock binary, with no embeddings layer** — matching the gist's actual architecture, not just "some embeddings somewhere," means building that custom layer, and it depends on mnemon's real storage schema, which hasn't been inspected yet (unlike wiki markdown files, which this repo fully controls and has already read).
+**Pass 2** (read further into `mnemon-dev/mnemon`'s own README than before): Pass 1 also concluded the gist's "mnemon" must be a custom fork or wrapper, since "mnemon's own docs never mention embeddings." **That conclusion was wrong** — it was based on an incomplete read of the same README. The actual text, further down than previously checked:
 
-**Pinned down** (unaffected by the correction above):
-- **Model**: [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5), pulled via `ollama pull nomic-embed-text` — first-class entry in Ollama's own model library, no manual GGUF conversion needed. 137M params, 8192-token context, Matryoshka-truncatable 768→64 dimensions, Apache 2.0. Requires task-prefixed input (`search_query: `/`search_document: `) — matters directly for whatever ingestion/query code gets written, since a prefix mismatch degrades retrieval silently rather than erroring.
-- **Connectivity**: `/add-ollama-tool`'s own `SKILL.md` (fetched and read in full) establishes the pattern to reuse rather than reinvent — `OLLAMA_HOST` env var, default `http://host.docker.internal:11434` with a `localhost` fallback, forwarded into agent containers via `ollamaEnvArgs()` in `container-runner.ts`. Ollama itself runs as a host-level (or otherwise externally reachable) daemon, never inside a per-message agent container — embeddings should follow the exact same reachability assumption, not invent a second one.
+> **Intent-aware recall** — graph traversal + optional vector search (RRF fusion), enabled by default for all queries
+> **Optional embeddings** — works fully without Ollama; add local Ollama for enhanced vector+keyword hybrid search
 
-**Two design paths, honestly different in difficulty:**
+And from the configuration table:
 
-**A. Match the gist's real flow — embeddings query mnemon's facts.**
-1. Prerequisite work not yet done: inspect `mnemon-dev/mnemon`'s actual on-disk format (it's SQLite per the gist's description, but the schema — table names, what constitutes a "fact" row, IDs stable enough to key an external index against) hasn't been read. This is a real unknown, not a detail.
-2. Two embedding calls, matching the gist's own two phases: **ingestion** — after mnemon writes a new fact (via its `remember`/`link` hooks), embed that fact's text and store the vector keyed to mnemon's own fact ID; **retrieval** — embed the live user message before the agent responds, compare against stored fact vectors, inject top matches as context (mirroring mnemon's own `UserPromptSubmit` hook timing).
-3. New MCP tools mirroring `/add-ollama-tool`'s registration pattern, but scoped to mnemon facts rather than wiki pages — e.g. `index_mnemon_fact` / `semantic_recall`.
-4. Storage: a side-table or a separate per-group SQLite file keyed by mnemon's fact IDs — depends entirely on what step 1 finds. Could plausibly live alongside mnemon's own data under `/home/node/.claude/mnemon/` inside the agent container (same host bind mount mnemon already uses).
-5. **Not a drop-in** — this only works cleanly if this environment's stock `mnemon-dev/mnemon` actually exposes (or can be safely read around) a stable fact ID and stable fact text, which is unverified.
+| Environment Variable | Default | Description |
+|---|---|---|
+| `MNEMON_EMBED_ENDPOINT` | `http://localhost:11434` | Ollama API endpoint |
+| `MNEMON_EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
 
-**B. The simpler, previously-proposed alternative — embeddings index the wiki instead.**
-Scope embeddings to `wiki/*.md` pages (not mnemon's graph): trigger via the wiki skill's own ingest step, two MCP tools (`index_wiki_page`/`search_wiki`), per-group SQLite (`groups/<group>/wiki/.embeddings.db`, `sqlite-vec` or a pure-JS brute-force fallback). Doesn't match the gist's actual architecture, but doesn't require reverse-engineering mnemon's internals either — plain markdown files this repo already reads and writes. Karpathy's own pattern doc explicitly says a plain `index.md` "works surprisingly well at moderate scale... avoiding embedding-based RAG infrastructure needs" until a wiki outgrows that, so this path has independent justification even setting the gist aside.
+**Stock `mnemon-dev/mnemon` has Ollama + `nomic-embed-text` embeddings built in, as an optional flag, with `nomic-embed-text` as the literal default model name.** The gist's author didn't build a custom semantic layer — they just pointed stock mnemon (installed exactly as `/add-mnemon` installs it, which is exactly what this environment's `apply_mnemon_patch()` does) at a reachable Ollama daemon. `docs/DEPLOYMENT.md` confirms the container-networking side too: `MNEMON_EMBED_ENDPOINT=http://host.docker.internal:11434` for Docker Desktop — the identical `host.docker.internal` pattern already used for `/add-ollama-tool`'s `OLLAMA_HOST`.
 
-If you want this built: path A for gist parity (needs mnemon schema investigation first), path B for a lower-risk build that still delivers local semantic search, just over a different corpus.
+**What this actually means for closing the gap**: not a design task at all — a config task.
+
+1. Add `MNEMON_EMBED_ENDPOINT` (and, if you want a non-default model, `MNEMON_EMBED_MODEL`) to the env forwarded into the agent container — same mechanism `/add-ollama-tool`'s `ollamaEnvArgs()` already uses for `OLLAMA_HOST`, just a different variable name pointed at the same daemon.
+2. Ensure `nomic-embed-text` is pulled on whatever Ollama daemon that endpoint reaches (`ollama pull nomic-embed-text` — the model this environment's earlier research already pinned down as the correct one, now confirmed as literally the built-in default).
+3. Nothing else. No new MCP tools, no schema reverse-engineering, no separate embeddings store to design — mnemon's own binary handles the embed-on-write and hybrid-search-on-recall internally, transparently to the agent (recall's structured JSON output doesn't change shape based on whether embeddings are enabled — RRF fusion happens inside mnemon, not in code this environment would write).
+
+**Net assessment, revised**: this is now the easiest of the remaining gaps to close — easier than the wiki scaffolding, let alone voice transcription. `apply_mnemon_patch()` would need one more env-var line; the rest is operational (make sure Ollama is running and reachable, pull one model).
+
+**A caveat worth carrying forward, not resolved by this correction**: `MNEMON_EMBED_ENDPOINT` needs setting wherever `mnemon` actually executes — inside the per-group agent container, per this environment's own architecture — which means it needs to reach whatever Ollama daemon the *host* (not this environment's own orchestrator container) is running. Same reachability assumption `/add-ollama-tool` already depends on; nothing new, but worth restating since it means "add the env var" still requires Ollama to exist and be reachable in the first place, which is a real prerequisite, not a formality.
 
 ---
 
@@ -109,6 +110,6 @@ Already covered in the README's "Optional: Karpathy LLM Wiki" section — recapp
 
 ## Summary
 
-Two of five pieces are fully automated and verified (core NanoClaw, mnemon — though note mnemon here is the stock binary, without the gist's own embeddings-augmented retrieval layer). One is half-automated with the interactive part staying manual by upstream design (wiki), with `nvk/llm-wiki` documented above as a more complete alternative if you want to look beyond NanoClaw's own skill. Two require real new work: voice transcription is a well-specified but nontrivial build (known upstream skills, cross-distro translation needed); embeddings had no spec at all — model and connectivity are pinned down, and two design paths are proposed above, one matching the gist exactly (harder — needs mnemon's storage schema investigated first) and one lower-risk (wiki-scoped, doesn't need mnemon internals). Sync is intentionally left as "point your own tool at an existing folder."
+Two of five pieces are fully automated and verified (core NanoClaw, mnemon). One is half-automated with the interactive part staying manual by upstream design (wiki), with a whole ecosystem of external alternatives documented above if you want to look beyond NanoClaw's own skill. Voice transcription is a well-specified but nontrivial build (known upstream skills, cross-distro translation needed). Embeddings looked like the hardest gap through two prior passes on this document — it's actually the easiest: it's a built-in, optional, config-flag feature of the stock `mnemon` binary this environment already installs, defaulting to the exact model this whole investigation converged on independently. Sync is intentionally left as "point your own tool at an existing folder."
 
-Let me know what to build next — voice transcription (start with the git-merge feasibility check against current `main`), embeddings path A (start by inspecting mnemon's actual SQLite schema inside a running agent container), or embeddings path B (implement the wiki-scoped MCP tools directly, no schema investigation needed).
+Let me know what to build next — voice transcription (start with the git-merge feasibility check against current `main`), or the mnemon-embeddings env var (add `MNEMON_EMBED_ENDPOINT=http://host.docker.internal:11434` to `apply_mnemon_patch()`'s env forwarding and confirm `nomic-embed-text` is pulled on the reachable Ollama daemon — the smallest of the remaining pieces by far).
