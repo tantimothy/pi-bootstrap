@@ -81,7 +81,19 @@ is_deployed() {
             [ -f "${env_path}.deployed" ]
             ;;
         nanoclaw)
-            systemctl list-unit-files "nanoclaw.service" --no-legend 2>/dev/null | grep -q nanoclaw
+            # Mirrors run.sh's own OS-based default + .env override — there's
+            # no systemd unit at all in container mode, and no "nanoclaw"
+            # container in host mode either.
+            local nanoclaw_mode
+            nanoclaw_mode=$(grep -E '^NANOCLAW_DEPLOY_MODE=' "${env_path}.env" 2>/dev/null | cut -d= -f2-)
+            if [ -z "$nanoclaw_mode" ]; then
+                [[ "$(uname)" == "Darwin" ]] && nanoclaw_mode="container" || nanoclaw_mode="host"
+            fi
+            if [ "$nanoclaw_mode" = "container" ]; then
+                $DOCKER ps -a --filter "name=^/nanoclaw$" -q 2>/dev/null | grep -q .
+            else
+                systemctl list-unit-files "nanoclaw.service" --no-legend 2>/dev/null | grep -q nanoclaw
+            fi
             ;;
         internet-pi)
             local install_path

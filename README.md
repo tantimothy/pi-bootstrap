@@ -45,6 +45,8 @@ garbled commands instead of failing cleanly.
 
 ## 🖥️ Desktop Menu Integration
 
+**Linux only** — `.desktop` files, `~/.local/share/applications`, and the `xdg-desktop-menu` submenu machinery this relies on are all XDG/Linux desktop-environment concepts with no macOS equivalent. On macOS, both `./install-desktop-entries.sh` and every individual environment's `install-desktop.sh` detect this and skip cleanly with a one-line message — nothing is written to `~/Desktop` or anywhere else. If you're running an environment (e.g. `nanoclaw` in `container` mode) on a Mac, just run `./deploy.sh` directly, or add it to your Dock/Login Items yourself; there's no equivalent auto-generated launcher on macOS today.
+
 On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once to register all environments as clickable desktop entries. This is also available as menu options in `./deploy.sh` — "[Desktop] Install Desktop Entries" and "[Desktop] Uninstall Desktop Entries":
 
 ```bash
@@ -74,7 +76,7 @@ Only environments that are actually deployed get entries. Re-running the install
 | pihole-wireguard | The `pihole` container exists |
 | ntopng | The `ntopng` container exists |
 | portainer | The `portainer` container exists |
-| nanoclaw | The `nanoclaw.service` systemd unit is registered |
+| nanoclaw | The `nanoclaw.service` systemd unit is registered (`host` deploy mode) or the `nanoclaw` container exists (`container` deploy mode) |
 | dragonos-sdr, kali-pentest | A local `.deployed` marker that `run.sh` creates the moment it launches the container (these run with `--rm`, so a cached image alone doesn't prove the environment was actually used) |
 
 New entries appear in the menu automatically on Raspberry Pi OS; no manual refresh is needed.
@@ -242,10 +244,12 @@ Note what's *not* on this list: hardware/network passthrough flags (`--privilege
 
 | Subtype | Menu label | Real example(s) | What `run.sh` does |
 |---|---|---|---|
-| Calls a local `Dockerfile` directly | `[run.sh + Dockerfile]` | `dragonos-sdr`, `kali-pentest` | Builds/runs its own single container with an interactive attach/reattach state machine, plus `--privileged`/`--net=host`/`--device` |
+| Calls a local `Dockerfile` directly | `[run.sh + Dockerfile]` | `dragonos-sdr`, `kali-pentest`, `nanoclaw` (`container` deploy mode) | Builds/runs its own single container with an interactive attach/reattach state machine, plus `--privileged`/`--net=host`/`--device` (`dragonos-sdr`/`kali-pentest`), or a Dockerfile that provides a runtime for an external installer to run inside rather than building the app itself (`nanoclaw` — see below) |
 | Calls a local `docker-compose.yml` | `[run.sh + Compose]` | `pihole-wireguard`, `ntopng` | Compose owns the container(s); `run.sh` exists for host-level prerequisites around it (`pihole-wireguard`) or just a FAST-reattach shortcut before delegating to Compose (`ntopng`) |
-| Clones and delegates to a 3rd-party repo | `[run.sh: 3rd-party repo]` | `nanoclaw`, `internet-pi` | No local `Dockerfile`/`docker-compose.yml` at all — clones an external project and hands off to its own installer (`nanoclaw`'s interactive Node wizard, `internet-pi`'s `ansible-playbook`) |
+| Clones and delegates to a 3rd-party repo | `[run.sh: 3rd-party repo]` | `internet-pi`, `nanoclaw` (`host` deploy mode) | No local `Dockerfile`/`docker-compose.yml` at all — clones an external project and hands off to its own installer (`internet-pi`'s `ansible-playbook`, `nanoclaw`'s interactive Node wizard) |
 | Pure host provisioning, no containers | `[run.sh: host-only]` | `pi-barebones` | `apt-get install`, `.bashrc` injection, a `systemd`/`launchd` unit — never touches Docker at all |
+
+`nanoclaw` straddles two of these rows on purpose: it clones and delegates to a 3rd-party installer in both of its deploy modes, but in `container` mode that installer runs *inside* a container built from a local `Dockerfile` that provides the runtime (Node.js, pnpm, `docker` CLI) rather than baking NanoClaw's own source into the image — see its README's "Deployment Modes" section for the full design (including why the bind mount must use the identical path on both sides of the container boundary).
 
 Whatever the subtype, the same rules apply:
 

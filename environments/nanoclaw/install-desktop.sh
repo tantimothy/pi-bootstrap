@@ -13,8 +13,23 @@ source "$REPO_DIR/lib/desktop-lib.sh"
 MENU_ID="nanoclaw"
 MENU_NAME="NanoClaw"
 MENU_ICON="utilities-terminal"
-DEPLOYED_CHECK_KIND="systemd"
-DEPLOYED_CHECK_VALUE="nanoclaw.service"
+
+# Deployed-check depends on which deploy mode is actually configured —
+# mirrors run.sh's own OS-based default + .env override, since there's no
+# systemd unit at all in container mode (and no "nanoclaw" container in
+# host mode either).
+NANOCLAW_DEPLOY_MODE=$(env_val "NANOCLAW_DEPLOY_MODE" "")
+if [ -z "$NANOCLAW_DEPLOY_MODE" ]; then
+    if [[ "$(uname)" == "Darwin" ]]; then NANOCLAW_DEPLOY_MODE="container"; else NANOCLAW_DEPLOY_MODE="host"; fi
+fi
+
+if [ "$NANOCLAW_DEPLOY_MODE" = "container" ]; then
+    DEPLOYED_CHECK_KIND="container"
+    DEPLOYED_CHECK_VALUE="nanoclaw"
+else
+    DEPLOYED_CHECK_KIND="systemd"
+    DEPLOYED_CHECK_VALUE="nanoclaw.service"
+fi
 
 ENTRY_IDS=(pi-bootstrap-nanoclaw)
 ENTRY_NAMES=("NanoClaw AI")
