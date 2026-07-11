@@ -4,7 +4,7 @@ The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assista
 
 **Fully independent of the plain `nanoclaw` environment**: its own install path, its own container name, its own port. Both can be deployed on the same machine without colliding. The plain `nanoclaw` environment is intentionally left untouched by this one — see "Coexistence" below.
 
-**Credit**: this environment follows the architecture described in a public gist by GitHub user [VivianBalakrishnan](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322), which combines NanoClaw with mnemon and a personal Obsidian sync into a "second brain." This environment implements the NanoClaw+mnemon portion — the exact steps documented in NanoClaw's own [`.claude/skills/add-mnemon/SKILL.md`](https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-mnemon/SKILL.md) and [mnemon's own README](https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw) — not a reimplementation of either. The personal Obsidian/iCloud sync piece from the gist is **not** included here; see "What's Not Included" below.
+**Credit**: this environment follows the architecture described in a public gist by GitHub user [VivianBalakrishnan](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322), which combines NanoClaw with mnemon and a personal Obsidian sync into a "second brain." This environment implements the NanoClaw+mnemon portion — the exact steps documented in NanoClaw's own [`.claude/skills/add-mnemon/SKILL.md`](https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-mnemon/SKILL.md) and [mnemon's own README](https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw) — not a reimplementation of either. It also optionally scaffolds NanoClaw's own [`/add-karpathy-llm-wiki`](https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-karpathy-llm-wiki/SKILL.md) skill, which covers the wiki-generation half of the gist's Obsidian piece — see "Optional: Karpathy LLM Wiki" below for what's scaffolded vs. what's still a manual, personal sync step.
 
 ---
 
@@ -70,9 +70,16 @@ Both environments can run on the same machine. Two things were specifically hand
 
 ---
 
-## What's Not Included
+## 📖 Optional: Karpathy LLM Wiki
 
-The referenced gist's full architecture also includes a personal Obsidian vault sync via iCloud + `rsync`, keeping human-readable wiki-style summaries on the author's own Mac/iPhone. That's **not** part of this environment — it's inherently a personal pipeline tied to one person's own Obsidian vault, iCloud account, and device setup, not something pi-bootstrap can generically automate. If you want that piece too, it's a manual setup on top of what this environment gives you (mnemon's own graph memory is queryable/exportable — check mnemon's docs for how to build your own sync on top of it).
+The gist's Obsidian-facing piece splits into two parts, only one of which is custom:
+
+- **Generating the wiki content is a first-party NanoClaw skill**, [`/add-karpathy-llm-wiki`](https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-karpathy-llm-wiki/SKILL.md) (bundled in the main `nanocoai/nanoclaw` repo, following [Karpathy's public LLM Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)) — an LLM-maintained, cross-linked markdown knowledge base per conversation group (`wiki/`, `sources/`, `index.md`, `log.md`), explicitly designed as "a git-backed markdown directory." Nothing about the output format is Obsidian-specific — any markdown reader works (VS Code, Logseq, GitHub's own renderer, plain `cat`) — Obsidian is just the pattern doc's suggested viewer (it name-drops Web Clipper, graph view, the Dataview plugin).
+- **Only the sync leg is genuinely custom**: the gist author's own iCloud + `rsync` pipeline from a personal Mac Mini to their own Obsidian vault. That's inherently tied to one person's device setup — not something pi-bootstrap can generically automate. If you want the wiki synced somewhere specific, that's a manual step on top of the plain markdown files this skill produces.
+
+**What this environment scaffolds vs. what stays interactive**: `./scaffold-wiki.sh <group-folder>` creates the mechanical, non-collaborative half — `wiki/`, `sources/`, empty `index.md`/`log.md` — for one group, idempotently (safe to re-run). The rest of the upstream skill (choosing a domain, designing the schema, writing a tailored `container/skills/wiki/SKILL.md`, wiring a CLAUDE.md section) is explicitly collaborative by its own design — it discusses the domain with you before writing anything, which unattended scripting can't replicate without producing a generic, shallow wiki. Run `/add-karpathy-llm-wiki` yourself in a Claude Code session against the group for that part; `scaffold-wiki.sh`'s own output prints the exact command.
+
+**A discrepancy worth knowing about**: the skill's Step 3c, as currently documented upstream, edits the group's `CLAUDE.md` directly. But NanoClaw's `container-runner`/`claude-md-compose.ts` now regenerates `CLAUDE.md` fresh on every container spawn (its own header comment: *"Composed at spawn — do not edit. Edit CLAUDE.local.md for per-group content."*) — so a marker-based edit landing in `CLAUDE.md` would silently vanish on the next restart. This looks like the skill doc predates that compose refactor. `scaffold-wiki.sh` flags this in its own output; verify which file the skill actually wrote to afterward, and move the wiki section into `CLAUDE.local.md` if it landed in `CLAUDE.md`.
 
 ---
 
@@ -82,7 +89,7 @@ Persistent data lives inside the install path and survives `TEARDOWN`:
 
 | Directory | Contents |
 |-----------|---------|
-| `$NANOCLAW_INSTALL_PATH/groups/` | Per-group files: conversation history, mnemon's persistent memory graph (nested under each group's `.claude/mnemon/`), transcripts, CLAUDE.md |
+| `$NANOCLAW_INSTALL_PATH/groups/` | Per-group files: conversation history, mnemon's persistent memory graph (nested under each group's `.claude/mnemon/`), transcripts, CLAUDE.md, and — if scaffolded — each group's `wiki/`/`sources/` (see "Optional: Karpathy LLM Wiki") |
 | `$NANOCLAW_INSTALL_PATH/data/` | Sessions, message database, task scheduler database, IPC streams |
 
 The install directory itself can be re-cloned by `CLEAN` (the mnemon patch reapplies automatically); the `groups/` and `data/` subdirectories are what actually need backing up.
@@ -136,6 +143,9 @@ docker ps --filter name=nanoclaw-agent
 
 # Confirm mnemon is installed in the agent sandbox image
 docker exec nanoclaw-mnemon docker run --rm --entrypoint mnemon nanoclaw-agent:latest --version
+
+# Scaffold a Karpathy LLM Wiki for one group (see "Optional: Karpathy LLM Wiki" above)
+./scaffold-wiki.sh <group-folder>
 
 # Web interface
 http://<host-ip>:3081
