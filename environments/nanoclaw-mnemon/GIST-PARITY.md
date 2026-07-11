@@ -9,7 +9,7 @@ The [VivianBalakrishnan gist](https://gist.github.com/VivianBalakrishnan/a7d4eec
 | Wiki knowledge base (Karpathy LLM Wiki pattern) | 🟡 Partial | Mechanical half only (`scaffold-wiki.sh`); domain design is interactive by upstream design |
 | Voice transcription — OpenAI Whisper API | ❌ Not built | No |
 | Voice transcription — local whisper.cpp | ❌ Not built | No |
-| Local vector embeddings (Ollama + `nomic-embed-text`) | ❌ Not built — **no spec exists anywhere** | No |
+| Local vector embeddings (Ollama + `nomic-embed-text`) | ❌ Not built — model + connectivity pinned down, architecture proposed below, no code yet | No |
 | Obsidian/iCloud/rsync personal sync | ❌ Out of scope by design | Inherently personal, not automatable |
 
 ---
@@ -33,15 +33,23 @@ Two chained official skills: `/add-voice-transcription` (OpenAI API, prerequisit
 
 ## 🧠 Local Vector Embeddings (Ollama + `nomic-embed-text`)
 
-**There is nothing to fetch here.** I checked every skill location that exists: the main `nanocoai/nanoclaw` repo's 48+ bundled skills, the official marketplace (`nanocoai/nanoclaw-skills`, full 24-skill catalog enumerated), and the community-skills repo turned up in search results — no embeddings, vector-memory, or semantic-search skill exists anywhere in NanoClaw's ecosystem. `/add-ollama-tool` is unrelated — it wires an Ollama-backed *tool* into the agent's MCP config for the agent to call local models, not an embeddings/retrieval pipeline.
+**There is nothing to fetch here.** I checked every skill location that exists: the main `nanocoai/nanoclaw` repo's 48+ bundled skills, the official marketplace (`nanocoai/nanoclaw-skills`, full 24-skill catalog enumerated), and the community-skills repo turned up in search results — no embeddings, vector-memory, or semantic-search skill exists anywhere in NanoClaw's ecosystem. `/add-ollama-tool` is related but not a substitute — it wires an Ollama-backed *chat/generate* tool into the agent's MCP config, with no embeddings-specific tool (only `ollama_list_models`, `ollama_generate`, and admin tools for pull/delete/show/list-running).
 
-This piece of the gist is the one place where "how to get it" has no upstream answer — it's original, unpublished work by the gist's author. Building it means designing it from scratch, which means answering questions the gist doesn't specify:
-- **Ingestion trigger**: embed on every message? Only wiki pages? Only mnemon entries?
-- **Storage**: what vector store — SQLite with `sqlite-vec`, Chroma, a flat file? Nothing in NanoClaw's stack currently includes one.
-- **Query path**: a new MCP tool the agent calls (mirroring `/add-ollama-tool`'s registration pattern in `container-runner.ts`/`index.ts`), or something that runs automatically like mnemon's hooks?
-- **Relationship to mnemon**: mnemon is graph-based (temporal/entity/causal/semantic edges), not vector-based — would embeddings be a second, parallel memory system, or feed into mnemon somehow? Mnemon's own docs don't mention embeddings at all.
+This piece of the gist is the one place where "how to get it" has no upstream answer — it's original, unpublished work by the gist's author. Two things are pinned down (model choice, connectivity pattern); the rest is a genuine design task.
 
-If you want this, it's a genuine design-and-build task, not a patch to apply — happy to draft a concrete proposal if you want to go there, but I'd be inventing the architecture, not implementing a spec.
+**Pinned down:**
+- **Model**: [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5), pulled via `ollama pull nomic-embed-text` — first-class entry in Ollama's own model library, no manual GGUF conversion needed. 137M params, 8192-token context, Matryoshka-truncatable 768→64 dimensions, Apache 2.0. Requires task-prefixed input (`search_query: `/`search_document: `) — matters directly for whatever ingestion/query code gets written, since a prefix mismatch degrades retrieval silently rather than erroring.
+- **Connectivity**: `/add-ollama-tool`'s own `SKILL.md` (fetched and read in full) establishes the pattern to reuse rather than reinvent — `OLLAMA_HOST` env var, default `http://host.docker.internal:11434` with a `localhost` fallback, forwarded into agent containers via `ollamaEnvArgs()` in `container-runner.ts`. Ollama itself runs as a host-level (or otherwise externally reachable) daemon, never inside a per-message agent container — embeddings should follow the exact same reachability assumption, not invent a second one.
+
+**Still open — a proposed design, not a spec:**
+
+1. **Scope it to the wiki, not a general-purpose memory layer.** The gist's embeddings piece exists alongside the wiki, and Karpathy's own pattern doc is explicit that a plain `index.md` "works surprisingly well at moderate scale... avoiding embedding-based RAG infrastructure needs" until a wiki outgrows that. Recommendation: embeddings index the wiki's `wiki/*.md` pages specifically (not raw messages, not mnemon's graph) — gives embeddings a clear, bounded job (fuzzy semantic search over wiki content once `index.md` alone stops being enough) instead of becoming a second, competing memory system.
+2. **Trigger**: wire it into the wiki's own ingest step rather than a blanket "embed everything" hook. Concretely, the tailored `container/skills/wiki/SKILL.md` that `/add-karpathy-llm-wiki` generates (Step 3b) is the natural place to add "after writing/updating a wiki page, call the indexing tool" as one more instruction — consistent with how that skill already tells the agent to update `index.md`/`log.md` on every ingest.
+3. **New MCP tools, mirroring `/add-ollama-tool`'s own registration pattern** (`index.ts` for registration, `container-runner.ts` for env forwarding, same `OLLAMA_HOST`): expose two high-level verbs, not a raw embedding call — `index_wiki_page` (embed + upsert one page's chunks) and `search_wiki` (embed the query, return top-k matching chunks with page references). Raw embedding vectors are useless to an LLM directly; the tool surface should hide them entirely, the same way `ollama_generate` hides the raw completion API shape.
+4. **Storage**: a per-group SQLite file (`groups/<group>/wiki/.embeddings.db`), matching the existing pattern of scoping wiki data to `groups/<group>/wiki/`. `sqlite-vec` (a SQLite extension for vector similarity search) is the natural choice — zero separate service to run, fits a single-file-per-group model the same way mnemon's own storage is scoped per group. A pure-JS brute-force cosine-similarity fallback (no native extension) is viable too at the corpus sizes a personal wiki actually reaches (hundreds to low thousands of chunks) — worth prototyping both before committing, since `sqlite-vec` adds a native dependency to the agent-runner's Bun build that the fallback avoids entirely.
+5. **Relationship to mnemon**: complementary, not overlapping, and this is worth being explicit about since it's easy to conflate — mnemon stays the graph memory (temporal/entity/causal/semantic edges over the conversation itself); embeddings would only ever cover the separate wiki corpus. Mnemon's own docs don't mention embeddings, and nothing above touches mnemon's storage or hooks.
+
+If you want this built, it's a genuine implementation task on top of this proposal, not a patch to apply.
 
 ---
 
@@ -57,6 +65,6 @@ Already covered in the README's "Optional: Karpathy LLM Wiki" section — recapp
 
 ## Summary
 
-Two of five pieces are fully automated and verified (core NanoClaw, mnemon). One is half-automated with the interactive part staying manual by upstream design (wiki). Two require real new work: voice transcription is a well-specified but nontrivial build (known upstream skills, cross-distro translation needed); embeddings has no spec at all and would be original design. Sync is intentionally left as "point your own tool at an existing folder."
+Two of five pieces are fully automated and verified (core NanoClaw, mnemon). One is half-automated with the interactive part staying manual by upstream design (wiki). Two require real new work: voice transcription is a well-specified but nontrivial build (known upstream skills, cross-distro translation needed); embeddings had no spec at all — model choice and connectivity are now pinned down and a concrete architecture is proposed above, but none of it is implemented yet. Sync is intentionally left as "point your own tool at an existing folder."
 
-Let me know which of the remaining pieces you want built — voice transcription (I can start with the git-merge feasibility check against current `main`) or embeddings (I can draft an architecture proposal first, since there's no spec to follow).
+Let me know which of the remaining pieces you want built — voice transcription (I can start with the git-merge feasibility check against current `main`) or embeddings (implement the proposal above: the two MCP tools, the per-group SQLite store, and the wiki-skill wiring).
