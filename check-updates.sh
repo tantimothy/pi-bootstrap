@@ -102,10 +102,14 @@ _resolve_environment_for_container() {
 
 # Recreates a single flagged container with its already-fetched (registry
 # case) or freshly-rebuilt (local-build case) image, after an individual
-# y/N confirmation. The new image is always ready BEFORE the old container
-# is touched in every path below: registry images were already pulled
-# during the scan; compose-based local builds run `compose build` (which
-# only ever produces a new image — it doesn't touch the running container)
+# y/N confirmation — or "a" to apply this and every remaining flagged
+# container without asking again, or "c" to cancel and leave every
+# remaining container (including this one) untouched. APPLY_ALL/
+# APPLY_CANCELLED are globals so they persist across calls in the caller's
+# loop below. The new image is always ready BEFORE the old container is
+# touched in every path below: registry images were already pulled during
+# the scan; compose-based local builds run `compose build` (which only
+# ever produces a new image — it doesn't touch the running container)
 # before the `--force-recreate` swap; plain-docker environments delegate to
 # lib/deploy-lib.sh's deploy_environment() — the same shared mechanics
 # deploy.sh itself uses — whose CLEAN already only tears the old container
@@ -127,11 +131,24 @@ apply_update() {
         echo "    for a large image."
     fi
 
-    local ans
-    read -rp "Recreate $name with the fresh image? [y/N] " ans
-    if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-        echo "   ⏭️  Skipped."
-        return
+    if [ "$APPLY_ALL" = "true" ]; then
+        echo "Recreating $name ('a' selected earlier — applying without asking again)..."
+    else
+        local ans
+        read -rp "Recreate $name with the fresh image? [y/N/a=all/c=cancel] " ans
+        case "$ans" in
+            [Aa]*) APPLY_ALL=true ;;
+            [Cc]*)
+                APPLY_CANCELLED=true
+                echo "   🚫 Cancelled — this and every remaining flagged container left untouched."
+                return
+                ;;
+            [Yy]*) ;;
+            *)
+                echo "   ⏭️  Skipped."
+                return
+                ;;
+        esac
     fi
 
     if [ "$env_kind" = "plaindocker" ]; then
@@ -296,10 +313,13 @@ echo "📊 ${#UPDATES_AVAILABLE[@]} update(s) available, $UP_TO_DATE up to date,
 if [ ${#UPDATES_AVAILABLE[@]} -gt 0 ]; then
     echo ""
     if [ "$APPLY" = "true" ]; then
-        echo "Going through each flagged container — confirm individually:"
+        echo "Going through each flagged container — confirm individually, 'a' to apply all remaining, or 'c' to cancel:"
         echo ""
+        APPLY_ALL=false
+        APPLY_CANCELLED=false
         for i in "${!UPDATES_AVAILABLE[@]}"; do
             apply_update "${UPDATES_AVAILABLE[$i]}" "${UPDATE_KINDS[$i]}"
+            [ "$APPLY_CANCELLED" = "true" ] && break
         done
         echo ""
         echo "🧹 Cleaning up any now-dangling images from what was just rebuilt/recreated..."

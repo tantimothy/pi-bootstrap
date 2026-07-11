@@ -280,11 +280,10 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
     TEMP_MGMT_TYPE=$(mktemp)
     dialog --clear \
         --title " Docker Manager " \
-        --menu "What would you like to manage?" 12 64 4 \
+        --menu "What would you like to manage?" 12 64 3 \
         "C" "Containers    (list & delete running/stopped)" \
         "I" "Images        (list & delete local images)" \
-        "U" "Check Updates (scan for out-of-date images)" \
-        "A" "Apply Updates (recreate just what's flagged)" \
+        "U" "Check Updates (scan, then optionally apply what's flagged)" \
         2> "$TEMP_MGMT_TYPE"
     MGMT_TYPE_EXIT=$?
     MGMT_TYPE=$(cat "$TEMP_MGMT_TYPE")
@@ -333,7 +332,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         done
         CONFIRM_MSG+="\nThis cannot be undone. Continue?"
 
-        dialog --clear --title " Confirm Deletion " --yesno "$CONFIRM_MSG" 16 60
+        dialog --clear --title " Confirm Deletion " --defaultno --yesno "$CONFIRM_MSG" 16 60
         if [ $? -ne 0 ]; then
             clear; echo "ℹ️  Deletion cancelled."; continue
         fi
@@ -393,7 +392,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         done
         CONFIRM_MSG+="\nThis cannot be undone. Continue?"
 
-        dialog --clear --title " Confirm Deletion " --yesno "$CONFIRM_MSG" 16 60
+        dialog --clear --title " Confirm Deletion " --defaultno --yesno "$CONFIRM_MSG" 16 60
         if [ $? -ne 0 ]; then
             clear; echo "ℹ️  Deletion cancelled."; continue
         fi
@@ -410,7 +409,7 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         read -rp "Press Enter to return to the menu..."
 
     # ------------------------------------------
-    # CHECK FOR IMAGE UPDATES (scan only)
+    # CHECK FOR IMAGE UPDATES (scan, then optionally apply)
     # ------------------------------------------
     elif [ "$MGMT_TYPE" = "U" ]; then
         clear
@@ -418,24 +417,14 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         if [ ! -f "$CHECK_SCRIPT" ]; then
             echo "❌ check-updates.sh not found at $PROJECT_DIR"
         else
-            DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT"
-        fi
-        echo ""
-        read -rp "Press Enter to return to the menu..."
-
-    # ------------------------------------------
-    # APPLY FLAGGED IMAGE UPDATES
-    # ------------------------------------------
-    elif [ "$MGMT_TYPE" = "A" ]; then
-        clear
-        CHECK_SCRIPT="$PROJECT_DIR/check-updates.sh"
-        if [ ! -f "$CHECK_SCRIPT" ]; then
-            echo "❌ check-updates.sh not found at $PROJECT_DIR"
-        else
-            # check-updates.sh --apply already confirms per-container before
-            # touching anything, so no extra dialog confirmation is added
-            # here — that would just be a redundant second prompt in front
-            # of the one that actually matters.
+            # Always --apply: check-updates.sh --apply runs the exact same
+            # scan first and only ever prompts if something's actually
+            # flagged — with nothing to update, this is indistinguishable
+            # from a plain scan. When something IS flagged, it confirms
+            # per-container ([y/N/a=all/c=cancel]) before touching anything,
+            # so no extra dialog confirmation is added here either — a
+            # separate scan-only menu entry would just be this same report
+            # with the option to act on it removed.
             DOCKER_CMD="$DOCKER_CMD" bash "$CHECK_SCRIPT" --apply
         fi
         echo ""
@@ -597,6 +586,44 @@ fi
 clear
 ENV_NAME=$(basename "$SELECTED_PATH")
 echo "🚀 Target Selected: $ENV_NAME"
+
+# Confirm before anything that stops, removes, or deletes existing state.
+# The policy dialog's own arrow-key-then-Enter selection isn't itself a
+# confirmation — it's easy to land one item off the intended one — so
+# STOP/TEARDOWN/CLEAN/WIPE each get an explicit yes/no gate here,
+# defaulting to No. FAST and INFO are non-destructive (idempotent
+# start-or-reuse, and read-only respectively) and skip this entirely.
+# CONFIRM_MSG is reset unconditionally on every loop iteration (this whole
+# block runs inside deploy.sh's persistent menu `while true` loop) so a
+# FAST/INFO pass never inherits a stale message left over from a previous
+# STOP/TEARDOWN/CLEAN/WIPE selection.
+CONFIRM_MSG=""
+case "$REBUILD_POLICY" in
+    STOP)
+        CONFIRM_MSG="Pause [$ENV_NAME]'s running container(s)?\n\nThey'll stop responding until resumed with FAST."
+        ;;
+    TEARDOWN)
+        CONFIRM_MSG="Stop and REMOVE [$ENV_NAME]'s container(s)?\n\nData directories are preserved, but you'll need to redeploy (FAST or CLEAN) to use this environment again."
+        ;;
+    CLEAN)
+        CONFIRM_MSG="Stop, remove, and reinstall [$ENV_NAME] from scratch?\n\nThe current container(s) will be replaced with freshly built/pulled ones. A failed build leaves the existing setup untouched, but a successful one does briefly interrupt service."
+        ;;
+    WIPE)
+        CONFIRM_MSG="⚠️  PERMANENTLY DELETE [$ENV_NAME]'s persisted data directories?\n\nThis cannot be undone. Make sure you've backed up first (./backup.sh) if you need this data."
+        ;;
+esac
+
+if [ -n "$CONFIRM_MSG" ]; then
+    dialog --clear --title " Confirm $REBUILD_POLICY " --defaultno --yesno "$CONFIRM_MSG" 14 68
+    CONFIRM_STATUS=$?
+    if [ $CONFIRM_STATUS -ne 0 ]; then
+        clear
+        echo "❌ $REBUILD_POLICY cancelled for [$ENV_NAME]."
+        echo ""
+        read -rp "Press Enter to return to the menu..."
+        continue
+    fi
+fi
 
 # 4. (Removed) — this used to unconditionally tear down the target
 # environment's containers by name before CLEAN even reached the archetype
