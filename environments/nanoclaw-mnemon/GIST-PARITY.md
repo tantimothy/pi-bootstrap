@@ -57,6 +57,22 @@ And from the configuration table:
 
 **To actually use it**: set `MNEMON_EMBED_ENDPOINT` in `.env` (see `.env.example`'s own commented-out stub), then `CLEAN` redeploy — same activation path as bumping `MNEMON_VERSION`. As of this update, getting Ollama itself ready is *also* automated: `run.sh`'s new `ensure_ollama_ready()` checks whether the configured endpoint is reachable, and — only for a local address (`host.docker.internal`/`localhost`/`127.0.0.1`; a remote endpoint is left entirely alone) — offers to install Ollama (Homebrew on macOS, the official installer on Linux, gated behind an explicit y/N confirmation prompt), starts it if installed but not running, and pulls the configured model if it's missing. Verified against stub `curl`/`brew`/`ollama`/`uname` binaries covering: opt-out (silent no-op), already-reachable-with-model-present, local-and-unreachable-with-decline, remote-and-unreachable, confirmed-install, and already-installed-but-stopped — every failure path warns and lets the rest of the deploy continue rather than aborting, since mnemon's own fallback (graph-only recall) is a legitimate, documented behavior, not an error state.
 
+**Model alternatives to the default**, from Ollama's actual embedding-model listing (pasted directly by the user, not fetched — `ollama.com` is blocked at this session's network-policy level, same as `huggingface.co`; treat the download-count figures below as a snapshot, not something re-verified here):
+
+| Model | Sizes | Downloads | Why you'd pick it over the default |
+|---|---|---|---|
+| `nomic-embed-text` | 137M | 78M | The default — mnemon's own, English-only, zero config needed |
+| `nomic-embed-text-v2-moe` | — | 478.6K | Multilingual upgrade *within the default's own family* (MoE architecture) |
+| `bge-m3` | 567M | 5.1M | Multilingual + hybrid dense/sparse/multi-vector retrieval in one model — most capable option here, not just multilingual |
+| `snowflake-arctic-embed2` | 568M | 422.5K | Multilingual added over v1 "without sacrificing English performance" — v1 itself (22m/33m/110m/137m/335m tags, 3.1M downloads) stays English-only |
+| `mxbai-embed-large` | 335M | 12.4M | Best general-purpose English quality-for-size; highest adoption after the default itself |
+| `all-minilm` | 22m/33m | 3.2M | Smallest/fastest by a wide margin — the pick if a Pi can't spare resources for anything bigger, at a real quality cost |
+| `qwen3-embedding` | 0.6b/4b/8b | 2.4M | LLM-scale embedding models (Alibaba's Qwen3) — a different tier entirely; the 8B variant isn't realistic on a Pi |
+| `embeddinggemma` | 300M | 1.4M | Google's entry in the same general-purpose tier as `mxbai-embed-large`/`bge-large` |
+| `granite-embedding` | 30m (English) / 278m (multilingual) | 337.7K | IBM's family — cleanly splits English-only-small vs. multilingual-larger |
+
+Net guidance, given all of the above: the only two reasons to override `MNEMON_EMBED_MODEL` from its default are multilingual support (`bge-m3`, `nomic-embed-text-v2-moe`, or `snowflake-arctic-embed2` — genuinely comparable options, not one obviously best) or hardware constraints (`all-minilm`, or Snowflake's own small tags). Everything else in the table is a lateral move in the same general-purpose English tier the default already occupies.
+
 ---
 
 ## 📚 The Karpathy-Pattern Ecosystem (it's not one project)
