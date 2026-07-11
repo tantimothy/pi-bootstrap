@@ -162,7 +162,15 @@ fi
 # growing by one row per environment.
 ENV_OPTIONS=()
 ENV_PATHS=()    # parallel array: index (1-based) → actual directory path
-MENU_INDEX=1
+
+# First pass: collect name/type/compat-tag per environment, and the
+# longest folder name, so the type column below can be padded to line up
+# across every row — dialog displays each item string verbatim, it
+# doesn't do any column alignment of its own.
+ENV_NAMES=()
+ENV_TYPES=()
+ENV_COMPATS=()
+MAX_NAME_LEN=0
 
 for dir in "${ENV_DIRS[@]}"; do
     folder_name=$(basename "$dir")
@@ -202,13 +210,20 @@ for dir in "${ENV_DIRS[@]}"; do
     COMPAT_TAG=""
     if [ "$OS_TYPE" = "macos" ]; then
         if grep -qE "\-\-net=host|/dev/bus/usb|/dev/snd|wlan[0-9]|ttyUSB|ttyACM" "$dir/run.sh" 2>/dev/null; then
-            COMPAT_TAG=" ⚠️  Linux-only"
+            COMPAT_TAG="  ⚠️  Linux-only"
         fi
     fi
 
     ENV_PATHS+=("$dir")
-    ENV_OPTIONS+=( "$MENU_INDEX" "$TYPE /$folder_name$COMPAT_TAG" )
-    ((MENU_INDEX++))
+    ENV_NAMES+=("$folder_name")
+    ENV_TYPES+=("$TYPE")
+    ENV_COMPATS+=("$COMPAT_TAG")
+    [ "${#folder_name}" -gt "$MAX_NAME_LEN" ] && MAX_NAME_LEN=${#folder_name}
+done
+
+# Second pass: name first, then the type column padded to line up.
+for i in "${!ENV_NAMES[@]}"; do
+    ENV_OPTIONS+=( "$((i + 1))" "$(printf '%-*s' "$MAX_NAME_LEN" "${ENV_NAMES[$i]}")  ${ENV_TYPES[$i]}${ENV_COMPATS[$i]}" )
 done
 
 # Top-level menu — a fixed set of action categories, not one row per
