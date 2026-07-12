@@ -81,6 +81,20 @@ else
     exit 1
 fi
 
+# CONTAINER_NAME is substituted directly into docker-compose.yml's
+# container_name fields — a value Docker's naming rules reject (spaces,
+# etc.) would otherwise surface as a cryptic "Invalid container name"
+# error mid-recreate instead of a clear one here. This also catches the
+# old pre-single-value CONTAINER_NAME format (a space-separated list of
+# every container in the stack) left over in a .env from before this
+# variable was actually read by docker-compose.yml.
+if [ -n "${CONTAINER_NAME:-}" ] && ! [[ "$CONTAINER_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo "❌ Error: CONTAINER_NAME='${CONTAINER_NAME}' in .env is not a valid container name." >&2
+    echo "   Docker container names may only contain [a-zA-Z0-9_.-], and must start with an alphanumeric." >&2
+    echo "   Set it to a single name (e.g. CONTAINER_NAME=pihole) or remove the line to use the default." >&2
+    exit 1
+fi
+
 # Fallback boundaries to safeguard the deployment if unassigned
 : "${PIHOLE_WEB_PORT:=80}"
 : "${WG_UI_PORT:=51821}"
