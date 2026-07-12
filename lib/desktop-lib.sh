@@ -258,75 +258,18 @@ _refresh_menu_cache() {
 # The Desktop ICON view is a separate cache from the application menu above
 # — a file manager rendering $DESKTOP_DIR typically parses each .desktop
 # file's Name=/Icon= once and holds onto that, so a freshly written or
-# changed file shows its raw "<id>.desktop" filename instead until something
-# tells that already-running process to re-read it (a plain file-list
-# refresh isn't always enough — this is a metadata cache, not just a
-# directory listing). This is exactly why a reboot fixes it for free: the
-# desktop shell restarts and parses every icon from scratch. Tries the
-# reconfigure signal for both PCManFM builds Raspberry Pi OS has shipped as
-# its default file manager (GTK "pcmanfm" pre-Bookworm, Qt "pcmanfm-qt" on
-# the current Wayfire-based desktop) — harmless no-ops if neither is running
-# or installed. Skipped entirely with no DISPLAY/WAYLAND_DISPLAY at all
-# (deploy.sh is very often run over plain SSH with no X forwarding, or the
-# entries installed ahead of ever logging into the desktop) — with no
-# graphical session to reach, both binaries fail fast trying to open one,
-# and that failure ("Cannot open display: ") isn't reliably confined to
-# stderr across GTK/Qt/Xlib builds, so redirecting stderr alone isn't
-# enough; not attempting the connection at all is the actual fix, not just
-# a quieter one.
-#
-# Backgrounded and timeout-bounded even when a display IS present (e.g. a
-# real VNC session): PCManFM's own IPC has been observed to hang under
-# rapid repeated firing rather than fail fast. This is a purely cosmetic
-# refresh (reboot fixes it regardless, and skipping it entirely is exactly
-# this repo's pre-existing behavior from before this function existed) —
-# never worth blocking real deploy/install work over, so the caller must
-# never wait on it succeeding, or on it at all.
-#
-# --reconfigure alone (this function's first version) only reloads PCManFM's
-# own preferences/config — it does NOT force the running desktop-icon view
-# to re-parse each .desktop file's Name=/Icon=, which is why some icons
-# still showed their raw "<id>.desktop" filename after it. The verified,
-# actually-reliable trick (used by the PCManFM/LXDE community, both the GTK
-# and Qt builds support identical flags) is toggling the desktop icon
-# manager fully off then back on: --desktop-off, then --desktop. Expect a
-# brief flicker where icons momentarily disappear — that's inherent to this
-# mechanism, not a bug.
-#
-# set +e inside the subshell is load-bearing, not decoration: every caller
-# of this function runs under `set -euo pipefail`, which a backgrounded
-# `( ... ) &` subshell still inherits. Without it, --desktop-off returning
-# non-zero (plausible — e.g. nothing was on to turn off) would abort the
-# subshell before --desktop ever ran, leaving the desktop with NO icons at
-# all until the user manually re-ran it or rebooted — a strictly worse
-# outcome than the stale-name bug this function exists to fix.
-#
-# SKIP_DESKTOP_ICON_REFRESH=true suppresses this entirely — set by
-# install-desktop-entries.sh around its per-environment loop (each
-# environment there runs as its own `bash lib/run-install-desktop.sh`
-# subprocess, hence an exported env var rather than an in-process flag) so
-# a full install triggers one refresh at the end instead of up to 9
-# redundant, concurrent ones fighting over the same file manager IPC (and
-# each one flickering the desktop). A single environment's own run.sh
-# deploying itself is unaffected — that path never sets the flag, so it
-# still gets its one call as before.
-_refresh_desktop_icons() {
-    [ "${SKIP_DESKTOP_ICON_REFRESH:-false}" = "true" ] && return 0
-    { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } || return 0
-    (
-        set +e
-        if command -v pcmanfm &>/dev/null; then
-            timeout 5 pcmanfm --desktop-off >/dev/null 2>&1
-            timeout 5 pcmanfm --desktop >/dev/null 2>&1
-        fi
-        if command -v pcmanfm-qt &>/dev/null; then
-            timeout 5 pcmanfm-qt --desktop-off >/dev/null 2>&1
-            timeout 5 pcmanfm-qt --desktop >/dev/null 2>&1
-        fi
-    ) &
-    disown 2>/dev/null || true
-    return 0
-}
+# changed file can show its raw "<id>.desktop" filename instead until
+# something tells that already-running process to re-read it. This self-
+# heals on its own the moment the desktop shell restarts (logout/login,
+# reboot), which is why this is deliberately NOT automated here: every
+# attempt at forcing a live refresh via PCManFM's own IPC — a plain
+# reconfigure signal, then toggling the desktop manager off/on — either
+# failed to fully refresh every icon, hung the calling script, or (toggling
+# off/on) left the live desktop icon layer dead until manually restarted or
+# rebooted, on a real VNC/Wayfire session. A cosmetic naming lag that fixes
+# itself is a much smaller problem than any of those, so this repo doesn't
+# try to force it — if it bothers you, restart your file manager/desktop
+# session, or just reboot.
 
 # Reads a value from $ENV_DIR/.env with a fallback default — used to build
 # port-based Exec=/URL= entries that reflect the user's actual configuration
@@ -530,7 +473,6 @@ run_desktop_install() {
     if [ "${1:-}" = "--uninstall" ]; then
         _desktop_remove_all_for_menu "$MENU_ID"
         remove_submenu "$MENU_ID"
-        _refresh_desktop_icons
         return 0
     fi
 
@@ -539,7 +481,6 @@ run_desktop_install() {
     if ! _desktop_is_deployed; then
         _desktop_remove_all_for_menu "$MENU_ID"
         remove_submenu "$MENU_ID"
-        _refresh_desktop_icons
         echo "  ⚠  ${MENU_ID}: $(_desktop_not_deployed_msg)"
         return 0
     fi
@@ -583,5 +524,4 @@ EOF
     bash "$REPO_DIR/lib/run-info.sh" "$ENV_DIR" list >/dev/null 2>&1 || true
     install_info_icon "$INFO_ID" "$INFO_NAME" "$ENV_DIR/post-deploy-info.html" "$category"
     echo "  ✓  Info page"
-    _refresh_desktop_icons
 }
