@@ -148,13 +148,18 @@ deploy_environment() {
     )
     local deploy_success=$?
 
-    # Best-effort desktop-entry refresh for the generic docker-compose.yml/
-    # Dockerfile fallback path only — every environment with its own
-    # run.sh already does this itself at the end of run.sh, so doing it
-    # again here would just be redundant (harmless, but pointless) work
-    # for those.
+    # Best-effort desktop-entry refresh, and the post-deploy info summary,
+    # for the generic docker-compose.yml/Dockerfile fallback path only —
+    # every environment with its own run.sh already does both itself at the
+    # end of run.sh, so doing them again here would just be redundant
+    # (harmless, but pointless) work for those. Info is skipped for
+    # STOP/TEARDOWN — nothing new to report, matching how run.sh-based
+    # environments never print it for those policies either.
     if [ $deploy_success -eq 0 ] && [ ! -f "$env_dir/run.sh" ]; then
         bash "$repo_dir/lib/run-install-desktop.sh" "$env_dir" >/dev/null 2>&1 || true
+        if [ "$policy" != "STOP" ] && [ "$policy" != "TEARDOWN" ] && { [ -f "$env_dir/info.sh" ] || [ -f "$env_dir/info.yaml" ]; }; then
+            bash "$repo_dir/lib/run-info.sh" "$env_dir" list
+        fi
     fi
 
     return $deploy_success
