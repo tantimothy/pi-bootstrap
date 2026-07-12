@@ -1,0 +1,20 @@
+# deployed_check is intentionally omitted — nanoclaw/install-desktop.sh
+# sets DEPLOYED_CHECK_KIND/VALUE itself (host-vs-container deploy-mode
+# branching, no static value to declare here) before calling
+# run_desktop_install directly. See lib/desktop-lib.sh's
+# _load_desktop_entries_yaml comment for why.
+menu:
+  id: nanoclaw
+  name: NanoClaw
+  icon: utilities-terminal
+entries:
+  - id: pi-bootstrap-nanoclaw
+    name: "NanoClaw AI"
+    comment: "Self-hosted Claude AI assistant — WhatsApp, Telegram, Slack, Discord, and more"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash -c "cd ''${ENV_DIR}'' && REBUILD_POLICY=FAST ./run.sh"'
+    terminal: true
+info:
+  id: pi-bootstrap-nanoclaw-info
+  name: "NanoClaw Info"

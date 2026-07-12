@@ -1,0 +1,43 @@
+# web_uis is intentionally omitted from this file — internet-pi/info.sh
+# builds WEB_UI_NAMES/WEB_UI_URLS itself, conditionally on PIHOLE_ENABLE and
+# MONITORING_ENABLE (whether Pi-hole/monitoring actually got deployed by the
+# Ansible playbook), rather than declaring them here as static data. See
+# lib/info-lib.sh's _load_info_yaml comment for why some environments do this.
+data_dirs:
+  - path: "${HOME}/pi-hole"
+    description: "Pi-hole config, gravity database, custom blocklists, local DNS records"
+  - path: "${HOME}/internet-monitoring/grafana"
+    description: "Grafana dashboard definitions, data source config, user settings"
+  - path: "${HOME}/internet-monitoring/prometheus"
+    description: "Prometheus time-series metrics — speedtest history, ping latency, uptime"
+install_dirs:
+  - path: "${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi}"
+    description: "internet-pi repo clone + generated config.yml and inventory.ini"
+named_volumes: []
+wipe_parent_dirs:
+  - "${HOME}/internet-monitoring"
+data_dirs_label: "📁 Persistent Data Directories (back these up):"
+install_dirs_label: "📂 Install Directories (can be re-cloned):"
+delete_install_dirs: true
+delete_confirm_msg: "All Pi-hole settings and Grafana dashboards will be lost."
+# |2 pins the strip to exactly 2 spaces regardless of which line is
+# least-indented — "📌 Notes:" is intentionally at column 0 in the
+# rendered output; see ntopng/info.yaml for the full explanation.
+# ~/internet-monitoring below is a literal tilde, not ${HOME} — it's
+# informational text for the user to type themselves, not evaluated here.
+useful_commands: |2
+     cd ${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi} && ansible-playbook main.yml -i inventory.ini              # Re-run playbook
+     cd ${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi} && git pull && ansible-playbook main.yml -i inventory.ini  # Update + re-run
+     docker logs -f pihole                                                          # Pi-hole live logs
+     docker logs -f grafana                                                         # Grafana live logs
+     cd ~/internet-monitoring && docker compose logs -f                             # All monitoring logs
+     docker exec -it pihole pihole setpassword                                      # Change Pi-hole password
+     docker exec -it pihole pihole -g                                               # Update gravity/blocklists
+
+  📌 Notes:
+     🔑 Pi-hole admin password:  PIHOLE_PASSWORD from your .env
+     📊 Grafana login:           admin / MONITORING_GRAFANA_ADMIN_PASSWORD from .env
+     ⚡ Speedtest runs every ${MONITORING_SPEEDTEST_INTERVAL:-60m} — results appear in Grafana
+     📁 Config and data live at: ${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi}
+     ↩️  To re-run with updated config (e.g. after editing .env), select this
+        environment again in the deploy menu — FAST will re-run the playbook.

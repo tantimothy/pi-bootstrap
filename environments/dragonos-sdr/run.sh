@@ -14,6 +14,7 @@ DOCKER="${DOCKER_CMD:-docker}"
 
 # --- ARCHETYPE RULE 3: SECRET ACQUISITION ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 if [ -f "${SCRIPT_DIR}/.env" ]; then
     echo "[INFO] Ingesting dynamic environment configurations from local .env context..."
     set -a
@@ -86,7 +87,7 @@ if [ "${POLICY}" = "TEARDOWN" ]; then
     rm -f "${CONFIG_HASH_FILE}"
     # Best-effort — immediately removes now-stale desktop entries rather than
     # leaving them until the next manual install-desktop-entries.sh run.
-    [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
     echo "✅ Container removed."
     exit 0
 fi
@@ -175,7 +176,7 @@ touch "${DEPLOYED_MARKER}"
 # Refresh desktop entries now — before the blocking interactive session below,
 # not after, since that's what install-desktop.sh's deployed-check actually
 # looks for. Best-effort: never blocks the actual deploy.
-[ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
 
 # Record the config this container is about to be launched with (see CONFIG
 # DRIFT DETECTION above) so a future FAST run can tell if run.sh's settings

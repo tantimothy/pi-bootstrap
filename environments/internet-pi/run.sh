@@ -9,6 +9,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 POLICY="${REBUILD_POLICY:-FAST}"
 
@@ -69,7 +70,7 @@ if [ "$POLICY" = "TEARDOWN" ]; then
     # leaving them until the next manual install-desktop-entries.sh run. A
     # no-op today (this environment has no install-desktop.sh), kept for
     # consistency with every other environment in case one is added later.
-    [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
     echo "✅ Containers removed."
     exit 0
 fi
@@ -234,5 +235,5 @@ fi
 echo "=========================================================="
 echo "🏁 Internet Pi Deployment Complete!"
 echo "=========================================================="
-[ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
-bash "$SCRIPT_DIR/info.sh" list
+bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list

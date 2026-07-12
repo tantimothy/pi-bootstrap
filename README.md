@@ -46,7 +46,7 @@ garbled commands instead of failing cleanly.
 
 ## 🖥️ Desktop Menu Integration
 
-**Linux only** — `.desktop` files, `~/.local/share/applications`, and the `xdg-desktop-menu` submenu machinery this relies on are all XDG/Linux desktop-environment concepts with no macOS equivalent. On macOS, both `./install-desktop-entries.sh` and every individual environment's `install-desktop.sh` detect this and skip cleanly with a one-line message — nothing is written to `~/Desktop` or anywhere else. If you're running an environment (e.g. `nanoclaw` in `container` mode) on a Mac, just run `./deploy.sh` directly, or add it to your Dock/Login Items yourself; there's no equivalent auto-generated launcher on macOS today.
+**Linux only** — `.desktop` files, `~/.local/share/applications`, and the `xdg-desktop-menu` submenu machinery this relies on are all XDG/Linux desktop-environment concepts with no macOS equivalent. On macOS, `./install-desktop-entries.sh` detects this and skips cleanly with a one-line message — nothing is written to `~/Desktop` or anywhere else. If you're running an environment (e.g. `nanoclaw` in `container` mode) on a Mac, just run `./deploy.sh` directly, or add it to your Dock/Login Items yourself; there's no equivalent auto-generated launcher on macOS today.
 
 On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once to register all environments as clickable desktop entries. This is also available as menu options in `./deploy.sh` — "[Desktop] Install Desktop Entries" and "[Desktop] Uninstall Desktop Entries":
 
@@ -66,7 +66,7 @@ This installs entries to `~/.local/share/applications/` (the application menu) *
 | Pi-hole, Grafana, Uptime Kuma, WireGuard, darkstat, Dozzle, ntopng, Portainer | Menu: tries `xdg-open`, then falls back through several other browser launchers against `http://localhost:<port>`. Desktop icon: a `Type=Link` entry opened directly by the desktop's default URL handler |
 | `<Environment> Info` | Same as above, pointed at that environment's generated `post-deploy-info.html` (see below) via a `file://` URL |
 
-Ports for the web UI entries are read from each environment's `.env` at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
+Ports for the web UI entries are read from each environment's `.env` (falling back to a literal default baked into `desktop-entries.yaml` if unconfigured) at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
 
 The menu entry and the Desktop icon for these are deliberately two different desktop-entry flavors, not one file copied to both places: the application menu only lists `Type=Application` entries on some desktop environments (`Type=Link` is silently filtered out of the menu, even though it works fine as a Desktop icon there) — so the menu copy uses `Type=Application` with a browser-fallback `Exec=`, and the Desktop copy uses the simpler `Type=Link`.
 
@@ -85,7 +85,7 @@ New entries appear in the menu automatically on Raspberry Pi OS; no manual refre
 
 ### 📄 Post-deploy info page
 
-Every environment's `info.sh` (both right after `run.sh` deploys it, and any time you open "INFO" from `./deploy.sh`) also (re)generates `environments/<env>/post-deploy-info.html` — a self-contained HTML page with the same data directories, useful commands, and notes as the terminal listing, except any web UI URLs are clickable links. It's not tracked in git (regenerated fresh each time) but is opened directly by that environment's `<Environment> Info` desktop entry above.
+Every environment's info page (both right after `run.sh` deploys it, and any time you open "INFO" from `./deploy.sh` — both routed through `lib/run-info.sh`) also (re)generates `environments/<env>/post-deploy-info.html` — a self-contained HTML page with the same data directories, useful commands, and notes as the terminal listing, except any web UI URLs are clickable links. It's not tracked in git (regenerated fresh each time) but is opened directly by that environment's `<Environment> Info` desktop entry above.
 
 ---
 
@@ -150,9 +150,13 @@ environments/your-env/
 └── 2. docker-compose.yml  →  runs `docker compose up -d` (generic fallback, no run.sh needed)
 ```
 
-There's technically a third fallback `lib/deploy-lib.sh` still recognizes — a bare `Dockerfile` with neither of the above — but it's a trap, not a real option: its `docker run` invocation has **no `-v` flag at all**, so while it happily pre-creates `info.sh`'s `DATA_DIRS` on the host (same as option 2), it never actually mounts them into the container — anything the app writes there is lost the moment it's recreated. Nothing in this repo uses it today; every current single-container environment has either a `run.sh` or a `docker-compose.yml`. If your environment is genuinely "just one simple container," write a one-service `docker-compose.yml` with `build: .` pointing at your `Dockerfile` instead — same "no `run.sh` needed" simplicity, but with real volume/port/flag support, since Compose can express everything the bare-`Dockerfile` path can't.
+There's technically a third fallback `lib/deploy-lib.sh` still recognizes — a bare `Dockerfile` with neither of the above — but it's a trap, not a real option: its `docker run` invocation has **no `-v` flag at all**, so while it happily pre-creates `info.yaml`'s `data_dirs` on the host (same as option 2), it never actually mounts them into the container — anything the app writes there is lost the moment it's recreated. Nothing in this repo uses it today; every current single-container environment has either a `run.sh` or a `docker-compose.yml`. If your environment is genuinely "just one simple container," write a one-service `docker-compose.yml` with `build: .` pointing at your `Dockerfile` instead — same "no `run.sh` needed" simplicity, but with real volume/port/flag support, since Compose can express everything the bare-`Dockerfile` path can't.
 
-Option 2 (no `run.sh`) still gets the essentials generically, without writing any custom script: `CLEAN` builds/pulls fresh images *before* touching what's currently running (a failed build leaves the old container(s) untouched, same safety property every `run.sh` implements by hand), data directories from `info.sh`'s `DATA_DIRS` are pre-created before Docker ever touches them as a bind-mount target, desktop entries refresh automatically after a successful deploy, and `check-updates.sh --apply` can target it too. This mechanics lives in `lib/deploy-lib.sh`'s `deploy_environment()`, shared by both `deploy.sh` and `check-updates.sh --apply` rather than duplicated between them. What it still can't do without a real `run.sh`: any host-level setup (network config, sysctls, DNS resilience, etc.), an interactive attach/reattach session, dynamic container spawning, or rollback snapshotting.
+Option 2 (no `run.sh`) still gets the essentials generically, without writing any custom script: `CLEAN` builds/pulls fresh images *before* touching what's currently running (a failed build leaves the old container(s) untouched, same safety property every `run.sh` implements by hand), data directories from `info.yaml`'s `data_dirs` are pre-created before Docker ever touches them as a bind-mount target (via `lib/run-info.sh <env_dir> list-dirs`), desktop entries refresh automatically after a successful deploy (via `lib/run-install-desktop.sh`), and `check-updates.sh --apply` can target it too. This mechanics lives in `lib/deploy-lib.sh`'s `deploy_environment()`, shared by both `deploy.sh` and `check-updates.sh --apply` rather than duplicated between them. What it still can't do without a real `run.sh`: any host-level setup (network config, sysctls, DNS resilience, etc.), an interactive attach/reattach session, dynamic container spawning, or rollback snapshotting.
+
+### Dependencies
+
+`deploy.sh` checks for and auto-installs everything it needs on first run: `dialog` (the TUI itself), `docker` + the Compose plugin, and **go-yq** (`github.com/mikefarah/yq`) — required specifically because it's *not* the same `yq` some distros (Debian/Ubuntu) package under that name; that one's a Python jq-wrapper with an incompatible filter syntax. go-yq is what every environment's `desktop-entries.yaml`/`info.yaml` (see "Adding a New Environment" below) gets read through, installed to `/usr/local/bin/yq` — ahead of `/usr/bin` on `$PATH` — so it shadows any apt-installed impostor without touching or uninstalling it.
 
 ### Permission Wrapper
 
@@ -182,28 +186,30 @@ Each environment has a `.env.example` file. `deploy.sh` reads it to:
 
 ## 🛠️ Adding a New Environment
 
-Drop a folder into `environments/` — `deploy.sh` discovers it automatically.
+Drop a folder into `environments/` — `deploy.sh` discovers it automatically. It'll show up at the end of the Environments menu (alphabetically, among any other undeclared environments) until you add it to **`config/environments.yaml`**, which controls that menu's display order and grouping (host setup, AI assistants, networking/security, management) — add your environment's folder name under whichever category fits, or a new one if it doesn't fit an existing category.
 
 ### Folder Layout
 
 ```text
 environments/
 └── my-environment/
-    ├── .env.example        # drives the TUI config form — skip only if there's
-    │                       # truly nothing to configure (see pi-barebones)
-    ├── run.sh              # archetype 1: custom script (highest priority) —
-    │                       # itself one of a few subtypes, see below
-    ├── docker-compose.yml  # archetype 2: generic fallback, no run.sh needed
-    ├── Dockerfile          # optional — a local image run.sh builds itself, or
-    │                       # that docker-compose.yml's `build:` points at; never
-    │                       # used standalone, see "Routing Priority" above
-    ├── info.sh             # required — see below
-    ├── install-desktop.sh  # recommended if there's a web UI — see below
-    └── README.md           # Services & Ports, Data Directories, Desktop
-                             # Integration, Useful Commands, security notes
+    ├── .env.example          # drives the TUI config form — skip only if there's
+    │                         # truly nothing to configure (see pi-barebones)
+    ├── run.sh                # archetype 1: custom script (highest priority) —
+    │                         # itself one of a few subtypes, see below
+    ├── docker-compose.yml    # archetype 2: generic fallback, no run.sh needed
+    ├── Dockerfile            # optional — a local image run.sh builds itself, or
+    │                         # that docker-compose.yml's `build:` points at; never
+    │                         # used standalone, see "Routing Priority" above
+    ├── info.yaml             # recommended — see below
+    ├── desktop-entries.yaml  # recommended if there's a menu-launchable target — see below
+    ├── info.sh               # only if info.yaml can't express real branching
+    ├── install-desktop.sh    # only if desktop-entries.yaml can't express real branching
+    └── README.md             # Services & Ports, Data Directories, Desktop
+                               # Integration, Useful Commands, security notes
 ```
 
-`info.sh` and `install-desktop.sh` aren't one of the two deploy archetypes — every environment needs its own regardless of which archetype it uses. They're covered separately below since they're easy to miss (nothing on the `deploy.sh` discovery path requires them, but other scripts silently depend on them).
+`info.yaml`/`desktop-entries.yaml` (or the `info.sh`/`install-desktop.sh` override scripts that read them) aren't one of the two deploy archetypes — every environment needs the data they provide regardless of which archetype it uses. They're covered separately below since they're easy to miss (nothing on the `deploy.sh` discovery path requires them, but other scripts silently depend on them). Full schema for both YAML files — every key, valid values, and the substitution mechanism they share — lives in **[`docs/environment-yaml-schemas.md`](docs/environment-yaml-schemas.md)**; this section only covers the parts relevant to adding a new environment.
 
 ### `.env.example` Format
 
@@ -222,15 +228,28 @@ API_SECRET_KEY=
 
 ### `CONTAINER_NAME`
 
-Declare every container the environment manages, space-separated. The orchestrator uses this list for FAST checks, CLEAN teardown, STOP, and INFO:
+A single name for the environment's **primary** container — never space-separated, even for a multi-container stack. There's no generic orchestrator tracking mechanism that reads this as a list; each archetype reads it directly, the same way any other `.env` variable would:
+
+- **`docker-compose.yml`**: Compose's own `${VAR}` substitution — `container_name: ${CONTAINER_NAME:-my-app}`.
+- **`run.sh`**: a plain bash default — `CONTAINER_NAME="${CONTAINER_NAME:-my-app}"`.
+
+For a multi-service `docker-compose.yml`, every service *other* than the primary gets prefixed with this value, but only when it's actually set — so an unmodified deployment keeps every service's original bare name, and a customized one gets `<name>-servicename` for all of them:
+
+```yaml
+services:
+  pihole:
+    container_name: ${CONTAINER_NAME:-pihole}                      # primary
+  wg-easy:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}wg-easy   # prefixed only if set
+```
+
+See `pihole-wireguard/docker-compose.yml` for a real example spanning 13 services.
 
 ```ini
-# Single container
 CONTAINER_NAME=my-app
-
-# Multi-container stack — all names, space-separated
-CONTAINER_NAME="pihole wg-easy prometheus grafana"
 ```
+
+`desktop-entries.yaml`'s `deployed_check` needs this exact same resolved value to know whether the environment is actually running. For a `docker-compose.yml`-based environment, point it at the primary service instead of restating the name — see `from_compose_service` in `docs/environment-yaml-schemas.md`.
 
 ### Archetype 1: `run.sh` (Custom Script)
 
@@ -298,91 +317,80 @@ $DOCKER run -it --rm \
 
 **Use this when** the environment is one or more long-running services with no host-level configuration needed around them — including a genuinely simple single-container one. This is the preferred archetype for anything that fits, and that includes cases that might look at first like they need a bare `Dockerfile`: a one-service compose file with `build: .` handles those too, with real volume/port/flag support the bare-`Dockerfile` fallback doesn't have (see "Routing Priority" above for why that fallback is best avoided entirely). Only reach for Archetype 1 if you have a concrete reason from the list above.
 
-**What must be in the environment:** `docker-compose.yml`, with every `container_name:` matching a name in `CONTAINER_NAME`. Docker Compose picks up the generated `.env` automatically — no explicit `--env-file` needed. `lib/deploy-lib.sh`'s generic fallback drives it directly (`compose pull` + `compose build --no-cache` before `compose down`/`compose up -d` on `CLEAN`, `compose stop`/`compose down` for `STOP`/`TEARDOWN`), so no `run.sh` is required at all unless something outside the stack itself is needed. `privileged:`, `network_mode: host`, `devices:`, and arbitrary `ports:`/`volumes:` are all fair game here — none of that requires `run.sh` on its own.
+**What must be in the environment:** `docker-compose.yml`, with the primary service's `container_name:` set to `${CONTAINER_NAME:-<default>}` (every other service prefixed the same way — see `CONTAINER_NAME` above). Docker Compose picks up the generated `.env` automatically — no explicit `--env-file` needed. `lib/deploy-lib.sh`'s generic fallback drives it directly (`compose pull` + `compose build --no-cache` before `compose down`/`compose up -d` on `CLEAN`, `compose stop`/`compose down` for `STOP`/`TEARDOWN`), so no `run.sh` is required at all unless something outside the stack itself is needed. `privileged:`, `network_mode: host`, `devices:`, and arbitrary `ports:`/`volumes:` are all fair game here — none of that requires `run.sh` on its own.
 
 **What its README must document:** the standard baseline — a Services & Ports table, Data Directories, Desktop Integration, Useful Commands (see the Folder Layout section above). No "why run.sh" section needed if there isn't one; that's the common, preferred case.
 
 ```yaml
 services:
   myapp:
-    container_name: my-app
+    container_name: ${CONTAINER_NAME:-my-app}
     build: .              # or image: myimage:latest, if pulling from a registry
     ports:
       - "${WEB_PORT:-8080}:8080"
     restart: unless-stopped
 ```
 
-### `info.sh` (Required)
+### `info.yaml` (Recommended)
 
-Every current environment has one — it's not optional in practice. `run.sh` calls it at the end of every deploy for the post-deploy summary; `deploy.sh`'s `INFO` and `WIPE` policies delegate to it entirely (they don't touch containers directly at all); `backup.sh` invokes it with a `manifest` action to discover which data directories and named volumes to archive; and it's what generates `post-deploy-info.html`, the page the desktop "Info" icon opens. Skip it and INFO, WIPE, backup, and the info desktop entry all silently do nothing for that environment.
+Nearly every environment has one — it's not optional in practice. `run.sh` (or the generic Compose fallback) calls it at the end of every deploy for the post-deploy summary; `deploy.sh`'s `INFO` and `WIPE` policies delegate to it entirely (they don't touch containers directly at all); `backup.sh` reads it (via a `manifest` action) to discover which data directories and named volumes to archive; and it's what generates `post-deploy-info.html`, the page the desktop "Info" icon opens. Skip it and INFO, WIPE, backup, and the info desktop entry all silently do nothing for that environment.
 
-All the actual logic lives in `lib/info-lib.sh` — your `info.sh` just sets some variables and arrays, then sources it:
+Declarative YAML, not a script — every caller goes through `lib/run-info.sh <env_dir> <action>`, which calls `lib/info-lib.sh`'s `run_info_yaml` to read it directly. No `info.sh` needed unless the environment has real branching (see below):
 
-```bash
-#!/usr/bin/env bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ACTION="${1:-list}"
-
-[ -f "$SCRIPT_DIR/.env" ] && { set -a; source "$SCRIPT_DIR/.env"; set +a; }
-
-DATA_DIRS=("$SCRIPT_DIR/my-app-data")
-DATA_DESCRIPTIONS=("My app's config and database")
-INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()
-NAMED_VOLUMES=(); NAMED_VOLUME_DESCRIPTIONS=()
-WEB_UI_NAMES=("My App")
-WEB_UI_URLS=("http://${HOST_IP}:${WEB_PORT:-8080}")
-USEFUL_COMMANDS="   docker logs -f my-app"
-
-source "$REPO_DIR/lib/info-lib.sh"
-run_info
+```yaml
+data_dirs:
+  - path: "${SCRIPT_DIR}/my-app-data"
+    description: "My app's config and database"
+web_uis:
+  - name: "My App"
+    url: "http://${HOST_IP}:${WEB_PORT:-8080}"
+useful_commands: |2
+     docker logs -f my-app
 ```
 
-`ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), `manifest` (machine-readable, used by `backup.sh` — you never call this yourself), or `list-dirs` (machine-readable `DATA_DIRS` paths only, one per line — used by `deploy.sh`'s generic `docker-compose.yml`/`Dockerfile` fallback path to pre-create data directories before Docker touches them; also not something you call yourself). Declare every array even if empty (`INSTALL_DIRS=(); INSTALL_DESCRIPTIONS=()`) — `lib/info-lib.sh`'s own header comment documents the full set, including the optional ones (`WIPE_PARENT_DIRS`, `DATA_DIRS_LABEL`, `DELETE_CONFIRM_MSG`, etc.).
+`${VAR}`/`${VAR:-default}` markers get resolved against `.env` (if present) and a couple of synthetic variables (`SCRIPT_DIR`, `HOST_IP`) — `.env.example` itself is never sourced, so every `.env`-driven marker needs its own explicit `:-default` matching that variable's `.env.example` default (`WEB_PORT` above defaults to `8080` because that's what `.env.example` documents; a marker with no default silently renders blank if `.env` doesn't set that key). Every field, the full substitution mechanism, and — importantly — the `useful_commands` block-scalar indentation trap (a plain `|` silently strips a uniformly-indented block's leading spaces to zero; always use `|2`) are documented in **[`docs/environment-yaml-schemas.md`](docs/environment-yaml-schemas.md)**.
 
-### `install-desktop.sh` (Recommended if there's a web UI)
+**Only add an `info.sh` override** if the environment needs something `info.yaml` genuinely can't express as static data — a conditional field set (`internet-pi`'s `PIHOLE_ENABLE`/`MONITORING_ENABLE` flags deciding which web UIs even exist) or an OS-dependent value (`nanoclaw`'s host-vs-macOS service commands). Call `_load_info_yaml` first for everything that *is* static, override just the one thing that varies, then call `run_info` directly — see `nanoclaw/info.sh` or `internet-pi/info.sh` as templates. `ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), `manifest` (machine-readable, used by `backup.sh`), or `list-dirs` (machine-readable `data_dirs` paths only, one per line, used by `deploy.sh`'s generic fallback path) — none of these are something you call yourself.
 
-Skip this only if the environment has no browser-launchable target at all (`pi-barebones` has none; `internet-pi`'s ports come from an externally-managed Ansible playbook rather than this repo's own `.env`, which is why it doesn't have one either — worth reconsidering if that ever changes). `install-desktop-entries.sh` at the repo root discovers these automatically via `environments/*/install-desktop.sh` — nothing else needs registering it.
+### `desktop-entries.yaml` (Recommended if there's a menu-launchable target)
 
-All the actual logic — `--uninstall`, the deployed check, submenu registration, looping over entries, the info-page hookup — lives in `lib/desktop-lib.sh`'s `run_desktop_install()`. Your `install-desktop.sh` just declares data (a few scalars plus parallel arrays, one row per entry) and calls it once as the last line:
+Not just web UIs — `entries[].kind: exec` covers X11 GUI apps (`dragonos-sdr`'s GQRX/GNU Radio Companion, launched via X11 socket passthrough) and terminal launchers (SDR menu, Kali, NanoClaw) just as much as `kind: link` covers browser-opened web UIs. Skip this only if the environment has no menu-launchable target at all (`pi-barebones` has none; `internet-pi`'s ports come from an externally-managed Ansible playbook rather than this repo's own `.env`, which is why it doesn't have one either — worth reconsidering if that ever changes). `install-desktop-entries.sh` at the repo root discovers every environment directory automatically and dispatches to `lib/run-install-desktop.sh` for each — nothing else needs registering it.
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APPS_DIR="${APPS_DIR:-${HOME}/.local/share/applications}"
-REPO_DIR="${REPO_DIR:-$(cd "$ENV_DIR/../.." && pwd)}"
-source "$REPO_DIR/lib/desktop-lib.sh"
-
-MENU_ID="my-environment"
-MENU_NAME="My Environment"
-MENU_ICON="network-server"
-DEPLOYED_CHECK_KIND="container"       # or "marker" or "systemd" — see below
-DEPLOYED_CHECK_VALUE="my-app"         # container name / marker file path / systemd unit
-
-ENTRY_IDS=(pi-bootstrap-my-app)
-ENTRY_NAMES=("My App")
-ENTRY_COMMENTS=("What it does")
-ENTRY_ICONS=(network-server)
-ENTRY_KINDS=(link)                    # or "exec" — see below
-ENTRY_TARGETS=("http://localhost:$(env_val "WEB_PORT" "8080")")
-
-INFO_ID="pi-bootstrap-my-environment-info"
-INFO_NAME="My Environment Info"
-
-run_desktop_install "$@"
+```yaml
+menu:
+  id: my-environment
+  name: My Environment
+  icon: network-server
+deployed_check:
+  kind: container              # or "marker" or "systemd" — see the schema doc
+  value: "${CONTAINER_NAME:-my-app}"   # or, for a docker-compose.yml-based
+                                # environment, from_compose_service: myapp
+                                # instead — see below
+entries:
+  - id: pi-bootstrap-my-app
+    name: "My App"
+    comment: "What it does"
+    icon: network-server
+    kind: link                 # or "exec" — see the schema doc
+    target: "http://localhost:${WEB_PORT}"
+info:
+  id: pi-bootstrap-my-environment-info
+  name: "My Environment Info"
 ```
 
-`DEPLOYED_CHECK_KIND` covers the three mechanisms actually in use across the current environments — `container` (`docker ps -a --filter name=^/<value>$`, for anything that stays running), `marker` (a `.deployed` file `run.sh` touches right before launch, for `--rm` containers where a cached image alone doesn't prove it was ever used), or `systemd` (a registered unit, for host-level installs like `nanoclaw`).
+`deployed_check.kind` covers the three mechanisms actually in use across the current environments — `container` (`docker ps -a --filter name=^/<value>$`, for anything that stays running), `marker` (a `.deployed` file `run.sh` touches right before launch, for `--rm` containers where a cached image alone doesn't prove it was ever used), or `systemd` (a registered unit, for host-level installs like `nanoclaw`). For a `container`-kind check on a `docker-compose.yml`-based environment, prefer `from_compose_service: <service-key>` over `value:` — it reads the name straight out of that service's own `container_name:` field instead of carrying a second copy of it.
 
-`ENTRY_KINDS[i]` is `link` for a plain URL open (→ `install_link_icon`, which writes both the application-menu entry and the Desktop icon — see below) or `exec` for anything that isn't a plain URL (X11 passthrough, `docker exec`, a terminal launcher — `ENTRY_TARGETS[i]` is then the full `Exec=` command string, and an optional `ENTRY_TERMINAL[i]` of `true`/`false` controls the `Terminal=` field, default `false`). `env_val KEY DEFAULT` (also in `lib/desktop-lib.sh`) reads a value from `$ENV_DIR/.env` with a fallback — the shared way to build port-based URLs/commands that reflect the user's actual configuration.
+`entries[].kind` is `link` for a plain URL open (→ `install_link_icon`, which writes both the application-menu entry and the Desktop icon — see below) or `exec` for anything that isn't a plain URL (X11 passthrough, `docker exec`, a terminal launcher — `target` is then the full `Exec=` command string, and an optional `terminal: true/false` controls the `Terminal=` field, default `false`).
 
-Every environment gets its **own submenu** (`register_submenu`, called automatically by `run_desktop_install`) rather than scattering entries into existing categories like Internet or System Tools — `Categories=` is derived from `MENU_ID` automatically too, so never set it yourself. `install_link_icon` writes both the application-menu entry (`Type=Application`, browser-fallback `Exec=`) and the Desktop icon (`Type=Link`) — these are deliberately two different desktop-entry flavors, not the same file copied twice, because `Type=Link` is silently filtered out of the menu on some desktop environments.
+Full schema (every key, valid values, the same `${VAR}` substitution mechanism `info.yaml` uses): **[`docs/environment-yaml-schemas.md`](docs/environment-yaml-schemas.md)**.
+
+**Only add an `install-desktop.sh` override** for real branching that isn't expressible as static YAML — `nanoclaw` is the one example today (host-vs-container deploy-mode detection changes both `deployed_check.kind` and its systemd-vs-container check). Call `_load_desktop_entries_yaml` first for everything that *is* static, set `DEPLOYED_CHECK_KIND`/`DEPLOYED_CHECK_VALUE` yourself, then call `run_desktop_install` directly — see `nanoclaw/install-desktop.sh`.
+
+Every environment gets its **own submenu** (`register_submenu`, called automatically by `run_desktop_install`) rather than scattering entries into existing categories like Internet or System Tools — `Categories=` is derived from `menu.id` automatically too, never set it yourself. `install_link_icon` writes both the application-menu entry (`Type=Application`, browser-fallback `Exec=`) and the Desktop icon (`Type=Link`) — these are deliberately two different desktop-entry flavors, not the same file copied twice, because `Type=Link` is silently filtered out of the menu on some desktop environments.
 
 ### Registering with `backup.sh`
 
-Unlike `info.sh`/`install-desktop.sh` (discovered automatically per-environment), "is this environment actually deployed, or just configured-but-never-run" is a manually-maintained `case` statement inside the **root** `backup.sh`'s `is_deployed()` function — add your environment there so `backup.sh` doesn't skip its data or, conversely, doesn't try to back up an empty shell that was only ever set up in the TUI wizard:
+Unlike `info.yaml`/`desktop-entries.yaml` (discovered automatically per-environment), "is this environment actually deployed, or just configured-but-never-run" is a manually-maintained `case` statement inside the **root** `backup.sh`'s `is_deployed()` function — add your environment there so `backup.sh` doesn't skip its data or, conversely, doesn't try to back up an empty shell that was only ever set up in the TUI wizard:
 
 ```bash
 my-environment)

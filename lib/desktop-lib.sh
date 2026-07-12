@@ -19,6 +19,10 @@ DESKTOP_DIR="${DESKTOP_DIR:-}"
 [ -z "$DESKTOP_DIR" ] && DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || true)"
 [ -z "$DESKTOP_DIR" ] && DESKTOP_DIR="${HOME}/Desktop"
 
+# REPO_DIR is already set by every caller (install-desktop-entries.sh, each
+# environment's install-desktop.sh) before it sources this file.
+source "$REPO_DIR/lib/yaml-lib.sh"
+
 # Makes a .desktop file launchable from a file manager's Desktop view —
 # executable, and where supported, "trusted" via gio. Most file managers
 # refuse to launch one that isn't both, showing it as inert text or
@@ -263,6 +267,92 @@ env_val() {
     echo "${val:-$default}"
 }
 
+# Populates MENU_*/ENTRY_*/INFO_* (everything run_desktop_install needs
+# EXCEPT DEPLOYED_CHECK_KIND/VALUE) from $env_dir/desktop-entries.yaml.
+# Split out from run_desktop_install_yaml (below) so an environment whose
+# deployed-check needs real branching (nanoclaw's host-vs-container
+# deploy-mode detection) can call this for the data, set
+# DEPLOYED_CHECK_KIND/VALUE itself, and call run_desktop_install directly —
+# see nanoclaw/install-desktop.sh.
+#
+# $env_dir/desktop-entries.yaml schema:
+#   menu: {id, name, icon}
+#   deployed_check: {kind, value}      # kind: container | marker | systemd
+#                                       # — omit if the caller sets these itself
+#   entries:                            # list, one per desktop entry
+#     - {id, name, comment, icon, kind, target, terminal}
+#       # kind: link | exec. terminal is exec-only, optional (default false).
+#   info: {id, name}
+#
+# Any string value may contain ${VAR} / ${VAR:-default} markers, resolved
+# by _yaml_expand (lib/yaml-lib.sh) against real bash variables in scope at
+# call time: .env is sourced first, and ENV_DIR is set before any
+# substitution runs (so "${ENV_DIR}/.deployed" — the marker-file pattern —
+# resolves correctly).
+_load_desktop_entries_yaml() {
+    local env_dir="$1"
+    ENV_DIR="$env_dir"
+    local yaml="$env_dir/desktop-entries.yaml"
+
+    _require_yq || return 1
+
+    [ -f "$env_dir/.env" ] && { set -a; source "$env_dir/.env"; set +a; }
+
+    MENU_ID=$(_yq '.menu.id' "$yaml")
+    MENU_NAME=$(_yq '.menu.name' "$yaml")
+    MENU_ICON=$(_yq '.menu.icon // "utilities-terminal"' "$yaml")
+
+    mapfile -t ENTRY_IDS      < <(_yq '.entries[].id' "$yaml")
+    mapfile -t ENTRY_NAMES    < <(_yq '.entries[].name' "$yaml")
+    mapfile -t ENTRY_COMMENTS < <(_yq '.entries[].comment' "$yaml")
+    mapfile -t ENTRY_ICONS    < <(_yq '.entries[].icon' "$yaml")
+    mapfile -t ENTRY_KINDS    < <(_yq '.entries[].kind' "$yaml")
+    mapfile -t ENTRY_TERMINAL < <(_yq '.entries[].terminal // "false"' "$yaml")
+
+    local _raw_targets i
+    mapfile -t _raw_targets < <(_yq '.entries[].target' "$yaml")
+    ENTRY_TARGETS=()
+    for i in "${!_raw_targets[@]}"; do
+        ENTRY_TARGETS[i]="$(_yaml_expand "${_raw_targets[$i]}")"
+    done
+
+    INFO_ID=$(_yq '.info.id' "$yaml")
+    INFO_NAME=$(_yq '.info.name' "$yaml")
+}
+
+# Generic driver for environments with no install-desktop.sh logic beyond
+# declaring data: loads desktop-entries.yaml via _load_desktop_entries_yaml
+# above, ALSO reads deployed_check from the same file (the common case —
+# see _load_desktop_entries_yaml's own comment for the exception), then
+# calls run_desktop_install.
+#
+# deployed_check.value is one literal to type for a marker path or systemd
+# unit name, but for a container-kind check on a docker-compose.yml-based
+# environment, the container name already has exactly one real owner:
+# docker-compose.yml's own container_name field for that service (which
+# Compose reads and substitutes itself, independent of anything here). A
+# literal value: here would just be a second, driftable copy of whatever
+# default docker-compose.yml already declares. deployed_check.from_compose_service
+# names which service's container_name to read instead — no value: needed,
+# and no default to keep in sync, since there's only ever one copy.
+run_desktop_install_yaml() {
+    local env_dir="$1"; shift
+    _load_desktop_entries_yaml "$env_dir" || return 1
+    local yaml="$env_dir/desktop-entries.yaml"
+
+    DEPLOYED_CHECK_KIND=$(_yq '.deployed_check.kind' "$yaml")
+
+    local from_service
+    from_service=$(_yq '.deployed_check.from_compose_service // ""' "$yaml")
+    if [ -n "$from_service" ]; then
+        DEPLOYED_CHECK_VALUE="$(_yaml_expand "$(_yq ".services.${from_service}.container_name" "$env_dir/docker-compose.yml")")"
+    else
+        DEPLOYED_CHECK_VALUE="$(_yaml_expand "$(_yq '.deployed_check.value' "$yaml")")"
+    fi
+
+    run_desktop_install "$@"
+}
+
 # Generic driver for a per-environment install-desktop.sh — handles
 # --uninstall, the "is this actually deployed" check, submenu registration,
 # looping over entries, and the info-page hookup, so each environment's own
@@ -356,7 +446,7 @@ run_desktop_install() {
             esac
         done
 
-        bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+        bash "$REPO_DIR/lib/run-info.sh" "$ENV_DIR" list >/dev/null 2>&1 || true
         install_webloc "$INFO_ID" "file://$ENV_DIR/post-deploy-info.html" "$MENU_ID"
         echo "  ✓  Info page (.webloc) — generated ${ENV_DIR}/post-deploy-info.html"
         return 0
@@ -415,7 +505,7 @@ EOF
         echo "  ✓  ${ENTRY_NAMES[$i]}"
     done
 
-    bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+    bash "$REPO_DIR/lib/run-info.sh" "$ENV_DIR" list >/dev/null 2>&1 || true
     install_info_icon "$INFO_ID" "$INFO_NAME" "$ENV_DIR/post-deploy-info.html" "$category"
     echo "  ✓  Info page"
 }

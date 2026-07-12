@@ -1,0 +1,40 @@
+data_dirs:
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}/groups"
+    description: "Per-group files: conversation history, mnemon's persistent memory graph (nested under each group's .claude/mnemon/), transcripts, CLAUDE.md"
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}/data"
+    description: "Sessions, message DB, task scheduler DB, IPC streams"
+install_dirs:
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}"
+    description: "NanoClaw + mnemon repo/binaries (groups/ and data/ live inside here)"
+named_volumes: []
+data_dirs_label: "📁 Persistent Data Directories (back these up):"
+install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
+delete_install_dirs: false
+delete_confirm_msg: "All conversation history and mnemon's persistent memory graph will be lost."
+web_uis:
+  - name: "NanoClaw Web Interface"
+    url: "http://${HOST_IP}:${NANOCLAW_PORT:-3081}"
+# |2 pins the strip to exactly 2 spaces regardless of which line is
+# least-indented — "📌 Notes:" is intentionally at column 0 in the
+# rendered output; see ntopng/info.yaml for the full explanation. The
+# $NANOCLAW_INSTALL_PATH references below are deliberately NOT ${...}
+# markers — they're meant to stay literal, evaluated by the container's own
+# shell when the user runs the command, not substituted by this script.
+useful_commands: |2
+     docker ps --filter name=nanoclaw-mnemon                         # Orchestrator status
+     docker logs -f nanoclaw-mnemon                                  # Orchestrator live logs
+     docker restart nanoclaw-mnemon                                  # Restart after a config change
+     docker ps --filter name=nanoclaw-agent                          # List agent containers (both nanoclaw environments, if both deployed)
+     docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/add-whatsapp.sh"   # Add WhatsApp channel
+     docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/add-telegram.sh"   # Add Telegram channel
+     docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/add-discord.sh"    # Add Discord channel
+     docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"   # Update Anthropic API key
+
+  📌 Notes:
+     🧠 mnemon (github.com/mnemon-dev/mnemon) is patched into NanoClaw's own agent
+        sandbox image — persistent, cross-session graph memory per conversation
+        group. Patched idempotently on every deploy; see run.sh's apply_mnemon_patch.
+     🐳 NanoClaw manages its own Docker containers per conversation group.
+        Use the Docker Manager in the deploy menu to view or delete them.
+     ❌ iMessage isn't offered — this environment is container-mode only (see
+        the README's "Deployment Modes" section for why).

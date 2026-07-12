@@ -22,6 +22,7 @@
 deploy_environment() {
     local env_dir="$1" policy="$2" docker_cmd="${3:-docker}"
     local env_name; env_name="$(basename "$env_dir")"
+    local repo_dir; repo_dir="$(cd "$env_dir/../.." && pwd)"
 
     (
         cd "$env_dir" || exit 1
@@ -38,10 +39,10 @@ deploy_environment() {
         # ever touches them as a bind-mount target — generic fallback only
         # (no run.sh), since every run.sh already does this itself, and
         # only for FAST/CLEAN, since STOP/TEARDOWN never create anything.
-        if [ ! -f "run.sh" ] && [ -f "info.sh" ] && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ]; }; then
+        if [ ! -f "run.sh" ] && { [ -f "info.sh" ] || [ -f "info.yaml" ]; } && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ]; }; then
             while IFS= read -r dir; do
                 [ -n "$dir" ] && mkdir -p "$dir"
-            done < <(bash info.sh list-dirs 2>/dev/null)
+            done < <(bash "$repo_dir/lib/run-info.sh" "$env_dir" list-dirs 2>/dev/null)
         fi
 
         if [ -f "run.sh" ]; then
@@ -147,13 +148,18 @@ deploy_environment() {
     )
     local deploy_success=$?
 
-    # Best-effort desktop-entry refresh for the generic docker-compose.yml/
-    # Dockerfile fallback path only — every environment with its own
-    # run.sh already does this itself at the end of run.sh, so doing it
-    # again here would just be redundant (harmless, but pointless) work
-    # for those.
-    if [ $deploy_success -eq 0 ] && [ ! -f "$env_dir/run.sh" ] && [ -x "$env_dir/install-desktop.sh" ]; then
-        ( cd "$env_dir" && bash install-desktop.sh >/dev/null 2>&1 || true )
+    # Best-effort desktop-entry refresh, and the post-deploy info summary,
+    # for the generic docker-compose.yml/Dockerfile fallback path only —
+    # every environment with its own run.sh already does both itself at the
+    # end of run.sh, so doing them again here would just be redundant
+    # (harmless, but pointless) work for those. Info is skipped for
+    # STOP/TEARDOWN — nothing new to report, matching how run.sh-based
+    # environments never print it for those policies either.
+    if [ $deploy_success -eq 0 ] && [ ! -f "$env_dir/run.sh" ]; then
+        bash "$repo_dir/lib/run-install-desktop.sh" "$env_dir" >/dev/null 2>&1 || true
+        if [ "$policy" != "STOP" ] && [ "$policy" != "TEARDOWN" ] && { [ -f "$env_dir/info.sh" ] || [ -f "$env_dir/info.yaml" ]; }; then
+            bash "$repo_dir/lib/run-info.sh" "$env_dir" list
+        fi
     fi
 
     return $deploy_success

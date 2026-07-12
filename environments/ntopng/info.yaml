@@ -1,0 +1,34 @@
+data_dirs:
+  - path: "${SCRIPT_DIR}/ntopng-data"
+    description: "ntopng's own local state (host/interface config, license if any)"
+  - path: "${SCRIPT_DIR}/ntopng-redis-data"
+    description: "ntopng's Redis-backed historical/timeseries data — per-flow trends over days/weeks"
+install_dirs: []
+named_volumes: []
+delete_confirm_msg: "All ntopng traffic history and historical/timeseries data will be lost."
+web_uis:
+  - name: "ntopng deep traffic analysis (default login: admin/admin)"
+    url: "http://${HOST_IP}:${NTOPNG_PORT:-3002}"
+# |2 pins the block's indentation strip to exactly 2 spaces (this file's
+# own indent for this key's value), regardless of which line happens to be
+# least-indented — "📌 Notes:" below is intentionally at column 0 in the
+# rendered output, matching lib/info-lib.sh's _tag_mixed_content parser,
+# which only switches into "prose" mode on an exact, unindented "📌 Notes:"
+# line.
+useful_commands: |2
+     docker logs -f ntopng                                            # ntopng live logs
+     docker logs -f ntopng-redis                                      # ntopng-redis logs
+     docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps           # Stack status
+
+  📌 Notes:
+     🔒 ntopng ships with default admin/admin credentials — you'll be prompted
+        to change the password on first login. There's no env var to pre-seed
+        a different one, so this step can't be skipped or automated.
+     🔌 ntopng and ntopng-redis both run with network_mode: host (needed for
+        raw packet capture on the real interface) — ntopng reaches Redis over
+        127.0.0.1:6379 rather than the ntopng-redis container name, since
+        Docker's bridge-network service discovery doesn't apply between them.
+     🛠️  ntopng is built locally from ./Dockerfile rather than pulled — the
+        official ntop/ntopng image only ever publishes linux/amd64, which
+        crash-loops with "exec format error" on a Pi's ARM CPU. Building
+        locally targets whatever CPU runs ./run.sh automatically.

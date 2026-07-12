@@ -1,0 +1,23 @@
+data_dirs: []
+install_dirs: []
+named_volumes: []
+no_data_msg: "(none — pi-barebones only installs packages and configures .bashrc)"
+no_delete_msg: "pi-barebones has no persistent data directories to delete.\n   To undo package installations, remove them manually with:\n   sudo apt-get remove <package>"
+# |2 pins the strip to exactly 2 spaces regardless of which line is
+# least-indented — the first line (🖥️  TigerVNC...) is intentionally at
+# column 0 in the rendered output, everything after it at 3 spaces; see
+# ntopng/info.yaml for the full explanation of why an explicit indicator
+# is needed rather than a plain "|". ~/.bashrc below is a literal tilde,
+# not ${HOME} — informational text for the user to type themselves.
+useful_commands: |2
+  🖥️  TigerVNC: connect from a VNC client to ${HOST_IP}:5901 (display :1)
+     Password is the one you set during setup (vncpasswd/tigervncpasswd).
+
+     cat ${SCRIPT_DIR}/packages.txt                                   # View managed package list
+     sudo apt list --installed 2>/dev/null | grep -v '^Listing'      # All installed packages
+     sudo apt-get upgrade -y                                         # Upgrade all packages
+     cat ~/.bashrc                                                   # View current .bashrc
+     source ~/.bashrc                                                # Reload bash config
+     tmux ls                                                         # List active tmux sessions
+     tmux attach                                                     # Attach to most recent tmux session
+     sudo systemctl restart vncserver@1.service          # Restart VNC server (apply config changes)

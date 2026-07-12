@@ -37,6 +37,10 @@
 #   DELETE_INSTALL_DIRS  — "true" to include INSTALL_DIRS in the wipe (default: false)
 #   USEFUL_COMMANDS      — multiline string of commands to display (bash-interpolated in info.sh)
 
+# REPO_DIR is already set by every caller (each environment's info.sh)
+# before it sources this file.
+source "$REPO_DIR/lib/yaml-lib.sh"
+
 # The data-dirs/install-dirs/volumes portion — factored out so _info_html
 # can reuse it in the <pre> block without also pulling in the web UIs
 # section, which it renders as a separate HTML table instead.
@@ -364,6 +368,83 @@ _info_delete() {
     else
         echo "❌ Deletion cancelled."
     fi
+}
+
+# Populates every run_info variable from $env_dir/info.yaml EXCEPT calling
+# run_info itself. Split out from run_info_yaml (below) so an environment
+# whose info.sh needs real branching (nanoclaw's OS-dependent service
+# commands, internet-pi's PIHOLE_ENABLE/MONITORING_ENABLE feature flags)
+# can call this for the data, adjust a variable or two itself, and call
+# run_info directly — see nanoclaw/info.sh and internet-pi/info.sh.
+#
+# $env_dir/info.yaml schema (all keys optional except where noted):
+#   data_dirs: [{path, description}]        data_dirs_label
+#   install_dirs: [{path, description}]     install_dirs_label
+#   named_volumes: [{name, description}]
+#   wipe_parent_dirs: [path, ...]
+#   delete_install_dirs: true|false          (default false)
+#   delete_confirm_msg / no_data_msg / no_delete_msg: "..."
+#   web_uis: [{name, url}]
+#   useful_commands: |                       block scalar
+#     ...
+#
+# Any string value may contain ${VAR} / ${VAR:-default} markers, resolved
+# by _yaml_expand against real bash variables in scope: .env is sourced
+# first, then SCRIPT_DIR and HOST_IP (network-detected, same logic every
+# info.sh used to duplicate) are set before any substitution runs.
+_load_info_yaml() {
+    local env_dir="$1" action="$2"
+    SCRIPT_DIR="$env_dir"
+    ACTION="$action"
+    local yaml="$env_dir/info.yaml"
+
+    _require_yq || return 1
+
+    [ -f "$env_dir/.env" ] && { set -a; source "$env_dir/.env"; set +a; }
+
+    HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+    [ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [ -z "$HOST_IP" ] && HOST_IP="localhost"
+
+    local i _raw
+
+    mapfile -t _raw < <(_yq '.data_dirs[].path' "$yaml")
+    DATA_DIRS=()
+    for i in "${!_raw[@]}"; do DATA_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
+    mapfile -t DATA_DESCRIPTIONS < <(_yq '.data_dirs[].description' "$yaml")
+
+    mapfile -t _raw < <(_yq '.install_dirs[].path' "$yaml")
+    INSTALL_DIRS=()
+    for i in "${!_raw[@]}"; do INSTALL_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
+    mapfile -t INSTALL_DESCRIPTIONS < <(_yq '.install_dirs[].description' "$yaml")
+
+    mapfile -t NAMED_VOLUMES < <(_yq '.named_volumes[].name' "$yaml")
+    mapfile -t NAMED_VOLUME_DESCRIPTIONS < <(_yq '.named_volumes[].description' "$yaml")
+
+    mapfile -t _raw < <(_yq '.wipe_parent_dirs[]' "$yaml")
+    WIPE_PARENT_DIRS=()
+    for i in "${!_raw[@]}"; do WIPE_PARENT_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
+
+    mapfile -t WEB_UI_NAMES < <(_yq '.web_uis[].name' "$yaml")
+    mapfile -t _raw < <(_yq '.web_uis[].url' "$yaml")
+    WEB_UI_URLS=()
+    for i in "${!_raw[@]}"; do WEB_UI_URLS[i]="$(_yaml_expand "${_raw[$i]}")"; done
+
+    DATA_DIRS_LABEL="$(_yaml_expand "$(_yq '.data_dirs_label // ""' "$yaml")")"
+    INSTALL_DIRS_LABEL="$(_yaml_expand "$(_yq '.install_dirs_label // ""' "$yaml")")"
+    DELETE_INSTALL_DIRS="$(_yq '.delete_install_dirs // "false"' "$yaml")"
+    DELETE_CONFIRM_MSG="$(_yaml_expand "$(_yq '.delete_confirm_msg // ""' "$yaml")")"
+    NO_DATA_MSG="$(_yaml_expand "$(_yq '.no_data_msg // ""' "$yaml")")"
+    NO_DELETE_MSG="$(_yaml_expand "$(_yq '.no_delete_msg // ""' "$yaml")")"
+
+    USEFUL_COMMANDS="$(_yaml_expand "$(_yq '.useful_commands // ""' "$yaml")")"
+}
+
+# Generic driver for environments with no info.sh logic beyond declaring
+# data: loads info.yaml via _load_info_yaml above, then calls run_info.
+run_info_yaml() {
+    _load_info_yaml "$1" "$2" || return 1
+    run_info
 }
 
 run_info() {

@@ -16,7 +16,7 @@ The container includes a built-in **TUI (Text User Interface) launch menu** powe
 - **`--net=host`** — required for tools like `rtl_tcp` (network SDR server) and any TCP/UDP listeners the menu launches.
 - **X11 (`HOST_X11_UNIX_PATH`) and PulseAudio (`HOST_PULSE_NATIVE_SOCKET`, `HOST_PULSE_COOKIE_PATH`) socket forwarding** — lets GUI tools (GQRX, GNU Radio Companion) render a window and play audio on the host's own display/speakers, not just run headless.
 - **Config-drift fingerprinting** — hashes the host-specific settings above so a `FAST` reattach never silently uses stale USB/audio/display paths after you edit `.env`.
-- **The `.deployed` marker** — the container runs with `--rm`, so no lingering container/image state proves it was ever launched; `install-desktop.sh` reads this marker instead.
+- **The `.deployed` marker** — the container runs with `--rm`, so no lingering container/image state proves it was ever launched; `desktop-entries.yaml`'s `deployed_check` reads this marker instead.
 - **TTY handling for the interactive menu** — `exec < /dev/tty` before `docker run -it` so the script still works when invoked through a non-interactive pipe (e.g. `curl | bash`).
 
 None of this is expressible via `docker-compose.yml` either (Compose has no per-service passthrough for the host's PulseAudio cookie file or a live USB-drift hash), so a custom `run.sh` is the only fit.
@@ -258,7 +258,7 @@ On a Pi with a desktop environment (LXDE, XFCE, GNOME), run once from the repo r
 ```bash
 ./install-desktop-entries.sh
 # or just this environment on its own:
-./environments/dragonos-sdr/install-desktop.sh
+bash lib/run-install-desktop.sh environments/dragonos-sdr
 
 # To remove entries (also in the deploy.sh menu as "Uninstall Desktop Entries"):
 ./install-desktop-entries.sh --uninstall

@@ -1,0 +1,20 @@
+menu:
+  id: ntopng
+  name: ntopng
+  icon: network-wired
+deployed_check:
+  kind: container
+  # Read straight from docker-compose.yml's own container_name field for
+  # this service — that's the only place the actual name (and its
+  # CONTAINER_NAME-driven default) is declared.
+  from_compose_service: ntopng
+entries:
+  - id: pi-bootstrap-ntopng
+    name: "ntopng (Deep Traffic Analysis)"
+    comment: "Per-flow traffic analysis, DPI, and historical trends — default login admin/admin"
+    icon: network-wired
+    kind: link
+    target: "http://localhost:${NTOPNG_PORT:-3002}"
+info:
+  id: pi-bootstrap-ntopng-info
+  name: "ntopng Info"

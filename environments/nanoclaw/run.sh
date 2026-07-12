@@ -24,6 +24,7 @@ set -euo pipefail
 
 DOCKER="${DOCKER_CMD:-docker}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 POLICY="${REBUILD_POLICY:-FAST}"
 
@@ -111,7 +112,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             echo "$AGENT_CONTAINERS" | xargs "$DOCKER" stop 2>/dev/null || true
             echo "$AGENT_CONTAINERS" | xargs "$DOCKER" rm   2>/dev/null || true
         fi
-        [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+        bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
         echo "✅ Container and agent containers removed. Install path (\$NANOCLAW_INSTALL_PATH) untouched."
         exit 0
     fi
@@ -184,8 +185,8 @@ if [ "$DEPLOY_MODE" = "container" ]; then
 
     echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
     echo "=========================================================="
-    [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
-    bash "$SCRIPT_DIR/info.sh" list
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+    bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
     exit 0
 fi
 
@@ -259,7 +260,7 @@ if [ "$POLICY" = "TEARDOWN" ]; then
     fi
     # Best-effort — immediately removes now-stale desktop entries rather than
     # leaving them until the next manual install-desktop-entries.sh run.
-    [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
     echo "✅ Service and containers removed."
     exit 0
 fi
@@ -276,7 +277,7 @@ if [ "$POLICY" = "FAST" ]; then
         echo "=========================================================="
         # Best-effort refresh in case NANOCLAW_PORT (or anything else read
         # from .env) changed since entries were last installed.
-        [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+        bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
         exit 0
     fi
 
@@ -287,7 +288,7 @@ if [ "$POLICY" = "FAST" ]; then
         echo "✅ NanoClaw started."
         echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
         echo "=========================================================="
-        [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+        bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
         exit 0
     fi
 fi
@@ -351,5 +352,5 @@ bash nanoclaw.sh
 echo "=========================================================="
 echo "🏁 NanoClaw Setup Complete"
 echo "=========================================================="
-[ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
-bash "$SCRIPT_DIR/info.sh" list
+bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
