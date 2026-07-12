@@ -68,6 +68,20 @@ else
     exit 1
 fi
 
+# CONTAINER_NAME is substituted directly into docker-compose.yml's
+# container_name fields — a value Docker's naming rules reject (spaces,
+# etc.) would otherwise surface as a cryptic "Invalid container name"
+# error mid-recreate instead of a clear one here. This also catches the
+# old pre-single-value CONTAINER_NAME format (e.g. "ntopng ntopng-redis")
+# left over in a .env from before this variable was actually read by
+# docker-compose.yml.
+if [ -n "${CONTAINER_NAME:-}" ] && ! [[ "$CONTAINER_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo "❌ Error: CONTAINER_NAME='${CONTAINER_NAME}' in .env is not a valid container name." >&2
+    echo "   Docker container names may only contain [a-zA-Z0-9_.-], and must start with an alphanumeric." >&2
+    echo "   Set it to a single name (e.g. CONTAINER_NAME=ntopng) or remove the line to use the default." >&2
+    exit 1
+fi
+
 : "${NTOPNG_INTERFACES:=eth0}"
 : "${NTOPNG_PORT:=3002}"
 
