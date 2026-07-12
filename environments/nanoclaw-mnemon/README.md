@@ -125,7 +125,7 @@ On a Pi with a desktop environment, run once from the repo root:
 ```bash
 ./install-desktop-entries.sh
 # or just this environment on its own:
-./environments/nanoclaw-mnemon/install-desktop.sh
+bash lib/run-install-desktop.sh environments/nanoclaw-mnemon
 ```
 
 This installs a **NanoClaw + Mnemon AI** entry, in its own submenu, separate from the plain `nanoclaw` environment's entry. Skipped entirely on macOS (Linux-only, like every environment's desktop entries in this repo — see the main README's "Desktop Menu Integration" section).

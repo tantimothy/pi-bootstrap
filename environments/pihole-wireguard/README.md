@@ -294,7 +294,7 @@ On a Pi with a desktop environment, run once from the repo root:
 ```bash
 ./install-desktop-entries.sh
 # or just this environment on its own:
-./environments/pihole-wireguard/install-desktop.sh
+bash lib/run-install-desktop.sh environments/pihole-wireguard
 
 # To remove entries (also in the deploy.sh menu as "Uninstall Desktop Entries"):
 ./install-desktop-entries.sh --uninstall

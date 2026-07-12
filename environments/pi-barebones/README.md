@@ -160,7 +160,7 @@ sudo systemctl restart vncserver@1.service
 
 ## 🎛️ Deployment Policies
 
-`run.sh` never branches on `$REBUILD_POLICY` at all — it always runs the same idempotent setup regardless of which policy would otherwise apply, so `STOP`/`TEARDOWN`/`CLEAN`/`WIPE` would all be no-ops if shown. `deploy.sh`'s policy menu detects this generically (a `run.sh` with zero `POLICY` references, paired with `info.sh` declaring no `DATA_DIRS`/`INSTALL_DIRS`/`NAMED_VOLUMES`) and only presents the two policies that actually do something:
+`run.sh` never branches on `$REBUILD_POLICY` at all — it always runs the same idempotent setup regardless of which policy would otherwise apply, so `STOP`/`TEARDOWN`/`CLEAN`/`WIPE` would all be no-ops if shown. `deploy.sh`'s policy menu detects this generically (a `run.sh` with zero `POLICY` references, paired with `info.yaml` declaring no `data_dirs`/`install_dirs`/`named_volumes`) and only presents the two policies that actually do something:
 
 | Policy | Action |
 |--------|--------|
