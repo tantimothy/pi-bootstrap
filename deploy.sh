@@ -123,7 +123,42 @@ if [ ! -d "environments" ]; then
     exit 1
 fi
 
-ALL_SUBDIRS=( $(find environments -maxdepth 1 -mindepth 1 -type d) )
+# Fixed display order, grouped by what each environment actually does:
+# host bootstrap first (nothing else really makes sense to run before it),
+# then the AI assistant, then the networking/security stack (pihole-wireguard
+# and its ntopng/internet-pi/dragonos-sdr/kali-pentest siblings), then
+# portainer last since it's cross-cutting Docker tooling for managing
+# whatever else got deployed above it. `find` alone returns filesystem/inode
+# order, which is arbitrary and varies between clones — this replaces that
+# with something a user can actually predict. Anything not listed here (a
+# newly added environment folder) is appended alphabetically afterward, so
+# this never silently hides one just because it wasn't added to the list.
+ENV_ORDER_PRIORITY=(
+    pi-barebones
+    nanoclaw
+    pihole-wireguard
+    ntopng
+    internet-pi
+    dragonos-sdr
+    kali-pentest
+    portainer
+)
+
+ALL_SUBDIRS=()
+declare -A _seen_env=()
+for _name in "${ENV_ORDER_PRIORITY[@]}"; do
+    if [ -d "environments/$_name" ]; then
+        ALL_SUBDIRS+=( "environments/$_name" )
+        _seen_env["$_name"]=1
+    fi
+done
+while IFS= read -r _dir; do
+    _name=$(basename "$_dir")
+    [ -n "${_seen_env[$_name]:-}" ] && continue
+    ALL_SUBDIRS+=( "$_dir" )
+done < <(find environments -maxdepth 1 -mindepth 1 -type d | sort)
+unset _seen_env _name _dir
+
 DIAGNOSTIC_LOG=""
 
 if [ ${#ALL_SUBDIRS[@]} -eq 0 ]; then
