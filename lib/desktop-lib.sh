@@ -144,6 +144,56 @@ install_info_icon() {
         "file://${html_file}" "text-html" "$categories"
 }
 
+# macOS's native double-clickable internet-shortcut format — the closest
+# equivalent to a Linux Desktop Type=Link .desktop entry. A plain plist
+# with one meaningful key (URL); Finder shows it as a bookmark icon and
+# opens the URL in the default browser on double-click. No app-menu
+# equivalent exists on macOS (Launchpad/Spotlight only index real .app
+# bundles, not arbitrary shortcut files), so — unlike install_link_icon,
+# which writes both a menu entry and a Desktop icon — this only ever
+# writes to $DESKTOP_DIR.
+#
+# The ownership marker is an XML comment (X-PiBootstrap-MenuID), not an
+# extra plist dict key, specifically so it's guaranteed inert to any
+# .webloc reader (a stray dict key MacOS's own parser doesn't expect
+# might not be — an XML comment definitely is, by spec, for any parser).
+# Not verified against a real macOS Finder in this environment — built by
+# reading the plist/webloc format spec, not observed firsthand.
+install_webloc() {
+    local name="$1" url="$2" menu_id="$3"
+    mkdir -p "$DESKTOP_DIR"
+    cat > "$DESKTOP_DIR/${name}.webloc" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- X-PiBootstrap-MenuID: ${menu_id} -->
+<plist version="1.0">
+<dict>
+	<key>URL</key>
+	<string>${url}</string>
+</dict>
+</plist>
+EOF
+}
+
+remove_webloc() {
+    local name="$1"
+    rm -f "$DESKTOP_DIR/${name}.webloc"
+}
+
+# .webloc equivalent of _desktop_remove_all_for_menu — same self-healing
+# rationale (an entry ID renamed/removed since the last install shouldn't
+# leave an orphaned file forever), same content-based ownership check
+# rather than a filename or ENTRY_IDS-list match.
+_webloc_remove_all_for_menu() {
+    local menu_id="$1"
+    local f
+    for f in "$DESKTOP_DIR"/*.webloc; do
+        [ -f "$f" ] || continue
+        grep -qF "X-PiBootstrap-MenuID: ${menu_id} -->" "$f" 2>/dev/null && rm -f "$f"
+    done
+    return 0
+}
+
 # Registers a custom application-menu submenu for an environment (instead
 # of its entries falling into an existing category folder like Internet or
 # System Tools), using the standard freedesktop Desktop Menu Specification
@@ -254,17 +304,61 @@ _desktop_is_deployed() {
     esac
 }
 
+_desktop_not_deployed_msg() {
+    local default_msg
+    case "$DEPLOYED_CHECK_KIND" in
+        container) default_msg="container '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
+        systemd)   default_msg="service '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
+        *)         default_msg="not deployed — skipping (deploy the environment first)" ;;
+    esac
+    echo "${NOT_DEPLOYED_MSG:-$default_msg}"
+}
+
 run_desktop_install() {
     # .desktop files, $APPS_DIR (~/.local/share/applications), and the
     # xdg-desktop-menu submenu machinery below are all Linux/XDG concepts
-    # with no macOS equivalent — nothing here actually fails on macOS
-    # (every risky call is already guarded), so left unchecked this would
-    # silently write meaningless text files into ~/Desktop and a
-    # nonstandard ~/.local/share/applications folder instead of doing
-    # nothing. Skip cleanly instead, for both install and --uninstall —
-    # there's nothing to install and nothing to clean up either way.
+    # with no macOS equivalent — skip all of that on macOS. Two things
+    # this environment produces DO have a real macOS equivalent though,
+    # so those still happen: post-deploy-info.html (plain self-contained
+    # HTML, no XDG involvement) gets regenerated, and any "link"-kind
+    # entries (web UI URLs) get written as .webloc files on the Desktop —
+    # macOS's own native double-clickable internet shortcut, see
+    # install_webloc's comment. "exec"-kind entries (a terminal command,
+    # e.g. launching run.sh) have no equivalent this library builds —
+    # there's no macOS analog to a Linux Terminal=true .desktop launcher
+    # without wrapping it in a real .app bundle, out of scope here.
     if [[ "$(uname)" == "Darwin" ]]; then
-        echo "  ⏭  ${MENU_ID}: skipped — desktop entries are Linux-only (XDG .desktop files have no macOS equivalent)"
+        if [ "${1:-}" = "--uninstall" ]; then
+            _webloc_remove_all_for_menu "$MENU_ID"
+            return 0
+        fi
+        if ! _desktop_is_deployed; then
+            _webloc_remove_all_for_menu "$MENU_ID"
+            echo "  ⚠  ${MENU_ID}: $(_desktop_not_deployed_msg)"
+            return 0
+        fi
+        echo "  ${MENU_ID}: deployed ✓"
+        _webloc_remove_all_for_menu "$MENU_ID"
+
+        local i
+        for i in "${!ENTRY_IDS[@]}"; do
+            case "${ENTRY_KINDS[$i]}" in
+                link)
+                    install_webloc "${ENTRY_IDS[$i]}" "${ENTRY_TARGETS[$i]}" "$MENU_ID"
+                    echo "  ✓  ${ENTRY_NAMES[$i]} (.webloc)"
+                    ;;
+                exec)
+                    echo "  ⏭  ${ENTRY_NAMES[$i]}: skipped (macOS — no clickable-launcher equivalent for exec entries)"
+                    ;;
+                *)
+                    echo "run_desktop_install: unknown ENTRY_KINDS[$i] '${ENTRY_KINDS[$i]}'" >&2
+                    ;;
+            esac
+        done
+
+        bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+        install_webloc "$INFO_ID" "file://$ENV_DIR/post-deploy-info.html" "$MENU_ID"
+        echo "  ✓  Info page (.webloc) — generated ${ENV_DIR}/post-deploy-info.html"
         return 0
     fi
 
@@ -281,13 +375,7 @@ run_desktop_install() {
     if ! _desktop_is_deployed; then
         _desktop_remove_all_for_menu "$MENU_ID"
         remove_submenu "$MENU_ID"
-        local default_msg
-        case "$DEPLOYED_CHECK_KIND" in
-            container) default_msg="container '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
-            systemd)   default_msg="service '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
-            *)         default_msg="not deployed — skipping (deploy the environment first)" ;;
-        esac
-        echo "  ⚠  ${MENU_ID}: ${NOT_DEPLOYED_MSG:-$default_msg}"
+        echo "  ⚠  ${MENU_ID}: $(_desktop_not_deployed_msg)"
         return 0
     fi
     echo "  ${MENU_ID}: deployed ✓"
