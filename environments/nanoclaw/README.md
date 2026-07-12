@@ -2,7 +2,7 @@
 
 A self-hosted AI assistant built on Anthropic's Claude Agent SDK that runs on Raspberry Pi (or macOS). Connects to WhatsApp, Telegram, Slack, Discord, Gmail and other messaging channels, has structured long-term memory, and schedules recurring tasks.
 
-Source: [github.com/qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw)
+Source: [github.com/nanocoai/nanoclaw](https://github.com/nanocoai/nanoclaw)
 
 ---
 
@@ -14,10 +14,7 @@ NanoClaw is not a single Docker container — it spawns an isolated Docker conta
 Messaging apps → orchestrator (router) → container (Claude Agent SDK) → orchestrator (delivery) → messaging apps
 ```
 
-Memory works in three layers:
-1. **Raw sources** — transcripts, articles, web clips
-2. **mnemon graph** — structured facts with semantic search via local Ollama embeddings
-3. **Wiki pages** — human-readable narrative syntheses browsable in Obsidian
+Default persistent memory is per-group: conversation history in the session database, plus `CLAUDE.local.md` (the agent's own notes-to-self, read on every spawn but never overwritten by the host). Structured graph memory (mnemon) and a markdown wiki are both optional, added via NanoClaw's own skills (`/add-mnemon`, `/add-karpathy-llm-wiki`) rather than installed by default — see the separate `nanoclaw-mnemon` environment in this repo if you want mnemon baked in automatically.
 
 ---
 
@@ -65,10 +62,8 @@ None of this is a Docker Compose fit either — Compose describes a fixed set of
 
 | Tool | Link | Description |
 |------|------|-------------|
-| NanoClaw | [github.com/qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw) | Self-hosted AI assistant built on Claude — routes messages from WhatsApp, Telegram, Slack, and Discord to isolated per-group agent containers |
+| NanoClaw | [github.com/nanocoai/nanoclaw](https://github.com/nanocoai/nanoclaw) | Self-hosted AI assistant built on Claude — routes messages from WhatsApp, Telegram, Slack, and Discord to isolated per-group agent containers |
 | Anthropic Claude | [anthropic.com](https://www.anthropic.com) | Large language model powering each agent's reasoning, memory recall, and task execution |
-| Ollama | [ollama.com](https://ollama.com) | Local LLM and embedding server — NanoClaw uses it to run `nomic-embed-text` for semantic memory search without sending data to an external API |
-| whisper.cpp | [github.com/ggerganov/whisper.cpp](https://github.com/ggerganov/whisper.cpp) | Local voice transcription (optional) — converts voice messages to text on-device using OpenAI's Whisper model compiled for ARM |
 
 ---
 
@@ -218,7 +213,5 @@ http://<pi-ip>:3080
 ## Notes
 
 - **Docker Manager** in the deploy menu will show dynamically-created NanoClaw group containers alongside your other containers — plus the `nanoclaw` orchestrator container itself in `container` mode.
-- **Ollama** (local embeddings for semantic memory recall) is installed by the wizard and requires ~300 MB for the `nomic-embed-text` model. Pi 4 (4 GB) or Pi 5 recommended.
-- **whisper.cpp** (local voice transcription) is optional but requires compilation from source on ARM; the wizard handles this.
 - NanoClaw containers never see raw API keys — a local HTTP proxy (OneCLI) injects credentials at request time. This is true in both deploy modes; `container` mode additionally limits what the *orchestrator itself* can reach on the host filesystem (see "Deployment Modes" above) — it doesn't change credential handling, which was already scoped away from the agent containers before `container` mode existed.
 - `container` mode still needs full Docker daemon access (via the bind-mounted socket) to spawn/manage agent containers — that's unavoidable in either mode, since spawning agent containers is the orchestrator's whole job. The security improvement is specifically about *filesystem* access, not Docker access.
