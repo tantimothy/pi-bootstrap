@@ -21,7 +21,7 @@ DEPLOYED_CHECK_VALUE="nanoclaw-mnemon"
 
 ENTRY_IDS=(pi-bootstrap-nanoclaw-mnemon)
 ENTRY_NAMES=("NanoClaw + Mnemon AI")
-ENTRY_COMMENTS=("NanoClaw with persistent cross-session memory via mnemon (github.com/mnemon-dev/mnemon)")
+ENTRY_COMMENTS=("NanoClaw with persistent memory (mnemon), optional Ollama embeddings, and Karpathy wiki scaffolding")
 ENTRY_ICONS=(utilities-terminal)
 ENTRY_KINDS=(exec)
 ENTRY_TARGETS=("bash -c \"cd '$ENV_DIR' && REBUILD_POLICY=FAST ./run.sh\"")
