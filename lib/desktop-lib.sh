@@ -255,6 +255,24 @@ _refresh_menu_cache() {
     return 0
 }
 
+# The Desktop ICON view is a separate cache from the application menu above
+# — a file manager rendering $DESKTOP_DIR typically parses each .desktop
+# file's Name=/Icon= once and holds onto that, so a freshly written or
+# changed file shows its raw "<id>.desktop" filename instead until something
+# tells that already-running process to re-read it (a plain file-list
+# refresh isn't always enough — this is a metadata cache, not just a
+# directory listing). This is exactly why a reboot fixes it for free: the
+# desktop shell restarts and parses every icon from scratch. Tries the
+# reconfigure signal for both PCManFM builds Raspberry Pi OS has shipped as
+# its default file manager (GTK "pcmanfm" pre-Bookworm, Qt "pcmanfm-qt" on
+# the current Wayfire-based desktop) — harmless no-ops if neither is running
+# or installed, so this is safe to call unconditionally on any Linux desktop.
+_refresh_desktop_icons() {
+    command -v pcmanfm &>/dev/null && pcmanfm --reconfigure 2>/dev/null
+    command -v pcmanfm-qt &>/dev/null && pcmanfm-qt --reconfigure 2>/dev/null
+    return 0
+}
+
 # Reads a value from $ENV_DIR/.env with a fallback default — used to build
 # port-based Exec=/URL= entries that reflect the user's actual configuration
 # rather than a hardcoded default. $ENV_DIR must already be set by the
@@ -457,6 +475,7 @@ run_desktop_install() {
     if [ "${1:-}" = "--uninstall" ]; then
         _desktop_remove_all_for_menu "$MENU_ID"
         remove_submenu "$MENU_ID"
+        _refresh_desktop_icons
         return 0
     fi
 
@@ -465,6 +484,7 @@ run_desktop_install() {
     if ! _desktop_is_deployed; then
         _desktop_remove_all_for_menu "$MENU_ID"
         remove_submenu "$MENU_ID"
+        _refresh_desktop_icons
         echo "  ⚠  ${MENU_ID}: $(_desktop_not_deployed_msg)"
         return 0
     fi
@@ -508,4 +528,5 @@ EOF
     bash "$REPO_DIR/lib/run-info.sh" "$ENV_DIR" list >/dev/null 2>&1 || true
     install_info_icon "$INFO_ID" "$INFO_NAME" "$ENV_DIR/post-deploy-info.html" "$category"
     echo "  ✓  Info page"
+    _refresh_desktop_icons
 }
