@@ -276,16 +276,25 @@ _refresh_menu_cache() {
 # a quieter one.
 #
 # Backgrounded and timeout-bounded even when a display IS present (e.g. a
-# real VNC session): install-desktop-entries.sh calls this once per
-# environment in a loop, and PCManFM's own reconfigure IPC has been
-# observed to hang under that rapid repeated firing rather than fail fast
-# — blocking the whole install until Ctrl-C, and leaving whichever icons
-# hadn't been reached yet stuck on their raw "<id>.desktop" filename. This
-# is a purely cosmetic refresh (reboot fixes it regardless, and skipping it
-# entirely is exactly this repo's pre-existing behavior before this
-# function existed) — never worth blocking real deploy/install work over,
-# so the caller must never wait on it succeeding, or on it at all.
+# real VNC session): a single reconfigure already refreshes every icon on
+# the Desktop, not just ones this particular call touched, and PCManFM's
+# own reconfigure IPC has been observed to hang under rapid repeated firing
+# rather than fail fast. This is a purely cosmetic refresh (reboot fixes it
+# regardless, and skipping it entirely is exactly this repo's pre-existing
+# behavior from before this function existed) — never worth blocking real
+# deploy/install work over, so the caller must never wait on it succeeding,
+# or on it at all.
+#
+# SKIP_DESKTOP_ICON_REFRESH=true suppresses this entirely — set by
+# install-desktop-entries.sh around its per-environment loop (each
+# environment there runs as its own `bash lib/run-install-desktop.sh`
+# subprocess, hence an exported env var rather than an in-process flag) so
+# a full install triggers one reconfigure at the end instead of up to 9
+# redundant, concurrent ones fighting over the same file manager IPC. A
+# single environment's own run.sh deploying itself is unaffected — that
+# path never sets the flag, so it still gets its one call as before.
 _refresh_desktop_icons() {
+    [ "${SKIP_DESKTOP_ICON_REFRESH:-false}" = "true" ] && return 0
     { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } || return 0
     (
         command -v pcmanfm &>/dev/null && timeout 5 pcmanfm --reconfigure >/dev/null 2>&1
