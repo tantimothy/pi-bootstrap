@@ -72,18 +72,23 @@ UPDATE_KINDS=()
 # ${CONTAINER_NAME}-} prefixing for sidecars) rather than a literal name;
 # Compose already resolved it once when the container was actually
 # created, so asking Docker directly is both simpler and correct regardless
-# of which templating pattern a given service uses. Plain-docker
-# environments have no such label at all, so they're matched by reading
-# whatever CONTAINER_NAME is *actually* configured right now (.env if
-# present, else .env.example's default) — the same resolution order
-# run.sh/deploy.sh themselves already use.
+# of which templating pattern a given service uses. The compose SERVICE key
+# (com.docker.compose.service) is also read here and returned as a third
+# field — `docker compose build`/`up` take the service key, e.g. "darkstat",
+# never the actual (possibly CONTAINER_NAME-prefixed) container name, e.g.
+# "pihole-darkstat"; those two are only the same string when CONTAINER_NAME
+# happens to be unset. Plain-docker environments have no such label at all,
+# so they're matched by reading whatever CONTAINER_NAME is *actually*
+# configured right now (.env if present, else .env.example's default) —
+# the same resolution order run.sh/deploy.sh themselves already use.
 _resolve_environment_for_container() {
-    local name="$1" dir working_dir
+    local name="$1" dir working_dir service
     working_dir=$($DOCKER inspect "$name" --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null)
     case "$working_dir" in
         "$REPO_DIR/environments/"*)
             if [ -f "${working_dir}/docker-compose.yml" ]; then
-                echo "${working_dir}|compose"
+                service=$($DOCKER inspect "$name" --format '{{ index .Config.Labels "com.docker.compose.service" }}' 2>/dev/null)
+                echo "${working_dir}|compose|${service:-$name}"
                 return 0
             fi
             ;;
@@ -123,14 +128,20 @@ _resolve_environment_for_container() {
 # deploy.sh itself uses — whose CLEAN already only tears the old container
 # down after a successful rebuild.
 apply_update() {
-    local name="$1" kind="$2" resolved dir env_kind
+    local name="$1" kind="$2" resolved dir env_kind rest service
 
     resolved=$(_resolve_environment_for_container "$name") || {
         echo "   ⚠️  Couldn't determine which environment manages '$name' — apply it manually."
         return
     }
     dir="${resolved%%|*}"
-    env_kind="${resolved##*|}"
+    rest="${resolved#*|}"
+    env_kind="${rest%%|*}"
+    # Only meaningful for env_kind=compose — the compose service key (e.g.
+    # "darkstat"), which is NOT always the same as $name: CONTAINER_NAME
+    # prefixing (e.g. "pihole-darkstat") changes the actual container name
+    # without renaming the service key `docker compose build`/`up` expect.
+    service="${rest#*|}"
 
     if [ "$kind" = "local" ] && [ "$env_kind" = "plaindocker" ]; then
         echo ""
@@ -170,14 +181,16 @@ apply_update() {
 
     # Compose-managed: --no-deps scopes the recreate to just this one
     # service, leaving every other container in the same stack untouched.
+    # Passed by service key ($service), not by the container's actual
+    # ($name) — see the field-parsing comment above.
     (
         cd "$dir" || exit 1
         if [ "$kind" = "local" ]; then
             echo "🛠️  Rebuilding $name (this does not affect the currently running container)..."
-            $DOCKER_COMPOSE build --no-cache "$name"
+            $DOCKER_COMPOSE build --no-cache "$service"
         fi
         echo "🔄 Recreating $name..."
-        $DOCKER_COMPOSE up -d --no-deps --force-recreate "$name"
+        $DOCKER_COMPOSE up -d --no-deps --force-recreate "$service"
     )
 }
 
