@@ -1,0 +1,40 @@
+data_dirs:
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/groups"
+    description: "Per-group files: conversation history, memory wiki, transcripts, CLAUDE.md"
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/data"
+    description: "Sessions, message DB, task scheduler DB, IPC streams"
+install_dirs:
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}"
+    description: "NanoClaw repo + built binaries (groups/ and data/ live inside here)"
+named_volumes: []
+data_dirs_label: "📁 Persistent Data Directories (back these up):"
+install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
+delete_install_dirs: false
+delete_confirm_msg: "All conversation history and memory will be lost."
+web_uis:
+  - name: "NanoClaw Web Interface"
+    url: "http://${HOST_IP}:${NANOCLAW_PORT:-3080}"
+# These two are NOT part of the shared info.yaml schema — nanoclaw/info.sh
+# reads them directly and picks one based on `uname`, since NanoClaw's own
+# host-mode-vs-container-mode split (Linux: systemd; macOS: no systemd,
+# always container mode) means the two platforms genuinely need different
+# top-of-list commands, not just different values for the same command.
+# |2 pins the strip to exactly 2 spaces — a plain "|" would infer the strip
+# amount from each block's own uniform 3-space indent and strip it all.
+useful_commands_host: |2
+     systemctl status nanoclaw                                        # Service status
+     journalctl -u nanoclaw -f                                       # Live logs
+     sudo systemctl restart nanoclaw                                 # Restart service
+useful_commands_macos: |2
+     tail -f ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/logs/nanoclaw.log                        # Live logs
+useful_commands: |2
+     docker ps --filter name=nanoclaw                                # List agent containers
+     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-whatsapp.sh                # Add WhatsApp channel
+     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-telegram.sh                # Add Telegram channel
+     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-discord.sh                 # Add Discord channel
+     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-imessage.sh                # Add iMessage channel
+     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/register-claude-token.sh       # Update Anthropic API key
+
+  📌 Notes:
+     🐳 NanoClaw manages its own Docker containers per conversation group.
+        Use the Docker Manager in the deploy menu to view or delete them.

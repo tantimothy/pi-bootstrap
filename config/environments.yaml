@@ -1,0 +1,32 @@
+# Display order for deploy.sh's Environments submenu, grouped by what each
+# environment actually does rather than filesystem/inode order (which is
+# arbitrary and varies between clones). Categories exist so a future
+# hierarchical/submenu Environments UI is a non-event — deploy.sh today
+# only reads the flattened environment order (`yq '.categories[].environments[]'`),
+# but the grouping is already here for when it's needed.
+#
+# An environment folder not listed under any category here is appended
+# alphabetically at the end by deploy.sh's own fallback pass — it's never
+# silently hidden from the menu just because this file wasn't updated.
+categories:
+  - id: setup
+    name: "Host Setup"
+    environments:
+      - pi-barebones
+  - id: ai
+    name: "AI Assistants"
+    environments:
+      - nanoclaw
+      - nanoclaw-mnemon
+  - id: network-security
+    name: "Networking & Security"
+    environments:
+      - pihole-wireguard
+      - ntopng
+      - internet-pi
+      - dragonos-sdr
+      - kali-pentest
+  - id: management
+    name: "Management"
+    environments:
+      - portainer

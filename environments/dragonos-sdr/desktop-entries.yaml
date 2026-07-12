@@ -1,0 +1,40 @@
+menu:
+  id: dragonos-sdr
+  name: "DragonOS SDR"
+  icon: gqrx
+deployed_check:
+  # .env.example ships no persistent container_name — the environment runs
+  # with --rm, so a lingering image alone doesn't prove it was ever
+  # launched. run.sh touches .deployed right before it runs the container
+  # instead.
+  kind: marker
+  value: "${ENV_DIR}/.deployed"
+entries:
+  - id: pi-bootstrap-gqrx
+    name: "GQRX"
+    comment: "Software Defined Radio receiver — spectrum waterfall, FM/AM/SSB/CW demodulation"
+    icon: gqrx
+    kind: exec
+    # X11 flags: mount the host X socket and pass DISPLAY=:0 (standard for
+    # Pi desktop). If running over SSH with X forwarding, edit this and
+    # replace :0 with $DISPLAY.
+    target: 'bash -c "xhost +local: >/dev/null 2>&1; docker run --rm -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix --device /dev/bus/usb ${DOCKER_IMAGE_TAG:-dragonos-pi} gqrx"'
+    terminal: false
+  - id: pi-bootstrap-gnuradio
+    name: "GNU Radio Companion"
+    comment: "Visual signal processing flowgraph editor"
+    icon: gnuradio-grc
+    kind: exec
+    target: 'bash -c "xhost +local: >/dev/null 2>&1; docker run --rm -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix --device /dev/bus/usb ${DOCKER_IMAGE_TAG:-dragonos-pi} gnuradio-companion"'
+    terminal: false
+  - id: pi-bootstrap-sdr-menu
+    name: "SDR Tools Menu"
+    comment: "Interactive SDR launcher — rtl_fm, dump1090, hackrf, APRS, ACARS and more"
+    icon: utilities-terminal
+    kind: exec
+    # Attach to a running container if available; otherwise launch fresh.
+    target: 'bash -c "docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} /usr/local/bin/sdr-menu.sh 2>/dev/null || docker run -it --rm --device /dev/bus/usb ${DOCKER_IMAGE_TAG:-dragonos-pi}"'
+    terminal: true
+info:
+  id: pi-bootstrap-dragonos-sdr-info
+  name: "DragonOS SDR Info"

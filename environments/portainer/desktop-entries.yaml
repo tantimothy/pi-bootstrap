@@ -1,0 +1,20 @@
+menu:
+  id: portainer
+  name: Portainer
+  icon: docker
+deployed_check:
+  kind: container
+  # Mirrors docker-compose.yml's own CONTAINER_NAME override — hardcoding
+  # this independently would silently break the deployed-check for anyone
+  # who's actually customized it.
+  value: "${CONTAINER_NAME:-portainer}"
+entries:
+  - id: pi-bootstrap-portainer
+    name: Portainer
+    comment: "Full Docker container/network/volume management UI"
+    icon: docker
+    kind: link
+    target: "http://localhost:${PORTAINER_PORT:-9000}"
+info:
+  id: pi-bootstrap-portainer-info
+  name: "Portainer Info"

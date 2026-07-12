@@ -52,7 +52,52 @@ if ! docker compose version &> /dev/null; then
     fi
 fi
 
-# 3. BULLETPROOF DOCKER PERMISSION CHECK WRAPPER
+# 3. YQ CHECK: Ensure go-yq (github.com/mikefarah/yq) is installed. Several
+# environments' desktop-entries.yaml/info.yaml, plus config/environments.yaml,
+# are read via `yq eval` — an eval-expression syntax the Python jq-wrapper
+# some distros package under the same "yq" name (Debian/Ubuntu's apt
+# package) does NOT speak, so a version-string check is required, not just
+# a bare `command -v`. Installed to /usr/local/bin — ahead of /usr/bin on
+# the default $PATH — so it shadows any apt-installed impostor without
+# touching or uninstalling it.
+if ! command -v yq &>/dev/null || ! yq --version 2>/dev/null | grep -q "mikefarah/yq"; then
+    echo "📦 go-yq not found (or a different 'yq' is already on \$PATH). Installing it now..."
+    if [ "$OS_TYPE" = "macos" ]; then
+        if command -v brew &> /dev/null; then
+            brew install yq
+        else
+            echo "❌ Homebrew not found. Install it from https://brew.sh then re-run."
+            exit 1
+        fi
+    else
+        # dpkg's architecture names mostly match yq's release asset names
+        # directly (amd64, arm64) — 32-bit ARM is the one mismatch (dpkg:
+        # armhf/armel, yq's asset: plain "arm").
+        YQ_DPKG_ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m)
+        case "$YQ_DPKG_ARCH" in
+            amd64|arm64) YQ_ARCH="$YQ_DPKG_ARCH" ;;
+            armhf|armel|armv7l|arm) YQ_ARCH="arm" ;;
+            x86_64) YQ_ARCH="amd64" ;;
+            aarch64) YQ_ARCH="arm64" ;;
+            *)
+                echo "❌ Unrecognized architecture '${YQ_DPKG_ARCH}' for yq install." >&2
+                echo "   Install go-yq manually: https://github.com/mikefarah/yq#install" >&2
+                exit 1
+                ;;
+        esac
+        sudo curl -fsSL -o /usr/local/bin/yq \
+            "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${YQ_ARCH}"
+        sudo chmod +x /usr/local/bin/yq
+    fi
+    if ! command -v yq &>/dev/null || ! yq --version 2>/dev/null | grep -q "mikefarah/yq"; then
+        echo "❌ yq install failed, or a conflicting 'yq' still takes priority on \$PATH." >&2
+        echo "   Expected /usr/local/bin/yq to be found first — check \$PATH ordering." >&2
+        exit 1
+    fi
+    echo "✅ yq (go-yq) successfully installed!"
+fi
+
+# 4. BULLETPROOF DOCKER PERMISSION CHECK WRAPPER
 DOCKER_CMD="docker"
 if ! docker ps &>/dev/null; then
     echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
@@ -115,6 +160,8 @@ fi
 cd "$PROJECT_DIR" || exit 1
 
 source "$PROJECT_DIR/lib/deploy-lib.sh"
+source "$PROJECT_DIR/lib/yaml-lib.sh"
+_require_yq || exit 1
 
 # --- DIAGNOSTIC BLOCK ---
 if [ ! -d "environments" ]; then
@@ -123,26 +170,18 @@ if [ ! -d "environments" ]; then
     exit 1
 fi
 
-# Fixed display order, grouped by what each environment actually does:
-# host bootstrap first (nothing else really makes sense to run before it),
-# then the AI assistant, then the networking/security stack (pihole-wireguard
-# and its ntopng/internet-pi/dragonos-sdr/kali-pentest siblings), then
-# portainer last since it's cross-cutting Docker tooling for managing
-# whatever else got deployed above it. `find` alone returns filesystem/inode
-# order, which is arbitrary and varies between clones — this replaces that
-# with something a user can actually predict. Anything not listed here (a
-# newly added environment folder) is appended alphabetically afterward, so
-# this never silently hides one just because it wasn't added to the list.
-ENV_ORDER_PRIORITY=(
-    pi-barebones
-    nanoclaw
-    pihole-wireguard
-    ntopng
-    internet-pi
-    dragonos-sdr
-    kali-pentest
-    portainer
-)
+# Fixed display order, grouped by what each environment actually does — see
+# config/environments.yaml for the category breakdown (host setup, AI
+# assistants, networking/security, management last since it's cross-cutting
+# Docker tooling for managing whatever else got deployed). That file is
+# also the seed for a future hierarchical/submenu Environments UI, not just
+# a flat order. `find` alone returns filesystem/inode order, which is
+# arbitrary and varies between clones — flattening the YAML's categories in
+# order gives something a user can actually predict. Anything not listed
+# there (a newly added environment folder) is appended alphabetically
+# afterward, so it's never silently hidden just because the YAML wasn't
+# updated.
+mapfile -t ENV_ORDER_PRIORITY < <(yq eval '.categories[].environments[]' "$PROJECT_DIR/config/environments.yaml")
 
 ALL_SUBDIRS=()
 declare -A _seen_env=()
