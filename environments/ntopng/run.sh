@@ -76,7 +76,7 @@ mkdir -p "${SCRIPT_DIR}/ntopng-data" "${SCRIPT_DIR}/ntopng-redis-data"
 # ---------------------------------------------------------------------------------------
 # Policy engine
 # ---------------------------------------------------------------------------------------
-CONTAINER_NAMES=("ntopng" "ntopng-redis")
+CONTAINER_NAMES=("${CONTAINER_NAME:-ntopng}" "ntopng-redis")
 ALL_RUNNING=true
 
 for name in "${CONTAINER_NAMES[@]}"; do
