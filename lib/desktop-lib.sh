@@ -325,13 +325,30 @@ _load_desktop_entries_yaml() {
 # above, ALSO reads deployed_check from the same file (the common case —
 # see _load_desktop_entries_yaml's own comment for the exception), then
 # calls run_desktop_install.
+#
+# deployed_check.value is one literal to type for a marker path or systemd
+# unit name, but for a container-kind check on a docker-compose.yml-based
+# environment, the container name already has exactly one real owner:
+# docker-compose.yml's own container_name field for that service (which
+# Compose reads and substitutes itself, independent of anything here). A
+# literal value: here would just be a second, driftable copy of whatever
+# default docker-compose.yml already declares. deployed_check.from_compose_service
+# names which service's container_name to read instead — no value: needed,
+# and no default to keep in sync, since there's only ever one copy.
 run_desktop_install_yaml() {
     local env_dir="$1"; shift
     _load_desktop_entries_yaml "$env_dir" || return 1
     local yaml="$env_dir/desktop-entries.yaml"
 
     DEPLOYED_CHECK_KIND=$(_yq '.deployed_check.kind' "$yaml")
-    DEPLOYED_CHECK_VALUE="$(_yaml_expand "$(_yq '.deployed_check.value' "$yaml")")"
+
+    local from_service
+    from_service=$(_yq '.deployed_check.from_compose_service // ""' "$yaml")
+    if [ -n "$from_service" ]; then
+        DEPLOYED_CHECK_VALUE="$(_yaml_expand "$(_yq ".services.${from_service}.container_name" "$env_dir/docker-compose.yml")")"
+    else
+        DEPLOYED_CHECK_VALUE="$(_yaml_expand "$(_yq '.deployed_check.value' "$yaml")")"
+    fi
 
     run_desktop_install "$@"
 }

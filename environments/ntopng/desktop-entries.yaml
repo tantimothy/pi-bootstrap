@@ -4,7 +4,10 @@ menu:
   icon: network-wired
 deployed_check:
   kind: container
-  value: "${CONTAINER_NAME:-ntopng}"
+  # Read straight from docker-compose.yml's own container_name field for
+  # this service — that's the only place the actual name (and its
+  # CONTAINER_NAME-driven default) is declared.
+  from_compose_service: ntopng
 entries:
   - id: pi-bootstrap-ntopng
     name: "ntopng (Deep Traffic Analysis)"

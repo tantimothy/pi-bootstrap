@@ -8,11 +8,10 @@ menu:
   icon: network-server
 deployed_check:
   kind: container
-  # Mirrors docker-compose.yml's own CONTAINER_NAME override for the
-  # primary (pihole) container — hardcoding this independently would
-  # silently break the deployed-check for anyone who's actually customized
-  # it.
-  value: "${CONTAINER_NAME:-pihole}"
+  # Read straight from docker-compose.yml's own container_name field for
+  # the primary (pihole) service — that's the only place the actual name
+  # (and its CONTAINER_NAME-driven default) is declared.
+  from_compose_service: pihole
 entries:
   - id: pi-bootstrap-pihole
     name: "Pi-hole Admin"
