@@ -400,6 +400,11 @@ _load_info_yaml() {
 
     _require_yq || return 1
 
+    # .env.example first (seeds every documented default as a real
+    # variable), then .env second so an actual override wins — see
+    # lib/desktop-lib.sh's _load_desktop_entries_yaml for the full
+    # rationale (same pattern, same caution about secret-shaped keys).
+    [ -f "$env_dir/.env.example" ] && { set -a; source "$env_dir/.env.example"; set +a; }
     [ -f "$env_dir/.env" ] && { set -a; source "$env_dir/.env"; set +a; }
 
     HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')

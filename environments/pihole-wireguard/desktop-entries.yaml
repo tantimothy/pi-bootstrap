@@ -18,43 +18,43 @@ entries:
     comment: "DNS ad-blocker — blocklist management, query log, client stats"
     icon: network-server
     kind: link
-    target: "http://localhost:${PIHOLE_WEB_PORT:-80}/admin"
+    target: "http://localhost:${PIHOLE_WEB_PORT}/admin"
   - id: pi-bootstrap-grafana
     name: "Grafana (Pi Network)"
     comment: "Monitoring dashboards — Pi-hole metrics, WireGuard peers, node and speedtest"
     icon: utilities-system-monitor
     kind: link
-    target: "http://localhost:${GRAFANA_PORT:-3030}"
+    target: "http://localhost:${GRAFANA_PORT}"
   - id: pi-bootstrap-uptime-kuma
     name: "Uptime Kuma"
     comment: "Service uptime and health monitoring dashboard"
     icon: network-server
     kind: link
-    target: "http://localhost:${UPTIME_KUMA_PORT:-3001}"
+    target: "http://localhost:${UPTIME_KUMA_PORT}"
   - id: pi-bootstrap-wireguard
     name: "WireGuard VPN Dashboard"
     comment: "WireGuard peer management — add or remove clients, view connection status"
     icon: network-vpn
     kind: link
-    target: "http://localhost:${WG_UI_PORT:-51821}"
+    target: "http://localhost:${WG_UI_PORT}"
   - id: pi-bootstrap-darkstat
     name: "darkstat (Traffic)"
     comment: "Per-host network bandwidth usage and protocol breakdown"
     icon: network-wired
     kind: link
-    target: "http://localhost:${DARKSTAT_PORT:-667}"
+    target: "http://localhost:${DARKSTAT_PORT}"
   - id: pi-bootstrap-dozzle
     name: "Dozzle (Logs)"
     comment: "Real-time log viewer for every container on this host"
     icon: utilities-terminal
     kind: link
-    target: "http://localhost:${DOZZLE_PORT:-8888}"
+    target: "http://localhost:${DOZZLE_PORT}"
   - id: pi-bootstrap-netalertx
     name: "NetAlertX (Device Scanner)"
     comment: "Network presence scanner — new/unknown device alerts, online/offline history"
     icon: network-wired
     kind: link
-    target: "http://localhost:${NETALERTX_PORT:-20211}"
+    target: "http://localhost:${NETALERTX_PORT}"
 info:
   id: pi-bootstrap-pihole-wireguard-info
   name: "Pi-hole + WireGuard Info"

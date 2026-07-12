@@ -18,14 +18,14 @@ entries:
     # X11 flags: mount the host X socket and pass DISPLAY=:0 (standard for
     # Pi desktop). If running over SSH with X forwarding, edit this and
     # replace :0 with $DISPLAY.
-    target: 'bash -c "xhost +local: >/dev/null 2>&1; docker run --rm -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix --device /dev/bus/usb ${DOCKER_IMAGE_TAG:-dragonos-pi} gqrx"'
+    target: 'bash -c "xhost +local: >/dev/null 2>&1; docker run --rm -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix --device /dev/bus/usb ${DOCKER_IMAGE_TAG} gqrx"'
     terminal: false
   - id: pi-bootstrap-gnuradio
     name: "GNU Radio Companion"
     comment: "Visual signal processing flowgraph editor"
     icon: gnuradio-grc
     kind: exec
-    target: 'bash -c "xhost +local: >/dev/null 2>&1; docker run --rm -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix --device /dev/bus/usb ${DOCKER_IMAGE_TAG:-dragonos-pi} gnuradio-companion"'
+    target: 'bash -c "xhost +local: >/dev/null 2>&1; docker run --rm -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix --device /dev/bus/usb ${DOCKER_IMAGE_TAG} gnuradio-companion"'
     terminal: false
   - id: pi-bootstrap-sdr-menu
     name: "SDR Tools Menu"
@@ -33,7 +33,7 @@ entries:
     icon: utilities-terminal
     kind: exec
     # Attach to a running container if available; otherwise launch fresh.
-    target: 'bash -c "docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} /usr/local/bin/sdr-menu.sh 2>/dev/null || docker run -it --rm --device /dev/bus/usb ${DOCKER_IMAGE_TAG:-dragonos-pi}"'
+    target: 'bash -c "docker exec -it ${CONTAINER_NAME} /usr/local/bin/sdr-menu.sh 2>/dev/null || docker run -it --rm --device /dev/bus/usb ${DOCKER_IMAGE_TAG}"'
     terminal: true
 info:
   id: pi-bootstrap-dragonos-sdr-info

@@ -6,9 +6,9 @@ named_volumes:
 delete_confirm_msg: "Portainer's users/settings will be lost. This does NOT stop or remove containers that Portainer was managing — only its own app state."
 web_uis:
   - name: "Portainer (full container/network/volume management)"
-    url: "http://${HOST_IP}:${PORTAINER_PORT:-9000}"
+    url: "http://${HOST_IP}:${PORTAINER_PORT}"
   - name: "Portainer (same, over HTTPS — self-signed cert, browser will warn)"
-    url: "https://${HOST_IP}:${PORTAINER_HTTPS_PORT:-9443}"
+    url: "https://${HOST_IP}:${PORTAINER_HTTPS_PORT}"
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — "📌 Notes:" is intentionally at column 0 in the
 # rendered output; see ntopng/info.yaml for the full explanation.

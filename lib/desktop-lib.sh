@@ -296,6 +296,16 @@ _load_desktop_entries_yaml() {
 
     _require_yq || return 1
 
+    # .env.example first (seeds every documented default as a real
+    # variable), then .env second so an actual override wins — this is why
+    # desktop-entries.yaml's ${VAR:-default} markers can usually just be
+    # ${VAR}: the default already comes from .env.example, a value doesn't
+    # need to be typed a second time here to match it. Only skip this for
+    # anything genuinely not meant to have a repo-documented default (there
+    # are none among the .env-driven values used today, but keep this in
+    # mind before referencing a secret/password-shaped .env.example key
+    # this way — its placeholder text would resolve as a real fallback).
+    [ -f "$env_dir/.env.example" ] && { set -a; source "$env_dir/.env.example"; set +a; }
     [ -f "$env_dir/.env" ] && { set -a; source "$env_dir/.env"; set +a; }
 
     MENU_ID=$(_yq '.menu.id' "$yaml")

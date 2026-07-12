@@ -1,10 +1,10 @@
 data_dirs:
-  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/groups"
+  - path: "${NANOCLAW_INSTALL_PATH}/groups"
     description: "Per-group files: conversation history, memory wiki, transcripts, CLAUDE.md"
-  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/data"
+  - path: "${NANOCLAW_INSTALL_PATH}/data"
     description: "Sessions, message DB, task scheduler DB, IPC streams"
 install_dirs:
-  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}"
+  - path: "${NANOCLAW_INSTALL_PATH}"
     description: "NanoClaw repo + built binaries (groups/ and data/ live inside here)"
 named_volumes: []
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
@@ -13,7 +13,7 @@ delete_install_dirs: false
 delete_confirm_msg: "All conversation history and memory will be lost."
 web_uis:
   - name: "NanoClaw Web Interface"
-    url: "http://${HOST_IP}:${NANOCLAW_PORT:-3080}"
+    url: "http://${HOST_IP}:${NANOCLAW_PORT}"
 # These two are NOT part of the shared info.yaml schema — nanoclaw/info.sh
 # reads them directly and picks one based on `uname`, since NanoClaw's own
 # host-mode-vs-container-mode split (Linux: systemd; macOS: no systemd,
@@ -26,14 +26,14 @@ useful_commands_host: |2
      journalctl -u nanoclaw -f                                       # Live logs
      sudo systemctl restart nanoclaw                                 # Restart service
 useful_commands_macos: |2
-     tail -f ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/logs/nanoclaw.log                        # Live logs
+     tail -f ${NANOCLAW_INSTALL_PATH}/logs/nanoclaw.log                        # Live logs
 useful_commands: |2
      docker ps --filter name=nanoclaw                                # List agent containers
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-whatsapp.sh                # Add WhatsApp channel
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-telegram.sh                # Add Telegram channel
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-discord.sh                 # Add Discord channel
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-imessage.sh                # Add iMessage channel
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/register-claude-token.sh       # Update Anthropic API key
+     cd ${NANOCLAW_INSTALL_PATH} && bash setup/add-whatsapp.sh                # Add WhatsApp channel
+     cd ${NANOCLAW_INSTALL_PATH} && bash setup/add-telegram.sh                # Add Telegram channel
+     cd ${NANOCLAW_INSTALL_PATH} && bash setup/add-discord.sh                 # Add Discord channel
+     cd ${NANOCLAW_INSTALL_PATH} && bash setup/add-imessage.sh                # Add iMessage channel
+     cd ${NANOCLAW_INSTALL_PATH} && bash setup/register-claude-token.sh       # Update Anthropic API key
 
   📌 Notes:
      🐳 NanoClaw manages its own Docker containers per conversation group.

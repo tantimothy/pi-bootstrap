@@ -4,12 +4,14 @@ menu:
   icon: utilities-terminal
 deployed_check:
   # Container-mode only — unlike the plain nanoclaw environment, there's no
-  # host/systemd/launchd mode to detect here. Mirrors run.sh's own
-  # CONTAINER_NAME override (defaults to "nanoclaw-mnemon" if unset in
-  # .env) — hardcoding this independently would silently break the
-  # deployed-check for anyone who's actually customized it.
+  # host/systemd/launchd mode to detect here. No :-default here since
+  # .env.example already documents CONTAINER_NAME=nanoclaw-mnemon and the
+  # loader sources it automatically — see lib/desktop-lib.sh's
+  # _load_desktop_entries_yaml. run.sh's own docker run --name "$CONTAINER_NAME"
+  # is the actual source of truth this mirrors; there's no docker-compose.yml
+  # here to read from directly the way from_compose_service does.
   kind: container
-  value: "${CONTAINER_NAME:-nanoclaw-mnemon}"
+  value: "${CONTAINER_NAME}"
 entries:
   - id: pi-bootstrap-nanoclaw-mnemon
     name: "NanoClaw + Mnemon AI"
