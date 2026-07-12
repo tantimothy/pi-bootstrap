@@ -202,7 +202,7 @@ environments/
     │                         # that docker-compose.yml's `build:` points at; never
     │                         # used standalone, see "Routing Priority" above
     ├── info.yaml             # recommended — see below
-    ├── desktop-entries.yaml  # recommended if there's a web UI — see below
+    ├── desktop-entries.yaml  # recommended if there's a menu-launchable target — see below
     ├── info.sh               # only if info.yaml can't express real branching
     ├── install-desktop.sh    # only if desktop-entries.yaml can't express real branching
     └── README.md             # Services & Ports, Data Directories, Desktop
@@ -352,9 +352,9 @@ useful_commands: |2
 
 **Only add an `info.sh` override** if the environment needs something `info.yaml` genuinely can't express as static data — a conditional field set (`internet-pi`'s `PIHOLE_ENABLE`/`MONITORING_ENABLE` flags deciding which web UIs even exist) or an OS-dependent value (`nanoclaw`'s host-vs-macOS service commands). Call `_load_info_yaml` first for everything that *is* static, override just the one thing that varies, then call `run_info` directly — see `nanoclaw/info.sh` or `internet-pi/info.sh` as templates. `ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), `manifest` (machine-readable, used by `backup.sh`), or `list-dirs` (machine-readable `data_dirs` paths only, one per line, used by `deploy.sh`'s generic fallback path) — none of these are something you call yourself.
 
-### `desktop-entries.yaml` (Recommended if there's a web UI)
+### `desktop-entries.yaml` (Recommended if there's a menu-launchable target)
 
-Skip this only if the environment has no browser-launchable target at all (`pi-barebones` has none; `internet-pi`'s ports come from an externally-managed Ansible playbook rather than this repo's own `.env`, which is why it doesn't have one either — worth reconsidering if that ever changes). `install-desktop-entries.sh` at the repo root discovers every environment directory automatically and dispatches to `lib/run-install-desktop.sh` for each — nothing else needs registering it.
+Not just web UIs — `entries[].kind: exec` covers X11 GUI apps (`dragonos-sdr`'s GQRX/GNU Radio Companion, launched via X11 socket passthrough) and terminal launchers (SDR menu, Kali, NanoClaw) just as much as `kind: link` covers browser-opened web UIs. Skip this only if the environment has no menu-launchable target at all (`pi-barebones` has none; `internet-pi`'s ports come from an externally-managed Ansible playbook rather than this repo's own `.env`, which is why it doesn't have one either — worth reconsidering if that ever changes). `install-desktop-entries.sh` at the repo root discovers every environment directory automatically and dispatches to `lib/run-install-desktop.sh` for each — nothing else needs registering it.
 
 ```yaml
 menu:
