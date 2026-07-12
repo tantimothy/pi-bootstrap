@@ -266,10 +266,18 @@ _refresh_menu_cache() {
 # reconfigure signal for both PCManFM builds Raspberry Pi OS has shipped as
 # its default file manager (GTK "pcmanfm" pre-Bookworm, Qt "pcmanfm-qt" on
 # the current Wayfire-based desktop) — harmless no-ops if neither is running
-# or installed, so this is safe to call unconditionally on any Linux desktop.
+# or installed. Skipped entirely with no DISPLAY/WAYLAND_DISPLAY at all
+# (deploy.sh is very often run over plain SSH with no X forwarding, or the
+# entries installed ahead of ever logging into the desktop) — with no
+# graphical session to reach, both binaries fail fast trying to open one,
+# and that failure ("Cannot open display: ") isn't reliably confined to
+# stderr across GTK/Qt/Xlib builds, so redirecting stderr alone isn't
+# enough; not attempting the connection at all is the actual fix, not just
+# a quieter one.
 _refresh_desktop_icons() {
-    command -v pcmanfm &>/dev/null && pcmanfm --reconfigure 2>/dev/null
-    command -v pcmanfm-qt &>/dev/null && pcmanfm-qt --reconfigure 2>/dev/null
+    { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } || return 0
+    command -v pcmanfm &>/dev/null && pcmanfm --reconfigure >/dev/null 2>&1
+    command -v pcmanfm-qt &>/dev/null && pcmanfm-qt --reconfigure >/dev/null 2>&1
     return 0
 }
 
