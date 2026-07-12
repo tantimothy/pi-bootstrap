@@ -35,9 +35,15 @@ if [ "$ACTION" = "--uninstall" ]; then
     echo "Removing pi-bootstrap desktop entries..."
     rm -f "$APPS_DIR/pi-bootstrap.desktop"
     remove_desktop_icon "pi-bootstrap"
+    # Each iteration below runs as its own subprocess and would otherwise
+    # fire its own Desktop-icon-cache refresh — suppress those and do just
+    # one at the end instead, see _refresh_desktop_icons's own comment.
+    export SKIP_DESKTOP_ICON_REFRESH=true
     for env_dir in "$REPO_DIR"/environments/*/; do
         bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}" --uninstall
     done
+    unset SKIP_DESKTOP_ICON_REFRESH
+    _refresh_desktop_icons
     echo "Done."
     exit 0
 fi
@@ -60,10 +66,14 @@ EOF
 install_desktop_icon "pi-bootstrap"
 echo "  ✓  pi-bootstrap (main dashboard)"
 
-# Delegate to each environment via the dispatcher
+# Delegate to each environment via the dispatcher. Same suppress-then-
+# refresh-once treatment as the --uninstall branch above.
+export SKIP_DESKTOP_ICON_REFRESH=true
 for env_dir in "$REPO_DIR"/environments/*/; do
     bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}"
 done
+unset SKIP_DESKTOP_ICON_REFRESH
+_refresh_desktop_icons
 
 echo ""
 echo "✅  Done. Entries installed to $APPS_DIR"
