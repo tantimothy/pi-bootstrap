@@ -118,7 +118,7 @@ echo ""
 
 for ENV_PATH in "$REPO_DIR"/environments/*/; do
     ENV_NAME="$(basename "$ENV_PATH")"
-    [ -f "$ENV_PATH/info.sh" ] || continue
+    { [ -f "$ENV_PATH/info.sh" ] || [ -f "$ENV_PATH/info.yaml" ]; } || continue
 
     if ! is_deployed "$ENV_NAME" "$ENV_PATH"; then
         echo "   ⏭️  $ENV_NAME (not deployed — skipping, even though a .env may exist from configuring it in the TUI)"
@@ -164,7 +164,7 @@ for ENV_PATH in "$REPO_DIR"/environments/*/; do
                 ENV_HAS_CONTENT=true
                 ;;
         esac
-    done < <(bash "${ENV_PATH}info.sh" manifest 2>/dev/null)
+    done < <(bash "$REPO_DIR/lib/run-info.sh" "${ENV_PATH%/}" manifest 2>/dev/null)
 
     if [ "$ENV_HAS_CONTENT" = "true" ]; then
         INCLUDED_ENVS+=("$ENV_NAME")

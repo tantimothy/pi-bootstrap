@@ -691,16 +691,23 @@ if [ -f "$ENV_RUN_SH" ] && ! grep -q "POLICY" "$ENV_RUN_SH"; then
 fi
 
 # WIPE is independently meaningless for an environment that declares no
-# data at all to delete (info.sh's DATA_DIRS/INSTALL_DIRS/NAMED_VOLUMES
-# all empty, per pi-barebones' info.sh) — checked separately from the
-# lifecycle flag above, since the two aren't inherently coupled.
+# data at all to delete (info.yaml's data_dirs/install_dirs/named_volumes
+# all empty, per pi-barebones' info.yaml) — checked separately from the
+# lifecycle flag above, since the two aren't inherently coupled. Reads
+# info.yaml directly rather than grepping info.sh's source text — nanoclaw
+# and internet-pi's info.sh is a thin override with real branching, not a
+# literal DATA_DIRS=() declaration, but their underlying data still comes
+# from their own info.yaml, so this check is uniform across every
+# environment regardless of whether it has an override script.
 POLICY_HAS_WIPABLE_DATA=true
-ENV_INFO_SH="$PROJECT_DIR/$SELECTED_PATH/info.sh"
-if [ -f "$ENV_INFO_SH" ] \
-    && grep -qE '^DATA_DIRS=\(\);' "$ENV_INFO_SH" \
-    && grep -qE '^INSTALL_DIRS=\(\);' "$ENV_INFO_SH" \
-    && grep -qE '^NAMED_VOLUMES=\(\);' "$ENV_INFO_SH"; then
-    POLICY_HAS_WIPABLE_DATA=false
+ENV_INFO_YAML="$PROJECT_DIR/$SELECTED_PATH/info.yaml"
+if [ -f "$ENV_INFO_YAML" ]; then
+    DD_COUNT=$(_yq '.data_dirs // [] | length' "$ENV_INFO_YAML" 2>/dev/null)
+    ID_COUNT=$(_yq '.install_dirs // [] | length' "$ENV_INFO_YAML" 2>/dev/null)
+    NV_COUNT=$(_yq '.named_volumes // [] | length' "$ENV_INFO_YAML" 2>/dev/null)
+    if [ "${DD_COUNT:-1}" = "0" ] && [ "${ID_COUNT:-1}" = "0" ] && [ "${NV_COUNT:-1}" = "0" ]; then
+        POLICY_HAS_WIPABLE_DATA=false
+    fi
 fi
 
 POLICY_MENU_ITEMS=()
@@ -929,15 +936,14 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
 fi
 # =======================================================
 
-# 6. INFO / WIPE — delegate entirely to info.sh (environment-agnostic)
+# 6. INFO / WIPE — delegate entirely to lib/run-info.sh (environment-agnostic)
 if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     cd "$TARGET_WORKSPACE_DIR" || exit 1
-    if [ -f "info.sh" ]; then
-        chmod +x info.sh
+    if [ -f "info.sh" ] || [ -f "info.yaml" ]; then
         ACTION=$([ "$REBUILD_POLICY" = "INFO" ] && echo "list" || echo "delete")
-        ./info.sh "$ACTION"
+        bash "$PROJECT_DIR/lib/run-info.sh" "$TARGET_WORKSPACE_DIR" "$ACTION"
     else
-        echo "ℹ️  No info.sh found for [$ENV_NAME]. No data directory information available."
+        echo "ℹ️  No info.sh or info.yaml found for [$ENV_NAME]. No data directory information available."
     fi
     echo ""
     read -rp "Press Enter to return to the menu..."

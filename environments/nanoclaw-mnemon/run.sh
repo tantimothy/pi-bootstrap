@@ -29,6 +29,7 @@ set -euo pipefail
 
 DOCKER="${DOCKER_CMD:-docker}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 POLICY="${REBUILD_POLICY:-FAST}"
 
@@ -320,7 +321,7 @@ if [ "$POLICY" = "TEARDOWN" ]; then
     $DOCKER stop "$CONTAINER_NAME" 2>/dev/null || true
     $DOCKER rm   "$CONTAINER_NAME" 2>/dev/null || true
     remove_agent_containers
-    [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
     echo "✅ Container and agent containers removed. Install path (\$NANOCLAW_INSTALL_PATH) untouched."
     exit 0
 fi
@@ -413,5 +414,5 @@ fi
 
 echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
 echo "=========================================================="
-[ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
-bash "$SCRIPT_DIR/info.sh" list
+bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list

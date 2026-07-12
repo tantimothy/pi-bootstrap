@@ -26,6 +26,7 @@ if ! $DOCKER ps &>/dev/null; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/.env}"
 
 POLICY="${REBUILD_POLICY:-FAST}"
@@ -46,7 +47,7 @@ if [ "$POLICY" = "TEARDOWN" ]; then
     $DOCKER_COMPOSE --env-file "$ENV_FILE" down --remove-orphans || true
     # Best-effort — immediately removes now-stale desktop entries rather than
     # leaving them until the next manual install-desktop-entries.sh run.
-    [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
     echo "✅ Stack torn down."
     exit 0
 fi
@@ -108,7 +109,7 @@ if [ "$POLICY" = "FAST" ]; then
         $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
         # Best-effort — picks up any .env change (e.g. NTOPNG_PORT) even on
         # this no-op-ish reconcile path.
-        [ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+        bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
         echo "=========================================================="
         exit 0
     fi
@@ -144,5 +145,5 @@ $DOCKER_COMPOSE --env-file "$ENV_FILE" up -d --remove-orphans
 echo "=========================================================="
 echo "🏁 ntopng Deployment Complete!"
 echo "=========================================================="
-[ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
-bash "$SCRIPT_DIR/info.sh" list
+bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list

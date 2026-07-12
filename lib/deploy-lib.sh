@@ -22,6 +22,7 @@
 deploy_environment() {
     local env_dir="$1" policy="$2" docker_cmd="${3:-docker}"
     local env_name; env_name="$(basename "$env_dir")"
+    local repo_dir; repo_dir="$(cd "$env_dir/../.." && pwd)"
 
     (
         cd "$env_dir" || exit 1
@@ -38,10 +39,10 @@ deploy_environment() {
         # ever touches them as a bind-mount target — generic fallback only
         # (no run.sh), since every run.sh already does this itself, and
         # only for FAST/CLEAN, since STOP/TEARDOWN never create anything.
-        if [ ! -f "run.sh" ] && [ -f "info.sh" ] && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ]; }; then
+        if [ ! -f "run.sh" ] && { [ -f "info.sh" ] || [ -f "info.yaml" ]; } && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ]; }; then
             while IFS= read -r dir; do
                 [ -n "$dir" ] && mkdir -p "$dir"
-            done < <(bash info.sh list-dirs 2>/dev/null)
+            done < <(bash "$repo_dir/lib/run-info.sh" "$env_dir" list-dirs 2>/dev/null)
         fi
 
         if [ -f "run.sh" ]; then
@@ -152,8 +153,8 @@ deploy_environment() {
     # run.sh already does this itself at the end of run.sh, so doing it
     # again here would just be redundant (harmless, but pointless) work
     # for those.
-    if [ $deploy_success -eq 0 ] && [ ! -f "$env_dir/run.sh" ] && [ -x "$env_dir/install-desktop.sh" ]; then
-        ( cd "$env_dir" && bash install-desktop.sh >/dev/null 2>&1 || true )
+    if [ $deploy_success -eq 0 ] && [ ! -f "$env_dir/run.sh" ]; then
+        bash "$repo_dir/lib/run-install-desktop.sh" "$env_dir" >/dev/null 2>&1 || true
     fi
 
     return $deploy_success

@@ -1,3 +1,7 @@
+# All 7 entries below are grouped in their own "Pi-hole + WireGuard"
+# application-menu submenu (see menu.id), not scattered into standard
+# Internet/System categories — that's what MENU_ID drives in the generic
+# driver via register_submenu.
 menu:
   id: pihole-wireguard
   name: "Pi-hole + WireGuard"

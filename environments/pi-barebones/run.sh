@@ -2,6 +2,7 @@
 
 # --- CONFIGURATION ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PACKAGE_FILE="$SCRIPT_DIR/packages.txt"
 TMUX_SOURCE="$SCRIPT_DIR/.tmux.conf"
 BASHRC="$HOME/.bashrc"
@@ -222,11 +223,11 @@ fi
 
 # Best-effort — a no-op today (this environment has no install-desktop.sh),
 # kept for consistency with every other environment in case one is added later.
-[ -x "$SCRIPT_DIR/install-desktop.sh" ] && bash "$SCRIPT_DIR/install-desktop.sh" >/dev/null 2>&1 || true
+bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
 
 # Delegates to info.sh so the "just deployed" summary and the on-demand
 # INFO menu are always the exact same content — one file, not two.
-bash "$SCRIPT_DIR/info.sh" list
+bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
 
 echo ""
 echo "✅ All done. Reconnect your SSH session (or run: source ~/.bashrc) to activate the shell changes."

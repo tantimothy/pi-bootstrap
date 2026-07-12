@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # install-desktop-entries.sh
-# Thin orchestrator — discovers and calls each environment's own install-desktop.sh.
+# Thin orchestrator — discovers each environment directory and dispatches
+# to lib/run-install-desktop.sh for each (which calls that environment's
+# own install-desktop.sh override if it has one, else the generic
+# YAML-driven driver directly — see that file's own comment).
 #
 # Usage:
 #   ./install-desktop-entries.sh            # install all
@@ -32,8 +35,8 @@ if [ "$ACTION" = "--uninstall" ]; then
     echo "Removing pi-bootstrap desktop entries..."
     rm -f "$APPS_DIR/pi-bootstrap.desktop"
     remove_desktop_icon "pi-bootstrap"
-    for script in "$REPO_DIR"/environments/*/install-desktop.sh; do
-        [ -x "$script" ] && "$script" --uninstall
+    for env_dir in "$REPO_DIR"/environments/*/; do
+        bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}" --uninstall
     done
     echo "Done."
     exit 0
@@ -57,11 +60,9 @@ EOF
 install_desktop_icon "pi-bootstrap"
 echo "  ✓  pi-bootstrap (main dashboard)"
 
-# Delegate to each environment's own installer
-for script in "$REPO_DIR"/environments/*/install-desktop.sh; do
-    if [ -x "$script" ]; then
-        "$script"
-    fi
+# Delegate to each environment via the dispatcher
+for env_dir in "$REPO_DIR"/environments/*/; do
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}"
 done
 
 echo ""

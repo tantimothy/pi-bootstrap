@@ -429,7 +429,7 @@ run_desktop_install() {
             esac
         done
 
-        bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+        bash "$REPO_DIR/lib/run-info.sh" "$ENV_DIR" list >/dev/null 2>&1 || true
         install_webloc "$INFO_ID" "file://$ENV_DIR/post-deploy-info.html" "$MENU_ID"
         echo "  ✓  Info page (.webloc) — generated ${ENV_DIR}/post-deploy-info.html"
         return 0
@@ -488,7 +488,7 @@ EOF
         echo "  ✓  ${ENTRY_NAMES[$i]}"
     done
 
-    bash "$ENV_DIR/info.sh" list >/dev/null 2>&1 || true
+    bash "$REPO_DIR/lib/run-info.sh" "$ENV_DIR" list >/dev/null 2>&1 || true
     install_info_icon "$INFO_ID" "$INFO_NAME" "$ENV_DIR/post-deploy-info.html" "$category"
     echo "  ✓  Info page"
 }
