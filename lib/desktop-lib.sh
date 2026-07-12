@@ -276,29 +276,53 @@ _refresh_menu_cache() {
 # a quieter one.
 #
 # Backgrounded and timeout-bounded even when a display IS present (e.g. a
-# real VNC session): a single reconfigure already refreshes every icon on
-# the Desktop, not just ones this particular call touched, and PCManFM's
-# own reconfigure IPC has been observed to hang under rapid repeated firing
-# rather than fail fast. This is a purely cosmetic refresh (reboot fixes it
-# regardless, and skipping it entirely is exactly this repo's pre-existing
-# behavior from before this function existed) — never worth blocking real
-# deploy/install work over, so the caller must never wait on it succeeding,
-# or on it at all.
+# real VNC session): PCManFM's own IPC has been observed to hang under
+# rapid repeated firing rather than fail fast. This is a purely cosmetic
+# refresh (reboot fixes it regardless, and skipping it entirely is exactly
+# this repo's pre-existing behavior from before this function existed) —
+# never worth blocking real deploy/install work over, so the caller must
+# never wait on it succeeding, or on it at all.
+#
+# --reconfigure alone (this function's first version) only reloads PCManFM's
+# own preferences/config — it does NOT force the running desktop-icon view
+# to re-parse each .desktop file's Name=/Icon=, which is why some icons
+# still showed their raw "<id>.desktop" filename after it. The verified,
+# actually-reliable trick (used by the PCManFM/LXDE community, both the GTK
+# and Qt builds support identical flags) is toggling the desktop icon
+# manager fully off then back on: --desktop-off, then --desktop. Expect a
+# brief flicker where icons momentarily disappear — that's inherent to this
+# mechanism, not a bug.
+#
+# set +e inside the subshell is load-bearing, not decoration: every caller
+# of this function runs under `set -euo pipefail`, which a backgrounded
+# `( ... ) &` subshell still inherits. Without it, --desktop-off returning
+# non-zero (plausible — e.g. nothing was on to turn off) would abort the
+# subshell before --desktop ever ran, leaving the desktop with NO icons at
+# all until the user manually re-ran it or rebooted — a strictly worse
+# outcome than the stale-name bug this function exists to fix.
 #
 # SKIP_DESKTOP_ICON_REFRESH=true suppresses this entirely — set by
 # install-desktop-entries.sh around its per-environment loop (each
 # environment there runs as its own `bash lib/run-install-desktop.sh`
 # subprocess, hence an exported env var rather than an in-process flag) so
-# a full install triggers one reconfigure at the end instead of up to 9
-# redundant, concurrent ones fighting over the same file manager IPC. A
-# single environment's own run.sh deploying itself is unaffected — that
-# path never sets the flag, so it still gets its one call as before.
+# a full install triggers one refresh at the end instead of up to 9
+# redundant, concurrent ones fighting over the same file manager IPC (and
+# each one flickering the desktop). A single environment's own run.sh
+# deploying itself is unaffected — that path never sets the flag, so it
+# still gets its one call as before.
 _refresh_desktop_icons() {
     [ "${SKIP_DESKTOP_ICON_REFRESH:-false}" = "true" ] && return 0
     { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } || return 0
     (
-        command -v pcmanfm &>/dev/null && timeout 5 pcmanfm --reconfigure >/dev/null 2>&1
-        command -v pcmanfm-qt &>/dev/null && timeout 5 pcmanfm-qt --reconfigure >/dev/null 2>&1
+        set +e
+        if command -v pcmanfm &>/dev/null; then
+            timeout 5 pcmanfm --desktop-off >/dev/null 2>&1
+            timeout 5 pcmanfm --desktop >/dev/null 2>&1
+        fi
+        if command -v pcmanfm-qt &>/dev/null; then
+            timeout 5 pcmanfm-qt --desktop-off >/dev/null 2>&1
+            timeout 5 pcmanfm-qt --desktop >/dev/null 2>&1
+        fi
     ) &
     disown 2>/dev/null || true
     return 0
