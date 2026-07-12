@@ -25,7 +25,10 @@ fi
 
 if [ "$NANOCLAW_DEPLOY_MODE" = "container" ]; then
     DEPLOYED_CHECK_KIND="container"
-    DEPLOYED_CHECK_VALUE="nanoclaw"
+    # Mirrors run.sh's own CONTAINER_NAME override (defaults to "nanoclaw"
+    # if unset in .env) — hardcoding this independently would silently
+    # break the deployed-check for anyone who's actually customized it.
+    DEPLOYED_CHECK_VALUE="$(env_val "CONTAINER_NAME" "nanoclaw")"
 else
     DEPLOYED_CHECK_KIND="systemd"
     DEPLOYED_CHECK_VALUE="nanoclaw.service"

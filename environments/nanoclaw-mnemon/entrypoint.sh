@@ -38,7 +38,7 @@ else
     echo "⏳ NanoClaw isn't installed yet in this container."
     echo "   run.sh hands off to the interactive setup wizard automatically"
     echo "   on first deploy — if you're seeing this some other way, run:"
-    echo "   docker exec -it nanoclaw-mnemon bash -lc 'cd \$NANOCLAW_INSTALL_PATH && bash nanoclaw.sh'"
+    echo "   docker exec -it ${CONTAINER_NAME:-nanoclaw-mnemon} bash -lc 'cd \$NANOCLAW_INSTALL_PATH && bash nanoclaw.sh'"
 fi
 
 # Keeps this container's PID 1 (and therefore the container itself) alive,

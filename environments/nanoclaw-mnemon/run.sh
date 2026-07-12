@@ -60,7 +60,7 @@ MNEMON_VERSION="${MNEMON_VERSION:-0.1.1}"
 # own documented default behavior, not a degraded mode.
 MNEMON_EMBED_ENDPOINT="${MNEMON_EMBED_ENDPOINT:-}"
 MNEMON_EMBED_MODEL="${MNEMON_EMBED_MODEL:-}"
-CONTAINER_NAME="nanoclaw-mnemon"
+CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
 
 # Detect host LAN IP so post-deploy URLs are immediately clickable/copyable.
@@ -388,6 +388,7 @@ else
     echo "🚀 Launching the NanoClaw+Mnemon orchestrator container..."
     $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
+        -e CONTAINER_NAME="$CONTAINER_NAME" \
         -v "$INSTALL_PATH:$INSTALL_PATH" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \

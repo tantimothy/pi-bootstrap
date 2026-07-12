@@ -15,9 +15,12 @@ MENU_NAME="NanoClaw + Mnemon"
 MENU_ICON="utilities-terminal"
 
 # Container-mode only — unlike the plain nanoclaw environment, there's no
-# host/systemd/launchd mode to detect here.
+# host/systemd/launchd mode to detect here. Mirrors run.sh's own
+# CONTAINER_NAME override (defaults to "nanoclaw-mnemon" if unset in .env)
+# — hardcoding this independently would silently break the deployed-check
+# for anyone who's actually customized it.
 DEPLOYED_CHECK_KIND="container"
-DEPLOYED_CHECK_VALUE="nanoclaw-mnemon"
+DEPLOYED_CHECK_VALUE="$(env_val "CONTAINER_NAME" "nanoclaw-mnemon")"
 
 ENTRY_IDS=(pi-bootstrap-nanoclaw-mnemon)
 ENTRY_NAMES=("NanoClaw + Mnemon AI")
