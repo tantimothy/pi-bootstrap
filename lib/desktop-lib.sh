@@ -274,10 +274,24 @@ _refresh_menu_cache() {
 # stderr across GTK/Qt/Xlib builds, so redirecting stderr alone isn't
 # enough; not attempting the connection at all is the actual fix, not just
 # a quieter one.
+#
+# Backgrounded and timeout-bounded even when a display IS present (e.g. a
+# real VNC session): install-desktop-entries.sh calls this once per
+# environment in a loop, and PCManFM's own reconfigure IPC has been
+# observed to hang under that rapid repeated firing rather than fail fast
+# — blocking the whole install until Ctrl-C, and leaving whichever icons
+# hadn't been reached yet stuck on their raw "<id>.desktop" filename. This
+# is a purely cosmetic refresh (reboot fixes it regardless, and skipping it
+# entirely is exactly this repo's pre-existing behavior before this
+# function existed) — never worth blocking real deploy/install work over,
+# so the caller must never wait on it succeeding, or on it at all.
 _refresh_desktop_icons() {
     { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } || return 0
-    command -v pcmanfm &>/dev/null && pcmanfm --reconfigure >/dev/null 2>&1
-    command -v pcmanfm-qt &>/dev/null && pcmanfm-qt --reconfigure >/dev/null 2>&1
+    (
+        command -v pcmanfm &>/dev/null && timeout 5 pcmanfm --reconfigure >/dev/null 2>&1
+        command -v pcmanfm-qt &>/dev/null && timeout 5 pcmanfm-qt --reconfigure >/dev/null 2>&1
+    ) &
+    disown 2>/dev/null || true
     return 0
 }
 
