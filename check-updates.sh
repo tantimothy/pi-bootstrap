@@ -64,22 +64,30 @@ UPDATE_KINDS=()
 # than this script reimplementing build/run logic of its own. Echoes
 # "<dir>|compose" or "<dir>|plaindocker" on a match, nothing on no match.
 #
-# Compose services are matched by the exact `container_name:` line in that
-# environment's docker-compose.yml — not configurable per this repo's own
-# convention, so an exact string match is reliable. Plain-docker
-# environments have no such fixed anchor (CONTAINER_NAME is deliberately
-# user-configurable via .env there), so they're matched by reading whatever
-# CONTAINER_NAME is *actually* configured right now (.env if present, else
-# .env.example's default) — the same resolution order run.sh/deploy.sh
-# themselves already use.
+# Compose containers are matched via Docker's own
+# com.docker.compose.project.working_dir label, set on every container
+# Compose creates — NOT by re-parsing docker-compose.yml's container_name:
+# line ourselves, since every environment here now templates that field
+# (${CONTAINER_NAME:-default} for the primary service, ${CONTAINER_NAME:+
+# ${CONTAINER_NAME}-} prefixing for sidecars) rather than a literal name;
+# Compose already resolved it once when the container was actually
+# created, so asking Docker directly is both simpler and correct regardless
+# of which templating pattern a given service uses. Plain-docker
+# environments have no such label at all, so they're matched by reading
+# whatever CONTAINER_NAME is *actually* configured right now (.env if
+# present, else .env.example's default) — the same resolution order
+# run.sh/deploy.sh themselves already use.
 _resolve_environment_for_container() {
-    local name="$1" dir
-    for dir in "$REPO_DIR"/environments/*/; do
-        if [ -f "${dir}docker-compose.yml" ] && grep -qE "^[[:space:]]*container_name:[[:space:]]*${name}[[:space:]]*\$" "${dir}docker-compose.yml"; then
-            echo "${dir}|compose"
-            return 0
-        fi
-    done
+    local name="$1" dir working_dir
+    working_dir=$($DOCKER inspect "$name" --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null)
+    case "$working_dir" in
+        "$REPO_DIR/environments/"*)
+            if [ -f "${working_dir}/docker-compose.yml" ]; then
+                echo "${working_dir}|compose"
+                return 0
+            fi
+            ;;
+    esac
     for dir in "$REPO_DIR"/environments/*/; do
         [ -f "${dir}docker-compose.yml" ] && continue
         { [ -f "${dir}run.sh" ] || [ -f "${dir}Dockerfile" ]; } || continue
