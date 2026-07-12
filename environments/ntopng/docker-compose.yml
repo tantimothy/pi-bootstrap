@@ -5,7 +5,7 @@ services:
   # namespace, and --protected-mode is a second guard against it ever being
   # reachable from the LAN (unauthenticated Redis with no password set).
   ntopng-redis:
-    container_name: ntopng-redis
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}ntopng-redis
     image: redis:alpine
     command: ["redis-server", "--bind", "127.0.0.1", "--protected-mode", "yes"]
     volumes:
@@ -19,7 +19,7 @@ services:
   # ntop/ntopng image only ever publishes linux/amd64, which crash-loops
   # with "exec format error" on a Pi's ARM CPU.
   ntopng:
-    container_name: ntopng
+    container_name: ${CONTAINER_NAME:-ntopng}
     build: .
     depends_on:
       - ntopng-redis

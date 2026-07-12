@@ -21,7 +21,10 @@ MENU_ID="pihole-wireguard"
 MENU_NAME="Pi-hole + WireGuard"
 MENU_ICON="network-server"
 DEPLOYED_CHECK_KIND="container"
-DEPLOYED_CHECK_VALUE="pihole"
+# Mirrors docker-compose.yml's own CONTAINER_NAME override for the primary
+# (pihole) container — hardcoding this independently would silently break
+# the deployed-check for anyone who's actually customized it.
+DEPLOYED_CHECK_VALUE="$(env_val "CONTAINER_NAME" "pihole")"
 
 PIHOLE_PORT=$(env_val "PIHOLE_WEB_PORT"   "80")
 GRAFANA_PORT=$(env_val "GRAFANA_PORT"     "3030")

@@ -14,7 +14,10 @@ MENU_ID="ntopng"
 MENU_NAME="ntopng"
 MENU_ICON="network-wired"
 DEPLOYED_CHECK_KIND="container"
-DEPLOYED_CHECK_VALUE="ntopng"
+# Mirrors docker-compose.yml's own CONTAINER_NAME override (defaults to
+# "ntopng" if unset in .env) — hardcoding this independently would silently
+# break the deployed-check for anyone who's actually customized it.
+DEPLOYED_CHECK_VALUE="$(env_val "CONTAINER_NAME" "ntopng")"
 
 NTOPNG_PORT=$(env_val "NTOPNG_PORT" "3002")
 

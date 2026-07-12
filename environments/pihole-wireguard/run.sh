@@ -81,6 +81,20 @@ else
     exit 1
 fi
 
+# CONTAINER_NAME is substituted directly into docker-compose.yml's
+# container_name fields — a value Docker's naming rules reject (spaces,
+# etc.) would otherwise surface as a cryptic "Invalid container name"
+# error mid-recreate instead of a clear one here. This also catches the
+# old pre-single-value CONTAINER_NAME format (a space-separated list of
+# every container in the stack) left over in a .env from before this
+# variable was actually read by docker-compose.yml.
+if [ -n "${CONTAINER_NAME:-}" ] && ! [[ "$CONTAINER_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo "❌ Error: CONTAINER_NAME='${CONTAINER_NAME}' in .env is not a valid container name." >&2
+    echo "   Docker container names may only contain [a-zA-Z0-9_.-], and must start with an alphanumeric." >&2
+    echo "   Set it to a single name (e.g. CONTAINER_NAME=pihole) or remove the line to use the default." >&2
+    exit 1
+fi
+
 # Fallback boundaries to safeguard the deployment if unassigned
 : "${PIHOLE_WEB_PORT:=80}"
 : "${WG_UI_PORT:=51821}"
@@ -476,7 +490,21 @@ echo "✅ Monitoring setup complete."
 # ---------------------------------------------------------------------------------------
 # 4. Advanced Policy Engine Routing State Machine
 # ---------------------------------------------------------------------------------------
-CONTAINER_NAMES=("pihole" "wg-easy" "pihole-exporter" "wireguard-exporter" "prometheus" "grafana" "uptime-kuma" "node-exporter" "speedtest-exporter" "blackbox-exporter" "darkstat" "dozzle")
+CONTAINER_NAMES=(
+    "${CONTAINER_NAME:-pihole}"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}wg-easy"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}pihole-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}wireguard-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}prometheus"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}grafana"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}uptime-kuma"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}node-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}speedtest-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}blackbox-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}darkstat"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}netalertx"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}dozzle"
+)
 ALL_RUNNING=true
 
 for name in "${CONTAINER_NAMES[@]}"; do

@@ -3,7 +3,7 @@ services:
   # start/stop/exec, live stats. Confirmed multi-arch (amd64/arm64/armv7)
   # directly against the Docker Hub registry API before adding this.
   portainer:
-    container_name: portainer
+    container_name: ${CONTAINER_NAME:-portainer}
     image: portainer/portainer-ce:latest
     volumes:
       - '/var/run/docker.sock:/var/run/docker.sock'
