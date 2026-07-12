@@ -72,7 +72,7 @@ HOST_IP=$( { ip route get 1.1.1.1 2>/dev/null || true; } | awk '{for(i=1;i<=NF;i
 # CONTAINER MODE — the orchestrator itself runs sandboxed in Docker.
 # =========================================================================================
 if [ "$DEPLOY_MODE" = "container" ]; then
-    CONTAINER_NAME="nanoclaw"
+    CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw}"
     IMAGE_TAG="nanoclaw-orchestrator:latest"
 
     # Mounted at the SAME absolute path both on the host and inside this
@@ -155,6 +155,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         echo "🚀 Launching the NanoClaw orchestrator container..."
         $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
             -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
+            -e CONTAINER_NAME="$CONTAINER_NAME" \
             -v "$INSTALL_PATH:$INSTALL_PATH" \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \

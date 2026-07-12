@@ -100,6 +100,11 @@ is_deployed() {
             install_path=$(grep -E '^INTERNET_PI_INSTALL_PATH=' "${env_path}.env" 2>/dev/null | cut -d= -f2-)
             [ -d "${install_path:-/home/pi/internet-pi}" ]
             ;;
+        nanoclaw-mnemon)
+            # Container mode only — no host/systemd mode to detect here,
+            # unlike the plain nanoclaw environment.
+            $DOCKER ps -a --filter "name=^/nanoclaw-mnemon$" -q 2>/dev/null | grep -q .
+            ;;
         *)
             # Unknown/future environment type — don't block it, just let
             # its actual manifest content (or lack of it) decide.

@@ -36,7 +36,8 @@ garbled commands instead of failing cleanly.
 | [pihole-wireguard](environments/pihole-wireguard/) | Network stack — Pi-hole DNS ad-blocker + WireGuard VPN (wg-easy) + full monitoring suite (Prometheus, Grafana, Uptime Kuma, node/speedtest/blackbox exporters) + PADD terminal dashboard |
 | [kali-pentest](environments/kali-pentest/) | Headless Kali Linux pentest environment — wireless attacks (Wifite2, aircrack-ng suite, hcxdumptool), network MITM (Bettercap, Nmap, tshark), exploitation (Metasploit), wardriving (Kismet + GPS) |
 | [internet-pi](environments/internet-pi/) | Ansible-managed Raspberry Pi — Pi-hole, Prometheus, Grafana, Speedtest Exporter, Blackbox Exporter, Node Exporter (based on [geerlingguy/internet-pi](https://github.com/geerlingguy/internet-pi)) |
-| [nanoclaw](environments/nanoclaw/) | AI / LLM tools — Ollama (local model inference), whisper.cpp (speech-to-text), Claude API integration |
+| [nanoclaw](environments/nanoclaw/) | Self-hosted AI assistant — routes WhatsApp/Telegram/Discord/Slack/etc. to isolated per-conversation-group Claude Agent SDK containers. `host` or `container` deploy mode (see its README) |
+| [nanoclaw-mnemon](environments/nanoclaw-mnemon/) | Same as nanoclaw, `container` mode only, with [mnemon](https://github.com/mnemon-dev/mnemon) patched into the agent sandbox for persistent cross-session graph memory — optionally hybrid graph+vector recall via mnemon's own built-in Ollama embeddings, opt-in via `.env`. Also scaffolds NanoClaw's own Karpathy-pattern wiki skill. Fully independent install — coexists with plain nanoclaw on the same machine |
 | [pi-barebones](environments/pi-barebones/) | Minimal Pi setup — tmux, fastfetch system info, TigerVNC remote desktop, custom package installs and `.bashrc` tweaks |
 | [ntopng](environments/ntopng/) | Deep per-flow traffic analysis — DPI (nDPI), historical/timeseries trends via Redis. Split out as its own environment since it's heavyweight; pairs well alongside pihole-wireguard on a Pi with headroom to spare |
 | [portainer](environments/portainer/) | Container visualization & management — full container/network/volume/image management UI with a live topology view. General-purpose Docker tooling, useful alongside any other environment on this Pi |
@@ -77,6 +78,7 @@ Only environments that are actually deployed get entries. Re-running the install
 | ntopng | The `ntopng` container exists |
 | portainer | The `portainer` container exists |
 | nanoclaw | The `nanoclaw.service` systemd unit is registered (`host` deploy mode) or the `nanoclaw` container exists (`container` deploy mode) |
+| nanoclaw-mnemon | The `nanoclaw-mnemon` container exists (container mode only — no host mode) |
 | dragonos-sdr, kali-pentest | A local `.deployed` marker that `run.sh` creates the moment it launches the container (these run with `--rm`, so a cached image alone doesn't prove the environment was actually used) |
 
 New entries appear in the menu automatically on Raspberry Pi OS; no manual refresh is needed.
@@ -244,7 +246,7 @@ Note what's *not* on this list: hardware/network passthrough flags (`--privilege
 
 | Subtype | Menu label | Real example(s) | What `run.sh` does |
 |---|---|---|---|
-| Calls a local `Dockerfile` directly | `[run.sh + Dockerfile]` | `dragonos-sdr`, `kali-pentest`, `nanoclaw` (`container` deploy mode) | Builds/runs its own single container with an interactive attach/reattach state machine, plus `--privileged`/`--net=host`/`--device` (`dragonos-sdr`/`kali-pentest`), or a Dockerfile that provides a runtime for an external installer to run inside rather than building the app itself (`nanoclaw` — see below) |
+| Calls a local `Dockerfile` directly | `[run.sh + Dockerfile]` | `dragonos-sdr`, `kali-pentest`, `nanoclaw`/`nanoclaw-mnemon` (`container` deploy mode) | Builds/runs its own single container with an interactive attach/reattach state machine, plus `--privileged`/`--net=host`/`--device` (`dragonos-sdr`/`kali-pentest`), or a Dockerfile that provides a runtime for an external installer to run inside rather than building the app itself (`nanoclaw`/`nanoclaw-mnemon` — see below) |
 | Calls a local `docker-compose.yml` | `[run.sh + Compose]` | `pihole-wireguard`, `ntopng` | Compose owns the container(s); `run.sh` exists for host-level prerequisites around it (`pihole-wireguard`) or just a FAST-reattach shortcut before delegating to Compose (`ntopng`) |
 | Clones and delegates to a 3rd-party repo | `[run.sh: 3rd-party repo]` | `internet-pi`, `nanoclaw` (`host` deploy mode) | No local `Dockerfile`/`docker-compose.yml` at all — clones an external project and hands off to its own installer (`internet-pi`'s `ansible-playbook`, `nanoclaw`'s interactive Node wizard) |
 | Pure host provisioning, no containers | `[run.sh: host-only]` | `pi-barebones` | `apt-get install`, `.bashrc` injection, a `systemd`/`launchd` unit — never touches Docker at all |
