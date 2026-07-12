@@ -1,6 +1,6 @@
 services:
   pihole:
-    container_name: pihole
+    container_name: ${CONTAINER_NAME:-pihole}
     image: pihole/pihole:latest
     environment:
       - TZ=${TZ:-Asia/Singapore}
@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
 
   wg-easy:
-    container_name: wg-easy
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}wg-easy
     image: ghcr.io/wg-easy/wg-easy:latest
     depends_on:
       - pihole
@@ -36,7 +36,7 @@ services:
 
   # Scrapes Pi-hole v6 API and exposes metrics for Prometheus
   pihole-exporter:
-    container_name: pihole-exporter
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}pihole-exporter
     image: ekofr/pihole-exporter:latest
     environment:
       - PIHOLE_HOSTNAME=host.docker.internal
@@ -54,7 +54,7 @@ services:
   # Reads WireGuard kernel stats (wg show) and exposes metrics for Prometheus
   # Runs on host network to see the wg0 interface managed by wg-easy
   wireguard-exporter:
-    container_name: wireguard-exporter
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}wireguard-exporter
     image: mindflavor/prometheus-wireguard-exporter:latest
     network_mode: host
     cap_add:
@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    container_name: prometheus
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}prometheus
     image: prom/prometheus:latest
     volumes:
       - './monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro'
@@ -84,7 +84,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    container_name: grafana
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}grafana
     image: grafana/grafana:latest
     ports:
       - "${GRAFANA_PORT:-3030}:3000"
@@ -102,7 +102,7 @@ services:
     restart: unless-stopped
 
   uptime-kuma:
-    container_name: uptime-kuma
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}uptime-kuma
     image: louislam/uptime-kuma:latest
     ports:
       - "${UPTIME_KUMA_PORT:-3001}:3001"
@@ -117,7 +117,7 @@ services:
   # Pi host system metrics — CPU, RAM, disk, network I/O, filesystem
   # Runs on host network so it sees the real host interfaces and mounts
   node-exporter:
-    container_name: node-exporter
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}node-exporter
     image: prom/node-exporter:latest
     command:
       - '--path.procfs=/host/proc'
@@ -135,7 +135,7 @@ services:
   # Network traffic monitor — per-host bandwidth, protocol breakdown, top talkers
   # Builds locally from Debian apt so it works on ARM (Raspberry Pi).
   darkstat:
-    container_name: darkstat
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}darkstat
     build: ./darkstat
     environment:
       - DARKSTAT_INTERFACES=${DARKSTAT_INTERFACES:-eth0}
@@ -166,7 +166,7 @@ services:
   # read-only rootfs, all capabilities dropped except the specific ones ARP
   # scanning actually needs, plus a tmpfs /tmp since the rootfs is read-only.
   netalertx:
-    container_name: netalertx
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}netalertx
     image: ghcr.io/netalertx/netalertx:latest
     network_mode: host
     read_only: true
@@ -203,7 +203,7 @@ services:
 
   # Internet speed test — runs a full Speedtest CLI test when Prometheus scrapes it
   speedtest-exporter:
-    container_name: speedtest-exporter
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}speedtest-exporter
     image: ghcr.io/miguelndecarvalho/speedtest-exporter:latest
     networks:
       pihole_wg_net:
@@ -218,7 +218,7 @@ services:
 
   # HTTP / ICMP / DNS probing for service health and latency
   blackbox-exporter:
-    container_name: blackbox-exporter
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}blackbox-exporter
     image: prom/blackbox-exporter:latest
     command:
       - '--config.file=/etc/blackbox_exporter/config.yml'
@@ -237,7 +237,7 @@ services:
   # list containers and stream their logs; mounted read-only since Dozzle
   # itself never needs to write to it.
   dozzle:
-    container_name: dozzle
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}dozzle
     image: amir20/dozzle:latest
     volumes:
       - '/var/run/docker.sock:/var/run/docker.sock:ro'

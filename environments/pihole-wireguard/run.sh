@@ -476,7 +476,21 @@ echo "✅ Monitoring setup complete."
 # ---------------------------------------------------------------------------------------
 # 4. Advanced Policy Engine Routing State Machine
 # ---------------------------------------------------------------------------------------
-CONTAINER_NAMES=("pihole" "wg-easy" "pihole-exporter" "wireguard-exporter" "prometheus" "grafana" "uptime-kuma" "node-exporter" "speedtest-exporter" "blackbox-exporter" "darkstat" "dozzle")
+CONTAINER_NAMES=(
+    "${CONTAINER_NAME:-pihole}"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}wg-easy"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}pihole-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}wireguard-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}prometheus"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}grafana"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}uptime-kuma"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}node-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}speedtest-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}blackbox-exporter"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}darkstat"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}netalertx"
+    "${CONTAINER_NAME:+${CONTAINER_NAME}-}dozzle"
+)
 ALL_RUNNING=true
 
 for name in "${CONTAINER_NAMES[@]}"; do
