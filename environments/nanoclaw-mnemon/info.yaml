@@ -1,10 +1,10 @@
 data_dirs:
-  - path: "${NANOCLAW_INSTALL_PATH}/groups"
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}/groups"
     description: "Per-group files: conversation history, mnemon's persistent memory graph (nested under each group's .claude/mnemon/), transcripts, CLAUDE.md"
-  - path: "${NANOCLAW_INSTALL_PATH}/data"
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}/data"
     description: "Sessions, message DB, task scheduler DB, IPC streams"
 install_dirs:
-  - path: "${NANOCLAW_INSTALL_PATH}"
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}"
     description: "NanoClaw + mnemon repo/binaries (groups/ and data/ live inside here)"
 named_volumes: []
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
@@ -13,7 +13,7 @@ delete_install_dirs: false
 delete_confirm_msg: "All conversation history and mnemon's persistent memory graph will be lost."
 web_uis:
   - name: "NanoClaw Web Interface"
-    url: "http://${HOST_IP}:${NANOCLAW_PORT}"
+    url: "http://${HOST_IP}:${NANOCLAW_PORT:-3081}"
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — "📌 Notes:" is intentionally at column 0 in the
 # rendered output; see ntopng/info.yaml for the full explanation. The

@@ -66,7 +66,7 @@ This installs entries to `~/.local/share/applications/` (the application menu) *
 | Pi-hole, Grafana, Uptime Kuma, WireGuard, darkstat, Dozzle, ntopng, Portainer | Menu: tries `xdg-open`, then falls back through several other browser launchers against `http://localhost:<port>`. Desktop icon: a `Type=Link` entry opened directly by the desktop's default URL handler |
 | `<Environment> Info` | Same as above, pointed at that environment's generated `post-deploy-info.html` (see below) via a `file://` URL |
 
-Ports for the web UI entries are read from each environment's `.env` (falling back to `.env.example`'s documented default if unconfigured) at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
+Ports for the web UI entries are read from each environment's `.env` (falling back to a literal default baked into `desktop-entries.yaml` if unconfigured) at install time, so they stay correct after reconfiguration. Re-run the script if you change ports.
 
 The menu entry and the Desktop icon for these are deliberately two different desktop-entry flavors, not one file copied to both places: the application menu only lists `Type=Application` entries on some desktop environments (`Type=Link` is silently filtered out of the menu, even though it works fine as a Desktop icon there) — so the menu copy uses `Type=Application` with a browser-fallback `Exec=`, and the Desktop copy uses the simpler `Type=Link`.
 
@@ -343,12 +343,12 @@ data_dirs:
     description: "My app's config and database"
 web_uis:
   - name: "My App"
-    url: "http://${HOST_IP}:${WEB_PORT}"
+    url: "http://${HOST_IP}:${WEB_PORT:-8080}"
 useful_commands: |2
      docker logs -f my-app
 ```
 
-`${VAR}`/`${VAR:-default}` markers get resolved against `.env.example` → `.env` → a couple of synthetic variables (`SCRIPT_DIR`, `HOST_IP`) — since `.env.example` already documents a default for almost everything, you rarely need to write `:-default` yourself (`WEB_PORT` above needs no fallback if `.env.example` has `WEB_PORT=8080`). Every field, the full substitution mechanism, and — importantly — the `useful_commands` block-scalar indentation trap (a plain `|` silently strips a uniformly-indented block's leading spaces to zero; always use `|2`) are documented in **[`docs/environment-yaml-schemas.md`](docs/environment-yaml-schemas.md)**.
+`${VAR}`/`${VAR:-default}` markers get resolved against `.env` (if present) and a couple of synthetic variables (`SCRIPT_DIR`, `HOST_IP`) — `.env.example` itself is never sourced, so every `.env`-driven marker needs its own explicit `:-default` matching that variable's `.env.example` default (`WEB_PORT` above defaults to `8080` because that's what `.env.example` documents; a marker with no default silently renders blank if `.env` doesn't set that key). Every field, the full substitution mechanism, and — importantly — the `useful_commands` block-scalar indentation trap (a plain `|` silently strips a uniformly-indented block's leading spaces to zero; always use `|2`) are documented in **[`docs/environment-yaml-schemas.md`](docs/environment-yaml-schemas.md)**.
 
 **Only add an `info.sh` override** if the environment needs something `info.yaml` genuinely can't express as static data — a conditional field set (`internet-pi`'s `PIHOLE_ENABLE`/`MONITORING_ENABLE` flags deciding which web UIs even exist) or an OS-dependent value (`nanoclaw`'s host-vs-macOS service commands). Call `_load_info_yaml` first for everything that *is* static, override just the one thing that varies, then call `run_info` directly — see `nanoclaw/info.sh` or `internet-pi/info.sh` as templates. `ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), `manifest` (machine-readable, used by `backup.sh`), or `list-dirs` (machine-readable `data_dirs` paths only, one per line, used by `deploy.sh`'s generic fallback path) — none of these are something you call yourself.
 
@@ -363,8 +363,9 @@ menu:
   icon: network-server
 deployed_check:
   kind: container              # or "marker" or "systemd" — see the schema doc
-  value: "${CONTAINER_NAME}"   # or, for a docker-compose.yml-based environment,
-                                # from_compose_service: myapp instead — see below
+  value: "${CONTAINER_NAME:-my-app}"   # or, for a docker-compose.yml-based
+                                # environment, from_compose_service: myapp
+                                # instead — see below
 entries:
   - id: pi-bootstrap-my-app
     name: "My App"

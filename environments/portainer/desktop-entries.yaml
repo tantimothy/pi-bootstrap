@@ -14,7 +14,7 @@ entries:
     comment: "Full Docker container/network/volume management UI"
     icon: docker
     kind: link
-    target: "http://localhost:${PORTAINER_PORT}"
+    target: "http://localhost:${PORTAINER_PORT:-9000}"
 info:
   id: pi-bootstrap-portainer-info
   name: "Portainer Info"

@@ -12,7 +12,7 @@ delete_confirm_msg: "All SDR captures will be lost."
 # strip amount from this block's own uniform 3-space indent and strip ALL
 # of it, losing the leading spaces the rendered output is meant to have.
 useful_commands: |2
-     docker exec -it ${CONTAINER_NAME} /usr/local/bin/sdr-menu.sh   # Reattach to SDR menu
-     docker exec -it ${CONTAINER_NAME} bash                          # Open shell in container
-     docker logs ${CONTAINER_NAME}                                   # Container logs
+     docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} /usr/local/bin/sdr-menu.sh   # Reattach to SDR menu
+     docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} bash                          # Open shell in container
+     docker logs ${CONTAINER_NAME:-sdr-dragonos-core}                                   # Container logs
      ls ${SCRIPT_DIR}/workspace/captures/                            # Browse SDR captures

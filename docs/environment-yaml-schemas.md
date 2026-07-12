@@ -67,17 +67,14 @@ until the loader processes them.
 
 ### What variables are actually available to resolve against
 
-Both loaders source, in this order, before doing any substitution:
-
-1. **`.env.example`** (if present) — seeds every variable it documents
-   with its literal default, e.g. `CONTAINER_NAME=ntopng`, `NTOPNG_PORT=3002`.
-2. **`.env`** (if present) — sourced *second*, so anything the user has
-   actually configured overrides the `.env.example` default from step 1.
-
-Both are sourced via `set -a; source ...; set +a`, so **every key either
-file documents is available by name** — a commented-out line in either
-file (`#SOME_VAR=...`) is skipped by `source` entirely and stays genuinely
-unset, exactly as intended for opt-in settings.
+Both loaders source `.env` (if present) via `set -a; source .env; set +a`
+before doing any substitution — so **every key `.env` sets is available by
+name**. `.env.example` is documentation only; it is never sourced by these
+loaders. This matters because `.env` isn't guaranteed to be complete or even
+present — someone can run `run.sh` directly (bypassing `deploy.sh`'s config
+form, which is what fully rewrites `.env` from `.env.example` on every
+deploy), hand-trim `.env` to only the keys they care about, or be running
+against an `.env` that predates a newly-added `.env.example` key.
 
 On top of that:
 
@@ -86,29 +83,19 @@ On top of that:
 | `ENV_DIR` | `desktop-entries.yaml` | The environment's own absolute directory path |
 | `SCRIPT_DIR` | `info.yaml` | Same absolute path, different name (matches what `info.sh` always called it) |
 | `HOST_IP` | `info.yaml` only | The host's LAN IP (`ip route get` / `hostname -I`, falling back to `"localhost"`) — desktop entries deliberately use `localhost` literally instead, since they only ever open in a browser on the same machine |
-| any `.env`/`.env.example` key | both | Whichever of the two actually set it, per the precedence above |
+| any `.env` key | both | Whatever the user has actually set in `.env` |
 
-If a marker names something that's in neither file nor one of the
-synthetic variables above, it resolves using the marker's own `:-default`
-(or to empty, if it has none) — never an error.
+If a marker names something that's not in `.env` nor one of the synthetic
+variables above, it resolves using the marker's own `:-default` (or to
+empty, if it has none) — never an error.
 
-**Practical effect:** since `.env.example` already documents a default for
-almost every variable these files reference, markers don't need to restate
-one at all — write `"${CONTAINER_NAME}"`, not `"${CONTAINER_NAME:-ntopng}"`.
-Every `.env`-driven marker in this repo follows that rule today, including
-ones that were never given an explicit fallback in the first place (e.g.
-`pihole-wireguard/info.yaml`'s `${WG_PORT}`, which has always relied on
-something else providing the value — now `.env.example`'s `WG_PORT=51820`).
-**Only write an explicit `:-default` for a value that genuinely isn't
-documented in `.env.example`** — there are none among the `.env`-driven
-values in this repo today, but the mechanism supports it for whenever one
-comes up.
-
-Only reach for an explicit `:-default` instead of relying on
-`.env.example` when the value being referenced is secret/password-shaped —
-`.env.example` placeholder text like `CHANGE_ME_TO_A_SECURE_PASSWORD`
-would otherwise resolve as a real fallback value if `.env` doesn't set it,
-which is almost never what you want for something meant to be displayed.
+**Practical effect: always write an explicit `:-default` for every
+`.env`-driven marker**, matching that variable's `.env.example` default
+(e.g. `"${CONTAINER_NAME:-ntopng}"`, not `"${CONTAINER_NAME}"`). Since
+`.env` alone is the only thing sourced, a marker with no default silently
+renders blank whenever `.env` doesn't define that key — this bit
+`pihole-wireguard/info.yaml`'s `${WG_PORT}` for a long time before it was
+given one; don't reintroduce that.
 
 ### Literal vs. substituted `$VAR`
 
@@ -181,7 +168,7 @@ selects *how*:
 
 | `kind` | Checks | Typical `value` |
 |---|---|---|
-| `container` | A Docker container by this name exists (`docker ps -a --filter name=...`) | `"${CONTAINER_NAME}"` (no `:-default` needed — see the substitution section above), or use `from_compose_service` instead — see below |
+| `container` | A Docker container by this name exists (`docker ps -a --filter name=...`) | `"${CONTAINER_NAME:-<default>}"`, or use `from_compose_service` instead — see below |
 | `marker` | A file exists | `"${ENV_DIR}/.deployed"` — used by `dragonos-sdr`/`kali-pentest`, which run with `--rm` and leave no lingering container; `run.sh` touches this file right before launching |
 | `systemd` | A systemd unit is registered | A literal unit name, e.g. `"nanoclaw.service"` |
 
@@ -201,21 +188,17 @@ deployed_check:
 This only works for the *one* service a multi-service compose file's
 desktop entries actually check — e.g. `pihole-wireguard` has 13 services
 but only checks `pihole` (the stack's own DNS resolver and de facto
-"is this stack up" signal). Use `value: "${CONTAINER_NAME}"` instead of
-`from_compose_service:` for `run.sh`-based environments that call
-`docker run` directly rather than `docker compose` (`nanoclaw`,
+"is this stack up" signal). Use `value: "${CONTAINER_NAME:-<default>}"`
+instead of `from_compose_service:` for `run.sh`-based environments that
+call `docker run` directly rather than `docker compose` (`nanoclaw`,
 `nanoclaw-mnemon`) — there's no `docker-compose.yml` to read the name
-from. `.env.example` sourcing (see above) still means no literal default
-needs typing in the YAML either way — `run.sh`'s own
-`CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"` fallback is the one
-place a literal remains, since parsing a default out of `run.sh`'s bash
-source would be far more fragile than reading `.env.example`.
+from, so the default has to be typed here to match `run.sh`'s own
+`CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"` fallback.
 
 ### `entries[].kind`
 
 - **`link`**: opens a URL. `target` is that URL (typically
-  `"http://localhost:${PORT_VAR}"` — no `:-default` needed if `PORT_VAR` is
-  documented in `.env.example`). Rendered as
+  `"http://localhost:${PORT_VAR:-<default>}"`). Rendered as
   `install_link_icon` — two flavors of `.desktop` file (a
   `Type=Application` one with a browser-fallback `Exec=` chain for the
   menu, a `Type=Link` one for the Desktop icon).
@@ -259,7 +242,7 @@ no_delete_msg: <string>         # optional — shown when there's nothing to del
 
 web_uis:                        # optional, default none
   - name: <string>
-    url: <string>                # typically "http://${HOST_IP}:${PORT}"
+    url: <string>                # typically "http://${HOST_IP}:${PORT:-<default>}"
 
 useful_commands: |               # optional block scalar — see the
   ...                            # indentation section below before writing one

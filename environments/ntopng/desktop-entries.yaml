@@ -14,7 +14,7 @@ entries:
     comment: "Per-flow traffic analysis, DPI, and historical trends — default login admin/admin"
     icon: network-wired
     kind: link
-    target: "http://localhost:${NTOPNG_PORT}"
+    target: "http://localhost:${NTOPNG_PORT:-3002}"
 info:
   id: pi-bootstrap-ntopng-info
   name: "ntopng Info"
