@@ -176,6 +176,27 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             "$IMAGE_TAG" >/dev/null
     fi
 
+    # Agent containers NanoClaw spawns reach the OneCLI gateway via Docker's
+    # `--add-host=host.docker.internal:host-gateway` convention, which
+    # OrbStack resolves to its own broken pseudo-address instead of the real
+    # bridge gateway (see patch-host-gateway.cjs's own header for the full
+    # story and how this was confirmed against a live install). Patch it
+    # every run — cheap and idempotent — piped straight into `node` inside
+    # the already-running container rather than baked into the image, so it
+    # applies immediately with no rebuild required. Covers an EXISTING
+    # install here (src/ already cloned from a previous run); a fresh
+    # install's own clone happens further down, with its own patch call
+    # right after, since this one will just no-op (source not cloned yet).
+    if $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/src/container-runtime.ts" 2>/dev/null; then
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"
+        patch_rc=$?
+        if [ "$patch_rc" -eq 2 ]; then
+            echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
+            $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
+            $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+        fi
+    fi
+
     if ! $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/dist/index.js" 2>/dev/null; then
         if [ ! -f "$INSTALL_PATH/nanoclaw.sh" ]; then
             echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
@@ -185,6 +206,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             echo "📦 Install path exists. Pulling latest changes..."
             git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
         fi
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs" || true
         echo ""
         echo "🧙 Handing off to the NanoClaw interactive setup wizard (inside the container)..."
         echo "   The wizard will ask for your Anthropic API key, channel setup, and more."

@@ -411,6 +411,27 @@ else
         "$IMAGE_TAG" >/dev/null
 fi
 
+# Agent containers NanoClaw spawns reach the OneCLI gateway via Docker's
+# `--add-host=host.docker.internal:host-gateway` convention, which OrbStack
+# resolves to its own broken pseudo-address instead of the real bridge
+# gateway (see patch-host-gateway.cjs's own header for the full story and
+# how this was confirmed against a live install). Patch it every run —
+# cheap and idempotent — piped straight into `node` inside the already-
+# running container rather than baked into the image, so it applies
+# immediately with no rebuild required. Exit code 2 means it just now
+# freshly patched a previously-unpatched source tree; if dist/index.js was
+# already built from that old source (an existing install, not a fresh
+# one), rebuild and restart so the running service actually picks it up —
+# otherwise the patched source just sits there unused until some other
+# rebuild happens to come along.
+$DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"
+patch_rc=$?
+if [ "$patch_rc" -eq 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
+    $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
+    $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+fi
+
 # Checked directly on the host, not via `docker exec` — $INSTALL_PATH is
 # the identical path on both sides of the mount, so this doesn't need the
 # container to already be running to answer correctly.
