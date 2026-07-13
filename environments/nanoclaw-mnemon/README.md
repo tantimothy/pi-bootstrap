@@ -55,6 +55,61 @@ When set, `run.sh`'s `ensure_ollama_ready()` checks whether that endpoint is rea
 
 ---
 
+## 🧭 First-Time Setup: What to Expect
+
+The wizard is interactive and pauses for your input several times. None of what follows is a bug — every invisible-prompt issue below has since been fixed in `run.sh` itself — this is the real, sequential walkthrough of a fresh `CLEAN` deploy, including the parts most likely to trip you up the first time, straight from an actual deploy.
+
+**1. "You are running as root" warning.** NanoClaw's own wizard opens with this. Answer **`2` (continue as root)** — this container has no `USER` directive by design, so it's expected and safe here; the Docker socket it needs is already root-equivalent regardless of which user runs inside the container. See "Security Notes" below for the full reasoning.
+
+**2. Claude CLI sign-in (OAuth).** The Claude CLI is pre-installed in the image now, so this step should just show "already-installed" and move straight to sign-in. It tries to open a browser automatically — that fails silently inside this headless container, so it prints a URL instead, with a `c` shortcut to copy it. Two gotchas worth knowing before you hit them:
+
+- **Don't copy the URL by selecting the wrapped terminal text.** A long URL gets soft-wrapped across several lines by your terminal; copying the *displayed* wrapped text (rather than the real single line) inserts a literal space or newline right in the middle of the `client_id` value, breaking the OAuth request (`OAuth Request Failed: client_id: Input should be a valid UUID...`). Widen your terminal window so the URL prints on one unwrapped line before copying it, or use the `c` shortcut instead.
+- **`c` to copy may put nothing on your clipboard.** It works via OSC 52, a terminal escape sequence that lets a process running in a container/remote shell write to your *local* clipboard without needing `pbcopy` inside the container. Not every terminal honors this by default — Terminal.app has historically had weak support; iTerm2 needs Preferences → General → Selection → "Applications in terminal may access clipboard" enabled; tmux needs `set -g set-clipboard on`. If `c` silently does nothing, fall back to widening the terminal and selecting the single unwrapped line by hand.
+
+Paste the (correctly copied) URL into a real browser, sign in, and paste the resulting code back into the wizard.
+
+**3. Ollama install prompt — only if `MNEMON_EMBED_ENDPOINT` is set.** You'll see `⚠️ Ollama isn't installed on this host.` followed by a `[y/N]` question asking whether to install it via Homebrew (macOS) or the official installer (Linux). Answer **`y`** to have it installed automatically now; anything else skips it, and mnemon simply runs graph-only until you install Ollama yourself later — never a hard stop either way.
+
+**4. Chat works — everything after this is optional.** Once the wizard finishes and you've paired a first channel (e.g. Telegram), required setup is done. From here: enable/verify Ollama embeddings (below), scaffold a Karpathy wiki (further down), add more channels, or just use it.
+
+---
+
+## 🔍 Verifying Ollama & Mnemon Are Actually Being Used
+
+Two independent things to check — one being fine doesn't guarantee the other.
+
+**Ollama itself works:**
+
+```bash
+ollama list
+curl -s http://localhost:11434/api/embeddings -d '{"model": "nomic-embed-text", "prompt": "test"}' | head -c 200
+```
+
+The second command should return real JSON with an `"embedding": [...]` array — not `{"error":"model ... not found, try pulling it first"}` (run `ollama pull nomic-embed-text`) and not a connection error (Ollama itself isn't running — `brew services start ollama`, or `ollama serve &`).
+
+**Mnemon is actually using it** — the authoritative check, straight from mnemon's own CLI, run from inside a *live agent container* (not the orchestrator itself):
+
+```bash
+docker ps --filter "name=nanoclaw-v2-" --format '{{.Names}}'
+docker exec -it <that-container-name> mnemon embed --status
+```
+
+```json
+{
+  "total_insights": 87,
+  "embedded": 87,
+  "coverage": "100%",
+  "ollama_available": true,
+  "model": "nomic-embed-text"
+}
+```
+
+`ollama_available` is a **live reachability check at the moment you run this** (2-second timeout, per mnemon's own docs) — not "is Ollama installed." It can read `false` even with Ollama fully installed and running, if the model isn't pulled yet, the endpoint's misconfigured, or Ollama just isn't running right now — the three cases above cover all of those. If `coverage` is stuck below 100% from conversations that happened before Ollama was ready, backfill once: `mnemon embed --all` (same `docker exec -it <container>` form).
+
+**What's actually generating your replies, regardless of the above: always Claude, never Ollama.** Ollama only scores *which* past memories mnemon surfaces during recall — mnemon's own architecture doc is explicit about the division of labor: *"The LLM decides WHAT to remember and link. Mnemon handles HOW to store, index, and retrieve."* Turning Ollama off just makes recall fall back to keyword/graph-only scoring; it never changes who's replying to you.
+
+---
+
 ## Security Notes
 
 Worth being precise about what this environment does and doesn't change, relative to the plain `nanoclaw` environment's own security model (see its README's "Deployment Modes" section, and the point that Docker socket access is inherently root-equivalent on the host — that discussion applies identically here). That includes the first-run wizard's "you are running as root" warning: this environment's orchestrator image has no `USER` directive either, and the same reasoning applies — see the plain `nanoclaw` README's "Notes" section for why answering "continue as root" is fine here too.
@@ -89,6 +144,24 @@ The gist's Obsidian-facing piece splits into two parts, only one of which is cus
 **A discrepancy worth knowing about**: the skill's Step 3c, as currently documented upstream, edits the group's `CLAUDE.md` directly. But NanoClaw's `container-runner`/`claude-md-compose.ts` now regenerates `CLAUDE.md` fresh on every container spawn (its own header comment: *"Composed at spawn — do not edit. Edit CLAUDE.local.md for per-group content."*) — so a marker-based edit landing in `CLAUDE.md` would silently vanish on the next restart. This looks like the skill doc predates that compose refactor. `scaffold-wiki.sh` flags this in its own output; verify which file the skill actually wrote to afterward, and move the wiki section into `CLAUDE.local.md` if it landed in `CLAUDE.md`.
 
 **More complete alternatives exist — it's an ecosystem, not one project**: at least five independent implementations of the same Karpathy pattern exist outside NanoClaw (`nvk/llm-wiki`, `praneybehl/llm-wiki-plugin`, `ussumant/llm-wiki-compiler`, `lucasastorian/llmwiki`, `Pratiyush/llm-wiki`), none built on each other. See `GIST-PARITY.md` for the full comparison — including the one that matters most if you want to actually integrate one here: `lucasastorian/llmwiki` uses an MCP server rather than a Claude Code plugin, which sidesteps the open question the other four share (whether Claude Code's plugin-install mechanism even works inside NanoClaw's agent-runner container) by reusing the same MCP-server-registration pattern NanoClaw's own `/add-ollama-tool` already proves out.
+
+---
+
+## 🚀 Launching Claude CLI Directly (Skills, Ad-Hoc Questions, etc.)
+
+Beyond the setup wizard, you can start an interactive Claude Code session against the orchestrator's own NanoClaw checkout at any time — this is how you run skills like `/add-karpathy-llm-wiki` (above), re-run `/add-mnemon` (already applied automatically by this environment, but useful to know it's there), or just ask Claude something about the codebase directly:
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
+```
+
+**Discovering what's available**: NanoClaw ships its own skills under `.claude/skills/` in its checkout — list them directly from outside the session:
+
+```bash
+docker exec nanoclaw-mnemon ls "$NANOCLAW_INSTALL_PATH/.claude/skills/"
+```
+
+Or, once inside an interactive `claude` session, type `/` on its own — Claude Code's own command palette lists every available slash command, built-in and skill-provided alike, with a one-line description each, and autocompletes as you keep typing.
 
 ---
 
@@ -150,28 +223,59 @@ docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash set
 # List this install's agent containers (and the plain nanoclaw environment's, if also deployed — both share the nanoclaw-agent-v2-* name pattern)
 docker ps --filter name=nanoclaw-agent
 
+# Find a specific group's own live agent container (needed for the mnemon commands below)
+docker ps --filter "name=nanoclaw-v2-" --format '{{.Names}}\t{{.Status}}'
+
 # Confirm mnemon is installed in the agent sandbox image
 docker exec nanoclaw-mnemon docker run --rm --entrypoint mnemon nanoclaw-agent:latest --version
+
+# Check mnemon's own embedding coverage / whether Ollama is actually reachable right now
+# (see "Verifying Ollama & Mnemon Are Actually Being Used" above)
+docker exec -it <agent-container-name> mnemon embed --status
+docker exec -it <agent-container-name> mnemon embed --all      # backfill after enabling Ollama late
+docker exec -it <agent-container-name> mnemon status            # general memory statistics
+
+# Ollama itself (runs on the host, not in a container — see "Mnemon Integration" above)
+ollama list
+ollama pull nomic-embed-text
+curl -s http://localhost:11434/api/embeddings -d '{"model": "nomic-embed-text", "prompt": "test"}'
 
 # Scaffold a Karpathy LLM Wiki for one group (see "Optional: Karpathy LLM Wiki" above)
 ./scaffold-wiki.sh <group-folder>
 
-# Web interface
-http://<host-ip>:3081
+# Launch an interactive Claude Code session against the orchestrator's own
+# checkout — run skills (/add-karpathy-llm-wiki, /add-mnemon), or just ask
+# Claude something directly (see "Launching Claude CLI Directly" above)
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
+
+# List every skill NanoClaw ships (or type `/` inside an interactive claude
+# session for the same list with descriptions and autocomplete)
+docker exec nanoclaw-mnemon ls "$NANOCLAW_INSTALL_PATH/.claude/skills/"
 ```
+
+NanoClaw has no web UI by default (see the plain `nanoclaw` environment's README) — there's no `http://<host-ip>:3081` to visit unless you've separately added its optional `/add-dashboard` skill.
 
 ---
 
 ## What's Verified vs What Isn't
 
-Verified directly, not assumed:
+Verified directly against a real deploy, not assumed:
 - The mnemon patch's exact text output, byte-for-byte, against the *actual current* `container/Dockerfile` and `container/entrypoint.sh` fetched live from `nanocoai/nanoclaw` — both insertions land exactly where and as the upstream skill file specifies.
 - Idempotency — reapplying the patch against already-patched files correctly detects and skips both steps, no duplication.
-- The full `FAST` first-deploy control flow, including a real `git clone` of the actual upstream repo (not a stub) followed by the real patch application, then the correct `docker build`/`run`/mount/port sequence.
+- The full `FAST`/`CLEAN` control flow end-to-end, including a real `git clone`, real patch application, real `docker build`/`run`/mount/port sequence, the interactive `nanoclaw.sh` wizard running to completion inside a real container (Anthropic OAuth sign-in, root warning, Telegram channel pairing), and a real chat message getting a real model response.
 - The cross-environment agent-container sweep filtering, against synthetic mount data covering exactly the "both environments deployed at once" collision case.
+- Mnemon's own `mnemon embed --status`/`mnemon setup --target claude-code` steps, working correctly inside this containerized agent sandbox — including the Ollama install prompt and reachability checks. `ollama_available: true` specifically (i.e. mnemon's embed pipeline actually succeeding end-to-end) was not directly confirmed in this environment's own build/test process — `mnemon embed --status` is exactly how to check it yourself after pulling the embedding model.
+- Several genuine, non-obvious bugs found and fixed only by testing against a real OrbStack/macOS deploy rather than synthetic stubs — see the git history for `run.sh`, `patch-host-gateway.cjs`, and `patch-nohup-autostart.cjs` if you want the full diagnostic trail for any of them: NanoClaw's own nohup-fallback service-start step (writes but never runs its own wrapper), `systemctl`-based channel-installer restarts silently no-op'ing (no real systemd in this container), OrbStack's `host.docker.internal`/`host-gateway` resolving to a different address than the one its own port-publishing actually uses, and `/tmp` not being shared between this container and the host (breaking OneCLI's own certificate hand-off to spawned agent containers).
 
-Not verified — no live Docker daemon or real Anthropic/channel credentials available while building this:
-- The actual `container/build.sh` rebuild and the interactive `nanoclaw.sh` wizard running end-to-end inside a real container.
-- Whether mnemon's own `mnemon setup --target claude-code` step behaves identically inside this containerized agent sandbox as it does in whatever environment mnemon's own maintainers tested against.
+Same caveat as the plain `nanoclaw` environment: this covers what's been tested, not a guarantee against everything upstream might change — treat your own first deploy as the real test, and see `MANUAL-STEPS.md` if you ever want to understand or reproduce any of this by hand.
 
-Same caveat as the plain `nanoclaw` environment: your first real deploy is the actual test.
+---
+
+## 📚 Further Reading
+
+- **NanoClaw** — [nanocoai/nanoclaw](https://github.com/nanocoai/nanoclaw): the orchestrator and per-group agent sandbox this environment wraps. Its own `.claude/skills/` directory documents every skill referenced above (`/add-mnemon`, `/add-karpathy-llm-wiki`, `/add-telegram`, `/add-ollama-tool`, `/add-ollama-provider`, `/add-dashboard`, and more).
+- **Claude Code** — [code.claude.com/docs](https://code.claude.com/docs): the CLI/SDK NanoClaw's agent containers run on — slash commands, skills, hooks, MCP servers, and the OAuth/subscription sign-in flow covered above.
+- **Mnemon** — [mnemon-dev/mnemon](https://github.com/mnemon-dev/mnemon): the persistent-memory tool patched into the agent sandbox here. Its own `docs/USAGE.md` has the full CLI reference (`remember`, `recall`, `link`, `forget`, `gc`, `embed --status`, `embed --all`) and `docs/design/` covers the four-graph model.
+- **Ollama** — [ollama.com](https://ollama.com): the optional local inference server mnemon's hybrid recall uses purely for embeddings, never for chat (see "Verifying Ollama & Mnemon" above). [ollama.com/download](https://ollama.com/download) for manual installs; [ollama.com/library](https://ollama.com/library) for browsing models beyond the default `nomic-embed-text`.
+- **Karpathy's LLM Wiki pattern** — [the original gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f): the source pattern `/add-karpathy-llm-wiki` implements. `GIST-PARITY.md` in this directory compares this environment's implementation against it and five other independent implementations of the same pattern.
+- **The gist this environment follows** — [VivianBalakrishnan's gist](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322): NanoClaw + mnemon + local embeddings + wiki + Obsidian sync as a "second brain," with the credibility caveat discussed at the top of this README.
