@@ -13,6 +13,25 @@ INSTALL_DIR="${NANOCLAW_INSTALL_PATH:?NANOCLAW_INSTALL_PATH must be set}"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
+# NanoClaw's own OneCLI (its agent-key vault) can't auto-detect a bind
+# address from inside this container: it's a Docker-outside-of-Docker
+# sibling container — only eth0/lo exist in its own network namespace, no
+# docker0 bridge is visible here even though one exists on the host/VM
+# side — and OneCLI's own auto-detection assumes a "bare-metal Linux with
+# a visible docker0" topology it can inspect directly. That's inherent to
+# this deployment shape, not something any one host's Docker setup can
+# fix. Precompute it once here, from this container's own default route
+# (whatever bridge network gateway it actually landed on), and drop it
+# into a profile.d snippet so it's already set by the time nanoclaw.sh's
+# own `docker exec -it ... bash -lc` login shell runs it (see run.sh) —
+# without this, every fresh deploy hits the same manual dead end.
+if [ -z "${ONECLI_BIND_HOST:-}" ]; then
+    detected_gw="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
+    if [ -n "$detected_gw" ]; then
+        echo "export ONECLI_BIND_HOST='${detected_gw}'" > /etc/profile.d/onecli-bind-host.sh
+    fi
+fi
+
 # NanoClaw's own setup wizard (run interactively via `docker exec`, not
 # here — see run.sh) installs into this same directory and, on Linux
 # without systemd (this container's baseline reality — see the README),

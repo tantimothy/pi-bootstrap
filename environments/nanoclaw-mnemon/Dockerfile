@@ -17,20 +17,32 @@
 # container/Dockerfile (the per-conversation-group agent sandbox), inside
 # the git-cloned install path, not this file. See run.sh.
 
-# Borrow just the `docker` CLI binary from the official image rather than
-# adding Docker's apt repo — smaller image, no apt-key/repo setup for a
-# single binary.
+# Borrow just the `docker` CLI binary (plus its bundled buildx/compose
+# plugins) from the official image rather than adding Docker's apt repo —
+# smaller image, no apt-key/repo setup. The bare binary alone isn't enough:
+# NanoClaw's own agent-sandbox build uses BuildKit `--mount=type=cache`,
+# and this same CLI is what nested `docker build`/`docker compose` calls
+# use (see run.sh's -e DOCKER_BUILDKIT=1) — without the plugins directory,
+# both fail outright ("buildx component is missing", "Docker Compose is
+# not available") since there's no cli-plugins dir at all to find them in.
+# /usr/local/libexec/docker/cli-plugins is one of the Docker CLI's built-in
+# plugin search paths, so copying straight to the same path here is enough
+# for it to be found with no extra config — verified against the upstream
+# docker-library/docker Dockerfile for this exact tag, which installs
+# docker-buildx and docker-compose to precisely that path.
 FROM docker:27-cli AS docker-cli
 
 FROM node:20-slim
 
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         procps \
         curl \
         ca-certificates \
+        iproute2 \
     && rm -rf /var/lib/apt/lists/* \
     && corepack enable \
     && corepack prepare pnpm@latest --activate
