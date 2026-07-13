@@ -224,7 +224,17 @@ WEB_PORT=8080
 
 # Leave blank to force the user to set it explicitly.
 API_SECRET_KEY=
+
+# Absolute path, or a leading ~ — expanded to the current user's actual
+# home directory when the TUI writes .env (see below).
+INSTALL_PATH=~/my-app
 ```
+
+A leading `~` (a bare `~`, or `~/...`) in any field's value — whether typed into the form or left as an `.env.example` default — gets expanded to the current user's actual home directory before being written to `.env`. This is deliberate, not incidental: every value the TUI writes gets single-quoted so `$`-bearing secrets (e.g. a bcrypt hash) survive round-tripping through the form without bash trying to expand them — but single quotes suppress `~` expansion exactly the same way, so without this, a `~`-based default would end up as a literal, permanently-broken `~/my-app` in `.env` instead of an actual path. `~otheruser/...` (someone else's home directory) is intentionally left untouched. Prefer `~` over hardcoding `/home/pi/...` for any install-path-shaped default — it resolves correctly regardless of OS or username, where a Pi-specific literal silently breaks for anyone else (see `nanoclaw`/`nanoclaw-mnemon`'s own `NANOCLAW_INSTALL_PATH`).
+
+**A leading `~` is treated as home-directory shorthand unconditionally — there's no per-field "is this actually a path" detection.** The writer has no concept of field types; it only ever looks at the first character(s) of the value itself. This is intentional (no naming convention like `*_PATH`/`*_DIR` to invent, learn, or keep consistent across every environment's `.env.example`) but does mean the rule is global: **never start a non-path value with `~` in `.env.example`** — there's no escape hatch, and it would get silently, incorrectly expanded to a home directory path the same way a real path does. In practice this has never come up (no port, container name, password, API key, or timezone value has any reason to start with `~`), but it's a real constraint on any value you write there, not just on ones that happen to be paths.
+
+**This expansion happens exactly once, at the moment `deploy.sh`'s TUI writes `.env` — `~` does *not* work as a live placeholder inside `.env` itself.** `run.sh` just `source`s `.env` as a plain bash script; nothing re-expands `~` on every run. If you hand-edit `.env` directly (bypassing the TUI) and write `~/something`, whether it resolves depends entirely on bash's own quoting rules at that moment — and since every value the TUI itself writes is single-quoted (the convention used throughout every `.env` this repo produces), a hand-typed `~` inside quotes there stays a literal, non-expanding `~` forever. Always write an absolute path when editing `.env` by hand; only rely on `~` in `.env.example` (or the TUI form), never in `.env` itself.
 
 ### `CONTAINER_NAME`
 

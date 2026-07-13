@@ -918,12 +918,28 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
             # DYNAMIC FIX: Overwrite/Truncate existing configurations to prevent duplicated trailing rows
             > .env
             for i in "${!KEYS[@]}"; do
+                RAW_VAL="${CAPTURED_USER_INPUTS[$i]}"
+                # Expand a literal leading "~" (a bare "~" or "~/...") to
+                # $HOME now, before the single-quoting below — otherwise
+                # it'd be preserved as a literal, non-expanding tilde
+                # forever: single quotes suppress tilde expansion exactly
+                # the same way they suppress $VAR expansion, so a value
+                # like "~/nanoclaw" typed here (or carried over from an
+                # .env.example default) would never resolve to the user's
+                # actual home directory once written out. "~otheruser/..."
+                # is intentionally left alone — resolving another user's
+                # home directory isn't worth the complexity for how rarely
+                # it'd come up here.
+                case "$RAW_VAL" in
+                    "~") RAW_VAL="$HOME" ;;
+                    "~/"*) RAW_VAL="$HOME/${RAW_VAL#\~/}" ;;
+                esac
                 # Wrap values in single quotes so $-bearing secrets (e.g. bcrypt hashes)
                 # survive being `source`d by run.sh without variable expansion, while
                 # remaining round-trip safe: the reader above strips these quotes before
                 # displaying in the dialog form, preventing escape characters accumulating.
                 # Any literal single quote in a value is escaped as '\''.
-                SAFE_VAL="${CAPTURED_USER_INPUTS[$i]//\'/\'\\\'\'}"
+                SAFE_VAL="${RAW_VAL//\'/\'\\\'\'}"
                 printf "%s='%s'\n" "${KEYS[$i]}" "$SAFE_VAL" >> .env
             done
             echo "✅ Finished compiling system configs successfully."

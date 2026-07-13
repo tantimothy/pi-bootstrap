@@ -50,6 +50,30 @@ else
 fi
 
 INSTALL_PATH="${NANOCLAW_INSTALL_PATH:-$HOME/nanoclaw}"
+# .env.example's own literal default (/home/pi/nanoclaw) is Pi-appropriate
+# for this repo's primary target, but deploy.sh's TUI config form always
+# writes a value for every .env.example key — even one nobody edited — so
+# ${NANOCLAW_INSTALL_PATH:-$HOME/nanoclaw} above never actually triggers
+# for anyone going through the TUI: NANOCLAW_INSTALL_PATH is never empty
+# once .env exists. On macOS /home/pi doesn't exist at all (no `pi` user,
+# no /home), so accepting that default as-is means every mkdir/git-clone
+# below fails. Only overrides the exact, unmodified default — a deliberate
+# custom path (even a Linux-style one) is left alone.
+if [[ "$(uname)" == "Darwin" ]] && [ "$INSTALL_PATH" = "/home/pi/nanoclaw" ]; then
+    INSTALL_PATH="$HOME/nanoclaw"
+    echo "⚠️  NANOCLAW_INSTALL_PATH was still the Pi-only default (/home/pi/nanoclaw), which doesn't exist on macOS."
+    echo "   Switching to \$HOME/nanoclaw ($INSTALL_PATH) and updating .env to match."
+    # Persisted, not just overridden in-memory for this run — otherwise
+    # info.yaml's own display of this same path (and any future run before
+    # the override logic above re-runs) would still show the broken /home/pi
+    # path even though this run actually installs somewhere else.
+    # -i.bak (suffix attached, no space) is the one `sed -i` form GNU and
+    # BSD/macOS sed both accept identically.
+    if [ -f "$ENV_FILE" ] && grep -q "^NANOCLAW_INSTALL_PATH=" "$ENV_FILE"; then
+        sed -i.bak "s#^NANOCLAW_INSTALL_PATH=.*#NANOCLAW_INSTALL_PATH='${INSTALL_PATH}'#" "$ENV_FILE"
+        rm -f "${ENV_FILE}.bak"
+    fi
+fi
 NANOCLAW_PORT="${NANOCLAW_PORT:-3080}"
 
 DEPLOY_MODE="${NANOCLAW_DEPLOY_MODE:-}"
@@ -59,14 +83,15 @@ fi
 echo "📦 Deploy mode: ${DEPLOY_MODE} (set NANOCLAW_DEPLOY_MODE in .env to override)"
 
 # Detect host LAN IP so post-deploy URLs are immediately clickable/copyable.
-# `ip` doesn't exist on macOS at all (it's Linux-only iproute2) — under
-# `set -euo pipefail`, letting that failure propagate through the pipe
-# into awk would silently kill this whole script before it prints
-# anything, since ip's own stderr is redirected away. The `|| true`
-# absorbs that so awk (which never fails, even on empty input) is what
-# actually determines the pipeline's exit status.
+# `ip` and `hostname -I` both don't exist on macOS at all (Linux-only
+# iproute2 / GNU coreutils) — under `set -euo pipefail`, letting either
+# failure propagate through the pipe into awk would silently kill this
+# whole script before it prints anything, since their own stderr is
+# redirected away. The `|| true` on each absorbs that so awk (which never
+# fails, even on empty input) is what actually determines the pipeline's
+# exit status.
 HOST_IP=$( { ip route get 1.1.1.1 2>/dev/null || true; } | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+[ -z "$HOST_IP" ] && HOST_IP=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
 # =========================================================================================
