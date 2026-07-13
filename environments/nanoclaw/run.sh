@@ -225,6 +225,13 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
             $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
         fi
+        # NanoClaw's own nohup fallback (setup/service.ts) writes
+        # start-nanoclaw.sh but never runs it, so the wizard's own later
+        # steps (e.g. the cli-agent step, which pings data/cli.sock) hit a
+        # manual dead end mid-setup, every single fresh install — see
+        # patch-nohup-autostart.cjs's own header for the full story. No
+        # rebuild needed (setup/ scripts run directly via tsx).
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
     fi
 
     if ! $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/dist/index.js" 2>/dev/null; then
@@ -237,6 +244,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
         fi
         $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs" || true
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
         echo ""
         echo "🧙 Handing off to the NanoClaw interactive setup wizard (inside the container)..."
         echo "   The wizard will ask for your Anthropic API key, channel setup, and more."
