@@ -402,11 +402,27 @@ elif $DOCKER ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     $DOCKER start "$CONTAINER_NAME" >/dev/null
 else
     echo "🚀 Launching the NanoClaw+Mnemon orchestrator container..."
+    # /tmp:/tmp — same reasoning as NANOCLAW_INSTALL_PATH's identical-path
+    # bind mount above (see the README's "Deployment Modes" section): any
+    # path this container passes as a bind-mount *source* when spawning its
+    # own sibling agent containers (via the shared docker.sock) is resolved
+    # by the HOST's Docker daemon against the real host filesystem, not
+    # this container's own view of it. OneCLI's SDK writes its per-agent CA
+    # cert to a fixed /tmp path from inside this process, then bind-mounts
+    # that same path into each new agent container — without /tmp shared
+    # identically here, the write lands in this container's own private,
+    # disconnected /tmp, while the daemon resolves the mount source against
+    # the real host's (empty) /tmp instead, silently creating an empty
+    # directory there. Confirmed directly against a live install: the cert
+    # path inside a spawned agent container was an empty directory, not the
+    # PEM file, causing every API call through the OneCLI proxy to fail
+    # self-signed-certificate verification.
     $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
         -e CONTAINER_NAME="$CONTAINER_NAME" \
         -v "$INSTALL_PATH:$INSTALL_PATH" \
         -v /var/run/docker.sock:/var/run/docker.sock \
+        -v /tmp:/tmp \
         -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \
         "$IMAGE_TAG" >/dev/null
 fi
