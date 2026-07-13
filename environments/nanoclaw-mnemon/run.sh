@@ -440,8 +440,19 @@ fi
 # one), rebuild and restart so the running service actually picks it up —
 # otherwise the patched source just sits there unused until some other
 # rebuild happens to come along.
-$DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"
-patch_rc=$?
+# Exit-code capture must happen inside the `if` itself, not via a bare
+# `cmd; rc=$?` pair — this script runs under `set -e`, which aborts on ANY
+# nonzero exit that isn't already inside a conditional, and the patch
+# script's own "freshly patched" signal (exit 2) is exactly that: a
+# nonzero exit that isn't a real error. Confirmed the hard way: a CLEAN
+# run died silently right after the patch's own success message, with no
+# further output, because `set -e` killed the script before `patch_rc=$?`
+# on the next line ever got a chance to run.
+if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"; then
+    patch_rc=0
+else
+    patch_rc=$?
+fi
 if [ "$patch_rc" -eq 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
