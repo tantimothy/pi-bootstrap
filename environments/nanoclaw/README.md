@@ -40,7 +40,7 @@ The orchestrator process itself — not the per-conversation-group agent contain
 
 ### What's verified vs. what isn't
 
-The control flow above (`FAST`/`STOP`/`TEARDOWN`/`CLEAN`, image build, container create/start/reattach, the exact `docker run` mount flags) was verified against a stubbed `docker` binary exercising the real `run.sh` code paths. What **hasn't** been live-tested — because it needs a real terminal, a real Docker daemon, and real credentials none of which were available while building this — is the interactive wizard itself running inside the container end-to-end: whether `nanoclaw.sh`'s prompts behave identically there, and whether NanoClaw's web UI binds to `0.0.0.0` (needed for the `-p` port mapping to actually reach it) rather than `localhost` only. This was built by reading NanoClaw's actual source (`nanoclaw.sh`, `setup/service.ts`, `setup/platform.ts`) rather than guessing, but the first real deploy in `container` mode is still the true test — if the wizard behaves unexpectedly inside the container, that's the place to look.
+The control flow above (`FAST`/`STOP`/`TEARDOWN`/`CLEAN`, image build, container create/start/reattach, the exact `docker run` mount flags) was verified against a stubbed `docker` binary exercising the real `run.sh` code paths, and the interactive wizard itself has since been run end-to-end for real, live, inside `container` mode. That live run surfaced several real gaps between NanoClaw's own setup assumptions and this specific container topology (no init system at all, no real `docker` CLI plugins, headless), all now fixed here rather than upstream — see `Dockerfile`, `entrypoint.sh`, and `systemctl-shim.sh`'s own comments for exactly what and why. It also settled an open question: **NanoClaw has no web UI by default at all** — confirmed directly in its own README ("no monitoring dashboard or debugging UI — describe the problem in chat"). `NANOCLAW_PORT`/the `-p` port mapping only pre-reserves a port on the container in case you later add its optional `/add-dashboard` skill; nothing listens there out of the box, in either deploy mode.
 
 ---
 
@@ -91,7 +91,7 @@ Stops and removes the existing installation (and, in `container` mode, rebuilds 
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `NANOCLAW_INSTALL_PATH` | Where the repo is cloned (bind-mounted at the same path in `container` mode) | `~/nanoclaw` |
-| `NANOCLAW_PORT` | Web UI port | `3080` |
+| `NANOCLAW_PORT` | Reserved on the container for NanoClaw's optional `/add-dashboard` skill — not used by anything installed by default (see "What's verified vs. what isn't" above) | `3080` |
 | `NANOCLAW_DEPLOY_MODE` | `container`, `host`, or blank for the OS-based default | blank (auto) |
 
 The Anthropic API key is registered interactively by the wizard and stored by NanoClaw's own credential proxy (OneCLI). Do not put it in `.env`.

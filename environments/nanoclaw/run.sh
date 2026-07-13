@@ -82,18 +82,6 @@ if [ -z "$DEPLOY_MODE" ]; then
 fi
 echo "📦 Deploy mode: ${DEPLOY_MODE} (set NANOCLAW_DEPLOY_MODE in .env to override)"
 
-# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable.
-# `ip` and `hostname -I` both don't exist on macOS at all (Linux-only
-# iproute2 / GNU coreutils) — under `set -euo pipefail`, letting either
-# failure propagate through the pipe into awk would silently kill this
-# whole script before it prints anything, since their own stderr is
-# redirected away. The `|| true` on each absorbs that so awk (which never
-# fails, even on empty input) is what actually determines the pipeline's
-# exit status.
-HOST_IP=$( { ip route get 1.1.1.1 2>/dev/null || true; } | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
-[ -z "$HOST_IP" ] && HOST_IP="localhost"
-
 # =========================================================================================
 # CONTAINER MODE — the orchestrator itself runs sandboxed in Docker.
 # =========================================================================================
@@ -188,6 +176,27 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             "$IMAGE_TAG" >/dev/null
     fi
 
+    # Agent containers NanoClaw spawns reach the OneCLI gateway via Docker's
+    # `--add-host=host.docker.internal:host-gateway` convention, which
+    # OrbStack resolves to its own broken pseudo-address instead of the real
+    # bridge gateway (see patch-host-gateway.cjs's own header for the full
+    # story and how this was confirmed against a live install). Patch it
+    # every run — cheap and idempotent — piped straight into `node` inside
+    # the already-running container rather than baked into the image, so it
+    # applies immediately with no rebuild required. Covers an EXISTING
+    # install here (src/ already cloned from a previous run); a fresh
+    # install's own clone happens further down, with its own patch call
+    # right after, since this one will just no-op (source not cloned yet).
+    if $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/src/container-runtime.ts" 2>/dev/null; then
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"
+        patch_rc=$?
+        if [ "$patch_rc" -eq 2 ]; then
+            echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
+            $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
+            $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+        fi
+    fi
+
     if ! $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/dist/index.js" 2>/dev/null; then
         if [ ! -f "$INSTALL_PATH/nanoclaw.sh" ]; then
             echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
@@ -197,6 +206,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             echo "📦 Install path exists. Pulling latest changes..."
             git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
         fi
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs" || true
         echo ""
         echo "🧙 Handing off to the NanoClaw interactive setup wizard (inside the container)..."
         echo "   The wizard will ask for your Anthropic API key, channel setup, and more."
@@ -229,7 +239,8 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         fi
     fi
 
-    echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
+    echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
+    echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
     echo "=========================================================="
     bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
     bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
@@ -319,7 +330,8 @@ if [ "$POLICY" = "FAST" ]; then
             systemctl status nanoclaw --no-pager --lines=5 2>/dev/null || true
         fi
         echo ""
-        echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
+        echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
+        echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
         echo "=========================================================="
         # Best-effort refresh in case NANOCLAW_PORT (or anything else read
         # from .env) changed since entries were last installed.
@@ -332,7 +344,8 @@ if [ "$POLICY" = "FAST" ]; then
         echo "🔄 [FAST POLICY] NanoClaw is installed but stopped. Starting..."
         nanoclaw_start
         echo "✅ NanoClaw started."
-        echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
+        echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
+        echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
         echo "=========================================================="
         bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
         exit 0

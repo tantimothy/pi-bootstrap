@@ -90,18 +90,6 @@ MNEMON_EMBED_MODEL="${MNEMON_EMBED_MODEL:-}"
 CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
 
-# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable.
-# `ip` and `hostname -I` both don't exist on macOS at all (Linux-only
-# iproute2 / GNU coreutils) — under `set -euo pipefail`, letting either
-# failure propagate through the pipe into awk would silently kill this
-# whole script before it prints anything, since their own stderr is
-# redirected away. The `|| true` on each absorbs that so awk (which never
-# fails, even on empty input) is what actually determines the pipeline's
-# exit status.
-HOST_IP=$( { ip route get 1.1.1.1 2>/dev/null || true; } | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
-[ -z "$HOST_IP" ] && HOST_IP="localhost"
-
 # ---------------------------------------------------------------------------------------
 # Agent containers spawned by NanoClaw are all named/imaged nanoclaw-agent-v2-*
 # regardless of which install produced them — matching just that prefix
@@ -423,6 +411,27 @@ else
         "$IMAGE_TAG" >/dev/null
 fi
 
+# Agent containers NanoClaw spawns reach the OneCLI gateway via Docker's
+# `--add-host=host.docker.internal:host-gateway` convention, which OrbStack
+# resolves to its own broken pseudo-address instead of the real bridge
+# gateway (see patch-host-gateway.cjs's own header for the full story and
+# how this was confirmed against a live install). Patch it every run —
+# cheap and idempotent — piped straight into `node` inside the already-
+# running container rather than baked into the image, so it applies
+# immediately with no rebuild required. Exit code 2 means it just now
+# freshly patched a previously-unpatched source tree; if dist/index.js was
+# already built from that old source (an existing install, not a fresh
+# one), rebuild and restart so the running service actually picks it up —
+# otherwise the patched source just sits there unused until some other
+# rebuild happens to come along.
+$DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"
+patch_rc=$?
+if [ "$patch_rc" -eq 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
+    $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
+    $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+fi
+
 # Checked directly on the host, not via `docker exec` — $INSTALL_PATH is
 # the identical path on both sides of the mount, so this doesn't need the
 # container to already be running to answer correctly.
@@ -459,7 +468,8 @@ if [ ! -f "${INSTALL_PATH}/dist/index.js" ]; then
     fi
 fi
 
-echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
+echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
+echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
 echo "=========================================================="
 bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
 bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
