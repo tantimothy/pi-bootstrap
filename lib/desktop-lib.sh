@@ -318,15 +318,15 @@ _load_desktop_entries_yaml() {
     MENU_NAME=$(_yq '.menu.name' "$yaml")
     MENU_ICON=$(_yq '.menu.icon // "utilities-terminal"' "$yaml")
 
-    mapfile -t ENTRY_IDS      < <(_yq '.entries[].id' "$yaml")
-    mapfile -t ENTRY_NAMES    < <(_yq '.entries[].name' "$yaml")
-    mapfile -t ENTRY_COMMENTS < <(_yq '.entries[].comment' "$yaml")
-    mapfile -t ENTRY_ICONS    < <(_yq '.entries[].icon' "$yaml")
-    mapfile -t ENTRY_KINDS    < <(_yq '.entries[].kind' "$yaml")
-    mapfile -t ENTRY_TERMINAL < <(_yq '.entries[].terminal // "false"' "$yaml")
+    _read_lines < <(_yq '.entries[].id' "$yaml");      ENTRY_IDS=("${_LINES[@]}")
+    _read_lines < <(_yq '.entries[].name' "$yaml");     ENTRY_NAMES=("${_LINES[@]}")
+    _read_lines < <(_yq '.entries[].comment' "$yaml");  ENTRY_COMMENTS=("${_LINES[@]}")
+    _read_lines < <(_yq '.entries[].icon' "$yaml");     ENTRY_ICONS=("${_LINES[@]}")
+    _read_lines < <(_yq '.entries[].kind' "$yaml");     ENTRY_KINDS=("${_LINES[@]}")
+    _read_lines < <(_yq '.entries[].terminal // "false"' "$yaml"); ENTRY_TERMINAL=("${_LINES[@]}")
 
     local _raw_targets i
-    mapfile -t _raw_targets < <(_yq '.entries[].target' "$yaml")
+    _read_lines < <(_yq '.entries[].target' "$yaml"); _raw_targets=("${_LINES[@]}")
     ENTRY_TARGETS=()
     for i in "${!_raw_targets[@]}"; do
         ENTRY_TARGETS[i]="$(_yaml_expand "${_raw_targets[$i]}")"
