@@ -70,6 +70,24 @@ _run_logged() {
     return "${rc:-1}"
 }
 
+# A nested interactive sub-program (nanoclaw/nanoclaw-mnemon's setup wizard,
+# handed off via `docker exec -it`, itself its own pty) can exit without
+# restoring the controlling terminal to normal line-buffered (canonical)
+# mode, and/or leave stray bytes sitting in the input queue. Left alone,
+# the very next `read -rp "Press Enter..."` back in deploy.sh either
+# returns instantly on that leftover input (looks like the menu "flashing
+# by" with no chance to read the status) or misinterprets a single raw
+# keystroke as the whole answer. Call this right after any such handoff,
+# before prompting the user for anything, to guarantee the next read
+# actually waits for a real Enter press.
+_reset_tty_input() {
+    [ -t 0 ] || return 0
+    stty sane 2>/dev/null || true
+    local _drain_junk
+    while read -r -t 0.05 _drain_junk; do :; done
+    return 0
+}
+
 # The actual per-archetype deploy logic, split out of deploy_environment so
 # it can run inside _run_logged's own `bash -c` (a genuinely separate
 # process, spawned by `script` — local-scope closures over deploy_
@@ -206,21 +224,37 @@ deploy_environment() {
     local env_dir="$1" policy="$2" docker_cmd="${3:-docker}"
     local repo_dir; repo_dir="$(cd "$env_dir/../.." && pwd)"
 
-    local log_dir="$env_dir/logs"
-    mkdir -p "$log_dir"
-    local log_file="$log_dir/${policy}-$(date +%Y%m%d-%H%M%S).log"
-    echo "📝 Logging this run to: $log_file"
+    local deploy_success log_file=""
+    if [ -f "$env_dir/run.sh" ]; then
+        # run.sh environments (nanoclaw, nanoclaw-mnemon, etc.) can hand off
+        # to their own fully-interactive sub-program via `docker exec -it`
+        # (its own nested pty, reattached straight to /dev/tty). Wrapping
+        # that in `script`'s pty on top breaks both live rendering and
+        # stdin delivery to that sub-program (confirmed against a real
+        # terminal) — so this path stays completely unwrapped, exactly as
+        # it behaved before session logging was added. No log file either;
+        # anything worth reviewing after a failure was on-screen live.
+        _deploy_environment_body "$env_dir" "$policy" "$docker_cmd" "$repo_dir"
+        deploy_success=$?
+        _reset_tty_input
+    else
+        local log_dir="$env_dir/logs"
+        mkdir -p "$log_dir"
+        log_file="$log_dir/${policy}-$(date +%Y%m%d-%H%M%S).log"
+        echo "📝 Logging this run to: $log_file"
 
-    _run_logged "$log_file" _deploy_environment_body "$env_dir" "$policy" "$docker_cmd" "$repo_dir"
-    local deploy_success=$?
+        _run_logged "$log_file" _deploy_environment_body "$env_dir" "$policy" "$docker_cmd" "$repo_dir"
+        deploy_success=$?
+        _reset_tty_input
 
-    if [ $deploy_success -ne 0 ]; then
-        echo ""
-        echo "❌ Deploy failed (exit $deploy_success) — last 30 lines of $log_file:"
-        echo "----------------------------------------------------------------"
-        tail -n 30 "$log_file" 2>/dev/null
-        echo "----------------------------------------------------------------"
-        echo "📄 Full log: $log_file"
+        if [ $deploy_success -ne 0 ]; then
+            echo ""
+            echo "❌ Deploy failed (exit $deploy_success) — last 30 lines of $log_file:"
+            echo "----------------------------------------------------------------"
+            tail -n 30 "$log_file" 2>/dev/null
+            echo "----------------------------------------------------------------"
+            echo "📄 Full log: $log_file"
+        fi
     fi
 
     # Best-effort desktop-entry refresh, and the post-deploy info summary,
