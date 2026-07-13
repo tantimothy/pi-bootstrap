@@ -224,7 +224,13 @@ WEB_PORT=8080
 
 # Leave blank to force the user to set it explicitly.
 API_SECRET_KEY=
+
+# Absolute path, or a leading ~ — expanded to the current user's actual
+# home directory when the TUI writes .env (see below).
+INSTALL_PATH=~/my-app
 ```
+
+A leading `~` (a bare `~`, or `~/...`) in any field's value — whether typed into the form or left as an `.env.example` default — gets expanded to the current user's actual home directory before being written to `.env`. This is deliberate, not incidental: every value the TUI writes gets single-quoted so `$`-bearing secrets (e.g. a bcrypt hash) survive round-tripping through the form without bash trying to expand them — but single quotes suppress `~` expansion exactly the same way, so without this, a `~`-based default would end up as a literal, permanently-broken `~/my-app` in `.env` instead of an actual path. `~otheruser/...` (someone else's home directory) is intentionally left untouched. Prefer `~` over hardcoding `/home/pi/...` for any install-path-shaped default — it resolves correctly regardless of OS or username, where a Pi-specific literal silently breaks for anyone else (see `nanoclaw`/`nanoclaw-mnemon`'s own `NANOCLAW_INSTALL_PATH`).
 
 ### `CONTAINER_NAME`
 
