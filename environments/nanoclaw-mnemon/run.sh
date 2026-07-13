@@ -90,18 +90,6 @@ MNEMON_EMBED_MODEL="${MNEMON_EMBED_MODEL:-}"
 CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
 
-# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable.
-# `ip` and `hostname -I` both don't exist on macOS at all (Linux-only
-# iproute2 / GNU coreutils) — under `set -euo pipefail`, letting either
-# failure propagate through the pipe into awk would silently kill this
-# whole script before it prints anything, since their own stderr is
-# redirected away. The `|| true` on each absorbs that so awk (which never
-# fails, even on empty input) is what actually determines the pipeline's
-# exit status.
-HOST_IP=$( { ip route get 1.1.1.1 2>/dev/null || true; } | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
-[ -z "$HOST_IP" ] && HOST_IP="localhost"
-
 # ---------------------------------------------------------------------------------------
 # Agent containers spawned by NanoClaw are all named/imaged nanoclaw-agent-v2-*
 # regardless of which install produced them — matching just that prefix
@@ -459,7 +447,8 @@ if [ ! -f "${INSTALL_PATH}/dist/index.js" ]; then
     fi
 fi
 
-echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
+echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
+echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
 echo "=========================================================="
 bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
 bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list

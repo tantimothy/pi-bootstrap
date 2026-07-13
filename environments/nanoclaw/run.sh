@@ -82,18 +82,6 @@ if [ -z "$DEPLOY_MODE" ]; then
 fi
 echo "📦 Deploy mode: ${DEPLOY_MODE} (set NANOCLAW_DEPLOY_MODE in .env to override)"
 
-# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable.
-# `ip` and `hostname -I` both don't exist on macOS at all (Linux-only
-# iproute2 / GNU coreutils) — under `set -euo pipefail`, letting either
-# failure propagate through the pipe into awk would silently kill this
-# whole script before it prints anything, since their own stderr is
-# redirected away. The `|| true` on each absorbs that so awk (which never
-# fails, even on empty input) is what actually determines the pipeline's
-# exit status.
-HOST_IP=$( { ip route get 1.1.1.1 2>/dev/null || true; } | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
-[ -z "$HOST_IP" ] && HOST_IP="localhost"
-
 # =========================================================================================
 # CONTAINER MODE — the orchestrator itself runs sandboxed in Docker.
 # =========================================================================================
@@ -229,7 +217,8 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         fi
     fi
 
-    echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
+    echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
+    echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
     echo "=========================================================="
     bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
     bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
@@ -319,7 +308,8 @@ if [ "$POLICY" = "FAST" ]; then
             systemctl status nanoclaw --no-pager --lines=5 2>/dev/null || true
         fi
         echo ""
-        echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
+        echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
+        echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
         echo "=========================================================="
         # Best-effort refresh in case NANOCLAW_PORT (or anything else read
         # from .env) changed since entries were last installed.
@@ -332,7 +322,8 @@ if [ "$POLICY" = "FAST" ]; then
         echo "🔄 [FAST POLICY] NanoClaw is installed but stopped. Starting..."
         nanoclaw_start
         echo "✅ NanoClaw started."
-        echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
+        echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
+        echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
         echo "=========================================================="
         bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
         exit 0
