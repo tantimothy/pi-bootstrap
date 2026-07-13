@@ -408,25 +408,25 @@ _load_info_yaml() {
 
     local i _raw
 
-    mapfile -t _raw < <(_yq '.data_dirs[].path' "$yaml")
+    _read_lines < <(_yq '.data_dirs[].path' "$yaml"); _raw=("${_LINES[@]}")
     DATA_DIRS=()
     for i in "${!_raw[@]}"; do DATA_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
-    mapfile -t DATA_DESCRIPTIONS < <(_yq '.data_dirs[].description' "$yaml")
+    _read_lines < <(_yq '.data_dirs[].description' "$yaml"); DATA_DESCRIPTIONS=("${_LINES[@]}")
 
-    mapfile -t _raw < <(_yq '.install_dirs[].path' "$yaml")
+    _read_lines < <(_yq '.install_dirs[].path' "$yaml"); _raw=("${_LINES[@]}")
     INSTALL_DIRS=()
     for i in "${!_raw[@]}"; do INSTALL_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
-    mapfile -t INSTALL_DESCRIPTIONS < <(_yq '.install_dirs[].description' "$yaml")
+    _read_lines < <(_yq '.install_dirs[].description' "$yaml"); INSTALL_DESCRIPTIONS=("${_LINES[@]}")
 
-    mapfile -t NAMED_VOLUMES < <(_yq '.named_volumes[].name' "$yaml")
-    mapfile -t NAMED_VOLUME_DESCRIPTIONS < <(_yq '.named_volumes[].description' "$yaml")
+    _read_lines < <(_yq '.named_volumes[].name' "$yaml"); NAMED_VOLUMES=("${_LINES[@]}")
+    _read_lines < <(_yq '.named_volumes[].description' "$yaml"); NAMED_VOLUME_DESCRIPTIONS=("${_LINES[@]}")
 
-    mapfile -t _raw < <(_yq '.wipe_parent_dirs[]' "$yaml")
+    _read_lines < <(_yq '.wipe_parent_dirs[]' "$yaml"); _raw=("${_LINES[@]}")
     WIPE_PARENT_DIRS=()
     for i in "${!_raw[@]}"; do WIPE_PARENT_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
 
-    mapfile -t WEB_UI_NAMES < <(_yq '.web_uis[].name' "$yaml")
-    mapfile -t _raw < <(_yq '.web_uis[].url' "$yaml")
+    _read_lines < <(_yq '.web_uis[].name' "$yaml"); WEB_UI_NAMES=("${_LINES[@]}")
+    _read_lines < <(_yq '.web_uis[].url' "$yaml"); _raw=("${_LINES[@]}")
     WEB_UI_URLS=()
     for i in "${!_raw[@]}"; do WEB_UI_URLS[i]="$(_yaml_expand "${_raw[$i]}")"; done
 

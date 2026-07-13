@@ -66,3 +66,22 @@ _yaml_expand() {
 _yq() {
     yq eval "$1" "$2"
 }
+
+# Portable replacement for `mapfile -t ARRAY < <(cmd)` — mapfile/readarray
+# is bash 4+ only, but macOS ships bash 3.2 (GPL licensing, unmaintained by
+# Apple since 2007) with neither builtin at all, silently leaving the
+# target array unset rather than erroring (e.g. WEB_UI_NAMES never gets
+# populated, so the "Web UIs" section just never prints — no error, no
+# obvious cause). Populates the fixed global _LINES array rather than
+# taking a caller-supplied array name: bash 3.2 has neither `mapfile` NOR
+# `declare -n` nameref (that's 4.3+ too), so there's no eval-free way to
+# write into a dynamically-named array — copy out of _LINES immediately
+# after calling this.
+# Usage: _read_lines < <(cmd); ARRAY=("${_LINES[@]}")
+_read_lines() {
+    _LINES=()
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        _LINES+=("$line")
+    done
+}

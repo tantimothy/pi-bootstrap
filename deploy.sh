@@ -181,22 +181,30 @@ fi
 # there (a newly added environment folder) is appended alphabetically
 # afterward, so it's never silently hidden just because the YAML wasn't
 # updated.
-mapfile -t ENV_ORDER_PRIORITY < <(yq eval '.categories[].environments[]' "$PROJECT_DIR/config/environments.yaml")
+_read_lines < <(yq eval '.categories[].environments[]' "$PROJECT_DIR/config/environments.yaml")
+ENV_ORDER_PRIORITY=("${_LINES[@]}")
 
+# Membership check below is a linear scan against ALL_SUBDIRS itself,
+# comparing basenames, rather than an associative-array set — declare -A is
+# bash 4+ only, and macOS ships bash 3.2 (GPL licensing, unmaintained by
+# Apple since 2007) with no associative array support at all. A handful of
+# environment directories makes the O(n^2) scan free in practice.
 ALL_SUBDIRS=()
-declare -A _seen_env=()
 for _name in "${ENV_ORDER_PRIORITY[@]}"; do
     if [ -d "environments/$_name" ]; then
         ALL_SUBDIRS+=( "environments/$_name" )
-        _seen_env["$_name"]=1
     fi
 done
 while IFS= read -r _dir; do
     _name=$(basename "$_dir")
-    [ -n "${_seen_env[$_name]:-}" ] && continue
+    _already_listed=false
+    for _existing in "${ALL_SUBDIRS[@]}"; do
+        [ "$(basename "$_existing")" = "$_name" ] && { _already_listed=true; break; }
+    done
+    [ "$_already_listed" = "true" ] && continue
     ALL_SUBDIRS+=( "$_dir" )
 done < <(find environments -maxdepth 1 -mindepth 1 -type d | sort)
-unset _seen_env _name _dir
+unset _name _dir _already_listed _existing
 
 DIAGNOSTIC_LOG=""
 
@@ -899,18 +907,12 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
         EXIT_CODE=$?
         
         if [ $EXIT_CODE -eq 0 ]; then
-            # mapfile (bash 4+) preserves empty lines as empty array slots.
-            # macOS ships bash 3.2 which lacks mapfile, so fall back to while-read.
-            # Both are correct; `read -a` must NOT be used here as it squeezes
-            # consecutive IFS delimiters, dropping blank fields and shifting values.
-            CAPTURED_USER_INPUTS=()
-            if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
-                mapfile -t CAPTURED_USER_INPUTS < "$TEMP_FORM_OUT"
-            else
-                while IFS= read -r _line || [ -n "$_line" ]; do
-                    CAPTURED_USER_INPUTS+=("$_line")
-                done < "$TEMP_FORM_OUT"
-            fi
+            # _read_lines (lib/yaml-lib.sh) preserves empty lines as empty
+            # array slots, same as mapfile — `read -a` must NOT be used here
+            # instead, since it squeezes consecutive IFS delimiters, dropping
+            # blank fields and shifting values.
+            _read_lines < "$TEMP_FORM_OUT"
+            CAPTURED_USER_INPUTS=("${_LINES[@]}")
             rm -f "$TEMP_FORM_OUT"
 
             # DYNAMIC FIX: Overwrite/Truncate existing configurations to prevent duplicated trailing rows
