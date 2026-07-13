@@ -76,7 +76,7 @@ The deploy menu calls `run.sh`, which clones the NanoClaw repository into `NANOC
 - Build the agent container
 - Configure your first messaging channel
 
-Configure `NANOCLAW_INSTALL_PATH` in `.env` to control where it installs (default: `/home/pi/nanoclaw`), and `NANOCLAW_DEPLOY_MODE` to control which mode is used (blank = auto by OS — see "Deployment Modes" above).
+Configure `NANOCLAW_INSTALL_PATH` in `.env` to control where it installs (default: `~/nanoclaw`, expanded to your actual home directory — see the root README's `.env.example` Format section), and `NANOCLAW_DEPLOY_MODE` to control which mode is used (blank = auto by OS — see "Deployment Modes" above).
 
 ### Subsequent Runs
 `FAST` policy detects the running service (`systemd`/`launchd` in `host` mode, the `nanoclaw` container in `container` mode) and starts it if stopped. No reinstall.
@@ -90,7 +90,7 @@ Stops and removes the existing installation (and, in `container` mode, rebuilds 
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `NANOCLAW_INSTALL_PATH` | Where the repo is cloned (bind-mounted at the same path in `container` mode) | `/home/pi/nanoclaw` |
+| `NANOCLAW_INSTALL_PATH` | Where the repo is cloned (bind-mounted at the same path in `container` mode) | `~/nanoclaw` |
 | `NANOCLAW_PORT` | Web UI port | `3080` |
 | `NANOCLAW_DEPLOY_MODE` | `container`, `host`, or blank for the OS-based default | blank (auto) |
 
@@ -215,3 +215,4 @@ http://<pi-ip>:3080
 - **Docker Manager** in the deploy menu will show dynamically-created NanoClaw group containers alongside your other containers — plus the `nanoclaw` orchestrator container itself in `container` mode.
 - NanoClaw containers never see raw API keys — a local HTTP proxy (OneCLI) injects credentials at request time. This is true in both deploy modes; `container` mode additionally limits what the *orchestrator itself* can reach on the host filesystem (see "Deployment Modes" above) — it doesn't change credential handling, which was already scoped away from the agent containers before `container` mode existed.
 - `container` mode still needs full Docker daemon access (via the bind-mounted socket) to spawn/manage agent containers — that's unavoidable in either mode, since spawning agent containers is the orchestrator's whole job. The security improvement is specifically about *filesystem* access, not Docker access.
+- **NanoClaw's own first-run wizard will warn about running as root** (`container` mode's orchestrator image has no `USER` directive, so it runs as root by default) and offer to walk you through creating a non-root Linux user instead. That warning is generic — written for NanoClaw's *host*-mode deployment, where "root" really does mean your whole machine — and isn't aware it's running inside a container here. Creating a non-root user inside the container doesn't meaningfully change this environment's actual exposure: the orchestrator already has the bind-mounted Docker socket regardless of which UID is running inside it, and socket access is root-equivalent on its own (see above) — a non-root process with access to that socket can still reach everything root could via it. It's safe to answer "continue as root" here. The one thing worth knowing either way: `NANOCLAW_INSTALL_PATH` is bind-mounted at the same path on the host, so files the orchestrator writes there are real files on your machine, not container-isolated — if that matters to you, a non-root Linux user may produce more predictable file ownership, but it isn't a meaningful security boundary in this specific setup.
