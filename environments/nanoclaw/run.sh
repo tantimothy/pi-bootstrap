@@ -206,8 +206,20 @@ if [ "$DEPLOY_MODE" = "container" ]; then
     # install's own clone happens further down, with its own patch call
     # right after, since this one will just no-op (source not cloned yet).
     if $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/src/container-runtime.ts" 2>/dev/null; then
-        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"
-        patch_rc=$?
+        # Exit-code capture must happen inside the `if` itself, not via a
+        # bare `cmd; rc=$?` pair — this script runs under `set -e`, which
+        # aborts on ANY nonzero exit that isn't already inside a
+        # conditional, and the patch script's own "freshly patched" signal
+        # (exit 2) is exactly that: a nonzero exit that isn't a real error.
+        # Confirmed the hard way: a CLEAN run died silently right after the
+        # patch's own success message, with no further output, because
+        # `set -e` killed the script before `patch_rc=$?` on the next line
+        # ever got a chance to run.
+        if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"; then
+            patch_rc=0
+        else
+            patch_rc=$?
+        fi
         if [ "$patch_rc" -eq 2 ]; then
             echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
             $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
