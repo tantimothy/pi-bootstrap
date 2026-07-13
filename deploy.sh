@@ -967,6 +967,7 @@ if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
         echo "ℹ️  No info.sh or info.yaml found for [$ENV_NAME]. No data directory information available."
     fi
     echo ""
+    _reset_tty_input
     read -rp "Press Enter to return to the menu..."
     continue
 fi
