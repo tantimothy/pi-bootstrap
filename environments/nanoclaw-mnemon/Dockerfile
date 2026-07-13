@@ -50,4 +50,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY entrypoint.sh /usr/local/bin/nanoclaw-entrypoint.sh
 RUN chmod +x /usr/local/bin/nanoclaw-entrypoint.sh
 
+# See systemctl-shim.sh for why: NanoClaw's own channel installers (Telegram,
+# Discord, Slack, etc.) restart the live service via `systemctl --user
+# restart` on Linux with no nohup-aware fallback, and there's no real
+# systemd/systemctl in this container at all — that restart has always
+# silently no-op'd here.
+COPY systemctl-shim.sh /usr/local/bin/systemctl
+RUN chmod +x /usr/local/bin/systemctl
+
 ENTRYPOINT ["/usr/local/bin/nanoclaw-entrypoint.sh"]
