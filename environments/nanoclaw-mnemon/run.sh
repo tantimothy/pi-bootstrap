@@ -459,6 +459,16 @@ if [ "$patch_rc" -eq 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
 fi
 
+# NanoClaw's own nohup fallback (setup/service.ts, used whenever there's no
+# systemd/launchd — always true here) writes start-nanoclaw.sh but never
+# runs it, so the wizard's own later steps (e.g. the cli-agent step, which
+# pings data/cli.sock) hit a manual dead end mid-setup, every single fresh
+# install — see patch-nohup-autostart.cjs's own header for the full story.
+# setup/ scripts run directly via tsx with no build step, so this needs no
+# rebuild to take effect, unlike the host-gateway patch above — applying it
+# now, before any wizard run, is enough.
+$DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
+
 # Checked directly on the host, not via `docker exec` — $INSTALL_PATH is
 # the identical path on both sides of the mount, so this doesn't need the
 # container to already be running to answer correctly.

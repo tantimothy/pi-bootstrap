@@ -47,6 +47,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && corepack enable \
     && corepack prepare pnpm@latest --activate
 
+# NanoClaw's own setup wizard installs the Claude CLI reactively, on demand,
+# via this exact same installer (setup/install-claude.sh) — but only when a
+# failure-recovery flow ("Claude CLI is needed to diagnose this") needs it,
+# and that script already skips the install cleanly if `claude` is already
+# on PATH. Pre-installing it here means it's simply already there whenever
+# that flow (or anything else in the container) needs it, rather than a
+# slow first-time curl install triggered mid-failure.
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:${PATH}"
+
 COPY entrypoint.sh /usr/local/bin/nanoclaw-entrypoint.sh
 RUN chmod +x /usr/local/bin/nanoclaw-entrypoint.sh
 
