@@ -256,11 +256,22 @@ ensure_ollama_ready() {
         if ! command -v ollama >/dev/null 2>&1; then
             echo "⚠️  Ollama isn't installed on this host."
             local reply=""
+            # `read -p`'s own prompt text goes to stderr, not stdout — and
+            # the `2>/dev/null` below (there to quietly handle hosts with
+            # no /dev/tty at all, e.g. a non-interactive curl|bash install)
+            # was silencing that prompt right along with it. Confirmed
+            # directly: a real deploy looked "stuck" right after the
+            # "isn't installed" line, with no visible question at all,
+            # even though it was genuinely just waiting on stdin the whole
+            # time. Printing the question via a plain `echo` first — never
+            # subject to that redirect — means it's always visible
+            # regardless of whether /dev/tty exists.
             if [[ "$(uname)" == "Darwin" ]]; then
-                read -r -p "   Install it now via Homebrew? [y/N] " reply < /dev/tty 2>/dev/null || true
+                echo "   Install it now via Homebrew? [y/N] "
             else
-                read -r -p "   Install it now via the official installer (curl | sh)? [y/N] " reply < /dev/tty 2>/dev/null || true
+                echo "   Install it now via the official installer (curl | sh)? [y/N] "
             fi
+            read -r reply < /dev/tty 2>/dev/null || true
             if [[ "$reply" =~ ^[Yy]$ ]]; then
                 if [[ "$(uname)" == "Darwin" ]]; then
                     if command -v brew >/dev/null 2>&1; then
