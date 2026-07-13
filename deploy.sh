@@ -959,7 +959,10 @@ if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     cd "$TARGET_WORKSPACE_DIR" || exit 1
     if [ -f "info.sh" ] || [ -f "info.yaml" ]; then
         ACTION=$([ "$REBUILD_POLICY" = "INFO" ] && echo "list" || echo "delete")
-        bash "$PROJECT_DIR/lib/run-info.sh" "$TARGET_WORKSPACE_DIR" "$ACTION"
+        mkdir -p "$TARGET_WORKSPACE_DIR/logs"
+        LOG_FILE="$TARGET_WORKSPACE_DIR/logs/${REBUILD_POLICY}-$(date +%Y%m%d-%H%M%S).log"
+        echo "📝 Logging this run to: $LOG_FILE"
+        _run_logged "$LOG_FILE" bash "$PROJECT_DIR/lib/run-info.sh" "$TARGET_WORKSPACE_DIR" "$ACTION"
     else
         echo "ℹ️  No info.sh or info.yaml found for [$ENV_NAME]. No data directory information available."
     fi

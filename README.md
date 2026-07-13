@@ -175,6 +175,10 @@ Every environment receives a `REBUILD_POLICY` variable:
 | `INFO` | Show data directories, sizes, and useful commands (scrollable via `less` in an interactive terminal) | — |
 | `WIPE` | Delete persisted data directories (irreversible) | — |
 
+### Session Logs
+
+Every `FAST`/`STOP`/`TEARDOWN`/`CLEAN`/`INFO`/`WIPE` run is recorded to `environments/<env>/logs/<POLICY>-<timestamp>.log` — the full session, not just a `stdout` capture: it's recorded via `script`, a real pty recorder, specifically because some environments (`nanoclaw`/`nanoclaw-mnemon`'s own first-run setup wizard) hand off to an interactive sub-program that reattaches directly to `/dev/tty`, bypassing any plain pipe or `tee`. On failure, `deploy.sh` prints the last 30 lines of that log straight to the screen (plus its full path) before returning to the menu, so a fast-scrolling build/install failure doesn't just vanish before you can read it. These logs are gitignored (`environments/*/logs/`) — purely local troubleshooting artifacts, never committed.
+
 ### Secret Pre-Processor
 
 Each environment has a `.env.example` file. `deploy.sh` reads it to:
