@@ -443,6 +443,20 @@ if [ ! -f "${INSTALL_PATH}/dist/index.js" ]; then
     # this the docker CLI inside the container silently falls back to the
     # legacy builder and that build step fails outright.
     $DOCKER exec -it -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash nanoclaw.sh"
+
+    # NanoClaw's own setup, on any platform without systemd or launchd —
+    # always true here, since this container has no init system at all
+    # (see entrypoint.sh) — only *writes* start-nanoclaw.sh; its own
+    # setupNohupFallback() explicitly reports SERVICE_LOADED: false and
+    # stops there, verified directly against its source (setup/service.ts).
+    # Nothing else in its setup flow ever actually runs that script, so
+    # left alone the background service never starts and the wizard's own
+    # first "ping/pong" health check fails before the service gets a
+    # chance to. Start it ourselves once the wizard hands control back.
+    if [ -f "${INSTALL_PATH}/start-nanoclaw.sh" ]; then
+        echo "🚀 Starting NanoClaw's background service (nohup fallback)..."
+        $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+    fi
 fi
 
 echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
