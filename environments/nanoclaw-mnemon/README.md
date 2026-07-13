@@ -108,6 +108,34 @@ docker exec -it <that-container-name> mnemon embed --status
 
 **What's actually generating your replies, regardless of the above: always Claude, never Ollama.** Ollama only scores *which* past memories mnemon surfaces during recall — mnemon's own architecture doc is explicit about the division of labor: *"The LLM decides WHAT to remember and link. Mnemon handles HOW to store, index, and retrieve."* Turning Ollama off just makes recall fall back to keyword/graph-only scoring; it never changes who's replying to you.
 
+### Talking to Ollama directly
+
+Everything above only exercises the embeddings API, since that's all mnemon uses. `nomic-embed-text` itself is an **embedding-only model — it can't hold a conversation at all**, by design (text in, a fixed-length vector out, nothing else). To actually chat with something via Ollama, pull a separate chat-capable model and use it directly, independent of mnemon or NanoClaw entirely:
+
+```bash
+# Pull any chat model (small example — pick whatever fits your hardware)
+ollama pull llama3.2
+
+# Simplest: interactive CLI chat
+ollama run llama3.2
+
+# Or via the API directly — one-shot completion
+curl -s http://localhost:11434/api/generate -d '{
+  "model": "llama3.2",
+  "prompt": "Why is the sky blue?",
+  "stream": false
+}'
+
+# Or the chat-style endpoint (multi-turn, message array)
+curl -s http://localhost:11434/api/chat -d '{
+  "model": "llama3.2",
+  "messages": [{"role": "user", "content": "Why is the sky blue?"}],
+  "stream": false
+}'
+```
+
+This is entirely separate infrastructure from your NanoClaw conversation — a different model, reachable the same way (same `ollama serve` instance on `localhost:11434`), but nothing here touches mnemon, the wiki, or anything Claude-side. Useful for confirming Ollama itself is healthy beyond just the embeddings path, or just for local experimentation.
+
 ---
 
 ## Security Notes
@@ -142,6 +170,8 @@ The gist's Obsidian-facing piece splits into two parts, only one of which is cus
 **Note on how this differs from the gist's own wiki**: `/add-karpathy-llm-wiki` compiles wiki pages straight from raw sources you feed it. In the gist's actual pipeline, the wiki is downstream of mnemon instead — pages are synthesized from mnemon's already-extracted facts, not raw sources directly (see `GIST-PARITY.md`'s embeddings section for the full breakdown, quoted from the gist). Both produce a markdown wiki; the gist's version has an extraction step (mnemon) in between that this environment's scaffolding doesn't replicate.
 
 **A discrepancy worth knowing about**: the skill's Step 3c, as currently documented upstream, edits the group's `CLAUDE.md` directly. But NanoClaw's `container-runner`/`claude-md-compose.ts` now regenerates `CLAUDE.md` fresh on every container spawn (its own header comment: *"Composed at spawn — do not edit. Edit CLAUDE.local.md for per-group content."*) — so a marker-based edit landing in `CLAUDE.md` would silently vanish on the next restart. This looks like the skill doc predates that compose refactor. `scaffold-wiki.sh` flags this in its own output; verify which file the skill actually wrote to afterward, and move the wiki section into `CLAUDE.local.md` if it landed in `CLAUDE.md`.
+
+**"Add sources via Telegram" doesn't mean the file has to travel through Telegram.** The pattern's own doc literally says *"drop new sources into the raw collection; the LLM processes them"* — `sources/` is a plain directory at `$NANOCLAW_INSTALL_PATH/groups/<group>/sources/`, bind-mounted to your host filesystem like everything else here, so `cp`-ing a file straight into it works fine. The catch: NanoClaw's agent only acts on inbound messages — there's no background process watching `sources/` for new files and reacting on its own (verified against both the pattern doc and NanoClaw's own architecture; neither describes a file-watcher). So the real workflow is: drop the file into `sources/` yourself, then send a message on whichever channel the group uses — e.g. *"I just added `report.pdf` to sources/, please ingest it"* — since that message, not the file's arrival, is what actually wakes the agent up to go read and process it. Telegram is just the natural place to have that conversation, not a requirement on how the file itself gets there.
 
 **More complete alternatives exist — it's an ecosystem, not one project**: at least five independent implementations of the same Karpathy pattern exist outside NanoClaw (`nvk/llm-wiki`, `praneybehl/llm-wiki-plugin`, `ussumant/llm-wiki-compiler`, `lucasastorian/llmwiki`, `Pratiyush/llm-wiki`), none built on each other. See `GIST-PARITY.md` for the full comparison — including the one that matters most if you want to actually integrate one here: `lucasastorian/llmwiki` uses an MCP server rather than a Claude Code plugin, which sidesteps the open question the other four share (whether Claude Code's plugin-install mechanism even works inside NanoClaw's agent-runner container) by reusing the same MCP-server-registration pattern NanoClaw's own `/add-ollama-tool` already proves out.
 
