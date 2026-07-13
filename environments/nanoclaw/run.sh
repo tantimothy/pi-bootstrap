@@ -205,7 +205,13 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         exec 0< /dev/tty
         exec 1> /dev/tty
         exec 2> /dev/tty
-        $DOCKER exec -it "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash nanoclaw.sh"
+        # nanoclaw.sh builds its own agent-sandbox image from inside this
+        # container, over the mounted host docker.sock — its Dockerfile uses
+        # --mount=type=cache, which needs BuildKit. `docker exec` never
+        # forwards the host's DOCKER_BUILDKIT env var on its own, so without
+        # this the docker CLI inside the container silently falls back to
+        # the legacy builder and that build step fails outright.
+        $DOCKER exec -it -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash nanoclaw.sh"
     fi
 
     echo "🌐 Web interface: http://${HOST_IP}:${NANOCLAW_PORT}"
