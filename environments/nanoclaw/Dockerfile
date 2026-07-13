@@ -23,6 +23,8 @@ COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         procps \
+        curl \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && corepack enable \
     && corepack prepare pnpm@latest --activate

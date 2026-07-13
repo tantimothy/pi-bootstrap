@@ -80,11 +80,15 @@ _run_logged() {
 # keystroke as the whole answer. Call this right after any such handoff,
 # before prompting the user for anything, to guarantee the next read
 # actually waits for a real Enter press.
+#
+# `-t` must be a whole number of seconds: macOS's bash (3.2) rejects a
+# fractional timeout outright ("invalid timeout specification") rather
+# than just rounding it, unlike GNU bash — confirmed on a real Mac.
 _reset_tty_input() {
     [ -t 0 ] || return 0
     stty sane 2>/dev/null || true
     local _drain_junk
-    while read -r -t 0.05 _drain_junk; do :; done
+    while read -r -t 1 _drain_junk; do :; done
     return 0
 }
 
