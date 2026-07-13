@@ -106,9 +106,13 @@ fi
 : "${DARKSTAT_INTERFACES:=eth0}"
 : "${DOZZLE_PORT:=8888}"
 
-# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable
-HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-[ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+# Detect host LAN IP so post-deploy URLs are immediately clickable/copyable.
+# `ip` and `hostname -I` are both Linux-only — under `set -euo pipefail`,
+# an unguarded failure here would abort this whole script before printing
+# anything. `|| true` on each absorbs that so awk (which never fails, even
+# on empty input) is what actually determines the pipeline's exit status.
+HOST_IP=$( { ip route get 1.1.1.1 2>/dev/null || true; } | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+[ -z "$HOST_IP" ] && HOST_IP=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
 # ---------------------------------------------------------------------------------------

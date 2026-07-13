@@ -402,8 +402,14 @@ _load_info_yaml() {
 
     [ -f "$env_dir/.env" ] && { set -a; source "$env_dir/.env"; set +a; }
 
-    HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
-    [ -z "$HOST_IP" ] && HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    # `ip` and `hostname -I` are both Linux-only (iproute2 / GNU coreutils —
+    # neither exists on macOS's BSD userland). `|| true` on each absorbs
+    # that failure so the pipeline's exit status is always awk's (which
+    # never fails, even on empty input) — under a caller running with
+    # `set -e`/`pipefail`, an unguarded failure here would otherwise abort
+    # the whole script silently, before printing anything.
+    HOST_IP=$( { ip route get 1.1.1.1 2>/dev/null || true; } | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+    [ -z "$HOST_IP" ] && HOST_IP=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
     [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
     local i _raw
