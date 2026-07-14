@@ -118,14 +118,16 @@ Then, inside that session, run the skill for whichever channel you want: `/add-t
 
 ## 💾 Data Directories
 
-Persistent data lives inside the install path and survives `TEARDOWN`:
+Persistent data lives inside the install path and survives `TEARDOWN` **and** `CLEAN`:
 
 | Directory | Contents |
 |-----------|---------|
 | `~/nanoclaw/groups/` | Per-group files: conversation history, memory wiki, transcripts, CLAUDE.md |
 | `~/nanoclaw/data/` | Sessions, message database, task scheduler database, IPC streams |
+| `~/nanoclaw/.env` | Anthropic/channel credentials NanoClaw's own wizard collected |
+| `~/nanoclaw/store/` | Channel session state (e.g. WhatsApp pairing) |
 
-The install directory itself (`~/nanoclaw/`) can be re-cloned by the `CLEAN` policy; the `groups/` and `data/` subdirectories are what actually need backing up.
+`CLEAN` keeps the install directory's own NanoClaw source in sync with upstream (`git reset --hard`, which only ever touches git-tracked files — the paths above are all in NanoClaw's own `.gitignore`, so they're untouched by construction). The directories above are still the actual state worth backing up separately regardless, since `CLEAN` is not a substitute for real backups.
 
 **Back up before CLEAN or WIPE:**
 
@@ -143,7 +145,7 @@ cp -r ~/nanoclaw/data   ~/backup/nanoclaw-data
 | `FAST` | Start the orchestrator (service or container, depending on deploy mode) if stopped; skip if already active |
 | `STOP` | Stop the orchestrator (agent containers keep running) |
 | `TEARDOWN` | Stop the orchestrator + remove all agent containers; data untouched. In `container` mode, also removes the orchestrator container itself (image and install path are preserved) |
-| `CLEAN` | Stop the orchestrator, remove agent containers, wipe install dir, reinstall. In `container` mode, also rebuilds the orchestrator image first, before touching anything running |
+| `CLEAN` | Stop the orchestrator, remove agent containers, hard-sync the install path's NanoClaw source to latest upstream (git-tracked files only — `.env`/`groups/`/`data/`/`store/` untouched), rebuild and restart in place if this was an existing install. In `container` mode, also rebuilds the orchestrator image first, before touching anything running |
 | `INFO` | List data directories with sizes and useful commands (scrollable via `less` in an interactive terminal) |
 | `WIPE` | Delete `groups/` and `data/` only (install dir preserved) |
 

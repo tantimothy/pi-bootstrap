@@ -145,9 +145,6 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             echo "$AGENT_CONTAINERS" | xargs "$DOCKER" stop 2>/dev/null || true
             echo "$AGENT_CONTAINERS" | xargs "$DOCKER" rm   2>/dev/null || true
         fi
-        echo "🗑️  Removing install directory for a fresh clone: $INSTALL_PATH"
-        rm -rf "$INSTALL_PATH"
-        mkdir -p "$INSTALL_PATH"
         $DOCKER image prune -f >/dev/null 2>&1 || true
     fi
 
@@ -234,17 +231,68 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
     fi
 
-    if ! $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/dist/index.js" 2>/dev/null; then
-        if [ ! -f "$INSTALL_PATH/nanoclaw.sh" ]; then
-            echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
-            git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
-            echo "✅ Clone complete."
-        else
-            echo "📦 Install path exists. Pulling latest changes..."
-            git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
-        fi
+    # Sync NanoClaw's own source. A fresh install (no nanoclaw.sh yet)
+    # always clones. An existing install: CLEAN hard-syncs to latest
+    # upstream — replacing what used to be a `rm -rf "$INSTALL_PATH"` above
+    # (see the CLEAN policy block higher up) that destroyed groups/, data/,
+    # store/, and .env right along with the source, none of which are
+    # NanoClaw's own source — matching the fix already applied to the
+    # nanoclaw-mnemon environment (see that environment's run.sh for the
+    # fuller writeup). FAST leaves an already-cloned install's source
+    # alone entirely, same as before.
+    SOURCE_SYNCED=false
+    if [ ! -f "$INSTALL_PATH/nanoclaw.sh" ]; then
+        echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
+        git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
+        echo "✅ Clone complete."
+        SOURCE_SYNCED=true
+    elif [ ! -d "$INSTALL_PATH/.git" ]; then
+        # Some backup/restore tools (confirmed: Time Machine) skip
+        # invisible files/directories, so a restored install path can
+        # have all its visible NanoClaw source back with no .git at
+        # all — git refuses to `pull`/`reset` a directory that isn't
+        # actually a repository. A fresh clone is the only fix;
+        # preserve what actually matters by hand across it, since
+        # there's no git history/.gitignore here to protect it.
+        echo "⚠️  $INSTALL_PATH exists but has no .git directory — not a real git checkout. Re-cloning fresh, preserving .env/groups/data/store first..."
+        PRESERVE_TMP=$(mktemp -d)
+        for item in .env groups data store; do
+            [ -e "${INSTALL_PATH}/${item}" ] && mv "${INSTALL_PATH}/${item}" "${PRESERVE_TMP}/${item}"
+        done
+        rm -rf "$INSTALL_PATH"
+        git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
+        for item in .env groups data store; do
+            [ -e "${PRESERVE_TMP}/${item}" ] && mv "${PRESERVE_TMP}/${item}" "${INSTALL_PATH}/${item}"
+        done
+        rmdir "$PRESERVE_TMP" 2>/dev/null || true
+        echo "✅ Fresh clone complete, preserved data restored."
+        echo "⚠️  If the same restore skipped invisible files/dirs, that applies inside groups/ too —"
+        echo "   check groups/<group>/.env and groups/<group>/.claude/ for anything that may not"
+        echo "   have actually come back with the rest."
+        SOURCE_SYNCED=true
+    elif [ "$POLICY" = "CLEAN" ]; then
+        echo "🔄 [CLEAN POLICY] Hard-syncing NanoClaw source to latest upstream (your data — .env, groups/, data/, any scaffolded wiki — is untouched; only git-tracked source files are reset)..."
+        git -C "$INSTALL_PATH" fetch origin
+        git -C "$INSTALL_PATH" reset --hard '@{u}'
+        SOURCE_SYNCED=true
+    fi
+
+    if [ "$SOURCE_SYNCED" = "true" ]; then
         $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs" || true
         $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
+    fi
+
+    # If this sync updated an install that was already built, rebuild from
+    # the fresh source and restart in place — otherwise the newly-synced
+    # code just sits there unused. The wizard block below only ever
+    # triggers on a truly fresh install (dist/index.js still missing).
+    if [ "$SOURCE_SYNCED" = "true" ] && $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/dist/index.js" 2>/dev/null; then
+        echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
+        $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
+        $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+    fi
+
+    if ! $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/dist/index.js" 2>/dev/null; then
         echo ""
         echo "🧙 Handing off to the NanoClaw interactive setup wizard (inside the container)..."
         echo "   The wizard will ask for your Anthropic API key, channel setup, and more."
@@ -391,7 +439,7 @@ if [ "$POLICY" = "FAST" ]; then
 fi
 
 # ---------------------------------------------------------------------------------------
-# 4. CLEAN policy: stop service, remove agent containers, wipe install directory
+# 4. CLEAN policy: stop service, remove agent containers
 # ---------------------------------------------------------------------------------------
 if [ "$POLICY" = "CLEAN" ]; then
     echo "🧹 [CLEAN POLICY] Stopping NanoClaw service and agent containers..."
@@ -407,21 +455,49 @@ if [ "$POLICY" = "CLEAN" ]; then
         echo "$AGENT_CONTAINERS" | xargs "$DOCKER" rm   2>/dev/null || true
     fi
 
-    if [ -d "$INSTALL_PATH" ]; then
-        echo "🗑️  Removing install directory: $INSTALL_PATH"
-        rm -rf "$INSTALL_PATH"
-    fi
-
-    echo "✅ Clean complete. Proceeding with fresh install below."
+    echo "✅ Service and agent containers stopped. Source sync happens below."
 fi
 
 # ---------------------------------------------------------------------------------------
-# 5. First-time installation — clone and run the interactive nanoclaw.sh wizard
+# 5. Clone or sync NanoClaw's own source, then run the interactive nanoclaw.sh wizard
+#
+# This used to `rm -rf "$INSTALL_PATH"` in the CLEAN block above, then
+# unconditionally clone fresh here — destroying groups/, data/, store/, and
+# .env right along with the source, none of which are NanoClaw's own
+# source. Matches the fix already applied to the container-mode branch
+# above and to the nanoclaw-mnemon environment: CLEAN now hard-syncs via
+# `git reset --hard` instead, which only ever touches git-tracked files.
 # ---------------------------------------------------------------------------------------
-if [ ! -d "$INSTALL_PATH" ]; then
+if [ ! -d "$INSTALL_PATH" ] || [ ! -f "$INSTALL_PATH/nanoclaw.sh" ]; then
     echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
     git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
     echo "✅ Clone complete."
+elif [ ! -d "$INSTALL_PATH/.git" ]; then
+    # Some backup/restore tools (confirmed: Time Machine) skip invisible
+    # files/directories, so a restored install path can have all its
+    # visible NanoClaw source back with no .git at all — git refuses to
+    # `pull`/`reset` a directory that isn't actually a repository. A fresh
+    # clone is the only fix; preserve what actually matters by hand across
+    # it, since there's no git history/.gitignore here to protect it.
+    echo "⚠️  $INSTALL_PATH exists but has no .git directory — not a real git checkout. Re-cloning fresh, preserving .env/groups/data/store first..."
+    PRESERVE_TMP=$(mktemp -d)
+    for item in .env groups data store; do
+        [ -e "${INSTALL_PATH}/${item}" ] && mv "${INSTALL_PATH}/${item}" "${PRESERVE_TMP}/${item}"
+    done
+    rm -rf "$INSTALL_PATH"
+    git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
+    for item in .env groups data store; do
+        [ -e "${PRESERVE_TMP}/${item}" ] && mv "${PRESERVE_TMP}/${item}" "${INSTALL_PATH}/${item}"
+    done
+    rmdir "$PRESERVE_TMP" 2>/dev/null || true
+    echo "✅ Fresh clone complete, preserved data restored."
+    echo "⚠️  If the same restore skipped invisible files/dirs, that applies inside groups/ too —"
+    echo "   check groups/<group>/.env and groups/<group>/.claude/ for anything that may not"
+    echo "   have actually come back with the rest."
+elif [ "$POLICY" = "CLEAN" ]; then
+    echo "🔄 [CLEAN POLICY] Hard-syncing NanoClaw source to latest upstream (your data — .env, groups/, data/, any scaffolded wiki — is untouched; only git-tracked source files are reset)..."
+    git -C "$INSTALL_PATH" fetch origin
+    git -C "$INSTALL_PATH" reset --hard '@{u}'
 else
     echo "📦 Install path exists. Pulling latest changes..."
     git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
