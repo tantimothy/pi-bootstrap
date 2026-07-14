@@ -125,6 +125,26 @@ docker exec -it nanoclaw-mnemon bash -lc "cd '$INSTALL_PATH' && bash nanoclaw.sh
 
 Interactive — asks for your Anthropic API key (a separate registration from your existing `nanoclaw` install's own; nothing is shared between the two), first channel setup, and builds the agent-sandbox image for the first time. Because you patched mnemon in first (step 4), that first build already includes it.
 
+## 6a. Launch the bundled Open WebUI (on by default)
+
+A browser chat UI for the same host Ollama daemon step 4a sets up — `run.sh` deploys this automatically alongside the orchestrator (`ensure_open_webui()`), not as a separate step. By hand:
+
+```bash
+docker run -d --name nanoclaw-mnemon-open-webui --restart unless-stopped \
+    -e OLLAMA_BASE_URL="http://host.docker.internal:11434" \
+    -e WEBUI_AUTH="true" \
+    --add-host "host.docker.internal:host-gateway" \
+    -v "nanoclaw-mnemon_open_webui_data:/app/backend/data" \
+    -p 3011:8080 \
+    ghcr.io/open-webui/open-webui:main
+```
+
+Deliberately a different container name and port (`3011`) than the standalone `open-webui` environment's own (`open-webui`, `3010`) — see that environment's README if you'd rather deploy it on its own, without NanoClaw at all.
+
+Visit `http://<host-ip>:3011` and sign up — the first account created becomes admin. `nomic-embed-text` (step 4a) is embedding-only and won't show up as a usable chat model; pull one separately: `ollama pull llama3.2`.
+
+To skip this step entirely (no Open WebUI at all), just don't run the `docker run` above — nothing else here depends on it.
+
 ## 7. (Optional) Scaffold a wiki for a group
 
 Purely mechanical — no need for automation:
@@ -160,4 +180,4 @@ That prints only the container IDs whose bind mounts actually trace back to `$IN
 
 ---
 
-That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a, including Ollama's own setup) and 5–6 on every fresh deploy (idempotently — re-running skips whatever's already done), step 7 via `scaffold-wiki.sh` on request, step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
+That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a, including Ollama's own setup), 5–6, and 6a (Open WebUI, on by default — set `ENABLE_OPEN_WEBUI=false` to skip it) on every fresh deploy (idempotently — re-running skips whatever's already done), step 7 via `scaffold-wiki.sh` on request, step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
