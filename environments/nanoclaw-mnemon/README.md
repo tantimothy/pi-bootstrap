@@ -20,6 +20,27 @@ Mnemon's `remember`/`link`/`recall` primitives are invoked automatically via Cla
 
 ---
 
+## 🧩 What Runs Where
+
+A quick reference for "which of these lives on my Mac, and which is inside a container":
+
+| Component | Where it actually runs | Notes |
+|---|---|---|
+| **NanoClaw orchestrator** (router, channel listeners, container-runner) | Docker container (`nanoclaw-mnemon`, this environment's own top-level container) | The one thing `docker ps` shows you directly; everything else it spawns is one level down |
+| **Claude CLI / Claude Agent SDK** | Three separate places, not one: (1) natively on your Mac, if you've installed it there yourself — entirely independent of this environment; (2) pre-installed inside the orchestrator container, used for `docker exec -it nanoclaw-mnemon ... claude` (see "Launching Claude CLI Directly" below); (3) inside every dynamically-spawned per-group **agent** container, running the actual conversation | These are independent installations — signing in on your Mac doesn't sign in the orchestrator's copy, and vice versa. Each agent container gets its own OAuth session via OneCLI (see "Security Notes") |
+| **Ollama** | Native host process — **not** containerized, deliberately (see "Mnemon Integration" above) | Reached from inside containers via `host.docker.internal:11434` |
+| **mnemon** | Compiled into and running inside every per-group **agent** container (never the orchestrator itself) | One mnemon process per active conversation group, each scoped to that group's own memory graph |
+
+### What Are the Spawned Agent Containers Actually Doing?
+
+The orchestrator itself never has a conversation — it's a router. The moment a message arrives for a conversation group with no live agent container yet, its `container-runner.ts` builds/starts one (image `nanoclaw-agent:latest`, name pattern `nanoclaw-agent-v2-*`), bind-mounted to that group's own folder under `groups/<group>/`. Inside, a real Claude Agent SDK session (this environment's patched image also carries mnemon and its Claude Code hooks) reads the incoming message, does whatever the conversation calls for, calls mnemon's `remember`/`recall`/`link` along the way, and replies — the orchestrator then delivers that reply back out over the original channel. Idle agent containers are eventually stopped/reaped by NanoClaw itself; the next message to that group just spins one back up. Each group gets its own container, so groups can't see each other's memory, files, or history.
+
+### Why Can Claude Open a Browser on My Mac, But Not Inside Docker?
+
+Claude CLI running natively on your Mac can shell out to open a URL because it's a normal process with access to your Mac's own GUI session — an actual Desktop, an actual Safari, an actual window server, all directly reachable. The orchestrator and every agent container are headless Linux containers: no GUI session exists inside them at all, by design, and even if a browser binary were installed in one, there's no display for it to draw to — the container sits on the other side of a VM boundary (Docker Desktop/OrbStack's own Linux VM) from your Mac's screen. That's why the OAuth sign-in step (see "First-Time Setup" below) prints a URL and asks you to copy-paste it into your own browser instead of trying to open one itself — there's genuinely nowhere for a container-side browser to display to, not a missing feature. See "SSH'ing in from Another macOS Machine" below for what this means if you're also remote.
+
+---
+
 ## 🔒 Deployment Modes
 
 **Container mode only.** Unlike the plain `nanoclaw` environment, there's no host/systemd/launchd mode here — this environment exists specifically for the Mac-first, filesystem-sandboxed use case, so there's no second mode to keep in sync with the mnemon patch. See the plain `nanoclaw` environment's README for the full host-vs-container tradeoff (iMessage support, filesystem access scope) if you want that instead.
@@ -50,6 +71,8 @@ Both steps are applied **before** NanoClaw's own setup wizard builds the agent i
 **Optional hybrid graph+vector recall**: mnemon has this built in (`MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL`, defaulting to `nomic-embed-text`) — set `MNEMON_EMBED_ENDPOINT` in `.env` (see `.env.example`'s own comment, commented out by default) to bake it into the Dockerfile as a plain `ENV` line. Left unset, mnemon runs graph-only — its own documented default, not a degraded mode. Requires `CLEAN` to take effect on an already-deployed install, same as bumping `MNEMON_VERSION`. The patch also bakes in `NO_PROXY`/`no_proxy` for that endpoint's host, so OneCLI's own unconditional `HTTPS_PROXY` injection (see "Security Notes" below) doesn't end up intercepting mnemon's embeddings traffic if you point it at an HTTPS endpoint.
 
 When set, `run.sh`'s `ensure_ollama_ready()` checks whether that endpoint is reachable before proceeding, and — only for a local address (`host.docker.internal`/`localhost`/`127.0.0.1`) — offers to install Ollama itself (Homebrew on macOS, the official installer on Linux, gated behind an explicit y/N prompt), starts it if it's installed but not running, and pulls the model if it's missing. A remote `MNEMON_EMBED_ENDPOINT` is left alone entirely — that's your own infrastructure, not something this script manages. Every failure here is a warning, not a hard stop: the rest of the deploy proceeds regardless, with mnemon simply running graph-only until you resolve it.
+
+**This already runs on every deploy, not just the first one** — `ensure_ollama_ready()` is called unconditionally from `run.sh` regardless of policy (`FAST` or `CLEAN`), so if Ollama shows up on the host *after* the fact — e.g. you declined the y/N install prompt above the first time and installed it yourself later — the very next `./run.sh` picks it up and pulls `nomic-embed-text` automatically. There's no separate "go set up Ollama's model" step to run by hand, and no need to force a `CLEAN` just to retrigger this check.
 
 **Provider compatibility**: mnemon's Claude Code hooks only fire for groups running the default Claude provider. If you've configured a group with `"provider": "opencode"` or similar in its `container.json`, mnemon's hooks won't run for that group — check with `grep -H '"provider"' groups/*/container.json` inside the install path.
 
@@ -136,6 +159,16 @@ curl -s http://localhost:11434/api/chat -d '{
 
 This is entirely separate infrastructure from your NanoClaw conversation — a different model, reachable the same way (same `ollama serve` instance on `localhost:11434`), but nothing here touches mnemon, the wiki, or anything Claude-side. Useful for confirming Ollama itself is healthy beyond just the embeddings path, or just for local experimentation.
 
+**Want a proper chat UI instead of raw `curl`/CLI?** See the separate `open-webui` environment in this repo — a browser-based chat frontend that talks to this same host Ollama daemon, entirely independent of NanoClaw and mnemon.
+
+### Can NanoClaw Itself Talk to Ollama?
+
+Yes — two separate, opt-in upstream NanoClaw skills do this, distinct from both mnemon's own embeddings (above) and from each other. Neither is enabled by this environment by default; run either yourself against a live install (see "Launching Claude CLI Directly" below).
+
+**`/add-ollama-tool` — Claude keeps orchestrating; Ollama becomes a callable tool.** Registers an MCP server exposing `ollama_list_models` and `ollama_generate`, plus opt-in admin tools (`ollama_pull_model`, `ollama_delete_model`, `ollama_show_model`, `ollama_list_running`, gated behind `OLLAMA_ADMIN_TOOLS=true`). Claude remains the one holding the conversation; Ollama is just another tool it can reach for, the same way it reaches for mnemon or any other MCP tool.
+
+**`/add-ollama-provider` — swaps an entire group's conversation over to Ollama, no Claude involved for that group.** Ollama exposes an Anthropic-compatible `/v1/messages` endpoint, so this works by overriding `ANTHROPIC_BASE_URL` in that group's own `container.json`, with `NO_PROXY`/`no_proxy=host.docker.internal` set so OneCLI's own proxy (see "Security Notes" below) doesn't intercept the traffic, and `blockedHosts: ["api.anthropic.com"]` (resolved to `0.0.0.0` via Docker's `--add-host`) so a misconfigured group can't silently fall through to a real, billed Anthropic call. One gotcha worth knowing if you use this: the Claude Agent SDK stamps a per-request cache-busting nonce (`cch=<hash>`) that defeats Ollama's own prompt-prefix cache, making repeated responses slower than talking to Ollama directly — upstream's documented workaround is a small (~40 line) local Node proxy that normalizes that nonce to a constant before forwarding to Ollama; see NanoClaw's own `docs/ollama.md` for the full script if you go this route.
+
 ---
 
 ## Security Notes
@@ -195,6 +228,18 @@ Or, once inside an interactive `claude` session, type `/` on its own — Claude 
 
 ---
 
+## 🌐 SSH'ing in from Another macOS Machine
+
+Yes, this works — it's just Docker underneath, so the normal remote-Docker approach applies once you can reach the host machine at all:
+
+**SSH to the host, then `docker exec` from there**: `ssh you@<host>` followed by the exact same command from "Launching Claude CLI Directly" above (`docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"`) — no different from running it locally, since you're now just a normal shell session on the host itself.
+
+**Would Claude then be able to open a browser back on your own Mac (the one you SSH'd *from*)?** No. Even a Claude session running natively on the host (not in a container) can only open a browser on a display *that host* can reach, and a plain SSH session has no display at all by default — no `DISPLAY`, no GUI forwarding, unless you specifically set it up. X11 forwarding (`ssh -Y`) can pipe a *Linux* GUI app's window back to your Mac via XQuartz, but that solves the wrong problem here: Safari is a native macOS app, not something X11 forwards, and Claude's own copy-paste-the-URL flow (see "First-Time Setup" above, and "Why Can Claude Open a Browser on My Mac, But Not Inside Docker?" further up) is exactly the same mechanism whether you're local or remote — it prints a URL, you paste it into whichever browser is actually in front of you on the machine you're physically sitting at.
+
+**In short**: SSH in, `docker exec` in, use the printed-URL copy-paste flow the same way you would sitting at the host directly — don't expect a browser to pop up on your remote Mac's own screen either way.
+
+---
+
 ## 💾 Data Directories
 
 Persistent data lives inside the install path and survives `TEARDOWN`:
@@ -218,6 +263,17 @@ The install directory itself can be re-cloned by `CLEAN` (the mnemon patch reapp
 | `CLEAN` | Rebuild the orchestrator image, remove this install's agent containers, wipe and re-clone the install path, reapply the mnemon patch, reinstall |
 | `INFO` | List data directories with sizes and useful commands (scrollable via `less` in an interactive terminal) |
 | `WIPE` | Delete `groups/` and `data/` only (install dir preserved) |
+
+---
+
+## ⬆️ Upgrading NanoClaw Without Redoing Setup
+
+Two different things can look like "upgrading," and only one of them re-does setup — worth being precise about which is which:
+
+- **`CLEAN` (above) wipes and re-clones NanoClaw from scratch**, then reapplies pi-bootstrap's own patches (mnemon, the OrbStack gateway fix, the nohup-autostart fix) to that fresh checkout — that's *why* it exists: those patches are text edits to specific upstream files, and reapplying them cleanly is easiest against a known-clean tree (see "Why This Needs a Custom `run.sh`" above). But a fresh clone has no memory of your prior setup, so you'll hit the wizard, channel pairing, and OAuth sign-in again. That's expected — `CLEAN` is really pi-bootstrap's own patch-maintenance mechanism, not an "upgrade NanoClaw" button.
+- **NanoClaw's own `/update-nanoclaw` skill is the actual upgrade path**, and it's built specifically to avoid re-setup: run it from an interactive Claude Code session against the orchestrator (see "Launching Claude CLI Directly" above). It fetches upstream changes, creates a backup branch + tag first, shows a diff preview, then merges/cherry-picks/rebases them into your *existing* checkout and validates the result (`pnpm run build`/`pnpm test`) — preserving your groups, channel pairings, sign-in, and mnemon's memory graphs throughout, because it's a git merge into the tree you already have, not a fresh clone.
+
+**In short**: use `/update-nanoclaw` from inside a Claude session to pull in upstream NanoClaw changes without redoing setup. Reserve `CLEAN` for when you specifically need pi-bootstrap's own patches reapplied to a known-clean tree (a `MNEMON_VERSION` bump, a fix to `run.sh` itself) — and expect the wizard again when you do.
 
 ---
 
