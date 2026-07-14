@@ -252,6 +252,27 @@ Or, once inside an interactive `claude` session, type `/` on its own — Claude 
 
 ---
 
+## 📡 Adding Channels
+
+**Channels are no longer standalone `setup/add-*.sh` scripts** — a recent upstream NanoClaw change moved every channel (Telegram, WhatsApp, Discord, Slack, Signal, Teams, iMessage) out of trunk entirely ("NanoClaw doesn't ship channels in trunk", per the skills' own docs) and into Claude Code skills that pull the adapter code in on demand. If you've seen older instructions (or an older version of this README) telling you to `bash setup/add-telegram.sh`, that script genuinely no longer exists — this isn't a bug in your install.
+
+**Current procedure** — same interactive session as above:
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
+```
+
+Then, inside that session, run the skill for whichever channel you want: `/add-telegram`, `/add-whatsapp`, `/add-discord`, `/add-slack`, `/add-signal`, `/add-teams`. (iMessage isn't offered in container mode regardless — see "Deployment Modes" above.) Each one walks you through it interactively:
+
+1. Copies in that channel's adapter code and installs its pinned dependency.
+2. Asks for whatever credential that channel needs (e.g. Telegram: create a bot via **@BotFather**, paste the token it gives you).
+3. Restarts the service automatically so the new adapter loads.
+4. Runs a pairing/linking handshake so the service knows which chat to treat as yours (Telegram/Discord: a one-time code you send back to the bot; WhatsApp: a QR code or pairing code, same as linking a new device).
+
+Once pairing completes, that channel is live. See each skill's own troubleshooting section (visible in the session's own output while it runs) if a step fails.
+
+---
+
 ## 🌐 SSH'ing in from Another macOS Machine
 
 Yes, this works — it's just Docker underneath, so the normal remote-Docker approach applies once you can reach the host machine at all:
@@ -304,7 +325,7 @@ Two different things can look like "upgrading" — worth being precise about whi
 
 **In short**: both are now safe to run without losing your setup. `CLEAN` is the "just get me on latest, I don't need to review it" button (and remains the one to reach for after a `MNEMON_VERSION` bump or a `run.sh` change); `/update-nanoclaw` is the "show me a diff first, and don't discard any local edits" button. Pick based on how much you want to review, not out of fear of losing anything — that fear was legitimate before the fix above, it no longer is.
 
-> **Not yet independently re-verified end-to-end** (i.e. an actual `CLEAN` run against a real existing install, confirming data survives and the wizard is correctly skipped) — the fix was validated via `bash -n` syntax checking and direct reasoning against NanoClaw's own `.gitignore` and `run.sh`'s existing `dist/index.js` check, not a live re-run in this session. Worth confirming yourself on your first `CLEAN` after upgrading.
+> **Confirmed end-to-end**: a real `CLEAN` run against an existing install with real data — data survived, and the wizard was correctly skipped in favor of an in-place rebuild+restart.
 
 ---
 
@@ -333,8 +354,9 @@ docker logs -f nanoclaw-mnemon
 docker restart nanoclaw-mnemon
 
 # Add messaging channels / update the Anthropic API key
-docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/add-whatsapp.sh"
-docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/add-telegram.sh"
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
+# then, inside that session: /add-whatsapp, /add-telegram, /add-discord, etc.
+# (channels aren't shipped as setup/add-*.sh scripts anymore — see "Adding Channels" below)
 docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"
 
 # List this install's agent containers (and the plain nanoclaw environment's, if also deployed — both share the nanoclaw-agent-v2-* name pattern)
@@ -387,11 +409,9 @@ Verified directly against a real deploy, not assumed:
 - The cross-environment agent-container sweep filtering, against synthetic mount data covering exactly the "both environments deployed at once" collision case.
 - Mnemon's own `mnemon embed --status`/`mnemon setup --target claude-code` steps, working correctly inside this containerized agent sandbox — including the Ollama install prompt and reachability checks. `ollama_available: true` specifically (i.e. mnemon's embed pipeline actually succeeding end-to-end) was not directly confirmed in this environment's own build/test process — `mnemon embed --status` is exactly how to check it yourself after pulling the embedding model.
 - Several genuine, non-obvious bugs found and fixed only by testing against a real OrbStack/macOS deploy rather than synthetic stubs — see the git history for `run.sh`, `patch-host-gateway.cjs`, and `patch-nohup-autostart.cjs` if you want the full diagnostic trail for any of them: NanoClaw's own nohup-fallback service-start step (writes but never runs its own wrapper), `systemctl`-based channel-installer restarts silently no-op'ing (no real systemd in this container), OrbStack's `host.docker.internal`/`host-gateway` resolving to a different address than the one its own port-publishing actually uses, and `/tmp` not being shared between this container and the host (breaking OneCLI's own certificate hand-off to spawned agent containers).
-
-**Not yet independently re-verified, added most recently, worth confirming on your own next `CLEAN`:**
-- `CLEAN` no longer wiping `.env`/`groups/`/`data/`/`store/` — found via a real deploy losing exactly this data (including a scaffolded wiki), fixed by replacing the `rm -rf`+re-clone with `git reset --hard` against NanoClaw's own `.gitignore`, and confirmed only via `bash -n` + direct reasoning in this session, not a live re-run of `CLEAN` against an existing install with real data in it.
-- Container timezone now following the host — confirmed the mechanism exists correctly upstream (`config.ts`'s `TIMEZONE` resolution, `container-runner.ts`'s `-e TZ=${TIMEZONE}` passthrough to spawned agent containers) and that `run.sh` now feeds it a real value, but not confirmed against an actual running container's `date` output in this session.
-- Bundled Open WebUI (`ensure_open_webui()`) — reasoned through against the same upstream image and flags the standalone `open-webui` environment already uses, and syntax-checked, but not confirmed against a real deploy in this session: that it actually reaches the host's Ollama daemon, that `FAST`/`STOP`/`TEARDOWN`/`CLEAN` all behave as described above, and that the two environments' differing ports/container/volume names actually avoid a collision if both are ever deployed together.
+- `CLEAN` no longer wiping `.env`/`groups/`/`data/`/`store/` — confirmed against a real existing install with real data (including a scaffolded wiki): running `CLEAN` no longer destroys any of it, and the setup wizard is correctly skipped in favor of an in-place rebuild+restart.
+- Container timezone following the host — confirmed directly against a running container's own `date` output after a fresh container creation.
+- Bundled Open WebUI (`ensure_open_webui()`) — confirmed against a real deploy: reaches the host's Ollama daemon correctly, and `FAST`/`STOP`/`TEARDOWN`/`CLEAN` all behave as described above.
 
 Same caveat as the plain `nanoclaw` environment: this covers what's been tested, not a guarantee against everything upstream might change — treat your own first deploy as the real test, and see `MANUAL-STEPS.md` if you ever want to understand or reproduce any of this by hand.
 

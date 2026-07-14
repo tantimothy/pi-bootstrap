@@ -27,7 +27,7 @@ The orchestrator process itself — not the per-conversation-group agent contain
 | Orchestrator process | Bare `systemd` (Linux) / `launchd` (macOS) service | Runs inside its own Docker container |
 | Filesystem access | Everything the OS user account can read/write — the whole home directory, not just NanoClaw's own files | Only `NANOCLAW_INSTALL_PATH` — nothing else on the host is reachable |
 | Docker access | Full host Docker daemon access either way (it has to spawn agent containers itself) | Same — via a bind-mounted `/var/run/docker.sock`, unavoidable in both modes |
-| iMessage | ✅ Supported (`setup/add-imessage.sh`) | ❌ Not offered — needs real macOS Messages.app + TCC (Full Disk Access/Automation) permissions, which no Docker container can reach even on macOS (Docker Desktop always runs containers inside a Linux VM) |
+| iMessage | ✅ Supported (`/add-imessage` skill — see "Adding Channels" below) | ❌ Not offered — needs real macOS Messages.app + TCC (Full Disk Access/Automation) permissions, which no Docker container can reach even on macOS (Docker Desktop always runs containers inside a Linux VM) |
 
 **The actual security improvement in `container` mode is scoped filesystem access, not less Docker access** — the orchestrator still needs full control of the Docker daemon either way, since spawning/tearing down agent containers is its whole job. What changes is that a compromised or buggy orchestrator process can no longer read your SSH keys, browser data, or anything else outside `NANOCLAW_INSTALL_PATH` — in `host` mode, as a bare OS process, it has the exact same file access as your own login session.
 
@@ -100,34 +100,34 @@ The Anthropic API key is registered interactively by the wizard and stored by Na
 
 ## Adding Channels
 
-After the initial install, each channel has its own add script — run it inside the orchestrator in `container` mode, directly on the host in `host` mode:
+**Channels are no longer standalone `setup/add-*.sh` scripts** — a recent upstream NanoClaw change moved every channel (Telegram, WhatsApp, Discord, Slack, Signal, Teams, iMessage) out of trunk entirely ("NanoClaw doesn't ship channels in trunk", per the skills' own docs) and into Claude Code skills that pull the adapter code in on demand. If you've seen older instructions telling you to `bash setup/add-telegram.sh`, that script genuinely no longer exists.
+
+**Current procedure**: start an interactive Claude Code session against the orchestrator's own NanoClaw checkout — directly on the host in `host` mode, via `docker exec` in `container` mode:
 
 ```bash
 # host mode
-cd ~/nanoclaw
-bash setup/add-telegram.sh
-bash setup/add-discord.sh
-bash setup/add-whatsapp.sh
-bash setup/add-slack.sh
-bash setup/add-imessage.sh   # macOS only, host mode only — see "Deployment Modes"
+cd ~/nanoclaw && claude
 
 # container mode
-docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/add-telegram.sh"
-# (add-imessage.sh isn't offered in container mode at all)
+docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
 ```
+
+Then, inside that session, run the skill for whichever channel you want: `/add-telegram`, `/add-whatsapp`, `/add-discord`, `/add-slack`, `/add-signal`, `/add-teams`, or `/add-imessage` (macOS `host` mode only — see "Deployment Modes" above; not offered in `container` mode at all). Each one walks you through it interactively: copies in that channel's adapter code, asks for whatever credential it needs (e.g. Telegram: create a bot via **@BotFather**, paste the token), restarts the service automatically, then runs a pairing/linking handshake (a one-time code, or a QR/pairing code for WhatsApp) so the service knows which chat is yours.
 
 ---
 
 ## 💾 Data Directories
 
-Persistent data lives inside the install path and survives `TEARDOWN`:
+Persistent data lives inside the install path and survives `TEARDOWN` **and** `CLEAN`:
 
 | Directory | Contents |
 |-----------|---------|
 | `~/nanoclaw/groups/` | Per-group files: conversation history, memory wiki, transcripts, CLAUDE.md |
 | `~/nanoclaw/data/` | Sessions, message database, task scheduler database, IPC streams |
+| `~/nanoclaw/.env` | Anthropic/channel credentials NanoClaw's own wizard collected |
+| `~/nanoclaw/store/` | Channel session state (e.g. WhatsApp pairing) |
 
-The install directory itself (`~/nanoclaw/`) can be re-cloned by the `CLEAN` policy; the `groups/` and `data/` subdirectories are what actually need backing up.
+`CLEAN` keeps the install directory's own NanoClaw source in sync with upstream (`git reset --hard`, which only ever touches git-tracked files — the paths above are all in NanoClaw's own `.gitignore`, so they're untouched by construction). The directories above are still the actual state worth backing up separately regardless, since `CLEAN` is not a substitute for real backups.
 
 **Back up before CLEAN or WIPE:**
 
@@ -145,7 +145,7 @@ cp -r ~/nanoclaw/data   ~/backup/nanoclaw-data
 | `FAST` | Start the orchestrator (service or container, depending on deploy mode) if stopped; skip if already active |
 | `STOP` | Stop the orchestrator (agent containers keep running) |
 | `TEARDOWN` | Stop the orchestrator + remove all agent containers; data untouched. In `container` mode, also removes the orchestrator container itself (image and install path are preserved) |
-| `CLEAN` | Stop the orchestrator, remove agent containers, wipe install dir, reinstall. In `container` mode, also rebuilds the orchestrator image first, before touching anything running |
+| `CLEAN` | Stop the orchestrator, remove agent containers, hard-sync the install path's NanoClaw source to latest upstream (git-tracked files only — `.env`/`groups/`/`data/`/`store/` untouched), rebuild and restart in place if this was an existing install. In `container` mode, also rebuilds the orchestrator image first, before touching anything running |
 | `INFO` | List data directories with sizes and useful commands (scrollable via `less` in an interactive terminal) |
 | `WIPE` | Delete `groups/` and `data/` only (install dir preserved) |
 
@@ -181,12 +181,10 @@ journalctl -u nanoclaw -f
 # Restart after config change
 sudo systemctl restart nanoclaw
 
-# Register or update Anthropic API key / add channels
+# Register or update Anthropic API key
 cd ~/nanoclaw && bash setup/register-claude-token.sh
-cd ~/nanoclaw && bash setup/add-whatsapp.sh
-cd ~/nanoclaw && bash setup/add-telegram.sh
-cd ~/nanoclaw && bash setup/add-discord.sh
-cd ~/nanoclaw && bash setup/add-imessage.sh   # macOS only
+# Add channels (see "Adding Channels" above — /add-telegram, /add-whatsapp, etc., not scripts)
+cd ~/nanoclaw && claude
 
 # --- container mode ---
 # Orchestrator status and live logs
@@ -196,9 +194,10 @@ docker logs -f nanoclaw
 # Restart after config change
 docker restart nanoclaw
 
-# Register or update Anthropic API key / add channels
+# Register or update Anthropic API key
 docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"
-docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/add-whatsapp.sh"
+# Add channels (see "Adding Channels" above — /add-telegram, /add-whatsapp, etc., not scripts)
+docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
 
 # --- both modes ---
 # List running agent containers

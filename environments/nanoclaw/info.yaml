@@ -33,10 +33,7 @@ useful_commands_macos: |2
      tail -f ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/logs/nanoclaw.log                        # Live logs
 useful_commands: |2
      docker ps --filter name=nanoclaw                                # List agent containers
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-whatsapp.sh                # Add WhatsApp channel
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-telegram.sh                # Add Telegram channel
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-discord.sh                 # Add Discord channel
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/add-imessage.sh                # Add iMessage channel
+     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && claude                                    # Then: /add-telegram, /add-whatsapp, etc. (see README's "Adding Channels")
      cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/register-claude-token.sh       # Update Anthropic API key
 
   📌 Notes:

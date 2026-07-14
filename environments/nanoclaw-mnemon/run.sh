@@ -451,6 +451,31 @@ if [ ! -f "${INSTALL_PATH}/nanoclaw.sh" ]; then
     echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
     git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
     echo "✅ Clone complete."
+elif [ ! -d "${INSTALL_PATH}/.git" ]; then
+    # A real, hit-in-the-wild case: some backup/restore tools (confirmed
+    # here: Time Machine) skip invisible files/directories, so a restored
+    # install path can have all its visible NanoClaw source back with no
+    # .git at all — git refuses to `pull`/`reset` a directory that isn't
+    # actually a repository (both branches below fail with "fatal: not a
+    # git repository"), so a fresh clone is the only way to get a working
+    # source tree back. Preserve what actually matters by hand across it,
+    # since there's no git history/.gitignore here to protect it the way
+    # the CLEAN branch below relies on.
+    echo "⚠️  $INSTALL_PATH exists but has no .git directory — not a real git checkout (a partial restore that skipped invisible files/dirs is a known way this happens). Re-cloning fresh, preserving .env/groups/data/store first..."
+    PRESERVE_TMP=$(mktemp -d)
+    for item in .env groups data store; do
+        [ -e "${INSTALL_PATH}/${item}" ] && mv "${INSTALL_PATH}/${item}" "${PRESERVE_TMP}/${item}"
+    done
+    rm -rf "$INSTALL_PATH"
+    git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
+    for item in .env groups data store; do
+        [ -e "${PRESERVE_TMP}/${item}" ] && mv "${PRESERVE_TMP}/${item}" "${INSTALL_PATH}/${item}"
+    done
+    rmdir "$PRESERVE_TMP" 2>/dev/null || true
+    echo "✅ Fresh clone complete, preserved data restored."
+    echo "⚠️  If the same restore skipped invisible files/dirs, that applies inside groups/ too —"
+    echo "   check groups/<group>/.env and groups/<group>/.claude/ (mnemon's own per-group memory"
+    echo "   lives there) for anything that may not have actually come back with the rest."
 elif [ "$POLICY" = "CLEAN" ]; then
     echo "🔄 [CLEAN POLICY] Hard-syncing NanoClaw source to latest upstream (your data — .env, groups/, data/, any scaffolded wiki — is untouched; only git-tracked source files are reset)..."
     git -C "$INSTALL_PATH" fetch origin
