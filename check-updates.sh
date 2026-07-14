@@ -258,14 +258,35 @@ check_locally_built() {
         'apt-get update -qq >/dev/null 2>&1 && apt list --upgradable 2>/dev/null' \
         | grep -v '^Listing' || true)
 
-    local base_msg="" dockerfile base_ref base_id
+    local base_msg="" dockerfile base_ref base_layers image_layers
     dockerfile=$(_dockerfile_for_image "$image_ref") || true
     if [ -n "$dockerfile" ] && [ -f "$dockerfile" ]; then
         base_ref=$(grep -m1 '^FROM' "$dockerfile" | awk '{print $2}')
         if [ -n "$base_ref" ] && $DOCKER pull "$base_ref" >/dev/null 2>&1; then
-            base_id=$($DOCKER inspect "$base_ref" --format '{{.Id}}' 2>/dev/null)
-            if [ -n "$base_id" ] && ! $DOCKER history --no-trunc "$image_ref" --format '{{.ID}}' 2>/dev/null | grep -qF "$base_id"; then
-                base_msg="base image $base_ref has moved since this was last built"
+            # NOT `docker history`'s IMAGE column (what this used to compare
+            # against) — under BuildKit, Docker's default builder since
+            # 23.0, that column reads `<missing>` for every layer except the
+            # image's own final one, so the old check compared the freshly-
+            # pulled base image's ID against a column that could never
+            # contain it, flagging "moved" unconditionally on every single
+            # scan regardless of whether the base had actually changed.
+            # Confirmed directly: this fired seconds after a fresh
+            # --no-cache rebuild, when the base plainly hadn't moved.
+            # RootFS.Layers is the actual content-addressed (sha256 diff-ID)
+            # layer list making up an image, base-to-top — a derived image's
+            # own list always starts with its base image's list verbatim,
+            # since FROM copies those layers unchanged. Comparing that
+            # prefix directly is correct regardless of which builder
+            # produced either image.
+            base_layers=$($DOCKER inspect "$base_ref" --format '{{json .RootFS.Layers}}' 2>/dev/null)
+            image_layers=$($DOCKER inspect "$image_ref" --format '{{json .RootFS.Layers}}' 2>/dev/null)
+            if [ -n "$base_layers" ] && [ -n "$image_layers" ]; then
+                base_layers="${base_layers#[}"; base_layers="${base_layers%]}"
+                image_layers="${image_layers#[}"; image_layers="${image_layers%]}"
+                case "$image_layers" in
+                    "$base_layers"*) ;;  # base's layers are still a prefix — unchanged
+                    *) base_msg="base image $base_ref has moved since this was last built" ;;
+                esac
             fi
         fi
     fi

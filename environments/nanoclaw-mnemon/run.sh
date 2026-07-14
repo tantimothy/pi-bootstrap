@@ -90,6 +90,13 @@ MNEMON_EMBED_MODEL="${MNEMON_EMBED_MODEL:-}"
 CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
 
+# Containers default to UTC with no timezone info of their own — /etc/localtime
+# is a symlink into .../zoneinfo/<Region>/<City> on both macOS and Linux, so
+# this reads the same regardless of host OS. Falls back to UTC (Docker's own
+# default anyway) if the host doesn't have that symlink for some reason.
+HOST_TZ="$(readlink /etc/localtime 2>/dev/null | sed -n 's#.*/zoneinfo/##p')"
+HOST_TZ="${HOST_TZ:-UTC}"
+
 # ---------------------------------------------------------------------------------------
 # Agent containers spawned by NanoClaw are all named/imaged nanoclaw-agent-v2-*
 # regardless of which install produced them — matching just that prefix
@@ -362,9 +369,6 @@ if [ "$POLICY" = "CLEAN" ]; then
     $DOCKER stop "$CONTAINER_NAME" 2>/dev/null || true
     $DOCKER rm   "$CONTAINER_NAME" 2>/dev/null || true
     remove_agent_containers
-    echo "🗑️  Removing install directory for a fresh clone: $INSTALL_PATH"
-    rm -rf "$INSTALL_PATH"
-    mkdir -p "$INSTALL_PATH"
     $DOCKER image prune -f >/dev/null 2>&1 || true
 fi
 
@@ -375,11 +379,28 @@ fi
 # nanocoai/nanoclaw is the current canonical location (GitHub redirects the
 # older qwibitai/nanoclaw URL the plain `nanoclaw` environment still uses,
 # but this environment clones the canonical one directly).
+#
+# CLEAN used to `rm -rf "$INSTALL_PATH"` here and re-clone from scratch —
+# which also destroyed groups/, data/, store/, and .env (conversation
+# history, mnemon's memory graphs, any scaffolded wiki, channel tokens),
+# none of which are NanoClaw's own source. Confirmed directly: a CLEAN run
+# wiped a real install's wiki along with everything else, forcing the whole
+# wizard to be redone for no reason connected to what CLEAN actually needs
+# to accomplish (a fresh, patchable source tree). `git reset --hard` fixes
+# this correctly rather than papering over it with a manual backup/restore
+# dance: it only ever touches git-TRACKED files, so .gitignore'd state
+# (dist/, store/, data/, groups/, .env — verified against NanoClaw's own
+# .gitignore) is left alone by construction, the same way `git pull` above
+# already leaves it alone on a plain FAST redeploy.
 # ---------------------------------------------------------------------------------------
 if [ ! -f "${INSTALL_PATH}/nanoclaw.sh" ]; then
     echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
     git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
     echo "✅ Clone complete."
+elif [ "$POLICY" = "CLEAN" ]; then
+    echo "🔄 [CLEAN POLICY] Hard-syncing NanoClaw source to latest upstream (your data — .env, groups/, data/, any scaffolded wiki — is untouched; only git-tracked source files are reset)..."
+    git -C "$INSTALL_PATH" fetch origin
+    git -C "$INSTALL_PATH" reset --hard '@{u}'
 else
     echo "📦 Install path exists. Pulling latest changes..."
     git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
@@ -431,9 +452,11 @@ else
     $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
         -e CONTAINER_NAME="$CONTAINER_NAME" \
+        -e TZ="$HOST_TZ" \
         -v "$INSTALL_PATH:$INSTALL_PATH" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \
+        -v /etc/localtime:/etc/localtime:ro \
         -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \
         "$IMAGE_TAG" >/dev/null
 fi
@@ -467,6 +490,18 @@ fi
 if [ "$patch_rc" -eq 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
+    $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+fi
+
+# CLEAN hard-synced NanoClaw's source to latest upstream above — if this is
+# an upgrade of an existing install (dist/index.js already built from a
+# prior run) rather than a first-time install, rebuild from that freshly-
+# synced source so the upgrade actually takes effect instead of silently
+# continuing to run the old build. Skipped when the host-gateway patch
+# above already did this same rebuild+restart (patch_rc 2).
+if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
+    $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
 fi
 
