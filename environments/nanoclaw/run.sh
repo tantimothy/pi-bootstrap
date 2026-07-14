@@ -212,7 +212,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         # patch's own success message, with no further output, because
         # `set -e` killed the script before `patch_rc=$?` on the next line
         # ever got a chance to run.
-        if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"; then
+        if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-host-gateway.cjs"; then
             patch_rc=0
         else
             patch_rc=$?
@@ -228,7 +228,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         # manual dead end mid-setup, every single fresh install — see
         # patch-nohup-autostart.cjs's own header for the full story. No
         # rebuild needed (setup/ scripts run directly via tsx).
-        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-nohup-autostart.cjs" || true
     fi
 
     # Sync NanoClaw's own source. A fresh install (no nanoclaw.sh yet)
@@ -278,8 +278,8 @@ if [ "$DEPLOY_MODE" = "container" ]; then
     fi
 
     if [ "$SOURCE_SYNCED" = "true" ]; then
-        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs" || true
-        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-host-gateway.cjs" || true
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-nohup-autostart.cjs" || true
     fi
 
     # If this sync updated an install that was already built, rebuild from

@@ -87,7 +87,7 @@ RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp 
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:${PATH}"
 
-COPY entrypoint.sh /usr/local/bin/nanoclaw-entrypoint.sh
+COPY scripts/entrypoint.sh /usr/local/bin/nanoclaw-entrypoint.sh
 RUN chmod +x /usr/local/bin/nanoclaw-entrypoint.sh
 
 # See systemctl-shim.sh for why: NanoClaw's own channel installers (Telegram,
@@ -95,7 +95,7 @@ RUN chmod +x /usr/local/bin/nanoclaw-entrypoint.sh
 # restart` on Linux with no nohup-aware fallback, and there's no real
 # systemd/systemctl in this container at all — that restart has always
 # silently no-op'd here.
-COPY systemctl-shim.sh /usr/local/bin/systemctl
+COPY scripts/systemctl-shim.sh /usr/local/bin/systemctl
 RUN chmod +x /usr/local/bin/systemctl
 
 ENTRYPOINT ["/usr/local/bin/nanoclaw-entrypoint.sh"]

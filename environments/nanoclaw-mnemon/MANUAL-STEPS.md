@@ -28,7 +28,7 @@ The orchestrator's own `Dockerfile`/`entrypoint.sh` in this environment are func
 docker build -t nanoclaw-mnemon-orchestrator:latest environments/nanoclaw/
 ```
 
-(Or copy `environments/nanoclaw-mnemon/Dockerfile` and `entrypoint.sh` from this repo directly if you don't have `environments/nanoclaw/` checked out.)
+(Or copy `environments/nanoclaw-mnemon/Dockerfile` and `environments/nanoclaw-mnemon/scripts/entrypoint.sh` from this repo directly if you don't have `environments/nanoclaw/` checked out.)
 
 ## 3. Clone NanoClaw's source to the new path
 
@@ -166,7 +166,7 @@ Append-only chronological record. Each entry starts with `## [YYYY-MM-DD] ingest
 EOF
 ```
 
-This is exactly what `./scaffold-wiki.sh "$GROUP"` does for you (idempotent — safe to re-run).
+This is exactly what `./scripts/scaffold-wiki.sh "$GROUP"` does for you (idempotent — safe to re-run).
 
 ### 7b. The collaborative half: run the upstream skill
 

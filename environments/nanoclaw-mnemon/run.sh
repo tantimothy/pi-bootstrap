@@ -566,7 +566,7 @@ fi
 # run died silently right after the patch's own success message, with no
 # further output, because `set -e` killed the script before `patch_rc=$?`
 # on the next line ever got a chance to run.
-if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"; then
+if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-host-gateway.cjs"; then
     patch_rc=0
 else
     patch_rc=$?
@@ -597,7 +597,7 @@ fi
 # setup/ scripts run directly via tsx with no build step, so this needs no
 # rebuild to take effect, unlike the host-gateway patch above — applying it
 # now, before any wizard run, is enough.
-$DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
+$DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-nohup-autostart.cjs" || true
 
 # Checked directly on the host, not via `docker exec` — $INSTALL_PATH is
 # the identical path on both sides of the mount, so this doesn't need the
