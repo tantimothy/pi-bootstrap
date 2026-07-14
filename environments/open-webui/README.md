@@ -2,6 +2,8 @@
 
 A browser-based chat UI for the Ollama models already running on this host (the same Ollama install the `nanoclaw-mnemon` environment depends on for its embeddings). This environment is deliberately thin: a single upstream Docker image, no custom `run.sh`, no Ollama of its own — it just points at the host's existing Ollama daemon over `host.docker.internal`.
 
+**Already using `nanoclaw-mnemon`?** It bundles its own copy of Open WebUI by default now (`ENABLE_OPEN_WEBUI` in its `.env`, port `3011`) — see that environment's README, "🌐 Bundled Open WebUI" section. Deploy this standalone environment instead if you want a chat UI for your host's Ollama *without* also deploying NanoClaw. The two are namespaced apart (different container names, ports, and data volumes) so both can run at once if you ever want that, though there's normally no reason to run both.
+
 ## 📂 Services & Ports
 
 | Service | Container | Port | Purpose |
