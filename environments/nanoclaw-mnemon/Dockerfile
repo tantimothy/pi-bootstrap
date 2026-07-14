@@ -37,12 +37,20 @@ FROM node:20-slim
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
 
+# jq: NanoClaw's own channel skills (/add-telegram, /add-discord, etc.) pipe
+# curl'd API responses through it directly (e.g. add-telegram's own
+# `curl ... | jq -er '.result.username'` credential-validation step) —
+# without it that step fails with a plain exit 127, which silently cascades
+# into every later step of the skill (restart, pairing) getting skipped too,
+# since they depend on it completing. Confirmed directly against a live
+# /add-telegram run.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         procps \
         curl \
         ca-certificates \
         iproute2 \
+        jq \
     && rm -rf /var/lib/apt/lists/* \
     && corepack enable \
     && corepack prepare pnpm@latest --activate
