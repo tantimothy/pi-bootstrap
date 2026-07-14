@@ -42,3 +42,8 @@ useful_commands: |2
         Use the Docker Manager in the deploy menu to view or delete them.
      ❌ iMessage isn't offered — this environment is container-mode only (see
         the README's "Deployment Modes" section for why).
+     🌐 Want a chat UI for Ollama itself (separate from NanoClaw's own
+        conversation)? Deploy the separate open-webui environment — same
+        host Ollama daemon, its own browser UI at http://<host-ip>:3010
+        by default (not listed under Web UIs above since it's a separate,
+        optional environment, not part of this one).
