@@ -109,7 +109,7 @@ variable should resolve there, not here. Two real examples:
 # container's own shell when the printed command actually runs, not by
 # this script when it builds the display text:
 useful_commands: |2
-     docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/add-whatsapp.sh"
+     docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && claude"
 ```
 
 ```yaml

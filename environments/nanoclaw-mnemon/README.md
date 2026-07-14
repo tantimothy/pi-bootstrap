@@ -252,6 +252,27 @@ Or, once inside an interactive `claude` session, type `/` on its own — Claude 
 
 ---
 
+## 📡 Adding Channels
+
+**Channels are no longer standalone `setup/add-*.sh` scripts** — a recent upstream NanoClaw change moved every channel (Telegram, WhatsApp, Discord, Slack, Signal, Teams, iMessage) out of trunk entirely ("NanoClaw doesn't ship channels in trunk", per the skills' own docs) and into Claude Code skills that pull the adapter code in on demand. If you've seen older instructions (or an older version of this README) telling you to `bash setup/add-telegram.sh`, that script genuinely no longer exists — this isn't a bug in your install.
+
+**Current procedure** — same interactive session as above:
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
+```
+
+Then, inside that session, run the skill for whichever channel you want: `/add-telegram`, `/add-whatsapp`, `/add-discord`, `/add-slack`, `/add-signal`, `/add-teams`. (iMessage isn't offered in container mode regardless — see "Deployment Modes" above.) Each one walks you through it interactively:
+
+1. Copies in that channel's adapter code and installs its pinned dependency.
+2. Asks for whatever credential that channel needs (e.g. Telegram: create a bot via **@BotFather**, paste the token it gives you).
+3. Restarts the service automatically so the new adapter loads.
+4. Runs a pairing/linking handshake so the service knows which chat to treat as yours (Telegram/Discord: a one-time code you send back to the bot; WhatsApp: a QR code or pairing code, same as linking a new device).
+
+Once pairing completes, that channel is live. See each skill's own troubleshooting section (visible in the session's own output while it runs) if a step fails.
+
+---
+
 ## 🌐 SSH'ing in from Another macOS Machine
 
 Yes, this works — it's just Docker underneath, so the normal remote-Docker approach applies once you can reach the host machine at all:
@@ -333,8 +354,9 @@ docker logs -f nanoclaw-mnemon
 docker restart nanoclaw-mnemon
 
 # Add messaging channels / update the Anthropic API key
-docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/add-whatsapp.sh"
-docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/add-telegram.sh"
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
+# then, inside that session: /add-whatsapp, /add-telegram, /add-discord, etc.
+# (channels aren't shipped as setup/add-*.sh scripts anymore — see "Adding Channels" below)
 docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"
 
 # List this install's agent containers (and the plain nanoclaw environment's, if also deployed — both share the nanoclaw-agent-v2-* name pattern)

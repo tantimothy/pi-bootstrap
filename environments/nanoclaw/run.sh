@@ -8,7 +8,7 @@
 # Two deployment modes for the orchestrator process itself (NANOCLAW_DEPLOY_MODE):
 #   "host"      — bare systemd (Linux) / launchd (macOS) service, full access to
 #                 whatever the OS user account can read/write. Supports iMessage
-#                 on macOS (setup/add-imessage.sh needs real Messages.app/TCC
+#                 on macOS (the /add-imessage skill needs real Messages.app/TCC
 #                 access). This is the original, unchanged behavior.
 #   "container" — the orchestrator itself runs inside a Docker container, with
 #                 filesystem access limited to NANOCLAW_INSTALL_PATH (nothing

@@ -4,17 +4,19 @@
 # own setup/platform.ts always returns false), and no `systemctl` binary
 # was ever installed either.
 #
-# NanoClaw's own setup scripts don't know that. Every channel installer
-# (setup/add-telegram.sh, add-discord.sh, add-slack.sh, add-teams.sh,
-# add-imessage.sh, setup/channels/{signal,whatsapp}.ts) unconditionally
-# shells out to `systemctl --user restart <unit>` on Linux to make the
-# live service pick up newly-installed adapter code/tokens, with the
-# failure swallowed by a bare `|| true` — verified directly against
-# nanoclaw's source. Without a `systemctl` at all, that call was always a
-# silent no-op: the running service never actually restarted, so a
-# freshly-installed channel's code never loaded, and anything depending
-# on it (e.g. Telegram's own pairing-code handshake) hangs forever
-# waiting for a service that's still running the pre-install build.
+# NanoClaw's own setup scripts don't know that. Every channel skill's own
+# "Restart" step (/add-telegram, /add-discord, /add-whatsapp, etc. — channels
+# aren't shipped as standalone setup/add-*.sh scripts anymore, see this
+# environment's README's "Adding Channels" section) calls
+# `bash setup/lib/restart.sh`, which unconditionally shells out to
+# `systemctl --user restart <unit>` on Linux to make the live service pick up
+# newly-installed adapter code/tokens, with the failure swallowed by a bare
+# `|| true` — verified directly against nanoclaw's source. Without a
+# `systemctl` at all, that call was always a silent no-op: the running
+# service never actually restarted, so a freshly-installed channel's code
+# never loaded, and anything depending on it (e.g. Telegram's own
+# pairing-code handshake) hangs forever waiting for a service that's still
+# running the pre-install build.
 #
 # Rather than patch every one of those upstream scripts individually
 # (fragile — breaks again on the next nanoclaw update, and misses
