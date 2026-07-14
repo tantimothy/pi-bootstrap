@@ -197,9 +197,37 @@ A browser chat UI for the same host Ollama daemon this environment's `MNEMON_EMB
 
 ## 🎙️ Transcribing Audio/Video (`yt-dlp` + `whisper.cpp`)
 
-The orchestrator image bundles `yt-dlp` (downloads/extracts audio from YouTube and most other video sites) and `whisper-cli` (local, offline speech-to-text — no API key, no account, no data leaving the machine), for turning a video into a plain-text transcript you can drop into a group's `sources/` folder (see "Optional: Karpathy LLM Wiki" above).
+`yt-dlp` (downloads/extracts audio from YouTube and most other video sites) and `whisper-cli` (local, offline speech-to-text — no API key, no account, no data leaving the machine) are bundled in **two places**, for two different workflows:
 
-**One-time setup — pull a model.** No model ships in the image (sizes range ~148MB–3GB+, and which one to use is a tradeoff only you can make) — download it once into the bind-mounted install path so it survives container rebuilds:
+- **The orchestrator image** — for you to run by hand (see "Manual pipeline" below), producing a transcript you drop into a group's `sources/` folder yourself.
+- **The agent sandbox image** (`container/Dockerfile`, patched in by `apply_media_tools_patch()` in `run.sh`, the same idempotent text-splice mechanism `apply_mnemon_patch()` uses) — so the **agent itself** can pull down and transcribe a video directly from its own Bash tool when you just paste a URL in chat, no manual steps at all.
+
+### Agent-side (paste a URL, the agent handles it)
+
+Works out of the box once you've pulled a model into that specific group's own folder (see below) — just message the group with a video URL and ask it to transcribe/summarize/ingest it. The agent has `yt-dlp`, `ffmpeg`, and `whisper-cli` on its own `PATH` inside its sandbox container.
+
+**One-time setup — pull a model into the group's own folder.** Unlike the orchestrator, there's no shared mount across every agent container (verified directly against NanoClaw's own `container-runner.ts`: only that specific group's own folder is bind-mounted in, at `/workspace/agent` — not the top-level install path) — so the model has to live inside each group that wants this, not once globally:
+
+```bash
+GROUP=your-group-folder
+mkdir -p "$NANOCLAW_INSTALL_PATH/groups/$GROUP/models"
+curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin \
+  -o "$NANOCLAW_INSTALL_PATH/groups/$GROUP/models/ggml-base.bin"
+```
+
+That file shows up inside that group's agent container at `/workspace/agent/models/ggml-base.bin` — tell the agent that path (or just mention "the whisper model in your models/ folder") the first time you ask it to transcribe something.
+
+**If you already had this group running before adding this patch**: the agent sandbox image doesn't automatically rebuild just because `container/Dockerfile` changed — same known characteristic as `apply_mnemon_patch()` above. Force a rebuild:
+
+```bash
+docker exec nanoclaw-mnemon docker rmi nanoclaw-agent:latest
+```
+
+The next message to any group triggers a fresh build (with the patch included) since the cached image is gone.
+
+### Manual pipeline (you run it, then feed the transcript in yourself)
+
+**One-time setup — pull a model into the install path.** This copy is for the orchestrator's own use, so it lives at the top level, not inside a group folder:
 
 ```bash
 docker exec -it nanoclaw-mnemon bash -lc "
@@ -231,7 +259,7 @@ cat transcript.txt
 
 Copy `transcript.txt` into whichever group's `sources/` you want it in (`$NANOCLAW_INSTALL_PATH/groups/<group>/sources/`), then message that group's channel to have the agent ingest it — same workflow as any other source (see "Optional: Karpathy LLM Wiki" above for why dropping the file alone doesn't trigger ingestion on its own).
 
-**No account needed** for either tool against public content — `yt-dlp` works anonymously, and `whisper-cli` is a local model with no API/account of any kind. Age-restricted, unlisted-but-gated, or members-only videos need YouTube cookies from a logged-in browser session passed to `yt-dlp` (`--cookies-from-browser`) — that's your own account, not a separate service.
+**No account needed** for either tool against public content, in either workflow — `yt-dlp` works anonymously, and `whisper-cli` is a local model with no API/account of any kind. Age-restricted, unlisted-but-gated, or members-only videos need YouTube cookies from a logged-in browser session passed to `yt-dlp` (`--cookies-from-browser`) — that's your own account, not a separate service.
 
 ---
 
@@ -467,7 +495,7 @@ Verified directly against a real deploy, not assumed:
 
 **Not independently re-verified**: the identical `rm -rf`-based CLEAN data-loss bug and the missing-`.git` recovery fallback were also fixed in the plain `nanoclaw` environment's `run.sh` (both `container` and `host` mode branches), reasoned through against the same upstream `.gitignore` and mirroring the pattern already confirmed above — but not independently tested against a real plain-`nanoclaw` deploy in this session.
 
-**Not yet tested at all**: `yt-dlp`/`whisper.cpp` (see "🎙️ Transcribing Audio/Video" above) — the Dockerfile changes were only checked for syntax/structural correctness (matching the exact build steps whisper.cpp's and yt-dlp's own upstream docs specify), not against an actual image rebuild in this session. Worth confirming the build succeeds and `whisper-cli`/`yt-dlp` both actually run on your first `CLEAN` after this change — a `cmake`-from-source build in particular is exactly the kind of step that can surface real, environment-specific issues (build time, architecture-specific flags) that reasoning alone can't catch.
+**Not yet tested at all**: `yt-dlp`/`whisper.cpp`, in both places they now live (see "🎙️ Transcribing Audio/Video" above) — the Dockerfile changes (orchestrator and agent sandbox both) were only checked for syntax/structural correctness (matching the exact build steps whisper.cpp's and yt-dlp's own upstream docs specify) and, for the agent-sandbox patch, direct verification against NanoClaw's own `container-runner.ts` for the mount-scope claim (only the group's own folder is mounted, not the top-level install path) — none of it against an actual image rebuild in this session. Worth confirming on your first `CLEAN`/agent-image-rebuild after this change that: the `cmake`-from-source build succeeds (build time and architecture-specific flags are exactly the kind of thing reasoning alone can't catch), `whisper-cli`/`yt-dlp` actually run in both containers, and the agent can genuinely reach a model file placed under a group's own `models/` folder.
 
 Same caveat as the plain `nanoclaw` environment: this covers what's been tested, not a guarantee against everything upstream might change — treat your own first deploy as the real test, and see `MANUAL-STEPS.md` if you ever want to understand or reproduce any of this by hand.
 
