@@ -145,9 +145,11 @@ Visit `http://<host-ip>:3011` and sign up — the first account created becomes 
 
 To skip this step entirely (no Open WebUI at all), just don't run the `docker run` above — nothing else here depends on it.
 
-## 7. (Optional) Scaffold a wiki for a group
+## 7. (Optional) Set up a Karpathy LLM Wiki for a group
 
-Purely mechanical — no need for automation:
+Two parts — one mechanical, one deliberately not automatable.
+
+### 7a. The mechanical half: scaffold the empty structure
 
 ```bash
 GROUP=your-group-folder
@@ -164,7 +166,41 @@ Append-only chronological record. Each entry starts with `## [YYYY-MM-DD] ingest
 EOF
 ```
 
-Then run `/add-karpathy-llm-wiki` in a Claude Code session against that group for the collaborative part (domain design, the tailored `container/skills/wiki/SKILL.md`, the `CLAUDE.md`/`CLAUDE.local.md` section) — see this environment's README for the caveat about which of those two files the skill actually writes to.
+This is exactly what `./scaffold-wiki.sh "$GROUP"` does for you (idempotent — safe to re-run).
+
+### 7b. The collaborative half: run the upstream skill
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "cd '$INSTALL_PATH/groups/$GROUP' && claude"
+```
+
+Then, inside that session, run:
+
+```
+/add-karpathy-llm-wiki
+```
+
+[`/add-karpathy-llm-wiki`](https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-karpathy-llm-wiki/SKILL.md) is a first-party NanoClaw skill following [Karpathy's public LLM Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — it discusses the domain with you before writing anything (choosing what the wiki is actually about, designing its schema, writing a tailored `container/skills/wiki/SKILL.md`, wiring a `CLAUDE.md` section), which is exactly why this part isn't scripted: unattended automation here would produce a generic, shallow wiki instead of one that fits your actual use case.
+
+**A discrepancy worth knowing about before you run it**: the skill's Step 3c, as currently documented upstream, edits the group's `CLAUDE.md` directly. But NanoClaw's `container-runner`/`claude-md-compose.ts` now regenerates `CLAUDE.md` fresh on every container spawn (its own header comment: *"Composed at spawn — do not edit. Edit CLAUDE.local.md for per-group content."*) — so a marker-based edit landing in `CLAUDE.md` would silently vanish on the next restart. This looks like the skill doc predates that compose refactor. Check which file the skill actually wrote to afterward:
+
+```bash
+grep -l "wiki" "$INSTALL_PATH/groups/$GROUP/CLAUDE.md" "$INSTALL_PATH/groups/$GROUP/CLAUDE.local.md" 2>/dev/null
+```
+
+If it landed in `CLAUDE.md`, move that section into `CLAUDE.local.md` yourself so it survives the next container restart.
+
+### 7c. Adding sources afterward
+
+**"Add sources via Telegram" doesn't mean the file has to travel through Telegram.** `sources/` is a plain directory at `$INSTALL_PATH/groups/$GROUP/sources/`, bind-mounted to your host filesystem — `cp` a file straight into it:
+
+```bash
+cp report.pdf "$INSTALL_PATH/groups/$GROUP/sources/"
+```
+
+But NanoClaw's agent only acts on inbound messages — nothing watches `sources/` for new files on its own. Send a message on whichever channel the group uses to actually trigger ingestion, e.g. *"I just added `report.pdf` to sources/, please ingest it"* — that message, not the file's arrival, is what wakes the agent up to go read and process it.
+
+**More complete alternatives exist** if this doesn't fit your needs — at least five independent implementations of the same Karpathy pattern exist outside NanoClaw; see this environment's `GIST-PARITY.md` for the full comparison.
 
 ## 8. One coexistence gotcha to watch for
 
@@ -180,4 +216,4 @@ That prints only the container IDs whose bind mounts actually trace back to `$IN
 
 ---
 
-That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a, including Ollama's own setup), 5–6, and 6a (Open WebUI, on by default — set `ENABLE_OPEN_WEBUI=false` to skip it) on every fresh deploy (idempotently — re-running skips whatever's already done), step 7 via `scaffold-wiki.sh` on request, step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
+That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a, including Ollama's own setup), 5–6, and 6a (Open WebUI, on by default — set `ENABLE_OPEN_WEBUI=false` to skip it) on every fresh deploy (idempotently — re-running skips whatever's already done); step 7a via `scaffold-wiki.sh` on request, with 7b/7c always manual by design (see step 7 above for why); step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
