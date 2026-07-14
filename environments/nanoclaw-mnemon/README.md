@@ -1,6 +1,6 @@
 # NanoClaw + Mnemon — Persistent Memory AI Assistant
 
-The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Three extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), and a bundled [Open WebUI](https://github.com/open-webui/open-webui) chat frontend for that same Ollama daemon (on by default — see "🌐 Bundled Open WebUI" below).
+The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Four extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), a bundled [Open WebUI](https://github.com/open-webui/open-webui) chat frontend for that same Ollama daemon (on by default — see "🌐 Bundled Open WebUI" below), and bundled `yt-dlp`/`whisper.cpp` for turning a video into a plain-text transcript you can feed into a group's wiki (see "🎙️ Transcribing Audio/Video" below).
 
 **Fully independent of the plain `nanoclaw` environment**: its own install path, its own container name, its own port. Both can be deployed on the same machine without colliding. The plain `nanoclaw` environment is intentionally left untouched by this one — see "Coexistence" below.
 
@@ -195,6 +195,46 @@ A browser chat UI for the same host Ollama daemon this environment's `MNEMON_EMB
 
 ---
 
+## 🎙️ Transcribing Audio/Video (`yt-dlp` + `whisper.cpp`)
+
+The orchestrator image bundles `yt-dlp` (downloads/extracts audio from YouTube and most other video sites) and `whisper-cli` (local, offline speech-to-text — no API key, no account, no data leaving the machine), for turning a video into a plain-text transcript you can drop into a group's `sources/` folder (see "Optional: Karpathy LLM Wiki" above).
+
+**One-time setup — pull a model.** No model ships in the image (sizes range ~148MB–3GB+, and which one to use is a tradeoff only you can make) — download it once into the bind-mounted install path so it survives container rebuilds:
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "
+  mkdir -p \$NANOCLAW_INSTALL_PATH/models
+  curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin \
+    -o \$NANOCLAW_INSTALL_PATH/models/ggml-base.bin
+"
+```
+
+(`ggml-base.bin` is a reasonable default — see [whisper.cpp's model list](https://github.com/ggml-org/whisper.cpp/blob/master/models/README.md) for smaller/larger/multilingual options.)
+
+**Usage** — open an interactive shell (see "Useful Commands" below for the one-liner) rather than prefixing every step with `docker exec`:
+
+```bash
+docker exec -it nanoclaw-mnemon bash
+cd /tmp
+
+# 1. Pull down just the audio track
+yt-dlp -x --audio-format wav -o audio.%(ext)s "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# 2. Resample to 16kHz mono — whisper.cpp's own required input format
+ffmpeg -i audio.wav -ar 16000 -ac 1 audio-16k.wav
+
+# 3. Transcribe
+whisper-cli -m "$NANOCLAW_INSTALL_PATH/models/ggml-base.bin" -f audio-16k.wav -otxt -of transcript
+
+cat transcript.txt
+```
+
+Copy `transcript.txt` into whichever group's `sources/` you want it in (`$NANOCLAW_INSTALL_PATH/groups/<group>/sources/`), then message that group's channel to have the agent ingest it — same workflow as any other source (see "Optional: Karpathy LLM Wiki" above for why dropping the file alone doesn't trigger ingestion on its own).
+
+**No account needed** for either tool against public content — `yt-dlp` works anonymously, and `whisper-cli` is a local model with no API/account of any kind. Age-restricted, unlisted-but-gated, or members-only videos need YouTube cookies from a logged-in browser session passed to `yt-dlp` (`--cookies-from-browser`) — that's your own account, not a separate service.
+
+---
+
 ## Security Notes
 
 Worth being precise about what this environment does and doesn't change, relative to the plain `nanoclaw` environment's own security model (see its README's "Deployment Modes" section, and the point that Docker socket access is inherently root-equivalent on the host — that discussion applies identically here). That includes the first-run wizard's "you are running as root" warning: this environment's orchestrator image has no `USER` directive either, and the same reasoning applies — see the plain `nanoclaw` README's "Notes" section for why answering "continue as root" is fine here too.
@@ -296,6 +336,7 @@ Persistent data lives inside the install path and survives `TEARDOWN` **and** `C
 | `$NANOCLAW_INSTALL_PATH/.env` | Anthropic/channel credentials NanoClaw's own wizard collected |
 | `$NANOCLAW_INSTALL_PATH/store/` | Channel session state (e.g. WhatsApp pairing) |
 | `${CONTAINER_NAME:-nanoclaw-mnemon}_open_webui_data` (named Docker volume, not a bind mount) | Bundled Open WebUI's own accounts, chat history, per-model settings — only exists if `ENABLE_OPEN_WEBUI` is true (the default) |
+| `$NANOCLAW_INSTALL_PATH/models/` | Whisper model file(s), if you've set up transcription (see "Transcribing Audio/Video" above) — untracked by git same as everything else here, so it survives `CLEAN` too; safe to skip backing up since it's just a re-downloadable model file |
 
 > **Fixed bug, worth knowing about if you deployed before this fix**: `CLEAN` used to `rm -rf` the entire install path and re-clone from scratch, destroying `groups/`, `data/`, `store/`, and `.env` right along with it — including any scaffolded wiki. That's since been fixed (`run.sh` now hard-resets NanoClaw's git-tracked source with `git reset --hard` instead of deleting the directory, which by construction never touches the paths above — they're all in NanoClaw's own `.gitignore`, so `.env`/`groups/`/`data/`/`store/`/`dist/` are simply invisible to git operations). If you hit the old behavior and lost data, there's no recovery path here — this note is so it doesn't happen again, not a way to undo it.
 
@@ -383,6 +424,15 @@ curl -s http://localhost:11434/api/embeddings -d '{"model": "nomic-embed-text", 
 docker logs -f nanoclaw-mnemon-open-webui
 ollama pull llama3.2      # a chat-capable model — nomic-embed-text is embedding-only
 
+# Open an interactive shell instead of prefixing every command with docker exec
+docker exec -it nanoclaw-mnemon bash
+
+# Transcribe a video (see "Transcribing Audio/Video" above) — run these inside
+# the interactive shell above, or prefix each with docker exec -it ... bash -lc
+yt-dlp -x --audio-format wav -o audio.%(ext)s "<video-url>"
+ffmpeg -i audio.wav -ar 16000 -ac 1 audio-16k.wav
+whisper-cli -m "$NANOCLAW_INSTALL_PATH/models/ggml-base.bin" -f audio-16k.wav -otxt -of transcript
+
 # Scaffold a Karpathy LLM Wiki for one group (see "Optional: Karpathy LLM Wiki" above)
 ./scaffold-wiki.sh <group-folder>
 
@@ -416,6 +466,8 @@ Verified directly against a real deploy, not assumed:
 - `jq` being required by channel skills (`/add-telegram` and presumably every other channel skill that validates a credential via `curl | jq`) — confirmed directly: a real `/add-telegram` run failed at exactly that step with the missing binary, adding it to the Dockerfile and rebuilding let the same skill run past credential validation.
 
 **Not independently re-verified**: the identical `rm -rf`-based CLEAN data-loss bug and the missing-`.git` recovery fallback were also fixed in the plain `nanoclaw` environment's `run.sh` (both `container` and `host` mode branches), reasoned through against the same upstream `.gitignore` and mirroring the pattern already confirmed above — but not independently tested against a real plain-`nanoclaw` deploy in this session.
+
+**Not yet tested at all**: `yt-dlp`/`whisper.cpp` (see "🎙️ Transcribing Audio/Video" above) — the Dockerfile changes were only checked for syntax/structural correctness (matching the exact build steps whisper.cpp's and yt-dlp's own upstream docs specify), not against an actual image rebuild in this session. Worth confirming the build succeeds and `whisper-cli`/`yt-dlp` both actually run on your first `CLEAN` after this change — a `cmake`-from-source build in particular is exactly the kind of step that can surface real, environment-specific issues (build time, architecture-specific flags) that reasoning alone can't catch.
 
 Same caveat as the plain `nanoclaw` environment: this covers what's been tested, not a guarantee against everything upstream might change — treat your own first deploy as the real test, and see `MANUAL-STEPS.md` if you ever want to understand or reproduce any of this by hand.
 
