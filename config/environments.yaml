@@ -18,6 +18,7 @@ categories:
     environments:
       - nanoclaw
       - nanoclaw-mnemon
+      - open-webui
   - id: network-security
     name: "Networking & Security"
     environments:
