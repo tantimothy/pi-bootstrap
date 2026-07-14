@@ -17,6 +17,12 @@ entries:
     kind: exec
     target: 'bash -c "cd ''${ENV_DIR}'' && REBUILD_POLICY=FAST ./run.sh"'
     terminal: true
+  - id: pi-bootstrap-nanoclaw-mnemon-open-webui
+    name: "Open WebUI (Ollama chat)"
+    comment: "Chat UI for Ollama, bundled with this environment (ENABLE_OPEN_WEBUI in .env)"
+    icon: applications-science
+    kind: link
+    target: "http://localhost:${OPEN_WEBUI_PORT:-3011}"
 info:
   id: pi-bootstrap-nanoclaw-mnemon-info
   name: "NanoClaw + Mnemon Info"
