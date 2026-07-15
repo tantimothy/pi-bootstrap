@@ -50,4 +50,27 @@ chmod 600 /home/claude/.ssh/authorized_keys
 mkdir -p /home/claude/workspace
 chown claude:claude /home/claude/workspace
 
+# Optional git identity — otherwise commits inside the container fail with
+# no user.name/user.email configured. See README's "Connecting to a GitHub
+# Repo".
+if [ -n "${GIT_USER_NAME:-}" ]; then
+    runuser -u claude -- git config --global user.name "$GIT_USER_NAME"
+fi
+if [ -n "${GIT_USER_EMAIL:-}" ]; then
+    runuser -u claude -- git config --global user.email "$GIT_USER_EMAIL"
+fi
+
+# Optional GH_TOKEN — written to /etc/environment (not a file under
+# ~/.ssh or ~/.claude) so PAM hands it to every future SSH login shell
+# automatically; both the `gh` CLI and its git credential helper read
+# GH_TOKEN straight from the environment, so no token file ever touches
+# disk under the claude user's own home. `gh auth setup-git` wires git's
+# own credential.helper to call `gh auth git-credential`, so plain
+# `git push`/`git clone` over HTTPS pick this up too, not just `gh` itself.
+if [ -n "${GH_TOKEN:-}" ]; then
+    sed -i '/^GH_TOKEN=/d' /etc/environment
+    echo "GH_TOKEN=${GH_TOKEN}" >> /etc/environment
+    runuser -u claude -- env GH_TOKEN="$GH_TOKEN" gh auth setup-git
+fi
+
 exec /usr/sbin/sshd -D -e

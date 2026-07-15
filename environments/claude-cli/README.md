@@ -93,6 +93,55 @@ You'll land in the tmux-attached `claude` session. First run prompts Claude's ow
 
 ---
 
+## 🛰️ Using This as Your Remote Runner
+
+The deploy above already *is* the remote runner — SSH reachability plus the tmux auto-attach (see "How Login Works") is the whole mechanism, there's no separate "remote mode" to turn on. What's left is making sure you can actually reach `SSH_PORT` from wherever you'll be:
+
+- **On your own LAN**: nothing further to do — `ssh -p <SSH_PORT> claude@<host-lan-ip>` works exactly like the `localhost` example above.
+- **Away from the LAN (recommended: a mesh VPN, not a router port-forward)**: install [Tailscale](https://tailscale.com) (or WireGuard directly — this repo's own `pihole-wireguard` environment already bundles `wg-easy` if you'd rather self-host that) on the host machine, then SSH to its Tailscale/VPN address instead of a public one. This keeps `SSH_PORT` off the open internet entirely — see "Security Notes" below for why that matters, since this container's sshd is a real, if key-only, network-facing service.
+- **If you do forward the port directly instead**: that's a real choice you can make, just go in aware of the tradeoff in "Security Notes" — key-only auth makes brute-forcing impractical, but it's still a public-facing sshd.
+- **From a phone/tablet**: any SSH client app (Termius, Blink Shell, JuiceSSH, etc.) pointed at that address with your private key imported — same tmux session, same live conversation, picked up mid-thought from wherever you are.
+
+---
+
+## 🐙 Connecting to a GitHub Repo
+
+`CLAUDE_WORKSPACE_PATH` gets you one repo, already checked out on the host. Two ways to give `claude` real GitHub access beyond that — for cloning other repos, pushing, or opening PRs — lightest first:
+
+**Option A — SSH agent forwarding (recommended: no secrets stored in the container at all)**
+
+```bash
+ssh -A -p ${SSH_PORT:-2222} claude@<host>
+```
+
+`-A` forwards your local `ssh-agent`'s already-loaded keys into the session, so `git clone git@github.com:you/repo.git`, `git push`, etc. work exactly as they would on your own machine — authenticated against whatever key your agent already holds, for exactly the duration of that one connection, nothing written to disk. (`AllowAgentForwarding` is pinned `yes` in this image's `sshd_config` — see the `Dockerfile`'s own comment.)
+
+**Option B — `GH_TOKEN` (for non-interactive use: `gh pr create`, `gh pr review`, or scripted `git` over HTTPS without a live forwarded agent)**
+
+Agent forwarding alone gets you `git` over SSH, not the GitHub *API* — if you want Claude driving `gh` itself (opening PRs, commenting, checking CI), set `GH_TOKEN` in `.env` to a [fine-grained personal access token](https://github.com/settings/tokens?type=beta) scoped to whichever repos you want reachable, then redeploy (`FAST` is enough — no rebuild needed, this only changes the container's environment). `entrypoint.sh` writes it to `/etc/environment` (so every login shell sees it via PAM, no token file under `~/.ssh` or `~/.claude`) and runs `gh auth setup-git` once, wiring `gh`'s own credential helper into git — so plain `git push`/`git clone` over HTTPS pick up `GH_TOKEN` too, not just `gh` commands themselves.
+
+Either option, also set `GIT_USER_NAME`/`GIT_USER_EMAIL` in `.env` — commits fail with no identity configured, and this container has none baked in.
+
+---
+
+## 🏠 Connecting to Home Assistant
+
+Home Assistant has a built-in **Model Context Protocol Server** integration — enabling it turns whatever you've already exposed to Assist into an MCP server Claude can register directly as a tool source, no separate bridge, bot, or webhook relay needed.
+
+1. In Home Assistant: **Settings → Devices & Services → Add Integration → "Model Context Protocol Server"**, and make sure the entities you want Claude to control are actually exposed to Assist (**Settings → Voice assistants → Expose**) — HA's own exposure list is the real access boundary here, not anything this container adds.
+2. Create a **long-lived access token**: your Home Assistant user profile → **Security** tab → **Long-Lived Access Tokens** → Create Token.
+3. From inside a session on this container (SSH in, you're already in the tmux `claude` session — this is a one-time `claude mcp` command, run it in a shell, not as a message to Claude):
+   ```bash
+   claude mcp add --transport sse home-assistant http://<ha-host>:8123/mcp_server/sse \
+     --header "Authorization: Bearer <your-long-lived-token>"
+   ```
+   Run `claude mcp add --help` first to confirm the current flag names — Claude Code's own MCP CLI surface isn't something this environment scripts or pins a version of, since the registration is per-user state stored in Claude Code's own config, not something `.env`/`docker-compose.yml` should hold a token for.
+4. `<ha-host>` is whatever address *this container* can actually reach Home Assistant at: the same LAN IP/hostname you'd type into a browser if Home Assistant runs on a separate device (e.g. a Pi running HAOS — the common case), or `host.docker.internal` if it happens to run as a process on this same host (see `open-webui`'s README for the OrbStack caveat on that hostname specifically, if that's your setup and it doesn't resolve).
+
+Once registered, Claude can see and act on exactly what you've exposed to Assist — nothing more. Revoking the long-lived token (or narrowing what's exposed to Assist) in Home Assistant itself is how you scope or pull this back later; nothing about it lives in this environment's own `.env` or volumes.
+
+---
+
 ## 🎛️ Deployment Policies
 
 Select a policy when deploying from the `deploy.sh` menu, or set `REBUILD_POLICY` when running `./run.sh` directly:

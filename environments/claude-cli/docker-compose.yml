@@ -6,6 +6,11 @@ services:
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      # All three optional — see .env.example and README's "Connecting to
+      # a GitHub Repo". Empty/unset is a no-op in entrypoint.sh.
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - GH_TOKEN=${GH_TOKEN:-}
     ports:
       - "${SSH_PORT:-2222}:22"
     volumes:
