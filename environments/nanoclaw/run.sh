@@ -290,6 +290,35 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
         $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
         $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+
+        # The rebuild above only covers NanoClaw's own orchestrator (`pnpm
+        # run build` — a plain `tsc` compile of the host-side TS). It does
+        # NOT rebuild the agent-sandbox Docker image
+        # (`nanoclaw-agent-v2-<slug>:latest`, built from
+        # container/Dockerfile) — a completely separate artifact. A fresh
+        # install's own nanoclaw.sh wizard builds that once during
+        # first-time setup, but re-syncing an EXISTING install's source
+        # here just leaves whatever upstream changed in container/Dockerfile
+        # (new tools, base-image bumps, security fixes) sitting unused —
+        # every group's agent containers keep spawning from the image that
+        # was built the last time this actually ran. See the equivalent
+        # comment in nanoclaw-mnemon's run.sh (where this was actually
+        # caught, via its own Dockerfile patches silently never taking
+        # effect) for the full story. container/build.sh is NanoClaw's own
+        # sanctioned entry point for this — its provider-switch step in
+        # setup/auto.ts calls it the same way when it needs to rebuild
+        # post-container-step.
+        if [ -f "${INSTALL_PATH}/container/build.sh" ]; then
+            echo "🛠️  Rebuilding the NanoClaw agent-sandbox image..."
+            # BuildKit cache mounts in container/Dockerfile need
+            # DOCKER_BUILDKIT=1 — docker exec never forwards the host's env
+            # on its own (same reasoning as the nanoclaw.sh wizard call
+            # further below).
+            $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'" \
+                || echo "⚠️  Agent-sandbox image rebuild failed — upstream Dockerfile changes won't take effect until this succeeds. See the build output above." >&2
+        else
+            echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild." >&2
+        fi
     fi
 
     if ! $DOCKER exec "$CONTAINER_NAME" test -f "$INSTALL_PATH/dist/index.js" 2>/dev/null; then

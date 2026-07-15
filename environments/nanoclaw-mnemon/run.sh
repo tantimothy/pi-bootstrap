@@ -662,6 +662,36 @@ if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dis
     echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+
+    # The rebuild above only covers NanoClaw's own orchestrator (`pnpm run
+    # build` — a plain `tsc` compile of the host-side TS). It does NOT
+    # rebuild the agent-sandbox Docker image that apply_mnemon_patch/
+    # apply_media_tools_patch just edited — that's a completely separate
+    # artifact (`nanoclaw-agent-v2-<slug>:latest`, built from
+    # container/Dockerfile), and this existing-install branch is the one
+    # case where nothing else rebuilds it: a fresh install's own
+    # nanoclaw.sh wizard builds it once as part of first-time setup (see
+    # the comment above apply_mnemon_patch's own call site), but re-syncing
+    # an EXISTING install's source, on its own, just leaves the newly-
+    # patched Dockerfile text sitting unused — the agent containers every
+    # group actually spawns from keep running whatever was built the last
+    # time this rebuild happened (or never, if it never has). Confirmed the
+    # hard way: an agent reported no yt-dlp/ffmpeg/whisper-cli available at
+    # all, weeks after apply_media_tools_patch was added, because CLEAN had
+    # only ever re-synced+re-patched the Dockerfile text, never actually
+    # rebuilt the image. container/build.sh is NanoClaw's own sanctioned
+    # entry point for this — its own provider-switch step in setup/auto.ts
+    # calls it the same way when it needs to rebuild post-container-step.
+    if [ -f "${INSTALL_PATH}/container/build.sh" ]; then
+        echo "🛠️  Rebuilding the NanoClaw agent-sandbox image (mnemon + media-tools patches)..."
+        # BuildKit cache mounts in container/Dockerfile need DOCKER_BUILDKIT=1
+        # — docker exec never forwards the host's env on its own (same
+        # reasoning as the nanoclaw.sh wizard call further below).
+        $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'" \
+            || echo "⚠️  Agent-sandbox image rebuild failed — mnemon/media-tools patches won't take effect until this succeeds. See the build output above." >&2
+    else
+        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild. mnemon/media-tools patches won't take effect on this install until the image is rebuilt some other way." >&2
+    fi
 fi
 
 # NanoClaw's own nohup fallback (setup/service.ts, used whenever there's no
