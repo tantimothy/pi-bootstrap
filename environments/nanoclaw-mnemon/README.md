@@ -383,6 +383,24 @@ Once pairing completes, that channel is live. See each skill's own troubleshooti
 
 ---
 
+## 💬 Talking to NanoClaw via Terminal (No Channel Needed)
+
+NanoClaw ships a genuine, always-on **CLI channel** — zero credentials, no Telegram/WhatsApp/Discord pairing needed at all, found directly in its own source (`src/channels/cli.ts`):
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && pnpm run chat"
+```
+
+Opens a live, interactive terminal chat session against a local Unix socket (`data/cli.sock`) the daemon always listens on — routes through the exact same message pipeline as any other channel (mnemon, hooks, everything works identically).
+
+A few things worth knowing:
+
+- **Single-client**: only one terminal can be connected at a time — opening a second `pnpm run chat` session kicks the first one off with a "superseded" notice.
+- **Which group it talks to**: by default, whichever agent group the CLI channel is currently wired to — not automatically the same group your Telegram (or other channel) conversation uses. If nothing's wired yet, `/new-setup`'s `cli-agent` step creates a dedicated scratch group for it (folder `cli-with-<your-name>`); otherwise wire it to an existing group via `/manage-channels`, same as any other channel.
+- **Trusted by design**: the socket is `chmod 0600` (owner-only), so "connected to the socket" is treated as operator-level trust — this is the same socket the `ncl` CLI itself uses (see "Adding Channels" above and the roles/approvals discussion earlier in this README).
+
+---
+
 ## 🌐 SSH'ing in from Another macOS Machine
 
 Yes, this works — it's just Docker underneath, so the normal remote-Docker approach applies once you can reach the host machine at all:
@@ -496,6 +514,10 @@ ollama pull llama3.2      # a chat-capable model — nomic-embed-text is embeddi
 
 # Open an interactive shell instead of prefixing every command with docker exec
 docker exec -it nanoclaw-mnemon bash
+
+# Chat with NanoClaw directly from a terminal, no channel needed (see
+# "Talking to NanoClaw via Terminal" above)
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && pnpm run chat"
 
 # Transcribe a video (see "Transcribing Audio/Video" above) — run these inside
 # the interactive shell above, or prefix each with docker exec -it ... bash -lc
