@@ -28,7 +28,7 @@ The orchestrator's own `Dockerfile`/`entrypoint.sh` in this environment are func
 docker build -t nanoclaw-mnemon-orchestrator:latest environments/nanoclaw/
 ```
 
-(Or copy `environments/nanoclaw-mnemon/Dockerfile` and `entrypoint.sh` from this repo directly if you don't have `environments/nanoclaw/` checked out.)
+(Or copy `environments/nanoclaw-mnemon/Dockerfile` and `environments/nanoclaw-mnemon/scripts/entrypoint.sh` from this repo directly if you don't have `environments/nanoclaw/` checked out.)
 
 ## 3. Clone NanoClaw's source to the new path
 
@@ -104,6 +104,40 @@ ollama pull nomic-embed-text
 
 If `MNEMON_EMBED_ENDPOINT` points somewhere other than `host.docker.internal`/`localhost`/`127.0.0.1` (a remote Ollama), none of the above applies — that's infrastructure you manage yourself, not something either this script or its automated equivalent touches.
 
+### 4b. (Optional) Let the agent transcribe video/audio itself
+
+Same idea as step 4 (patch `container/Dockerfile` before the first build), but for giving the agent `yt-dlp`/`ffmpeg`/`whisper-cli` on its own `PATH`, not mnemon. Find `# ---- Bun runtime` in `$INSTALL_PATH/container/Dockerfile` and insert this immediately **above** it:
+
+```dockerfile
+# ---- media tools — yt-dlp / ffmpeg / whisper.cpp, so the agent itself can
+# transcribe video/audio when given a URL, via its own Bash tool -----------
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake \
+    && git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp \
+    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp \
+    && cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)" \
+    && cp /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli \
+    && rm -rf /tmp/whisper.cpp \
+    && apt-get purge -y --auto-remove build-essential cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp
+```
+
+Then pull a whisper model into the **specific group's own folder** that wants this (not the top-level install path — verified directly against `container-runner.ts`'s own `buildMounts()`: only that group's folder is mounted into its agent container, at `/workspace/agent`):
+
+```bash
+GROUP=your-group-folder
+mkdir -p "$INSTALL_PATH/groups/$GROUP/models"
+curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin \
+  -o "$INSTALL_PATH/groups/$GROUP/models/ggml-base.bin"
+```
+
+See the README's "Transcribing Audio/Video" section for the orchestrator-side manual pipeline instead, and for what to do if a group's agent image was already built before you added this patch (it doesn't rebuild on its own — you have to force it).
+
 ## 5. Launch the second orchestrator container
 
 ```bash
@@ -166,7 +200,7 @@ Append-only chronological record. Each entry starts with `## [YYYY-MM-DD] ingest
 EOF
 ```
 
-This is exactly what `./scaffold-wiki.sh "$GROUP"` does for you (idempotent — safe to re-run).
+This is exactly what `./scripts/scaffold-wiki.sh "$GROUP"` does for you (idempotent — safe to re-run).
 
 ### 7b. The collaborative half: run the upstream skill
 
@@ -216,4 +250,4 @@ That prints only the container IDs whose bind mounts actually trace back to `$IN
 
 ---
 
-That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a, including Ollama's own setup), 5–6, and 6a (Open WebUI, on by default — set `ENABLE_OPEN_WEBUI=false` to skip it) on every fresh deploy (idempotently — re-running skips whatever's already done); step 7a via `scaffold-wiki.sh` on request, with 7b/7c always manual by design (see step 7 above for why); step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
+That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a and 4b, including Ollama's own setup and the agent-side media-tools patch — always applied, unlike 4a/4b's own optional configuration), 5–6, and 6a (Open WebUI, on by default — set `ENABLE_OPEN_WEBUI=false` to skip it) on every fresh deploy (idempotently — re-running skips whatever's already done); step 7a via `scaffold-wiki.sh` on request, with 7b/7c always manual by design (see step 7 above for why); step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.

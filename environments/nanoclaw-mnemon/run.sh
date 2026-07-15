@@ -241,6 +241,80 @@ MNEMON_DOCKER_BLOCK
 }
 
 # ---------------------------------------------------------------------------------------
+# yt-dlp/ffmpeg/whisper.cpp patch — gives the AGENT itself (not just the
+# orchestrator, which already has these — see the Dockerfile in this
+# directory) the ability to pull down and transcribe a video when a user
+# just pastes a URL in chat, via its own Bash tool. Same idempotent
+# text-splice mechanism as apply_mnemon_patch() above, same anchor
+# ('# ---- Bun runtime' in NanoClaw's own container/Dockerfile) — composes
+# correctly with that patch regardless of which one runs first, since each
+# one re-finds the anchor's current position in the file rather than
+# assuming a fixed line number.
+#
+# No model file is baked in here either, same reasoning as the
+# orchestrator's own copy (sizes 148MB-3GB+, a user choice) — but unlike the
+# orchestrator, there's no shared/global mount into every agent container
+# (verified directly against NanoClaw's own container-runner.ts buildMounts():
+# only that specific group's own folder is mounted, at /workspace/agent, not
+# $NANOCLAW_INSTALL_PATH itself) — so the model has to live inside each
+# group's own folder that wants transcription, not the top-level install
+# path. See the README's "Transcribing Audio/Video" section for the exact
+# one-time download command and path.
+# ---------------------------------------------------------------------------------------
+apply_media_tools_patch() {
+    local dockerfile="${INSTALL_PATH}/container/Dockerfile"
+
+    if [ ! -f "$dockerfile" ]; then
+        echo "⚠️  Couldn't find container/Dockerfile under $INSTALL_PATH — skipping the media-tools patch." >&2
+        return 1
+    fi
+
+    if grep -q 'yt-dlp' "$dockerfile"; then
+        echo "✅ yt-dlp/ffmpeg/whisper.cpp already patched into container/Dockerfile."
+        return 0
+    fi
+
+    echo "🎙️  Patching yt-dlp/ffmpeg/whisper.cpp into container/Dockerfile (agent sandbox)..."
+    local anchor
+    anchor=$(grep -n '^# ---- Bun runtime' "$dockerfile" | head -1 | cut -d: -f1)
+    if [ -z "$anchor" ]; then
+        echo "❌ Couldn't find the '# ---- Bun runtime' anchor in container/Dockerfile." >&2
+        echo "   NanoClaw's Dockerfile may have changed upstream — skipping the media-tools patch;" >&2
+        echo "   apply it manually per this environment's README." >&2
+        return 1
+    fi
+    local tmp; tmp=$(mktemp)
+    {
+        head -n "$((anchor - 1))" "$dockerfile"
+        cat <<'MEDIA_TOOLS_DOCKER_BLOCK'
+# ---- media tools — yt-dlp / ffmpeg / whisper.cpp, so the agent itself can
+# transcribe video/audio when given a URL, via its own Bash tool -----------
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# whisper.cpp (whisper-cli) — no Debian package exists, built from source.
+# build-essential/cmake installed and purged again in this same layer so
+# only the compiled binary adds to the final image.
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake \
+    && git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp \
+    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp \
+    && cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)" \
+    && cp /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli \
+    && rm -rf /tmp/whisper.cpp \
+    && apt-get purge -y --auto-remove build-essential cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# yt-dlp — standalone binary release, no Python install needed just for it.
+RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp
+
+MEDIA_TOOLS_DOCKER_BLOCK
+        tail -n "+${anchor}" "$dockerfile"
+    } > "$tmp"
+    mv "$tmp" "$dockerfile"
+}
+
+# ---------------------------------------------------------------------------------------
 # Only runs at all if MNEMON_EMBED_ENDPOINT is set — mnemon's embeddings are
 # opt-in (see .env.example), and this environment never touches Ollama
 # otherwise. Best-effort throughout: every failure path warns and returns 0
@@ -502,6 +576,7 @@ ensure_open_webui
 # no separate rebuild step needed afterward, unlike applying this skill to
 # an already-running install.
 apply_mnemon_patch
+apply_media_tools_patch
 
 # ---------------------------------------------------------------------------------------
 # Build the orchestrator image if missing, then start/create the container.
@@ -566,7 +641,7 @@ fi
 # run died silently right after the patch's own success message, with no
 # further output, because `set -e` killed the script before `patch_rc=$?`
 # on the next line ever got a chance to run.
-if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-host-gateway.cjs"; then
+if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-host-gateway.cjs"; then
     patch_rc=0
 else
     patch_rc=$?
@@ -597,7 +672,7 @@ fi
 # setup/ scripts run directly via tsx with no build step, so this needs no
 # rebuild to take effect, unlike the host-gateway patch above — applying it
 # now, before any wizard run, is enough.
-$DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/patch-nohup-autostart.cjs" || true
+$DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-nohup-autostart.cjs" || true
 
 # Checked directly on the host, not via `docker exec` — $INSTALL_PATH is
 # the identical path on both sides of the mount, so this doesn't need the

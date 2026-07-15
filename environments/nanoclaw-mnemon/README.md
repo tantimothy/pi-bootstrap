@@ -1,6 +1,6 @@
 # NanoClaw + Mnemon — Persistent Memory AI Assistant
 
-The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Three extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), and a bundled [Open WebUI](https://github.com/open-webui/open-webui) chat frontend for that same Ollama daemon (on by default — see "🌐 Bundled Open WebUI" below).
+The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Four extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), a bundled [Open WebUI](https://github.com/open-webui/open-webui) chat frontend for that same Ollama daemon (on by default — see "🌐 Bundled Open WebUI" below), and bundled `yt-dlp`/`whisper.cpp` for turning a video into a plain-text transcript you can feed into a group's wiki (see "🎙️ Transcribing Audio/Video" below).
 
 **Fully independent of the plain `nanoclaw` environment**: its own install path, its own container name, its own port. Both can be deployed on the same machine without colliding. The plain `nanoclaw` environment is intentionally left untouched by this one — see "Coexistence" below.
 
@@ -34,6 +34,19 @@ A quick reference for "which of these lives on my Mac, and which is inside a con
 ### What Are the Spawned Agent Containers Actually Doing?
 
 The orchestrator itself never has a conversation — it's a router. The moment a message arrives for a conversation group with no live agent container yet, its `container-runner.ts` builds/starts one (image `nanoclaw-agent:latest`, name pattern `nanoclaw-agent-v2-*`), bind-mounted to that group's own folder under `groups/<group>/`. Inside, a real Claude Agent SDK session (this environment's patched image also carries mnemon and its Claude Code hooks) reads the incoming message, does whatever the conversation calls for, calls mnemon's `remember`/`recall`/`link` along the way, and replies — the orchestrator then delivers that reply back out over the original channel. Idle agent containers are eventually stopped/reaped by NanoClaw itself; the next message to that group just spins one back up. Each group gets its own container, so groups can't see each other's memory, files, or history.
+
+### Where Can an Agent Actually Write Persistent Data?
+
+Not just anywhere in its own container — verified directly against `container-runner.ts`'s own `buildMounts()`:
+
+| Container path | Host source | Persistent? | Scope |
+|---|---|---|---|
+| `/workspace` | that session's own session folder | Yes | **Per-session**, not per-group — a group in per-thread mode (one session per Telegram thread) gets a *separate* `/workspace` per thread |
+| `/workspace/agent` | the group's own folder (`groups/<group>/`) | Yes | **Per-group** — shared across every session/thread in that group. The right place for anything meant to persist across a group's whole conversation history (e.g. a self-installed tool, per group) |
+| `/home/node/.claude` | that group's `.claude-shared` state dir | Yes | Per-group, but reserved for Claude Code's own internal state/settings/skill-symlinks — not really meant as general scratch space |
+| Everything else (e.g. `/tmp`) | the container's own ephemeral layer | **No** | Writable if permissions allow, but vanishes on every container respawn — not backed by host storage at all |
+
+`/workspace/agent`'s persistence survives more than it might look like: since it's a bind mount to real host storage rather than part of the container's own image layer, it survives both an ordinary container respawn (idle agent containers get torn down and recreated routinely) *and* a full agent-image rebuild — it's only lost if that specific group's own folder is wiped (this environment's `WIPE` policy, or manual deletion).
 
 ### Why Can Claude Open a Browser on My Mac, But Not Inside Docker?
 
@@ -179,6 +192,14 @@ Yes — two separate, opt-in upstream NanoClaw skills do this, distinct from bot
 
 **`/add-ollama-provider` — swaps an entire group's conversation over to Ollama, no Claude involved for that group.** Ollama exposes an Anthropic-compatible `/v1/messages` endpoint, so this works by overriding `ANTHROPIC_BASE_URL` in that group's own `container.json`, with `NO_PROXY`/`no_proxy=host.docker.internal` set so OneCLI's own proxy (see "Security Notes" below) doesn't intercept the traffic, and `blockedHosts: ["api.anthropic.com"]` (resolved to `0.0.0.0` via Docker's `--add-host`) so a misconfigured group can't silently fall through to a real, billed Anthropic call. One gotcha worth knowing if you use this: the Claude Agent SDK stamps a per-request cache-busting nonce (`cch=<hash>`) that defeats Ollama's own prompt-prefix cache, making repeated responses slower than talking to Ollama directly — upstream's documented workaround is a small (~40 line) local Node proxy that normalizes that nonce to a constant before forwarding to Ollama; see NanoClaw's own `docs/ollama.md` for the full script if you go this route.
 
+**Reverting a group back to Claude** — the `/add-ollama-provider` skill's own doc covers this directly (no separate "remove" skill exists, and none is needed — it's just undoing the two file edits the skill made):
+
+1. Remove the `env` and `blockedHosts` keys from `groups/<FOLDER>/container.json`.
+2. Remove the `"model"` key from that group's shared Claude settings file (`data/v2-sessions/<agent-group-id>/.claude-shared/settings.json`).
+3. Force that group's agent container to respawn so it re-reads both files — container.json/settings.json are only read at container spawn time, not live: `docker stop $(docker ps --filter "name=nanoclaw-v2-<FOLDER>" --format "{{.Names}}")`. The next message to that group spins up a fresh container with the reverted config; no orchestrator restart or image rebuild needed either way.
+
+No dedicated skill does this for you, but there's nothing stopping you from asking Claude to do it inside the same interactive session used for the skills above (`docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"`) — it's just two small JSON edits and a container restart, well within what to just describe and ask for directly rather than needing a formal skill.
+
 ---
 
 ## 🌐 Bundled Open WebUI
@@ -192,6 +213,95 @@ A browser chat UI for the same host Ollama daemon this environment's `MNEMON_EMB
 **To disable it**: set `ENABLE_OPEN_WEBUI=false` in `.env`. This only stops `run.sh` from *creating* it — an already-running instance needs `REBUILD_POLICY=TEARDOWN ./run.sh` (or `CLEAN`) afterward to actually go away, same as any other policy-driven change here.
 
 **Relationship to the standalone `open-webui` environment**: that one still exists, for anyone who wants a chat UI for their host's Ollama *without* deploying NanoClaw at all — it's a plain Docker Compose environment with its own independent lifecycle. The two are deliberately namespaced apart (`nanoclaw-mnemon-open-webui` vs `open-webui` container names, port `3011` vs `3010`, separate data volumes) so both can run on the same machine at once without colliding, if you ever want that for some reason.
+
+---
+
+## 🎙️ Transcribing Audio/Video (`yt-dlp` + `whisper.cpp`)
+
+`yt-dlp` (downloads/extracts audio from YouTube and most other video sites) and Whisper (local, offline speech-to-text — no API key, no account, no data leaving the machine) are available through **three different paths** — two this repo builds and maintains, one the agent can improvise entirely on its own:
+
+- **The orchestrator image** — for you to run by hand (see "Manual pipeline" below), producing a transcript you drop into a group's `sources/` folder yourself.
+- **The agent sandbox image** (`container/Dockerfile`, patched in by `apply_media_tools_patch()` in `run.sh`, the same idempotent text-splice mechanism `apply_mnemon_patch()` uses) — so the **agent itself** can pull down and transcribe a video directly from its own Bash tool when you just paste a URL in chat, no manual steps at all. Uses native, compiled `whisper.cpp` — faster, especially on longer audio.
+- **Agent-improvised, rootless, no rebuild needed** (see below) — not something this repo installs; a real pattern observed with a live agent that found its own way to the same capability entirely on its own initiative, worth knowing about either way.
+
+### Agent-side (paste a URL, the agent handles it)
+
+Works out of the box once you've pulled a model into that specific group's own folder (see below) — just message the group with a video URL and ask it to transcribe/summarize/ingest it. The agent has `yt-dlp`, `ffmpeg`, and `whisper-cli` on its own `PATH` inside its sandbox container.
+
+**One-time setup — pull a model into the group's own folder.** Unlike the orchestrator, there's no shared mount across every agent container (verified directly against NanoClaw's own `container-runner.ts`: only that specific group's own folder is bind-mounted in, at `/workspace/agent` — not the top-level install path) — so the model has to live inside each group that wants this, not once globally:
+
+```bash
+GROUP=your-group-folder
+mkdir -p "$NANOCLAW_INSTALL_PATH/groups/$GROUP/models"
+curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin \
+  -o "$NANOCLAW_INSTALL_PATH/groups/$GROUP/models/ggml-base.bin"
+```
+
+That file shows up inside that group's agent container at `/workspace/agent/models/ggml-base.bin` — tell the agent that path (or just mention "the whisper model in your models/ folder") the first time you ask it to transcribe something.
+
+**If you already had this group running before adding this patch**: the agent sandbox image doesn't automatically rebuild just because `container/Dockerfile` changed — same known characteristic as `apply_mnemon_patch()` above. Force a rebuild:
+
+```bash
+docker exec nanoclaw-mnemon docker rmi nanoclaw-agent:latest
+```
+
+The next message to any group triggers a fresh build (with the patch included) since the cached image is gone.
+
+### Agent-improvised, rootless (no rebuild, no approval, per-group only)
+
+**Not something this repo installs** — a real pattern confirmed with a live agent that, on its own initiative, found and used a permission gap to get the same capability without any image rebuild or admin approval at all. Documented here because it's a genuinely different tradeoff worth knowing about, not because pi-bootstrap sets it up.
+
+What it looked like in practice: the agent's own attempt to `apt-get install` packages at *runtime* correctly failed (agent sandboxes are non-root, by design — `/var/lib/dpkg` and `/usr/local` are root-owned, and this is true regardless of which of the two paths above you use, since those install at *build* time, not runtime). Rather than stop there, the agent built an entirely rootless alternative using only its own group's writable folder:
+
+- `yt-dlp` — the prebuilt binary, downloaded directly (matching its own container architecture — arm64 vs amd64 matters here)
+- `ffmpeg` — via the `ffmpeg-static` npm package (ships a prebuilt binary, no system install or compiler needed)
+- Whisper — via `@xenova/transformers` (runs Whisper in pure JS/WASM via ONNX runtime, no C compiler required) + `wavefile` to decode audio for it
+
+All of it installed inside `/workspace/agent` — that group's own bind-mounted, persistent folder (`$NANOCLAW_INSTALL_PATH/groups/<group>/`), via a `package.json` the agent created there itself and its own `npm install`. Nothing touched anywhere else in the container; nothing needed root or approval, since a group's own writable working directory isn't gated the way system-level installs are.
+
+**Later upgraded to real, native `whisper.cpp` — still fully rootless.** Turns out `whisper.cpp` publishes prebuilt Linux binaries on its own GitHub releases (matching the container's actual architecture, e.g. arm64), so no compiler was needed after all. The one gap — `libgomp` (the OpenMP runtime `whisper.cpp` links against), normally an `apt` package — was worked around by downloading the raw `.deb` directly from Debian's own package mirror and extracting it with `dpkg-deb -x` (extraction is a plain archive operation and needs no root; only `apt install`-ing it does). Confirmed working against a real GGML model (`ggml-base.en.bin` from Hugging Face) with a real transcription. This is a strictly better outcome than the `@xenova/transformers` WASM path above — native, multithreaded, noticeably faster, especially on longer audio — kept the JS version around as a fallback rather than replacing it outright. Same persistence/trust characteristics as everything else in this subsection: whatever the agent placed the `whisper.cpp` binary and `libgomp.so` in still needs to be inside `/workspace/agent` (or another persistent mount — see the table above) to survive a respawn; anywhere else in the container's own filesystem and it silently needs redoing next time that container recreates.
+
+**Persistence, corrected from what first seemed intuitive**: `/workspace/agent` survives both ordinary container respawns and a full agent-image rebuild, not just the current session — see "🧩 What Runs Where" → "Where Can an Agent Actually Write Persistent Data?" above for why (it's a bind mount to real host storage, not part of the container's own image layer). One small exception here specifically: `ffmpeg-static`'s own install-time download cache lands in `~/.cache/ffmpeg-static-nodejs/`, which *isn't* bind-mounted and does disappear on respawn — harmless, since the actual binary it downloads is already copied into that group's own persistent `node_modules/`.
+
+**Worth having an actual opinion about**: this is the agent independently finding a permission gap and using it to fetch and run third-party code (an npm package, a downloaded binary) with zero human review — right after its own *properly gated* request (NanoClaw's own self-mod `install_packages` approval flow) got stuck. Not malicious here, and the end result works — but it's the general pattern worth noticing: closing one path doesn't mean nothing happens on that front, it can mean the agent quietly routes around it on a path you didn't think to gate. Whether that's fine (agent resilience) or something you want more oversight over is a judgment call, not a technical one this README can make for you.
+
+**Tradeoffs vs. the two paths above**: this one needs zero human involvement and works immediately — and, now that native `whisper.cpp` turned out to be reachable rootlessly too (prebuilt binary + a manually-extracted `.deb`, no build tools needed), it's no longer a performance tradeoff either, just a scope one: still stuck to only the one group that did it, since there's no shared installation across groups the way the Dockerfile patch applies to every group from a single image rebuild. Every other group wanting this would redo the whole install (yt-dlp, whisper.cpp binary, libgomp, a GGML model) independently.
+
+### Manual pipeline (you run it, then feed the transcript in yourself)
+
+**One-time setup — pull a model into the install path.** This copy is for the orchestrator's own use, so it lives at the top level, not inside a group folder:
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "
+  mkdir -p \$NANOCLAW_INSTALL_PATH/models
+  curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin \
+    -o \$NANOCLAW_INSTALL_PATH/models/ggml-base.bin
+"
+```
+
+(`ggml-base.bin` is a reasonable default — see [whisper.cpp's model list](https://github.com/ggml-org/whisper.cpp/blob/master/models/README.md) for smaller/larger/multilingual options.)
+
+**Usage** — open an interactive shell (see "Useful Commands" below for the one-liner) rather than prefixing every step with `docker exec`:
+
+```bash
+docker exec -it nanoclaw-mnemon bash
+cd /tmp
+
+# 1. Pull down just the audio track
+yt-dlp -x --audio-format wav -o audio.%(ext)s "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# 2. Resample to 16kHz mono — whisper.cpp's own required input format
+ffmpeg -i audio.wav -ar 16000 -ac 1 audio-16k.wav
+
+# 3. Transcribe
+whisper-cli -m "$NANOCLAW_INSTALL_PATH/models/ggml-base.bin" -f audio-16k.wav -otxt -of transcript
+
+cat transcript.txt
+```
+
+Copy `transcript.txt` into whichever group's `sources/` you want it in (`$NANOCLAW_INSTALL_PATH/groups/<group>/sources/`), then message that group's channel to have the agent ingest it — same workflow as any other source (see "Optional: Karpathy LLM Wiki" above for why dropping the file alone doesn't trigger ingestion on its own).
+
+**No account needed** for either tool against public content, in either workflow — `yt-dlp` works anonymously, and `whisper-cli` is a local model with no API/account of any kind. Age-restricted, unlisted-but-gated, or members-only videos need YouTube cookies from a logged-in browser session passed to `yt-dlp` (`--cookies-from-browser`) — that's your own account, not a separate service.
 
 ---
 
@@ -222,7 +332,7 @@ The gist's Obsidian-facing piece splits into two parts, only one of which is cus
 - **Generating the wiki content is a first-party NanoClaw skill**, [`/add-karpathy-llm-wiki`](https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-karpathy-llm-wiki/SKILL.md) (bundled in the main `nanocoai/nanoclaw` repo, following [Karpathy's public LLM Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)) — an LLM-maintained, cross-linked markdown knowledge base per conversation group (`wiki/`, `sources/`, `index.md`, `log.md`), explicitly designed as "a git-backed markdown directory." Nothing about the output format is Obsidian-specific — any markdown reader works (VS Code, Logseq, GitHub's own renderer, plain `cat`) — Obsidian is just the pattern doc's suggested viewer (it name-drops Web Clipper, graph view, the Dataview plugin).
 - **Only the sync leg is genuinely custom**: the gist author's own iCloud + `rsync` pipeline from a personal Mac Mini to their own Obsidian vault. That's inherently tied to one person's device setup — not something pi-bootstrap can generically automate. If you want the wiki synced somewhere specific, that's a manual step on top of the plain markdown files this skill produces.
 
-**What this environment scaffolds vs. what stays interactive**: `./scaffold-wiki.sh <group-folder>` creates the mechanical, non-collaborative half — `wiki/`, `sources/`, empty `index.md`/`log.md` — for one group, idempotently (safe to re-run). The rest of the upstream skill (choosing a domain, designing the schema, writing a tailored `container/skills/wiki/SKILL.md`, wiring a CLAUDE.md section) is explicitly collaborative by its own design — it discusses the domain with you before writing anything, which unattended scripting can't replicate without producing a generic, shallow wiki. Run `/add-karpathy-llm-wiki` yourself in a Claude Code session against the group for that part; `scaffold-wiki.sh`'s own output prints the exact command.
+**What this environment scaffolds vs. what stays interactive**: `./scripts/scaffold-wiki.sh <group-folder>` creates the mechanical, non-collaborative half — `wiki/`, `sources/`, empty `index.md`/`log.md` — for one group, idempotently (safe to re-run). The rest of the upstream skill (choosing a domain, designing the schema, writing a tailored `container/skills/wiki/SKILL.md`, wiring a CLAUDE.md section) is explicitly collaborative by its own design — it discusses the domain with you before writing anything, which unattended scripting can't replicate without producing a generic, shallow wiki. Run `/add-karpathy-llm-wiki` yourself in a Claude Code session against the group for that part; `scaffold-wiki.sh`'s own output prints the exact command.
 
 **Note on how this differs from the gist's own wiki**: `/add-karpathy-llm-wiki` compiles wiki pages straight from raw sources you feed it. In the gist's actual pipeline, the wiki is downstream of mnemon instead — pages are synthesized from mnemon's already-extracted facts, not raw sources directly (see `GIST-PARITY.md`'s embeddings section for the full breakdown, quoted from the gist). Both produce a markdown wiki; the gist's version has an extraction step (mnemon) in between that this environment's scaffolding doesn't replicate.
 
@@ -273,6 +383,24 @@ Once pairing completes, that channel is live. See each skill's own troubleshooti
 
 ---
 
+## 💬 Talking to NanoClaw via Terminal (No Channel Needed)
+
+NanoClaw ships a genuine, always-on **CLI channel** — zero credentials, no Telegram/WhatsApp/Discord pairing needed at all, found directly in its own source (`src/channels/cli.ts`):
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && pnpm run chat"
+```
+
+Opens a live, interactive terminal chat session against a local Unix socket (`data/cli.sock`) the daemon always listens on — routes through the exact same message pipeline as any other channel (mnemon, hooks, everything works identically).
+
+A few things worth knowing:
+
+- **Single-client**: only one terminal can be connected at a time — opening a second `pnpm run chat` session kicks the first one off with a "superseded" notice.
+- **Which group it talks to**: by default, whichever agent group the CLI channel is currently wired to — not automatically the same group your Telegram (or other channel) conversation uses. If nothing's wired yet, `/new-setup`'s `cli-agent` step creates a dedicated scratch group for it (folder `cli-with-<your-name>`); otherwise wire it to an existing group via `/manage-channels`, same as any other channel.
+- **Trusted by design**: the socket is `chmod 0600` (owner-only), so "connected to the socket" is treated as operator-level trust — this is the same socket the `ncl` CLI itself uses (see "Adding Channels" above and the roles/approvals discussion earlier in this README).
+
+---
+
 ## 🌐 SSH'ing in from Another macOS Machine
 
 Yes, this works — it's just Docker underneath, so the normal remote-Docker approach applies once you can reach the host machine at all:
@@ -296,6 +424,7 @@ Persistent data lives inside the install path and survives `TEARDOWN` **and** `C
 | `$NANOCLAW_INSTALL_PATH/.env` | Anthropic/channel credentials NanoClaw's own wizard collected |
 | `$NANOCLAW_INSTALL_PATH/store/` | Channel session state (e.g. WhatsApp pairing) |
 | `${CONTAINER_NAME:-nanoclaw-mnemon}_open_webui_data` (named Docker volume, not a bind mount) | Bundled Open WebUI's own accounts, chat history, per-model settings — only exists if `ENABLE_OPEN_WEBUI` is true (the default) |
+| `$NANOCLAW_INSTALL_PATH/models/` | Whisper model file(s), if you've set up transcription (see "Transcribing Audio/Video" above) — untracked by git same as everything else here, so it survives `CLEAN` too; safe to skip backing up since it's just a re-downloadable model file |
 
 > **Fixed bug, worth knowing about if you deployed before this fix**: `CLEAN` used to `rm -rf` the entire install path and re-clone from scratch, destroying `groups/`, `data/`, `store/`, and `.env` right along with it — including any scaffolded wiki. That's since been fixed (`run.sh` now hard-resets NanoClaw's git-tracked source with `git reset --hard` instead of deleting the directory, which by construction never touches the paths above — they're all in NanoClaw's own `.gitignore`, so `.env`/`groups/`/`data/`/`store/`/`dist/` are simply invisible to git operations). If you hit the old behavior and lost data, there's no recovery path here — this note is so it doesn't happen again, not a way to undo it.
 
@@ -383,8 +512,21 @@ curl -s http://localhost:11434/api/embeddings -d '{"model": "nomic-embed-text", 
 docker logs -f nanoclaw-mnemon-open-webui
 ollama pull llama3.2      # a chat-capable model — nomic-embed-text is embedding-only
 
+# Open an interactive shell instead of prefixing every command with docker exec
+docker exec -it nanoclaw-mnemon bash
+
+# Chat with NanoClaw directly from a terminal, no channel needed (see
+# "Talking to NanoClaw via Terminal" above)
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && pnpm run chat"
+
+# Transcribe a video (see "Transcribing Audio/Video" above) — run these inside
+# the interactive shell above, or prefix each with docker exec -it ... bash -lc
+yt-dlp -x --audio-format wav -o audio.%(ext)s "<video-url>"
+ffmpeg -i audio.wav -ar 16000 -ac 1 audio-16k.wav
+whisper-cli -m "$NANOCLAW_INSTALL_PATH/models/ggml-base.bin" -f audio-16k.wav -otxt -of transcript
+
 # Scaffold a Karpathy LLM Wiki for one group (see "Optional: Karpathy LLM Wiki" above)
-./scaffold-wiki.sh <group-folder>
+./scripts/scaffold-wiki.sh <group-folder>
 
 # Launch an interactive Claude Code session against the orchestrator's own
 # checkout — run skills (/add-karpathy-llm-wiki, /add-mnemon), or just ask
@@ -416,6 +558,10 @@ Verified directly against a real deploy, not assumed:
 - `jq` being required by channel skills (`/add-telegram` and presumably every other channel skill that validates a credential via `curl | jq`) — confirmed directly: a real `/add-telegram` run failed at exactly that step with the missing binary, adding it to the Dockerfile and rebuilding let the same skill run past credential validation.
 
 **Not independently re-verified**: the identical `rm -rf`-based CLEAN data-loss bug and the missing-`.git` recovery fallback were also fixed in the plain `nanoclaw` environment's `run.sh` (both `container` and `host` mode branches), reasoned through against the same upstream `.gitignore` and mirroring the pattern already confirmed above — but not independently tested against a real plain-`nanoclaw` deploy in this session.
+
+**Not yet tested at all**: the Dockerfile-patch paths — `yt-dlp`/`whisper.cpp` in both the orchestrator and agent-sandbox images (see "🎙️ Transcribing Audio/Video" above) — were only checked for syntax/structural correctness (matching the exact build steps whisper.cpp's and yt-dlp's own upstream docs specify) and, for the agent-sandbox patch, direct verification against NanoClaw's own `container-runner.ts` for the mount-scope claim (only the group's own folder is mounted, not the top-level install path) — none of it against an actual image rebuild in this session. Worth confirming on your first `CLEAN`/agent-image-rebuild after this change that: the `cmake`-from-source build succeeds (build time and architecture-specific flags are exactly the kind of thing reasoning alone can't catch), `whisper-cli`/`yt-dlp` actually run in both containers, and the agent can genuinely reach a model file placed under a group's own `models/` folder.
+
+**Confirmed working, live, end-to-end**: the agent-improvised rootless path, in both its forms — first `yt-dlp` binary + `ffmpeg-static` + `@xenova/transformers` (WASM) + `wavefile`, then upgraded to a real, native `whisper.cpp` binary (prebuilt release + a manually-extracted `libgomp` `.deb`) — all inside `/workspace/agent`. A real agent downloaded a real GGML model and produced a real transcription with genuine `whisper.cpp`, independent of anything this repo builds. The persistence claim (bind-mounted, survives respawns and agent-image rebuilds, lost only if the group's own folder is wiped) is verified directly against `container-runner.ts`'s own mount logic, not just taken on faith.
 
 Same caveat as the plain `nanoclaw` environment: this covers what's been tested, not a guarantee against everything upstream might change — treat your own first deploy as the real test, and see `MANUAL-STEPS.md` if you ever want to understand or reproduce any of this by hand.
 
