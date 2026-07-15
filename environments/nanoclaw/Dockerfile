@@ -60,6 +60,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:${PATH}"
 
+# The ENV PATH above only helps a non-login shell. Every `docker exec ...
+# bash -lc "..."` this repo uses (run.sh's own calls, and the README's own
+# "Launching Claude CLI Directly" instructions) runs bash as a LOGIN shell,
+# which sources /etc/profile — and Debian's default /etc/profile does an
+# unconditional `PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
+# /sbin:/bin"` for root, overwriting the ENV PATH entirely. Confirmed
+# directly on nanoclaw-mnemon's identical setup: `docker exec ... bash -lc
+# 'echo $PATH'` showed the plain Debian default, no /root/.local/bin at
+# all, on a freshly-built image. Symlinking into /usr/local/bin — already
+# on that fixed default — survives both login and non-login shells.
+RUN ln -sf /root/.local/bin/claude /usr/local/bin/claude
+
 COPY scripts/entrypoint.sh /usr/local/bin/nanoclaw-entrypoint.sh
 RUN chmod +x /usr/local/bin/nanoclaw-entrypoint.sh
 

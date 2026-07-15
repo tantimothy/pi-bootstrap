@@ -48,6 +48,19 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
 ENV PATH="/home/claude/.local/bin:${PATH}"
 
+# The ENV PATH above only helps a non-login shell — every SSH login here
+# (see entrypoint.sh/bashrc-tmux-attach.sh) is a LOGIN shell, which sources
+# /etc/profile, and Debian's default /etc/profile does an unconditional
+# `PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"` for a
+# non-root user, overwriting the ENV PATH entirely before
+# bashrc-tmux-attach.sh's own `exec tmux ... claude` ever runs — confirmed
+# directly against this exact pattern on nanoclaw-mnemon's Dockerfile,
+# where `claude` came back "command not found" under `bash -lc` despite
+# being genuinely installed. Symlinking into /usr/local/bin — already on
+# that fixed default for both root and this non-root user — survives every
+# login shell regardless.
+RUN ln -sf /home/claude/.local/bin/claude /usr/local/bin/claude
+
 # Auto-attach (or create) a detachable tmux session running `claude` on
 # every interactive SSH login — see README's "How Login Works" for why:
 # this is what makes the session survive a dropped connection and lets
