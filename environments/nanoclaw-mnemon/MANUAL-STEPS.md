@@ -114,13 +114,17 @@ Same idea as step 4 (patch `container/Dockerfile` before the first build), but f
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake \
+# Built with clang, not GCC — Debian bookworm's default GCC 12 fails
+# outright on ggml's ARM NEON fp16 vector-arithmetic codepath on arm64
+# ("inlining failed in call to 'always_inline' float16x8_t vfmaq_f16(...):
+# target specific option mismatch"); clang doesn't have this conflict.
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake clang \
     && git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp \
-    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp \
+    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
     && cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)" \
     && cp /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli \
     && rm -rf /tmp/whisper.cpp \
-    && apt-get purge -y --auto-remove build-essential cmake \
+    && apt-get purge -y --auto-remove build-essential cmake clang \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \

@@ -293,15 +293,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # whisper.cpp (whisper-cli) — no Debian package exists, built from source.
-# build-essential/cmake installed and purged again in this same layer so
-# only the compiled binary adds to the final image.
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake \
+# build-essential/cmake/clang installed and purged again in this same layer
+# so only the compiled binary adds to the final image.
+#
+# Built with clang, not GCC: confirmed directly against a real build
+# failure on arm64 — Debian bookworm's default GCC 12 hits a known
+# ggml/whisper.cpp incompatibility ("inlining failed in call to
+# 'always_inline' float16x8_t vfmaq_f16(...): target specific option
+# mismatch") in ggml's ARM NEON fp16 vector-arithmetic codepath — GCC 12
+# fails outright where GCC 13+ or clang don't. See the orchestrator's own
+# Dockerfile (environments/nanoclaw-mnemon/Dockerfile) for the fuller
+# writeup — this block mirrors that fix.
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake clang \
     && git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp \
-    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp \
+    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
     && cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)" \
     && cp /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli \
     && rm -rf /tmp/whisper.cpp \
-    && apt-get purge -y --auto-remove build-essential cmake \
+    && apt-get purge -y --auto-remove build-essential cmake clang \
     && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp — standalone binary release, no Python install needed just for it.
@@ -662,6 +671,36 @@ if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dis
     echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+
+    # The rebuild above only covers NanoClaw's own orchestrator (`pnpm run
+    # build` — a plain `tsc` compile of the host-side TS). It does NOT
+    # rebuild the agent-sandbox Docker image that apply_mnemon_patch/
+    # apply_media_tools_patch just edited — that's a completely separate
+    # artifact (`nanoclaw-agent-v2-<slug>:latest`, built from
+    # container/Dockerfile), and this existing-install branch is the one
+    # case where nothing else rebuilds it: a fresh install's own
+    # nanoclaw.sh wizard builds it once as part of first-time setup (see
+    # the comment above apply_mnemon_patch's own call site), but re-syncing
+    # an EXISTING install's source, on its own, just leaves the newly-
+    # patched Dockerfile text sitting unused — the agent containers every
+    # group actually spawns from keep running whatever was built the last
+    # time this rebuild happened (or never, if it never has). Confirmed the
+    # hard way: an agent reported no yt-dlp/ffmpeg/whisper-cli available at
+    # all, weeks after apply_media_tools_patch was added, because CLEAN had
+    # only ever re-synced+re-patched the Dockerfile text, never actually
+    # rebuilt the image. container/build.sh is NanoClaw's own sanctioned
+    # entry point for this — its own provider-switch step in setup/auto.ts
+    # calls it the same way when it needs to rebuild post-container-step.
+    if [ -f "${INSTALL_PATH}/container/build.sh" ]; then
+        echo "🛠️  Rebuilding the NanoClaw agent-sandbox image (mnemon + media-tools patches)..."
+        # BuildKit cache mounts in container/Dockerfile need DOCKER_BUILDKIT=1
+        # — docker exec never forwards the host's env on its own (same
+        # reasoning as the nanoclaw.sh wizard call further below).
+        $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'" \
+            || echo "⚠️  Agent-sandbox image rebuild failed — mnemon/media-tools patches won't take effect until this succeeds. See the build output above." >&2
+    else
+        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild. mnemon/media-tools patches won't take effect on this install until the image is rebuilt some other way." >&2
+    fi
 fi
 
 # NanoClaw's own nohup fallback (setup/service.ts, used whenever there's no
