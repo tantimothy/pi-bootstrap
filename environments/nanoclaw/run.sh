@@ -271,6 +271,23 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         echo "   have actually come back with the rest."
         SOURCE_SYNCED=true
     elif [ "$POLICY" = "CLEAN" ]; then
+        # Any channel/provider skill (e.g. /add-telegram, /add-whatsapp) wires
+        # itself in by editing TRACKED trunk files — a self-registration
+        # import appended to src/channels/index.ts, plus a new dependency
+        # line in package.json — alongside copying in new (untracked) source
+        # files for the channel itself. `reset --hard` below only discards
+        # uncommitted changes to TRACKED files; it can't touch those
+        # untracked new files at all. Confirmed the hard way on
+        # nanoclaw-mnemon's identical setup: a live Telegram channel went
+        # silently dead after a CLEAN — every telegram.ts-etc. file was still
+        # on disk, but the barrel import wiring it in, and the package.json
+        # dependency entry, had both been silently reverted, with no error
+        # anywhere. Warn here, before the reset actually discards them.
+        CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain 2>/dev/null | grep -v '^??' || true)
+        if [ -n "$CHANNEL_SKILL_MODS" ]; then
+            echo "⚠️  CLEAN is about to discard local edits to these tracked files — if any came from a channel/provider skill (e.g. /add-telegram's import in src/channels/index.ts or its package.json dependency), re-run that skill after this finishes to restore the wiring:"
+            echo "$CHANNEL_SKILL_MODS" | sed 's/^/     /'
+        fi
         echo "🔄 [CLEAN POLICY] Hard-syncing NanoClaw source to latest upstream (your data — .env, groups/, data/, any scaffolded wiki — is untouched; only git-tracked source files are reset)..."
         git -C "$INSTALL_PATH" fetch origin
         git -C "$INSTALL_PATH" reset --hard '@{u}'
@@ -524,6 +541,23 @@ elif [ ! -d "$INSTALL_PATH/.git" ]; then
     echo "   check groups/<group>/.env and groups/<group>/.claude/ for anything that may not"
     echo "   have actually come back with the rest."
 elif [ "$POLICY" = "CLEAN" ]; then
+    # Any channel/provider skill (e.g. /add-telegram, /add-whatsapp) wires
+    # itself in by editing TRACKED trunk files — a self-registration import
+    # appended to src/channels/index.ts, plus a new dependency line in
+    # package.json — alongside copying in new (untracked) source files for
+    # the channel itself. `reset --hard` below only discards uncommitted
+    # changes to TRACKED files; it can't touch those untracked new files at
+    # all. Confirmed the hard way on nanoclaw-mnemon's identical setup: a
+    # live Telegram channel went silently dead after a CLEAN — every
+    # telegram.ts-etc. file was still on disk, but the barrel import wiring
+    # it in, and the package.json dependency entry, had both been silently
+    # reverted, with no error anywhere. Warn here, before the reset actually
+    # discards them.
+    CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain 2>/dev/null | grep -v '^??' || true)
+    if [ -n "$CHANNEL_SKILL_MODS" ]; then
+        echo "⚠️  CLEAN is about to discard local edits to these tracked files — if any came from a channel/provider skill (e.g. /add-telegram's import in src/channels/index.ts or its package.json dependency), re-run that skill after this finishes to restore the wiring:"
+        echo "$CHANNEL_SKILL_MODS" | sed 's/^/     /'
+    fi
     echo "🔄 [CLEAN POLICY] Hard-syncing NanoClaw source to latest upstream (your data — .env, groups/, data/, any scaffolded wiki — is untouched; only git-tracked source files are reset)..."
     git -C "$INSTALL_PATH" fetch origin
     git -C "$INSTALL_PATH" reset --hard '@{u}'

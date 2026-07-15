@@ -129,6 +129,8 @@ Persistent data lives inside the install path and survives `TEARDOWN` **and** `C
 
 `CLEAN` keeps the install directory's own NanoClaw source in sync with upstream (`git reset --hard`, which only ever touches git-tracked files — the paths above are all in NanoClaw's own `.gitignore`, so they're untouched by construction). The directories above are still the actual state worth backing up separately regardless, since `CLEAN` is not a substitute for real backups.
 
+> **Known gotcha, not a bug — `CLEAN` will silently strip any channel/provider skill's wiring.** NanoClaw's Claude Code skills (`/add-telegram`, `/add-whatsapp`, `/add-discord`, etc.) install by copying in new **untracked** source files *and* editing existing **tracked** trunk files — a self-registration import appended to `src/channels/index.ts`, a new dependency line in `package.json`. `reset --hard` only discards uncommitted changes to tracked files, so it silently reverts that wiring while leaving the new (untracked) channel files sitting there looking fully installed — no error, nothing in the logs, the channel just never loads again. Confirmed against a real deploy on the `nanoclaw-mnemon` environment (same mechanism, same upstream NanoClaw) — see that environment's README for the full write-up. `run.sh` warns before the reset if it detects locally-modified tracked files, but the actual fix is to **re-run that channel/provider skill after `CLEAN` finishes** (e.g. `/add-telegram` again).
+
 **Back up before CLEAN or WIPE:**
 
 ```bash
