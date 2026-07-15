@@ -1,0 +1,21 @@
+data_dirs: []
+install_dirs: []
+named_volumes:
+  - name: claude-cli_claude_home
+    description: "Claude CLI's own OAuth/session state (~/.claude) — deleting this signs you out, next login re-prompts /login"
+  - name: claude-cli_ssh_host_keys
+    description: "This container's own SSH host keys — deleting this changes its SSH fingerprint, you'll see a REMOTE HOST IDENTIFICATION HAS CHANGED warning on your next connection"
+delete_confirm_msg: "Claude CLI's login session and this container's SSH host key identity will be lost — you'll need to /login again and your SSH client will warn about a changed host key on next connect. Your workspace repo at CLAUDE_WORKSPACE_PATH is NOT touched (it's your own pre-existing directory, not something this environment owns)."
+web_uis: []
+useful_commands: |2
+     ssh -p ${SSH_PORT:-2222} claude@localhost                       # attach to the live tmux "claude" session
+     docker exec -it ${CONTAINER_NAME:-claude-cli} tmux attach -t claude   # same thing, from the host directly (no SSH key needed)
+     docker logs -f ${CONTAINER_NAME:-claude-cli}                    # sshd logs
+
+  📌 Notes:
+     🔑 First connection: run `claude` interactively once (via either
+        command above) and follow its own `/login` flow — this only needs
+        doing once per claude-cli_claude_home volume.
+     💻 Multiple devices can SSH in at once and land in the SAME tmux
+        session — closing one terminal doesn't end the conversation,
+        it just detaches. Reconnect from anywhere to pick it back up.

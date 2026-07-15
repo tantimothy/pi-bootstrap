@@ -1,0 +1,18 @@
+menu:
+  id: claude-cli
+  name: "Claude CLI"
+  icon: utilities-terminal
+deployed_check:
+  kind: container
+  from_compose_service: claude-cli
+entries:
+  - id: pi-bootstrap-claude-cli
+    name: "Claude CLI (SSH)"
+    comment: "SSH into the standalone Claude CLI container and attach to its live tmux session"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash -c "ssh -p ${SSH_PORT:-2222} claude@localhost"'
+    terminal: true
+info:
+  id: pi-bootstrap-claude-cli-info
+  name: "Claude CLI Info"

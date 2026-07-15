@@ -38,6 +38,7 @@ garbled commands instead of failing cleanly.
 | [internet-pi](environments/internet-pi/) | Ansible-managed Raspberry Pi — Pi-hole, Prometheus, Grafana, Speedtest Exporter, Blackbox Exporter, Node Exporter (based on [geerlingguy/internet-pi](https://github.com/geerlingguy/internet-pi)) |
 | [nanoclaw](environments/nanoclaw/) | Self-hosted AI assistant — routes WhatsApp/Telegram/Discord/Slack/etc. to isolated per-conversation-group Claude Agent SDK containers. `host` or `container` deploy mode (see its README) |
 | [nanoclaw-mnemon](environments/nanoclaw-mnemon/) | Same as nanoclaw, `container` mode only, with [mnemon](https://github.com/mnemon-dev/mnemon) patched into the agent sandbox for persistent cross-session graph memory — optionally hybrid graph+vector recall via mnemon's own built-in Ollama embeddings, opt-in via `.env`. Also scaffolds NanoClaw's own Karpathy-pattern wiki skill. Fully independent install — coexists with plain nanoclaw on the same machine |
+| [claude-cli](environments/claude-cli/) | Standalone Claude CLI in a container with its own SSH server — no channel bots, no orchestrator. SSH in from any machine and land in a persistent `tmux` session running `claude` against a bind-mounted repo. For when you just want remote terminal access to Claude, not a chat-platform presence |
 | [pi-barebones](environments/pi-barebones/) | Minimal Pi setup — tmux, fastfetch system info, TigerVNC remote desktop, custom package installs and `.bashrc` tweaks |
 | [ntopng](environments/ntopng/) | Deep per-flow traffic analysis — DPI (nDPI), historical/timeseries trends via Redis. Split out as its own environment since it's heavyweight; pairs well alongside pihole-wireguard on a Pi with headroom to spare |
 | [portainer](environments/portainer/) | Container visualization & management — full container/network/volume/image management UI with a live topology view. General-purpose Docker tooling, useful alongside any other environment on this Pi |
@@ -79,6 +80,7 @@ Only environments that are actually deployed get entries. Re-running the install
 | portainer | The `portainer` container exists |
 | nanoclaw | The `nanoclaw.service` systemd unit is registered (`host` deploy mode) or the `nanoclaw` container exists (`container` deploy mode) |
 | nanoclaw-mnemon | The `nanoclaw-mnemon` container exists (container mode only — no host mode) |
+| claude-cli | The `claude-cli` container exists |
 | dragonos-sdr, kali-pentest | A local `.deployed` marker that `run.sh` creates the moment it launches the container (these run with `--rm`, so a cached image alone doesn't prove the environment was actually used) |
 
 New entries appear in the menu automatically on Raspberry Pi OS; no manual refresh is needed.

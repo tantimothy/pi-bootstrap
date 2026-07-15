@@ -1,0 +1,36 @@
+services:
+  claude-cli:
+    container_name: ${CONTAINER_NAME:-claude-cli}
+    build: .
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    ports:
+      - "${SSH_PORT:-2222}:22"
+    volumes:
+      # Your own git repo (or any directory) — landed at ~/workspace inside
+      # the container, and where the auto-attached tmux session's `claude`
+      # starts. Same absolute-path-on-host-and-container-not-required
+      # pattern as every other bind mount in this repo: the path INSIDE the
+      # container is fixed (~/workspace); only the host side is yours to set.
+      - "${CLAUDE_WORKSPACE_PATH}:/home/claude/workspace"
+      # Read-only: copied into ~/.ssh/authorized_keys by entrypoint.sh on
+      # every start (see that file for why it's copied rather than mounted
+      # directly onto authorized_keys itself). Add/remove keys by editing
+      # this file on the host — no rebuild needed, just restart the
+      # container (FAST) to pick up the change.
+      - "${SSH_AUTHORIZED_KEYS_PATH}:/run/host-authorized_keys:ro"
+      # Claude CLI's own OAuth/session state (~/.claude) — named volume so
+      # `claude /login` only has to happen once, surviving CLEAN rebuilds.
+      - "claude_cli_home:/home/claude/.claude"
+      # SSH host keys — named volume so the container's SSH fingerprint
+      # stays stable across recreation (no "REMOTE HOST IDENTIFICATION HAS
+      # CHANGED" warning on your next connection after a redeploy).
+      - "claude_cli_ssh_host_keys:/etc/ssh"
+
+volumes:
+  claude_cli_home:
+    name: claude-cli_claude_home
+  claude_cli_ssh_host_keys:
+    name: claude-cli_ssh_host_keys
