@@ -563,23 +563,48 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # Any channel/provider skill installed via Claude Code (e.g. /add-telegram,
     # /add-whatsapp) wires itself in by editing TRACKED trunk files — a
     # self-registration import appended to src/channels/index.ts, plus a new
-    # dependency line in package.json — alongside copying in new (untracked)
-    # source files for the channel itself. `reset --hard` below only discards
-    # uncommitted changes to TRACKED files; it can't touch those untracked new
-    # files at all. Confirmed the hard way: a live install's Telegram channel
-    # went silently dead after a CLEAN — every telegram.ts-etc. file was still
-    # on disk, but the barrel import wiring it in, and the package.json
-    # dependency entry, had both been silently reverted, with no error
-    # anywhere (registerChannelAdapter('telegram', ...) just never ran again).
-    # Warn here, before the reset actually discards them.
+    # dependency line in package.json (and, if the skill's own installer ran
+    # `pnpm install` afterward, pnpm-lock.yaml too) — alongside copying in new
+    # (untracked) source files for the channel itself. `reset --hard` below
+    # only discards uncommitted changes to TRACKED files; it can't touch
+    # those untracked new files at all. Confirmed the hard way: a live
+    # install's Telegram channel went silently dead after a CLEAN — every
+    # telegram.ts-etc. file was still on disk, but the barrel import wiring
+    # it in, and the package.json dependency entry, had both been silently
+    # reverted, with no error anywhere (registerChannelAdapter('telegram',
+    # ...) just never ran again).
+    #
+    # Snapshot those local edits as a patch before the reset, then try to
+    # reapply it afterward — restores the wiring automatically in the
+    # common case (nothing upstream touched the same lines). Falls back to
+    # the old warn-only behavior if the patch doesn't apply cleanly (e.g.
+    # upstream genuinely changed the same file) rather than forcing a
+    # conflict onto an unattended CLEAN run.
     CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain 2>/dev/null | grep -v '^??' || true)
+    CHANNEL_SKILL_PATCH=""
     if [ -n "$CHANNEL_SKILL_MODS" ]; then
-        echo "⚠️  CLEAN is about to discard local edits to these tracked files — if any came from a channel/provider skill (e.g. /add-telegram's import in src/channels/index.ts or its package.json dependency), re-run that skill after this finishes to restore the wiring:"
+        echo "⚠️  CLEAN is about to discard local edits to these tracked files — likely a channel/provider skill's own wiring (e.g. /add-telegram's import in src/channels/index.ts or its package.json dependency):"
         echo "$CHANNEL_SKILL_MODS" | sed 's/^/     /'
+        _tmp_patch=$(mktemp)
+        if git -C "$INSTALL_PATH" diff HEAD > "$_tmp_patch" 2>/dev/null && [ -s "$_tmp_patch" ]; then
+            CHANNEL_SKILL_PATCH="$_tmp_patch"
+            echo "   Saved a patch of these edits — will try to reapply them automatically after the sync."
+        else
+            rm -f "$_tmp_patch"
+        fi
     fi
     echo "🔄 [CLEAN POLICY] Hard-syncing NanoClaw source to latest upstream (your data — .env, groups/, data/, any scaffolded wiki — is untouched; only git-tracked source files are reset)..."
     git -C "$INSTALL_PATH" fetch origin
     git -C "$INSTALL_PATH" reset --hard '@{u}'
+    if [ -n "$CHANNEL_SKILL_PATCH" ]; then
+        if git -C "$INSTALL_PATH" apply --check "$CHANNEL_SKILL_PATCH" 2>/dev/null; then
+            git -C "$INSTALL_PATH" apply "$CHANNEL_SKILL_PATCH"
+            echo "✅ Reapplied the local edits CLEAN would otherwise have discarded (channel/provider skill wiring) on top of the freshly-synced source."
+            rm -f "$CHANNEL_SKILL_PATCH"
+        else
+            echo "⚠️  Couldn't automatically reapply those edits — upstream likely changed the same lines. Re-run the relevant channel/provider skill (e.g. /add-telegram) to restore it manually. The saved patch is still at: $CHANNEL_SKILL_PATCH"
+        fi
+    fi
 else
     echo "📦 Install path exists. Pulling latest changes..."
     git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
