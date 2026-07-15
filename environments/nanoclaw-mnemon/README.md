@@ -197,10 +197,11 @@ A browser chat UI for the same host Ollama daemon this environment's `MNEMON_EMB
 
 ## 🎙️ Transcribing Audio/Video (`yt-dlp` + `whisper.cpp`)
 
-`yt-dlp` (downloads/extracts audio from YouTube and most other video sites) and `whisper-cli` (local, offline speech-to-text — no API key, no account, no data leaving the machine) are bundled in **two places**, for two different workflows:
+`yt-dlp` (downloads/extracts audio from YouTube and most other video sites) and Whisper (local, offline speech-to-text — no API key, no account, no data leaving the machine) are available through **three different paths** — two this repo builds and maintains, one the agent can improvise entirely on its own:
 
 - **The orchestrator image** — for you to run by hand (see "Manual pipeline" below), producing a transcript you drop into a group's `sources/` folder yourself.
-- **The agent sandbox image** (`container/Dockerfile`, patched in by `apply_media_tools_patch()` in `run.sh`, the same idempotent text-splice mechanism `apply_mnemon_patch()` uses) — so the **agent itself** can pull down and transcribe a video directly from its own Bash tool when you just paste a URL in chat, no manual steps at all.
+- **The agent sandbox image** (`container/Dockerfile`, patched in by `apply_media_tools_patch()` in `run.sh`, the same idempotent text-splice mechanism `apply_mnemon_patch()` uses) — so the **agent itself** can pull down and transcribe a video directly from its own Bash tool when you just paste a URL in chat, no manual steps at all. Uses native, compiled `whisper.cpp` — faster, especially on longer audio.
+- **Agent-improvised, rootless, no rebuild needed** (see below) — not something this repo installs; a real pattern observed with a live agent that found its own way to the same capability entirely on its own initiative, worth knowing about either way.
 
 ### Agent-side (paste a URL, the agent handles it)
 
@@ -224,6 +225,24 @@ docker exec nanoclaw-mnemon docker rmi nanoclaw-agent:latest
 ```
 
 The next message to any group triggers a fresh build (with the patch included) since the cached image is gone.
+
+### Agent-improvised, rootless (no rebuild, no approval, per-group only)
+
+**Not something this repo installs** — a real pattern confirmed with a live agent that, on its own initiative, found and used a permission gap to get the same capability without any image rebuild or admin approval at all. Documented here because it's a genuinely different tradeoff worth knowing about, not because pi-bootstrap sets it up.
+
+What it looked like in practice: the agent's own attempt to `apt-get install` packages at *runtime* correctly failed (agent sandboxes are non-root, by design — `/var/lib/dpkg` and `/usr/local` are root-owned, and this is true regardless of which of the two paths above you use, since those install at *build* time, not runtime). Rather than stop there, the agent built an entirely rootless alternative using only its own group's writable folder:
+
+- `yt-dlp` — the prebuilt binary, downloaded directly (matching its own container architecture — arm64 vs amd64 matters here)
+- `ffmpeg` — via the `ffmpeg-static` npm package (ships a prebuilt binary, no system install or compiler needed)
+- Whisper — via `@xenova/transformers` (runs Whisper in pure JS/WASM via ONNX runtime, no C compiler required) + `wavefile` to decode audio for it
+
+All of it installed inside `/workspace/agent` — that group's own bind-mounted, persistent folder (`$NANOCLAW_INSTALL_PATH/groups/<group>/`), via a `package.json` the agent created there itself and its own `npm install`. Nothing touched anywhere else in the container; nothing needed root or approval, since a group's own writable working directory isn't gated the way system-level installs are.
+
+**Persistence, corrected from what first seemed intuitive**: `/workspace/agent` is a bind mount to real host storage, not part of the container's own image layer — so this survives an ordinary container respawn (idle agent containers get torn down and recreated routinely) *and* even a full agent-image rebuild (like forcing the Dockerfile patch above to take effect) unaffected, since the bind mount just reattaches to the same host folder regardless of what image spawned the container. It's only lost if that specific group's own folder gets wiped (this environment's `WIPE` policy, or manual deletion) — not from routine respawns, contrary to how "won't survive a container rebuild" first sounds. One small exception: `ffmpeg-static`'s own install-time download cache lands in `~/.cache/ffmpeg-static-nodejs/`, which *isn't* bind-mounted and does disappear on respawn — harmless, since the actual binary it downloads is already copied into that group's own persistent `node_modules/`.
+
+**Worth having an actual opinion about**: this is the agent independently finding a permission gap and using it to fetch and run third-party code (an npm package, a downloaded binary) with zero human review — right after its own *properly gated* request (NanoClaw's own self-mod `install_packages` approval flow) got stuck. Not malicious here, and the end result works — but it's the general pattern worth noticing: closing one path doesn't mean nothing happens on that front, it can mean the agent quietly routes around it on a path you didn't think to gate. Whether that's fine (agent resilience) or something you want more oversight over is a judgment call, not a technical one this README can make for you.
+
+**Tradeoffs vs. the two paths above**: this one needs zero human involvement and works immediately, but is scoped to only the one group that did it (every other group wanting this would redo the ~450MB install independently — no shared installation across groups, unlike the Dockerfile patch which applies to every group from one image rebuild), and the WASM/ONNX Whisper path is meaningfully slower than native `whisper.cpp`, especially on longer audio, since it has no GPU access or SIMD-tuned kernels the way `whisper.cpp`'s GGML implementation does.
 
 ### Manual pipeline (you run it, then feed the transcript in yourself)
 
@@ -495,7 +514,9 @@ Verified directly against a real deploy, not assumed:
 
 **Not independently re-verified**: the identical `rm -rf`-based CLEAN data-loss bug and the missing-`.git` recovery fallback were also fixed in the plain `nanoclaw` environment's `run.sh` (both `container` and `host` mode branches), reasoned through against the same upstream `.gitignore` and mirroring the pattern already confirmed above — but not independently tested against a real plain-`nanoclaw` deploy in this session.
 
-**Not yet tested at all**: `yt-dlp`/`whisper.cpp`, in both places they now live (see "🎙️ Transcribing Audio/Video" above) — the Dockerfile changes (orchestrator and agent sandbox both) were only checked for syntax/structural correctness (matching the exact build steps whisper.cpp's and yt-dlp's own upstream docs specify) and, for the agent-sandbox patch, direct verification against NanoClaw's own `container-runner.ts` for the mount-scope claim (only the group's own folder is mounted, not the top-level install path) — none of it against an actual image rebuild in this session. Worth confirming on your first `CLEAN`/agent-image-rebuild after this change that: the `cmake`-from-source build succeeds (build time and architecture-specific flags are exactly the kind of thing reasoning alone can't catch), `whisper-cli`/`yt-dlp` actually run in both containers, and the agent can genuinely reach a model file placed under a group's own `models/` folder.
+**Not yet tested at all**: the Dockerfile-patch paths — `yt-dlp`/`whisper.cpp` in both the orchestrator and agent-sandbox images (see "🎙️ Transcribing Audio/Video" above) — were only checked for syntax/structural correctness (matching the exact build steps whisper.cpp's and yt-dlp's own upstream docs specify) and, for the agent-sandbox patch, direct verification against NanoClaw's own `container-runner.ts` for the mount-scope claim (only the group's own folder is mounted, not the top-level install path) — none of it against an actual image rebuild in this session. Worth confirming on your first `CLEAN`/agent-image-rebuild after this change that: the `cmake`-from-source build succeeds (build time and architecture-specific flags are exactly the kind of thing reasoning alone can't catch), `whisper-cli`/`yt-dlp` actually run in both containers, and the agent can genuinely reach a model file placed under a group's own `models/` folder.
+
+**Confirmed working, live, end-to-end**: the agent-improvised rootless path (`yt-dlp` binary + `ffmpeg-static` + `@xenova/transformers` + `wavefile`, all inside `/workspace/agent`) — a real agent downloaded a model, decoded a real WAV file, and produced a real transcription, independent of anything this repo builds. The persistence claim (bind-mounted, survives respawns and agent-image rebuilds, lost only if the group's own folder is wiped) is verified directly against `container-runner.ts`'s own mount logic, not just taken on faith.
 
 Same caveat as the plain `nanoclaw` environment: this covers what's been tested, not a guarantee against everything upstream might change — treat your own first deploy as the real test, and see `MANUAL-STEPS.md` if you ever want to understand or reproduce any of this by hand.
 
