@@ -129,17 +129,42 @@ Select a policy from `deploy.sh`'s menu — recommended, since it also handles d
 
 | Volume | Contents |
 |--------|---------|
-| `open-webui_open_webui_data` | Open WebUI's own app state — accounts, chat history, per-model settings |
-| `open-webui_sillytavern_config` | SillyTavern's own settings, user accounts, and UI config |
-| `open-webui_sillytavern_data` | SillyTavern character cards, chat logs, and persona data |
-| `open-webui_sillytavern_plugins` | SillyTavern server plugins |
-| `open-webui_sillytavern_extensions` | SillyTavern third-party front-end extensions |
-| `open-webui_lobehub_postgres_data` | LobeHub's Postgres database — accounts, chat history, settings (only created if you've enabled the `lobehub` profile) |
-| `open-webui_anythingllm_storage` | AnythingLLM's own storage — accounts, workspaces, ingested documents, and its embedded LanceDB vector store (only created if you've enabled the `anythingllm` profile) |
+| `chat-frontends_open_webui_data` | Open WebUI's own app state — accounts, chat history, per-model settings |
+| `chat-frontends_sillytavern_config` | SillyTavern's own settings, user accounts, and UI config |
+| `chat-frontends_sillytavern_data` | SillyTavern character cards, chat logs, and persona data |
+| `chat-frontends_sillytavern_plugins` | SillyTavern server plugins |
+| `chat-frontends_sillytavern_extensions` | SillyTavern third-party front-end extensions |
+| `chat-frontends_lobehub_postgres_data` | LobeHub's Postgres database — accounts, chat history, settings (only created if you've enabled the `lobehub` profile) |
+| `chat-frontends_anythingllm_storage` | AnythingLLM's own storage — accounts, workspaces, ingested documents, and its embedded LanceDB vector store (only created if you've enabled the `anythingllm` profile) |
 
 No local bind-mount directories — everything each frontend persists lives in its own named volume above (NextChat persists nothing server-side at all — its chat history lives in the browser's own IndexedDB). Ollama's own downloaded models live in Ollama's own data directory on the host, untouched by this environment's `WIPE`/`CLEAN` policies.
 
-Volume names are pinned explicitly in `docker-compose.yml` (still prefixed `open-webui_*`, this environment's previous folder name) rather than left to Compose's default project-name prefixing, so they stay stable across the rename and regardless of what directory this environment is deployed from — see `portainer`'s README for the fuller rationale behind this pattern.
+Volume names are pinned explicitly in `docker-compose.yml` rather than left to Compose's default project-name prefixing, so they stay stable regardless of what directory this environment is deployed from — see `portainer`'s README for the fuller rationale behind this pattern.
+
+### ⚠️ Migrating from the old `open-webui_*` volume names
+
+If you deployed this environment back when it was still called `open-webui` (before SillyTavern/LobeHub/NextChat/AnythingLLM were added and it was renamed to `chat-frontends`), your existing data is sitting in volumes named `open-webui_*` — the table above lists the **current**, `chat-frontends_*`-prefixed names. Docker Compose does not rename volumes on its own; if you just redeploy against the new `docker-compose.yml`, you'll get brand-new, empty `chat-frontends_*` volumes and your old data will sit untouched (not deleted) under its old names.
+
+Check what you actually have first:
+
+```bash
+docker volume ls | grep open-webui_
+```
+
+If that returns nothing, there's nothing to migrate — skip this section. Otherwise, for each volume you have real data in, copy it into the new name **before** redeploying:
+
+```bash
+# Repeat for each volume you actually have (open_webui_data is the one
+# nearly everyone has; the others only exist if you'd enabled that
+# particular frontend before)
+docker volume create chat-frontends_open_webui_data
+docker run --rm \
+  -v open-webui_open_webui_data:/from \
+  -v chat-frontends_open_webui_data:/to \
+  alpine sh -c "cd /from && cp -av . /to/"
+```
+
+Swap in `sillytavern_config`/`sillytavern_data`/`sillytavern_plugins`/`sillytavern_extensions`/`lobehub_postgres_data`/`anythingllm_storage` for whichever others you have. Once you've deployed and confirmed the new volumes actually have your data (sign in, check chat history), the old `open-webui_*` volumes are safe to remove: `docker volume rm open-webui_open_webui_data ...`. Until you do that cleanup, both old and new volumes exist side by side, so there's no risk of data loss from running the migration itself.
 
 ---
 

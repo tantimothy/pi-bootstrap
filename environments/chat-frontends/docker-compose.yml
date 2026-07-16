@@ -176,22 +176,27 @@ services:
     profiles: ["lobehub", "all"]
 
 volumes:
+  # Pinned to literal names for the same reason portainer's own volume is
+  # pinned — see that environment's docker-compose.yml comment — so they
+  # stay stable regardless of what directory this environment is deployed
+  # from. Prefixed chat-frontends_* (this environment's current folder
+  # name), NOT open-webui_* (its name before the SillyTavern/LobeHub/etc.
+  # rename) — if you deployed this environment back when it was still
+  # called open-webui, your existing data is sitting in open-webui_*
+  # volumes under the OLD names and will NOT be picked up automatically;
+  # see the README's "Migrating from the old open-webui_* volume names"
+  # section before redeploying, or you'll start over with empty volumes.
   open_webui_data:
-    # Pinned to a literal name for the same reason portainer's own volume
-    # is pinned — see that environment's docker-compose.yml comment. Without
-    # this, renaming or re-cloning this environment's directory would
-    # silently create a brand-new empty volume instead of reusing the
-    # existing one, orphaning every account/chat history/setting in it.
-    name: open-webui_open_webui_data
+    name: chat-frontends_open_webui_data
   sillytavern_config:
-    name: open-webui_sillytavern_config
+    name: chat-frontends_sillytavern_config
   sillytavern_data:
-    name: open-webui_sillytavern_data
+    name: chat-frontends_sillytavern_data
   sillytavern_plugins:
-    name: open-webui_sillytavern_plugins
+    name: chat-frontends_sillytavern_plugins
   sillytavern_extensions:
-    name: open-webui_sillytavern_extensions
+    name: chat-frontends_sillytavern_extensions
   lobehub_postgres_data:
-    name: open-webui_lobehub_postgres_data
+    name: chat-frontends_lobehub_postgres_data
   anythingllm_storage:
-    name: open-webui_anythingllm_storage
+    name: chat-frontends_anythingllm_storage
