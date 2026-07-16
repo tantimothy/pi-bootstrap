@@ -30,6 +30,18 @@ entries:
     icon: applications-science
     kind: link
     target: "http://localhost:${LOBEHUB_PORT:-3210}"
+  - id: pi-bootstrap-nextchat
+    name: "NextChat"
+    comment: "Minimal ChatGPT-styled chat frontend for local Ollama models (opt-in, no server-side storage)"
+    icon: applications-science
+    kind: link
+    target: "http://localhost:${NEXTCHAT_PORT:-3020}"
+  - id: pi-bootstrap-anythingllm
+    name: "AnythingLLM"
+    comment: "RAG/knowledge-base focused chat frontend for local Ollama models (opt-in)"
+    icon: applications-science
+    kind: link
+    target: "http://localhost:${ANYTHINGLLM_PORT:-3011}"
 info:
   id: pi-bootstrap-chat-frontends-info
   name: "Chat Frontends Info"

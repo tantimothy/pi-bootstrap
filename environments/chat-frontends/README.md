@@ -4,7 +4,7 @@ A small hub of browser-based chat UIs for the Ollama models already running on t
 
 **Already using `nanoclaw-mnemon`?** It no longer bundles a chat UI of its own — deploy this standalone environment instead if you want one for your host's Ollama. The two are namespaced apart (different container names, ports, and data volumes) so both can run at once, though there's normally no reason to run both.
 
-Three frontends are available, toggled independently via `COMPOSE_PROFILES` in `.env` — no rebuild needed, just re-run `./run.sh` (or the generic Compose fallback's `up -d`) after changing it:
+Five frontends are available, toggled independently via `COMPOSE_PROFILES` in `.env` — no rebuild needed, just re-run `./run.sh` (or the generic Compose fallback's `up -d`) after changing it:
 
 ## 📂 Services & Ports
 
@@ -14,8 +14,10 @@ Three frontends are available, toggled independently via `COMPOSE_PROFILES` in `
 | [SillyTavern](https://github.com/SillyTavern/SillyTavern) | `sillytavern` | 8000 | `sillytavern` | ✅ | Character-card / role-play focused chat frontend |
 | [LobeHub](https://github.com/lobehub/lobe-chat) | `lobehub` | 3210 | `lobehub` | ❌ opt-in | Full-featured chat frontend (plugins, agents, multi-user) — needs its own Postgres |
 | LobeHub's Postgres ([ParadeDB](https://github.com/paradedb/paradedb)) | `lobehub-postgres` | *(internal)* | `lobehub` | ❌ opt-in | Database backing LobeHub's accounts/chat history — only started alongside `lobehub` |
+| [NextChat](https://github.com/ChatGPTNextWeb/NextChat) | `nextchat` | 3020 | `nextchat` | ❌ opt-in | Minimal ChatGPT-styled frontend — no server-side storage at all, chat history lives in the browser |
+| [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm) | `anythingllm` | 3011 | `anythingllm` | ❌ opt-in | RAG/knowledge-base focused — document ingestion, built-in embedded vector DB |
 
-All four are confirmed multi-arch (`amd64`/`arm64`) directly against their own registries before adding this — no local build required on a Pi.
+Open WebUI, SillyTavern, and LobeHub are confirmed multi-arch (`amd64`/`arm64`) directly against their own registries. NextChat and AnythingLLM ship prebuilt images too (`yidadaa/chatgpt-next-web`, `mintplexlabs/anythingllm`) — check their own Docker Hub pages for your specific Pi architecture before relying on them if you're on anything other than a 64-bit Pi OS.
 
 ---
 
@@ -49,7 +51,16 @@ openssl rand -base64 24
 openssl rand -base64 32
 ```
 
-Put the results in `.env`, then set `COMPOSE_PROFILES=open-webui,sillytavern,lobehub` (or drop whichever of the first two you don't want).
+Put the results in `.env`, then add `lobehub` to `COMPOSE_PROFILES`.
+
+**Want NextChat or AnythingLLM too?** Both are simpler opt-ins — NextChat needs nothing beyond adding `nextchat` to `COMPOSE_PROFILES` (its defaults already point at Ollama). AnythingLLM needs one secret first:
+
+```bash
+# ANYTHINGLLM_JWT_SECRET — any random string
+openssl rand -base64 32
+```
+
+Put it in `.env`, then add `anythingllm` to `COMPOSE_PROFILES`.
 
 ### 2. Deploy
 
@@ -72,6 +83,8 @@ Pull it on the **host**, not inside any of these containers — Ollama itself is
 - **Open WebUI** (`http://<pi-ip>:3010`): the **first account created is made admin** — do this yourself before exposing the port to anyone else.
 - **SillyTavern** (`http://<pi-ip>:8000`): no accounts by default — point it at Ollama under Settings > API Connections > Text Completion (or Chat Completion) > Ollama, using `http://host.docker.internal:11434` (already the default `OLLAMA_BASE_URL` this environment sets).
 - **LobeHub** (`http://<pi-ip>:3210`, if enabled): first visit walks you through initial setup; Ollama is pre-wired via `OLLAMA_PROXY_URL`.
+- **NextChat** (`http://<pi-ip>:3020`, if enabled): Ollama is pre-wired via `BASE_URL` — just start chatting. If you set `NEXTCHAT_ACCESS_CODE`, enter it when prompted.
+- **AnythingLLM** (`http://<pi-ip>:3011`, if enabled): first visit walks you through initial setup (admin account, workspace creation); Ollama is pre-wired for both chat and embeddings via `OLLAMA_MODEL_PREF`/`EMBEDDING_MODEL_PREF`.
 
 ---
 
@@ -120,8 +133,9 @@ Select a policy when deploying from the `deploy.sh` menu, or set `REBUILD_POLICY
 | `open-webui_sillytavern_plugins` | SillyTavern server plugins |
 | `open-webui_sillytavern_extensions` | SillyTavern third-party front-end extensions |
 | `open-webui_lobehub_postgres_data` | LobeHub's Postgres database — accounts, chat history, settings (only created if you've enabled the `lobehub` profile) |
+| `open-webui_anythingllm_storage` | AnythingLLM's own storage — accounts, workspaces, ingested documents, and its embedded LanceDB vector store (only created if you've enabled the `anythingllm` profile) |
 
-No local bind-mount directories — everything each frontend persists lives in its own named volume above. Ollama's own downloaded models live in Ollama's own data directory on the host, untouched by this environment's `WIPE`/`CLEAN` policies.
+No local bind-mount directories — everything each frontend persists lives in its own named volume above (NextChat persists nothing server-side at all — its chat history lives in the browser's own IndexedDB). Ollama's own downloaded models live in Ollama's own data directory on the host, untouched by this environment's `WIPE`/`CLEAN` policies.
 
 Volume names are pinned explicitly in `docker-compose.yml` (still prefixed `open-webui_*`, this environment's previous folder name) rather than left to Compose's default project-name prefixing, so they stay stable across the rename and regardless of what directory this environment is deployed from — see `portainer`'s README for the fuller rationale behind this pattern.
 
@@ -136,6 +150,8 @@ Run `../../install-desktop-entries.sh` (or the `[Desktop] Install Desktop Entrie
 | **Open WebUI** | `http://localhost:<OPEN_WEBUI_PORT>` in default browser |
 | **SillyTavern** | `http://localhost:<SILLYTAVERN_PORT>` in default browser |
 | **LobeHub** | `http://localhost:<LOBEHUB_PORT>` in default browser (won't resolve until you've enabled its profile) |
+| **NextChat** | `http://localhost:<NEXTCHAT_PORT>` in default browser (won't resolve until you've enabled its profile) |
+| **AnythingLLM** | `http://localhost:<ANYTHINGLLM_PORT>` in default browser (won't resolve until you've enabled its profile) |
 | **Chat Frontends Info** | This environment's generated `post-deploy-info.html` in default browser |
 
 Port values are read from your `.env` at install time. Re-run the script if you change ports.
@@ -147,8 +163,10 @@ Port values are read from your `.env` at install time. Re-run the script if you 
 ```bash
 # Follow live logs
 docker logs -f open-webui
-docker logs -f sillytavern
-docker logs -f lobehub
+docker logs -f open-webui-sillytavern   # (prefix matches your CONTAINER_NAME)
+docker logs -f open-webui-lobehub
+docker logs -f open-webui-nextchat
+docker logs -f open-webui-anythingllm
 
 # Full stack status
 docker compose ps
@@ -174,4 +192,6 @@ REBUILD_POLICY=TEARDOWN ./run.sh
 - **Open WebUI: first sign-up becomes admin.** Create your own account immediately after first deploy, before exposing port 3010 to any network you don't fully trust.
 - **No auth in front of Ollama itself.** None of these frontends add authentication to the Ollama daemon they talk to. That's fine as long as Ollama's own port (11434) stays bound to localhost/host-only (Ollama's default), rather than being separately exposed to the LAN.
 - **LobeHub's secrets are real credentials**, not placeholders to skip — `LOBEHUB_KEY_VAULTS_SECRET` encrypts stored API keys/settings and `LOBEHUB_AUTH_SECRET` signs sessions. Treat `.env` itself accordingly (already gitignored repo-wide).
+- **NextChat has no auth by default.** Set `NEXTCHAT_ACCESS_CODE` before exposing port 3020 beyond your own trusted LAN — anyone who reaches it otherwise gets a free chat interface to your Ollama models.
+- **AnythingLLM's `JWT_SECRET` is a real credential too** — it signs its own auth sessions. Generate a real value before exposing port 3011 to any network you don't fully trust.
 - Shares the host's Ollama daemon with `nanoclaw-mnemon` — anything pulled or deleted here (`ollama pull`, `ollama rm`) affects that environment too, since it's the same models directory.

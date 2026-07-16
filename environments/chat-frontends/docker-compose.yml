@@ -94,6 +94,65 @@ services:
         condition: service_healthy
     profiles: ["lobehub", "all"]
 
+  # NextChat (ChatGPTNextWeb) — a minimal, ChatGPT-styled frontend with no
+  # server-side persistence at all: chat history lives in the browser's own
+  # IndexedDB, not a volume, confirmed directly against upstream's own
+  # docker-compose.yml (no volumes section whatsoever). Points at Ollama's
+  # own OpenAI-compatible /v1 endpoint (supported directly by Ollama itself
+  # since 0.1.26, no translation layer needed) via BASE_URL — a real API
+  # key isn't required for that endpoint, but NextChat itself expects a
+  # non-empty OPENAI_API_KEY value before it'll enable the "custom" model
+  # provider, hence the harmless dummy default below.
+  nextchat:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}nextchat
+    image: yidadaa/chatgpt-next-web
+    environment:
+      - OPENAI_API_KEY=${NEXTCHAT_OPENAI_API_KEY:-ollama-local}
+      - BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}/v1
+      - CODE=${NEXTCHAT_ACCESS_CODE:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${NEXTCHAT_PORT:-3020}:3000"
+    restart: unless-stopped
+    profiles: ["nextchat", "all"]
+
+  # AnythingLLM — RAG/knowledge-base focused, meaningfully different from
+  # the three chat-first frontends above: built-in document ingestion,
+  # embedded LanceDB vector store (file-based, no external database
+  # container needed), and its own local Whisper/TTS. Env vars, cap_add,
+  # and the storage volume mount confirmed directly against upstream's own
+  # docker/HOW_TO_USE_DOCKER.md compose example. Reuses mnemon's own
+  # nomic-embed-text embedding model by default (see nanoclaw-mnemon's
+  # README) rather than pulling a second redundant embedding model.
+  anythingllm:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}anythingllm
+    image: mintplexlabs/anythingllm
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      - STORAGE_DIR=/app/server/storage
+      - JWT_SECRET=${ANYTHINGLLM_JWT_SECRET}
+      - LLM_PROVIDER=ollama
+      - OLLAMA_BASE_PATH=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL_PREF=${ANYTHINGLLM_OLLAMA_MODEL:-llama3.2}
+      - OLLAMA_MODEL_TOKEN_LIMIT=4096
+      - EMBEDDING_ENGINE=ollama
+      - EMBEDDING_BASE_PATH=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - EMBEDDING_MODEL_PREF=nomic-embed-text:latest
+      - EMBEDDING_MODEL_MAX_CHUNK_LENGTH=8192
+      - VECTOR_DB=lancedb
+      - WHISPER_PROVIDER=local
+      - TTS_PROVIDER=native
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - anythingllm_storage:/app/server/storage
+    ports:
+      - "${ANYTHINGLLM_PORT:-3011}:3001"
+    restart: unless-stopped
+    profiles: ["anythingllm", "all"]
+
   # LobeHub's own mandatory database — pinned to the same Postgres-family
   # image upstream's own compose file uses (paradedb, a drop-in Postgres
   # build with search/vector extensions LobeHub's knowledge-base features
@@ -134,3 +193,5 @@ volumes:
     name: open-webui_sillytavern_extensions
   lobehub_postgres_data:
     name: open-webui_lobehub_postgres_data
+  anythingllm_storage:
+    name: open-webui_anythingllm_storage

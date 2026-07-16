@@ -13,7 +13,9 @@ named_volumes:
     description: "SillyTavern third-party front-end extensions"
   - name: open-webui_lobehub_postgres_data
     description: "LobeHub's Postgres database — accounts, chat history, settings (only exists if you've enabled the lobehub profile at least once)"
-delete_confirm_msg: "All chat history and accounts for every frontend you've deployed (Open WebUI, SillyTavern, LobeHub) will be lost. Ollama itself (and its downloaded models) is untouched — it isn't managed by this environment."
+  - name: open-webui_anythingllm_storage
+    description: "AnythingLLM's own storage — accounts, workspaces, ingested documents, embedded LanceDB vector store (only exists if you've enabled the anythingllm profile at least once)"
+delete_confirm_msg: "All chat history and accounts for every frontend you've deployed (Open WebUI, SillyTavern, LobeHub, AnythingLLM) will be lost. NextChat has no server-side data to lose (its chat history lives in the browser). Ollama itself (and its downloaded models) is untouched — it isn't managed by this environment."
 web_uis:
   - name: "Open WebUI"
     url: "http://${HOST_IP}:${OPEN_WEBUI_PORT:-3010}"
@@ -21,11 +23,17 @@ web_uis:
     url: "http://${HOST_IP}:${SILLYTAVERN_PORT:-8000}"
   - name: "LobeHub (opt-in)"
     url: "http://${HOST_IP}:${LOBEHUB_PORT:-3210}"
+  - name: "NextChat (opt-in)"
+    url: "http://${HOST_IP}:${NEXTCHAT_PORT:-3020}"
+  - name: "AnythingLLM (opt-in)"
+    url: "http://${HOST_IP}:${ANYTHINGLLM_PORT:-3011}"
 useful_commands: |2
      docker logs -f open-webui                                         # Open WebUI live logs
      docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}sillytavern    # SillyTavern live logs
      docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}lobehub        # LobeHub live logs (if enabled)
-     ollama list                                                       # Models available to all three
+     docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}nextchat       # NextChat live logs (if enabled)
+     docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}anythingllm    # AnythingLLM live logs (if enabled)
+     ollama list                                                       # Models available to all of them
      ollama pull llama3.2                                              # Pull a chat-capable model
      docker compose --profile all config --services                    # List every service this stack can run
 
