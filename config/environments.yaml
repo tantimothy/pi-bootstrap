@@ -18,7 +18,8 @@ categories:
     environments:
       - nanoclaw
       - nanoclaw-mnemon
-      - open-webui
+      - chat-frontends
+      - llm-gateways
       - claude-cli
   - id: network-security
     name: "Networking & Security"

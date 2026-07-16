@@ -6,26 +6,21 @@ data_dirs:
 install_dirs:
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}"
     description: "NanoClaw + mnemon repo/binaries (groups/ and data/ live inside here)"
-named_volumes:
-  - name: "${CONTAINER_NAME:-nanoclaw-mnemon}_open_webui_data"
-    description: "Open WebUI's own app state — accounts, chat history, per-model settings (only exists if ENABLE_OPEN_WEBUI is true, the default)"
+named_volumes: []
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
 install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
 delete_install_dirs: false
-delete_confirm_msg: "All conversation history and mnemon's persistent memory graph will be lost. Open WebUI's own accounts/chat history (if enabled) will be lost too."
+delete_confirm_msg: "All conversation history and mnemon's persistent memory graph will be lost."
 # NanoClaw itself still has no default web interface of its own — its own
 # README says so directly ("Beyond setup there's no monitoring dashboard or
 # debugging UI either: describe the problem in chat"). NANOCLAW_PORT exists
 # only to pre-reserve a port on the container in case you later add its
 # optional `/add-dashboard` skill (a separate npm package, its own
 # DASHBOARD_PORT/DASHBOARD_SECRET, not wired to this variable at all) — it
-# was previously advertised here as a working URL, which it never was. The
-# entry below is Open WebUI's, bundled into this environment's own run.sh
-# (ensure_open_webui(), on by default via ENABLE_OPEN_WEBUI) — genuinely
-# this environment's own endpoint now, not an external one.
-web_uis:
-  - name: "Open WebUI (Ollama chat)"
-    url: "http://${HOST_IP}:${OPEN_WEBUI_PORT:-3011}"
+# was previously advertised here as a working URL, which it never was. This
+# environment no longer bundles Open WebUI either (see the standalone
+# `chat-frontends` environment instead) — so there's genuinely no web UI here.
+web_uis: []
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — "📌 Notes:" is intentionally at column 0 in the
 # rendered output; see ntopng/info.yaml for the full explanation. The
@@ -39,8 +34,7 @@ useful_commands: |2
      docker ps --filter name=nanoclaw-agent                          # List agent containers (both nanoclaw environments, if both deployed)
      docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && claude"   # Then: /add-telegram, /add-whatsapp, /add-discord, etc. (see README's "Adding Channels")
      docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"   # Update Anthropic API key
-     docker logs -f nanoclaw-mnemon-open-webui                        # Open WebUI live logs
-     ollama pull llama3.2                                              # Pull a chat-capable model for it (nomic-embed-text is embedding-only)
+     ollama pull llama3.2                                              # Pull a chat-capable model for mnemon's optional embeddings (nomic-embed-text is embedding-only)
 
   📌 Notes:
      🧠 mnemon (github.com/mnemon-dev/mnemon) is patched into NanoClaw's own agent
@@ -50,9 +44,5 @@ useful_commands: |2
         Use the Docker Manager in the deploy menu to view or delete them.
      ❌ iMessage isn't offered — this environment is container-mode only (see
         the README's "Deployment Modes" section for why).
-     🌐 Open WebUI (see above) is bundled in and on by default — set
-        ENABLE_OPEN_WEBUI=false in .env to skip it (existing container
-        needs a TEARDOWN/CLEAN afterward to actually go away). Want it
-        WITHOUT NanoClaw? See the standalone open-webui environment
-        instead — different port (3010 vs this one's 3011) so both can
-        run at once if you ever want that.
+     🌐 Want a chat UI for Ollama? See the standalone `chat-frontends` environment
+        instead — this environment no longer bundles one of its own.

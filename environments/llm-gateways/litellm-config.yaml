@@ -1,0 +1,27 @@
+# Static LiteLLM proxy config, committed directly (no secrets live here —
+# see docker-compose.yml's bind mount comment for why a real file instead
+# of a `.example` copy-first pattern). Actual credentials are resolved from
+# environment variables at container start via LiteLLM's own `os.environ/...`
+# syntax, so editing which providers are enabled only ever touches `.env`,
+# never this file.
+model_list:
+  # Wildcard entry — proxies every model your host's Ollama already has
+  # pulled, under its own name, with no per-model list to maintain here.
+  - model_name: ollama/*
+    litellm_params:
+      model: ollama/*
+      api_base: os.environ/OLLAMA_BASE_URL
+
+  # Uncomment to add a hosted provider alongside your local Ollama models —
+  # set the matching *_API_KEY in .env first. LiteLLM exposes every
+  # model_name below through the same OpenAI-compatible
+  # /v1/chat/completions endpoint, so callers don't need to know which
+  # backend actually served a given request.
+  # - model_name: gpt-4o
+  #   litellm_params:
+  #     model: openai/gpt-4o
+  #     api_key: os.environ/OPENAI_API_KEY
+  # - model_name: claude-sonnet
+  #   litellm_params:
+  #     model: anthropic/claude-sonnet-4-5
+  #     api_key: os.environ/ANTHROPIC_API_KEY

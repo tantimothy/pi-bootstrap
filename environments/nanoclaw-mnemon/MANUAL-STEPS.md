@@ -15,7 +15,7 @@ INSTALL_PATH="$HOME/nanoclaw-mnemon"     # or /home/pi/nanoclaw-mnemon on a Pi
 CONTAINER_NAME="nanoclaw-mnemon"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
 NANOCLAW_PORT=3081                       # plain nanoclaw uses 3080
-MNEMON_VERSION=0.1.1                     # see releases: https://github.com/mnemon-dev/mnemon/releases
+MNEMON_VERSION=0.1.17                    # see releases: https://github.com/mnemon-dev/mnemon/releases
 MNEMON_EMBED_ENDPOINT=                   # optional, unset by default — see step 4
 MNEMON_EMBED_MODEL=                      # optional, unset by default — see step 4
 ```
@@ -51,7 +51,7 @@ Edit `$INSTALL_PATH/container/Dockerfile`. Find the line `# ---- Bun runtime` an
 
 ```dockerfile
 # ---- mnemon — persistent agent memory ----------------------------------------
-ARG MNEMON_VERSION=0.1.1
+ARG MNEMON_VERSION=0.1.17
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://github.com/mnemon-dev/mnemon/releases/download/v${MNEMON_VERSION}/mnemon_${MNEMON_VERSION}_linux_${ARCH}.tar.gz" \
     | tar -xz -C /usr/local/bin mnemon && \
@@ -163,25 +163,7 @@ docker exec -it nanoclaw-mnemon bash -lc "cd '$INSTALL_PATH' && bash nanoclaw.sh
 
 Interactive — asks for your Anthropic API key (a separate registration from your existing `nanoclaw` install's own; nothing is shared between the two), first channel setup, and builds the agent-sandbox image for the first time. Because you patched mnemon in first (step 4), that first build already includes it.
 
-## 6a. Launch the bundled Open WebUI (on by default)
-
-A browser chat UI for the same host Ollama daemon step 4a sets up — `run.sh` deploys this automatically alongside the orchestrator (`ensure_open_webui()`), not as a separate step. By hand:
-
-```bash
-docker run -d --name nanoclaw-mnemon-open-webui --restart unless-stopped \
-    -e OLLAMA_BASE_URL="http://host.docker.internal:11434" \
-    -e WEBUI_AUTH="true" \
-    --add-host "host.docker.internal:host-gateway" \
-    -v "nanoclaw-mnemon_open_webui_data:/app/backend/data" \
-    -p 3011:8080 \
-    ghcr.io/open-webui/open-webui:main
-```
-
-Deliberately a different container name and port (`3011`) than the standalone `open-webui` environment's own (`open-webui`, `3010`) — see that environment's README if you'd rather deploy it on its own, without NanoClaw at all.
-
-Visit `http://<host-ip>:3011` and sign up — the first account created becomes admin. `nomic-embed-text` (step 4a) is embedding-only and won't show up as a usable chat model; pull one separately: `ollama pull llama3.2`.
-
-To skip this step entirely (no Open WebUI at all), just don't run the `docker run` above — nothing else here depends on it.
+This environment doesn't bundle a chat UI — want one for Ollama? See the standalone `chat-frontends` environment instead; it's independent of NanoClaw entirely.
 
 ## 7. (Optional) Set up a Karpathy LLM Wiki for a group
 
@@ -254,4 +236,4 @@ That prints only the container IDs whose bind mounts actually trace back to `$IN
 
 ---
 
-That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a and 4b, including Ollama's own setup and the agent-side media-tools patch — always applied, unlike 4a/4b's own optional configuration), 5–6, and 6a (Open WebUI, on by default — set `ENABLE_OPEN_WEBUI=false` to skip it) on every fresh deploy (idempotently — re-running skips whatever's already done); step 7a via `scaffold-wiki.sh` on request, with 7b/7c always manual by design (see step 7 above for why); step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.
+That's the whole thing `./run.sh` automates: steps 1–4 (plus optional 4a and 4b, including Ollama's own setup and the agent-side media-tools patch — always applied, unlike 4a/4b's own optional configuration) and 5–6 on every fresh deploy (idempotently — re-running skips whatever's already done); step 7a via `scaffold-wiki.sh` on request, with 7b/7c always manual by design (see step 7 above for why); step 8's filtering built into `TEARDOWN`/`CLEAN` so you never have to think about it by hand.

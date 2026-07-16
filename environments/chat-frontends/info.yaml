@@ -1,0 +1,60 @@
+data_dirs: []
+install_dirs: []
+named_volumes:
+  - name: chat-frontends_open_webui_data
+    description: "Open WebUI's own app state — accounts, chat history, per-model settings"
+  - name: chat-frontends_sillytavern_config
+    description: "SillyTavern's own settings, user accounts, and UI config"
+  - name: chat-frontends_sillytavern_data
+    description: "SillyTavern character cards, chat logs, and persona data"
+  - name: chat-frontends_sillytavern_plugins
+    description: "SillyTavern server plugins"
+  - name: chat-frontends_sillytavern_extensions
+    description: "SillyTavern third-party front-end extensions"
+  - name: chat-frontends_lobehub_postgres_data
+    description: "LobeHub's Postgres database — accounts, chat history, settings (only exists if you've enabled the lobehub profile at least once)"
+  - name: chat-frontends_anythingllm_storage
+    description: "AnythingLLM's own storage — accounts, workspaces, ingested documents, embedded LanceDB vector store (only exists if you've enabled the anythingllm profile at least once)"
+delete_confirm_msg: "All chat history and accounts for every frontend you've deployed (Open WebUI, SillyTavern, LobeHub, AnythingLLM) will be lost. NextChat has no server-side data to lose (its chat history lives in the browser). Ollama itself (and its downloaded models) is untouched — it isn't managed by this environment."
+web_uis:
+  - name: "Open WebUI"
+    url: "http://${HOST_IP}:${OPEN_WEBUI_PORT:-3010}"
+  - name: "SillyTavern"
+    url: "http://${HOST_IP}:${SILLYTAVERN_PORT:-8000}"
+  - name: "LobeHub (opt-in)"
+    url: "http://${HOST_IP}:${LOBEHUB_PORT:-3210}"
+  - name: "NextChat (opt-in)"
+    url: "http://${HOST_IP}:${NEXTCHAT_PORT:-3020}"
+  - name: "AnythingLLM (opt-in)"
+    url: "http://${HOST_IP}:${ANYTHINGLLM_PORT:-3011}"
+useful_commands: |2
+     docker logs -f open-webui                                         # Open WebUI live logs
+     docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}sillytavern    # SillyTavern live logs
+     docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}lobehub        # LobeHub live logs (if enabled)
+     docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}nextchat       # NextChat live logs (if enabled)
+     docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}anythingllm    # AnythingLLM live logs (if enabled)
+     ollama list                                                       # Models available to all of them
+     ollama pull llama3.2                                              # Pull a chat-capable model
+     docker compose --profile all config --services                    # List every service this stack can run
+
+  📌 Notes:
+     🦙 All three frontends talk to the Ollama daemon already running on
+        your HOST (see the nanoclaw-mnemon environment's own Ollama setup)
+        — this environment doesn't run or manage Ollama itself, deliberately:
+        one shared daemon, reused by every frontend and mnemon's embeddings.
+     🎛️ Which frontends actually run is controlled by COMPOSE_PROFILES in
+        .env, not separate on/off variables — Open WebUI and SillyTavern
+        run by default, LobeHub is opt-in (add "lobehub" to the list and
+        redeploy; no rebuild needed, Compose reads it at 'up' time).
+     🔑 Open WebUI: first visit creates the initial admin account — whoever
+        signs up first on a fresh install becomes admin. Don't leave this
+        exposed to an untrusted network before that first sign-up.
+     🔐 LobeHub needs three secrets generated before its first deploy —
+        see the README's "Configure your environment" step. Skipping this
+        just leaves the CHANGE_ME_* placeholders in place, which LobeHub
+        and its Postgres will refuse to start with.
+     📦 Deployed this environment back when it was still called open-webui?
+        Your data is sitting in open-webui_* volumes, not the
+        chat-frontends_* ones listed above — see the README's "Migrating
+        from the old open-webui_* volume names" section before redeploying,
+        or you'll start over with empty volumes.

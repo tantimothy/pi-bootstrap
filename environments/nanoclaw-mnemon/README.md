@@ -1,6 +1,6 @@
 # NanoClaw + Mnemon — Persistent Memory AI Assistant
 
-The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Four extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), a bundled [Open WebUI](https://github.com/open-webui/open-webui) chat frontend for that same Ollama daemon (on by default — see "🌐 Bundled Open WebUI" below), and bundled `yt-dlp`/`whisper.cpp` for turning a video into a plain-text transcript you can feed into a group's wiki (see "🎙️ Transcribing Audio/Video" below).
+The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Three extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), and bundled `yt-dlp`/`whisper.cpp` for turning a video into a plain-text transcript you can feed into a group's wiki (see "🎙️ Transcribing Audio/Video" below). Want a chat UI for Ollama too? See the standalone `chat-frontends` environment — this one no longer bundles its own.
 
 **Fully independent of the plain `nanoclaw` environment**: its own install path, its own container name, its own port. Both can be deployed on the same machine without colliding. The plain `nanoclaw` environment is intentionally left untouched by this one — see "Coexistence" below.
 
@@ -77,7 +77,7 @@ Same reasons as the plain `nanoclaw` environment (`deploy.sh`'s generic fallback
 
 Both steps are applied **before** NanoClaw's own setup wizard builds the agent image for the first time, so the very first build already includes mnemon — no separate rebuild step needed, unlike applying this skill to an already-running install.
 
-**Version pinning**: `MNEMON_VERSION` in `.env` (default `0.1.1`) controls exactly which mnemon release gets installed. A `CLEAN` redeploy re-clones NanoClaw from scratch and reapplies the patch with whatever `MNEMON_VERSION` is currently set — bump it deliberately, it won't drift on its own.
+**Version pinning**: `MNEMON_VERSION` in `.env` (default `0.1.17`, [current as of this writing](https://github.com/mnemon-dev/mnemon/releases)) controls exactly which mnemon release gets installed. Pinned rather than "latest" specifically so a `CLEAN` redeploy doesn't silently pick up a new release without you choosing to — a `CLEAN` reapplies the patch with whatever `MNEMON_VERSION` is currently set, and it won't drift on its own between deploys. Bump it by editing `.env` and running `CLEAN` — check the [releases page](https://github.com/mnemon-dev/mnemon/releases) for what's current; this default only reflects whatever was latest when it was last updated, not a guarantee it stays current on its own.
 
 **Memory storage**: mnemon writes to `/home/node/.claude/mnemon/` inside each agent container, which maps onto that conversation group's own `.claude/` directory under `$NANOCLAW_INSTALL_PATH/groups/<group>/` — memory is per-group by default (mnemon also supports an optional shared/global read-only store; this environment doesn't configure that, it's mnemon's own default per-agent behavior).
 
@@ -182,7 +182,7 @@ curl -s http://localhost:11434/api/chat -d '{
 
 This is entirely separate infrastructure from your NanoClaw conversation — a different model, reachable the same way (same `ollama serve` instance on `localhost:11434`), but nothing here touches mnemon, the wiki, or anything Claude-side. Useful for confirming Ollama itself is healthy beyond just the embeddings path, or just for local experimentation.
 
-**Want a proper chat UI instead of raw `curl`/CLI?** This environment already bundles one — see "🌐 Bundled Open WebUI" below.
+**Want a proper chat UI instead of raw `curl`/CLI?** See the standalone `chat-frontends` environment — this one doesn't bundle its own.
 
 ### Can NanoClaw Itself Talk to Ollama?
 
@@ -199,20 +199,6 @@ Yes — two separate, opt-in upstream NanoClaw skills do this, distinct from bot
 3. Force that group's agent container to respawn so it re-reads both files — container.json/settings.json are only read at container spawn time, not live: `docker stop $(docker ps --filter "name=nanoclaw-v2-<FOLDER>" --format "{{.Names}}")`. The next message to that group spins up a fresh container with the reverted config; no orchestrator restart or image rebuild needed either way.
 
 No dedicated skill does this for you, but there's nothing stopping you from asking Claude to do it inside the same interactive session used for the skills above (`docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"`) — it's just two small JSON edits and a container restart, well within what to just describe and ask for directly rather than needing a formal skill.
-
----
-
-## 🌐 Bundled Open WebUI
-
-A browser chat UI for the same host Ollama daemon this environment's `MNEMON_EMBED_ENDPOINT` uses/installs — deployed automatically alongside the orchestrator, not a separate step. `run.sh`'s `ensure_open_webui()` runs right after `ensure_ollama_ready()` on every deploy: pulls `ghcr.io/open-webui/open-webui:main` (a prebuilt image — no build step, unlike the orchestrator) and starts it if it isn't already running.
-
-**On by default.** `ENABLE_OPEN_WEBUI=true` in `.env.example`. Visit `http://<host-ip>:${OPEN_WEBUI_PORT:-3011}` (deliberately a different default port than the standalone `open-webui` environment's `3010` — see below) and sign up; the first account created becomes admin.
-
-**Needs a chat-capable model, separately from mnemon's own embedding model.** `nomic-embed-text` (mnemon's default) is embedding-only — it can't hold a conversation. Pull one yourself: `ollama pull llama3.2`.
-
-**To disable it**: set `ENABLE_OPEN_WEBUI=false` in `.env`. This only stops `run.sh` from *creating* it — an already-running instance needs `REBUILD_POLICY=TEARDOWN ./run.sh` (or `CLEAN`) afterward to actually go away, same as any other policy-driven change here.
-
-**Relationship to the standalone `open-webui` environment**: that one still exists, for anyone who wants a chat UI for their host's Ollama *without* deploying NanoClaw at all — it's a plain Docker Compose environment with its own independent lifecycle. The two are deliberately namespaced apart (`nanoclaw-mnemon-open-webui` vs `open-webui` container names, port `3011` vs `3010`, separate data volumes) so both can run on the same machine at once without colliding, if you ever want that for some reason.
 
 ---
 
@@ -419,7 +405,6 @@ Persistent data lives inside the install path and survives `TEARDOWN` **and** `C
 | `$NANOCLAW_INSTALL_PATH/data/` | Sessions, message database, task scheduler database, IPC streams |
 | `$NANOCLAW_INSTALL_PATH/.env` | Anthropic/channel credentials NanoClaw's own wizard collected |
 | `$NANOCLAW_INSTALL_PATH/store/` | Channel session state (e.g. WhatsApp pairing) |
-| `${CONTAINER_NAME:-nanoclaw-mnemon}_open_webui_data` (named Docker volume, not a bind mount) | Bundled Open WebUI's own accounts, chat history, per-model settings — only exists if `ENABLE_OPEN_WEBUI` is true (the default) |
 | `$NANOCLAW_INSTALL_PATH/models/` | Whisper model file(s), if you've set up transcription (see "Transcribing Audio/Video" above) — untracked by git same as everything else here, so it survives `CLEAN` too; safe to skip backing up since it's just a re-downloadable model file |
 
 > **Fixed bug, worth knowing about if you deployed before this fix**: `CLEAN` used to `rm -rf` the entire install path and re-clone from scratch, destroying `groups/`, `data/`, `store/`, and `.env` right along with it — including any scaffolded wiki. That's since been fixed (`run.sh` now hard-resets NanoClaw's git-tracked source with `git reset --hard` instead of deleting the directory, which by construction never touches the paths above — they're all in NanoClaw's own `.gitignore`, so `.env`/`groups/`/`data/`/`store/`/`dist/` are simply invisible to git operations). If you hit the old behavior and lost data, there's no recovery path here — this note is so it doesn't happen again, not a way to undo it.
@@ -432,12 +417,12 @@ The install directory's own NanoClaw source is safe to treat as disposable (`CLE
 
 | Policy | Action |
 |--------|--------|
-| `FAST` | Start the orchestrator container if stopped; skip if already active. Clones NanoClaw and applies the mnemon patch on first deploy only. Also starts Open WebUI if `ENABLE_OPEN_WEBUI` is true and it isn't already running |
-| `STOP` | Stop the orchestrator container and Open WebUI (agent containers keep running) |
-| `TEARDOWN` | Stop the orchestrator + Open WebUI + remove this install's agent containers (scoped by mount path — see "Coexistence" above); data, Open WebUI's own volume, and install path untouched |
-| `CLEAN` | Rebuild the orchestrator image, remove this install's agent containers, hard-sync the install path's NanoClaw source to latest upstream (git-tracked files only — `.env`/`groups/`/`data/`/`store/`/`dist/` untouched, see "Data Directories" above), reapply the mnemon patch, rebuild and restart if this was an existing install (skips the wizard entirely — it only ever runs when `dist/index.js` doesn't exist yet). Also recreates Open WebUI (its own data volume untouched) so a toggled `ENABLE_OPEN_WEBUI`/`OPEN_WEBUI_PORT`/`WEBUI_AUTH` takes effect |
+| `FAST` | Start the orchestrator container if stopped; skip if already active. Clones NanoClaw and applies the mnemon patch on first deploy only |
+| `STOP` | Stop the orchestrator container (agent containers keep running) |
+| `TEARDOWN` | Stop the orchestrator + remove this install's agent containers (scoped by mount path — see "Coexistence" above); data and install path untouched |
+| `CLEAN` | Rebuild the orchestrator image, remove this install's agent containers, hard-sync the install path's NanoClaw source to latest upstream (git-tracked files only — `.env`/`groups/`/`data/`/`store/`/`dist/` untouched, see "Data Directories" above), reapply the mnemon patch, rebuild and restart if this was an existing install (skips the wizard entirely — it only ever runs when `dist/index.js` doesn't exist yet) |
 | `INFO` | List data directories with sizes and useful commands (scrollable via `less` in an interactive terminal) |
-| `WIPE` | Delete `groups/` and `data/` only (install dir and Open WebUI's own volume preserved) |
+| `WIPE` | Delete `groups/` and `data/` only (install dir preserved) |
 
 ---
 
@@ -510,10 +495,6 @@ ollama list
 ollama pull nomic-embed-text
 curl -s http://localhost:11434/api/embeddings -d '{"model": "nomic-embed-text", "prompt": "test"}'
 
-# Bundled Open WebUI (see "Bundled Open WebUI" above)
-docker logs -f nanoclaw-mnemon-open-webui
-ollama pull llama3.2      # a chat-capable model — nomic-embed-text is embedding-only
-
 # Open an interactive shell instead of prefixing every command with docker exec
 docker exec -it nanoclaw-mnemon bash
 
@@ -540,7 +521,7 @@ docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
 docker exec nanoclaw-mnemon ls "$NANOCLAW_INSTALL_PATH/.claude/skills/"
 ```
 
-NanoClaw itself still has no web UI of its own (see the plain `nanoclaw` environment's README) — there's no `http://<host-ip>:3081` to visit unless you've separately added its optional `/add-dashboard` skill. `http://<host-ip>:3011` (bundled Open WebUI, on by default) is a genuine web UI, just not NanoClaw's own — see "Bundled Open WebUI" above.
+NanoClaw itself still has no web UI of its own (see the plain `nanoclaw` environment's README) — there's no `http://<host-ip>:3081` to visit unless you've separately added its optional `/add-dashboard` skill. Want a browser chat UI for Ollama? See the standalone `chat-frontends` environment instead — this one doesn't bundle one.
 
 ---
 
@@ -555,7 +536,6 @@ Verified directly against a real deploy, not assumed:
 - Several genuine, non-obvious bugs found and fixed only by testing against a real OrbStack/macOS deploy rather than synthetic stubs — see the git history for `run.sh`, `patch-host-gateway.cjs`, and `patch-nohup-autostart.cjs` if you want the full diagnostic trail for any of them: NanoClaw's own nohup-fallback service-start step (writes but never runs its own wrapper), `systemctl`-based channel-installer restarts silently no-op'ing (no real systemd in this container), OrbStack's `host.docker.internal`/`host-gateway` resolving to a different address than the one its own port-publishing actually uses, and `/tmp` not being shared between this container and the host (breaking OneCLI's own certificate hand-off to spawned agent containers).
 - `CLEAN` no longer wiping `.env`/`groups/`/`data/`/`store/` — confirmed against a real existing install with real data (including a scaffolded wiki): running `CLEAN` no longer destroys any of it, and the setup wizard is correctly skipped in favor of an in-place rebuild+restart.
 - Container timezone following the host — confirmed directly against a running container's own `date` output after a fresh container creation.
-- Bundled Open WebUI (`ensure_open_webui()`) — confirmed against a real deploy: reaches the host's Ollama daemon correctly, and `FAST`/`STOP`/`TEARDOWN`/`CLEAN` all behave as described above.
 - Recovery from an install path with no `.git` directory — confirmed against a real one, not a synthetic case: a Time Machine restore had skipped invisible files/directories entirely, leaving all of NanoClaw's own visible source back but no `.git`, which made both `pull` and `reset --hard` fail with `fatal: not a git repository`. The fresh-clone-with-data-preserved fallback correctly recovered it, and the subsequent `CLEAN` left `.env`/`groups/`/`data/`/`store/` untouched.
 - `jq` being required by channel skills (`/add-telegram` and presumably every other channel skill that validates a credential via `curl | jq`) — confirmed directly: a real `/add-telegram` run failed at exactly that step with the missing binary, adding it to the Dockerfile and rebuilding let the same skill run past credential validation.
 - `CLEAN` never rebuilding the agent-sandbox image for an existing install — confirmed via a live report of an agent with none of the media-tools patch's binaries available months after it shipped. Root-caused to `CLEAN`'s existing-install path only ever rebuilding the orchestrator (`pnpm run build`), never NanoClaw's own separate agent-sandbox Docker image; fixed by also calling `container/build.sh` there.

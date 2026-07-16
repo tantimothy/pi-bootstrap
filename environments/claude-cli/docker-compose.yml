@@ -35,7 +35,11 @@ services:
       - "claude_cli_ssh_host_keys:/etc/ssh"
 
 volumes:
+  # Named per CONTAINER_NAME, not a fixed literal — a second instance
+  # deployed with a different CONTAINER_NAME (see README's "Running
+  # Multiple Instances") gets its own separate login state and SSH host
+  # key instead of silently sharing this one's.
   claude_cli_home:
-    name: claude-cli_claude_home
+    name: ${CONTAINER_NAME:-claude-cli}_claude_home
   claude_cli_ssh_host_keys:
-    name: claude-cli_ssh_host_keys
+    name: ${CONTAINER_NAME:-claude-cli}_ssh_host_keys

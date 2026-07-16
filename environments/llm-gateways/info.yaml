@@ -1,0 +1,34 @@
+data_dirs: []
+install_dirs: []
+named_volumes:
+  - name: llm-gateways_litellm_postgres_data
+    description: "LiteLLM's Postgres database — virtual keys, spend tracking, Admin UI accounts (only exists if you've enabled the litellm-db profile at least once)"
+delete_confirm_msg: "LiteLLM's virtual keys and spend-tracking history (if you've enabled litellm-db) will be lost. Ollama itself (and its downloaded models) is untouched — it isn't managed by this environment."
+web_uis:
+  - name: "LiteLLM (OpenAI-compatible endpoint, not a browser UI unless litellm-db is enabled)"
+    url: "http://${HOST_IP}:${LITELLM_PORT:-4000}"
+  - name: "Portkey Gateway (opt-in, OpenAI-compatible endpoint)"
+    url: "http://${HOST_IP}:${PORTKEY_PORT:-8787}"
+useful_commands: |2
+     docker logs -f litellm                                            # LiteLLM live logs
+     docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}portkey-gateway # Portkey Gateway live logs (if enabled)
+     curl http://localhost:${LITELLM_PORT:-4000}/health/liveliness       # LiteLLM health check
+     ollama list                                                        # Models available to route to
+     docker compose --profile all config --services                    # List every service this stack can run
+
+  📌 Notes:
+     🦙 Both gateways route to the Ollama daemon already running on your
+        HOST (see the nanoclaw-mnemon environment's own Ollama setup) —
+        this environment doesn't run or manage Ollama itself, deliberately:
+        one shared daemon, reused across every environment in this repo.
+     🎛️ Which gateways actually run is controlled by COMPOSE_PROFILES in
+        .env — LiteLLM runs by default (config-only, no database), Postgres
+        and Portkey Gateway are both opt-in (add "litellm-db" and/or
+        "portkey" to the list and redeploy; no rebuild needed).
+     🔑 LiteLLM's endpoint requires a Bearer token (LITELLM_MASTER_KEY) on
+        every request — generate a real one before exposing this beyond
+        localhost; see the README's "Configure your environment" step.
+     📝 Which models LiteLLM proxies is controlled by litellm-config.yaml
+        in this environment's own directory, not by .env — it ships
+        wired to Ollama by default, with commented-out examples for adding
+        OpenAI/Anthropic alongside it.

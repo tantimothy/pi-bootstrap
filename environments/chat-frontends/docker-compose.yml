@@ -1,0 +1,202 @@
+services:
+  # Chat-style web frontend for Ollama (and other OpenAI/Ollama-compatible
+  # APIs) — confirmed multi-arch (amd64/arm64) directly against the image's
+  # own registry before adding this. Talks to the Ollama daemon already
+  # running on the HOST (see the nanoclaw-mnemon environment, which also
+  # depends on that same host-level Ollama install) — this environment
+  # doesn't run its own Ollama, deliberately: one shared daemon, reused by
+  # both this UI and mnemon's embeddings, rather than a second redundant
+  # instance. The flagship service here — kept as the plain, un-prefixed
+  # ${CONTAINER_NAME} the way it's always been; every other frontend below
+  # is a sidecar, prefixed with it instead (matching the same
+  # ${CONTAINER_NAME:+${CONTAINER_NAME}-} convention this repo's other
+  # multi-service environments use, e.g. pihole-wireguard).
+  open-webui:
+    container_name: ${CONTAINER_NAME:-open-webui}
+    image: ghcr.io/open-webui/open-webui:main
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+    # Docker Desktop/OrbStack already resolve host.docker.internal inside
+    # containers automatically; extra_hosts here is what makes the exact
+    # same hostname work on a plain Linux Docker host too, where it isn't
+    # built in. See this environment's README for a real, confirmed caveat
+    # on OrbStack specifically: it resolves this to its own internal
+    # pseudo-address rather than the bridge network's actual gateway, which
+    # breaks reaching anything published via another container's own port
+    # mapping — but the HOST's own Ollama daemon (not a container) is
+    # reachable through it regardless, since that's exactly the case this
+    # mechanism is designed for.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - open_webui_data:/app/backend/data
+    ports:
+      - "${OPEN_WEBUI_PORT:-3010}:8080"
+    restart: unless-stopped
+    profiles: ["open-webui", "all"]
+
+  # SillyTavern — role-play/character-chat frontend, popular for creative
+  # writing and persona-driven conversations specifically (not really
+  # aimed at Open WebUI's more general-purpose chat use case). Official
+  # image + port + volume layout confirmed directly against upstream's own
+  # docker-compose.yml (github.com/SillyTavern/SillyTavern, docker/
+  # directory) — a genuinely simple, single-container deployment like Open
+  # WebUI, no database needed. Talks to the same host Ollama daemon by
+  # default, but (unlike Open WebUI) supports picking a different
+  # backend/API entirely from its own in-app settings after first launch.
+  sillytavern:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}sillytavern
+    image: ghcr.io/sillytavern/sillytavern:latest
+    environment:
+      - NODE_ENV=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - sillytavern_config:/home/node/app/config
+      - sillytavern_data:/home/node/app/data
+      - sillytavern_plugins:/home/node/app/plugins
+      - sillytavern_extensions:/home/node/app/public/scripts/extensions/third-party
+    ports:
+      - "${SILLYTAVERN_PORT:-8000}:8000"
+    restart: unless-stopped
+    profiles: ["sillytavern", "all"]
+
+  # LobeHub (formerly LobeChat) — a heavier, more polished chat frontend
+  # with built-in file/knowledge-base RAG, plugins, and multi-provider
+  # support (Ollama included). Genuinely NOT a simple single-container
+  # deploy like the two above: current upstream docs (confirmed directly
+  # against their own docker-compose.yml) require a real Postgres database
+  # — there's no client-side/DB-less mode anymore. Off by default
+  # (ENABLE_LOBEHUB=false) for exactly this reason — opt in deliberately,
+  # since it adds a whole extra database container, not just one more
+  # lightweight frontend. Redis/S3-compatible storage/SearXNG (upstream's
+  # own optional extras for caching, file uploads, and web search) are
+  # deliberately NOT included here to keep this already-heavier option as
+  # light as its own architecture allows — add them yourself following
+  # LobeHub's own docs if you want those specific features.
+  lobehub:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}lobehub
+    image: lobehub/lobehub
+    environment:
+      - KEY_VAULTS_SECRET=${LOBEHUB_KEY_VAULTS_SECRET}
+      - AUTH_SECRET=${LOBEHUB_AUTH_SECRET}
+      - DATABASE_URL=postgresql://lobehub:${LOBEHUB_DB_PASSWORD}@lobehub-postgres:5432/lobehub
+      - ENABLED_OLLAMA=1
+      - OLLAMA_PROXY_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${LOBEHUB_PORT:-3210}:3210"
+    restart: unless-stopped
+    depends_on:
+      lobehub-postgres:
+        condition: service_healthy
+    profiles: ["lobehub", "all"]
+
+  # NextChat (ChatGPTNextWeb) — a minimal, ChatGPT-styled frontend with no
+  # server-side persistence at all: chat history lives in the browser's own
+  # IndexedDB, not a volume, confirmed directly against upstream's own
+  # docker-compose.yml (no volumes section whatsoever). Points at Ollama's
+  # own OpenAI-compatible /v1 endpoint (supported directly by Ollama itself
+  # since 0.1.26, no translation layer needed) via BASE_URL — a real API
+  # key isn't required for that endpoint, but NextChat itself expects a
+  # non-empty OPENAI_API_KEY value before it'll enable the "custom" model
+  # provider, hence the harmless dummy default below.
+  nextchat:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}nextchat
+    image: yidadaa/chatgpt-next-web
+    environment:
+      - OPENAI_API_KEY=${NEXTCHAT_OPENAI_API_KEY:-ollama-local}
+      - BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}/v1
+      - CODE=${NEXTCHAT_ACCESS_CODE:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${NEXTCHAT_PORT:-3020}:3000"
+    restart: unless-stopped
+    profiles: ["nextchat", "all"]
+
+  # AnythingLLM — RAG/knowledge-base focused, meaningfully different from
+  # the three chat-first frontends above: built-in document ingestion,
+  # embedded LanceDB vector store (file-based, no external database
+  # container needed), and its own local Whisper/TTS. Env vars, cap_add,
+  # and the storage volume mount confirmed directly against upstream's own
+  # docker/HOW_TO_USE_DOCKER.md compose example. Reuses mnemon's own
+  # nomic-embed-text embedding model by default (see nanoclaw-mnemon's
+  # README) rather than pulling a second redundant embedding model.
+  anythingllm:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}anythingllm
+    image: mintplexlabs/anythingllm
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      - STORAGE_DIR=/app/server/storage
+      - JWT_SECRET=${ANYTHINGLLM_JWT_SECRET}
+      - LLM_PROVIDER=ollama
+      - OLLAMA_BASE_PATH=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL_PREF=${ANYTHINGLLM_OLLAMA_MODEL:-llama3.2}
+      - OLLAMA_MODEL_TOKEN_LIMIT=4096
+      - EMBEDDING_ENGINE=ollama
+      - EMBEDDING_BASE_PATH=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - EMBEDDING_MODEL_PREF=nomic-embed-text:latest
+      - EMBEDDING_MODEL_MAX_CHUNK_LENGTH=8192
+      - VECTOR_DB=lancedb
+      - WHISPER_PROVIDER=local
+      - TTS_PROVIDER=native
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - anythingllm_storage:/app/server/storage
+    ports:
+      - "${ANYTHINGLLM_PORT:-3011}:3001"
+    restart: unless-stopped
+    profiles: ["anythingllm", "all"]
+
+  # LobeHub's own mandatory database — pinned to the same Postgres-family
+  # image upstream's own compose file uses (paradedb, a drop-in Postgres
+  # build with search/vector extensions LobeHub's knowledge-base features
+  # rely on), not swapped for plain postgres, since that dependency is
+  # upstream's own choice to make, not this environment's to second-guess.
+  lobehub-postgres:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}lobehub-postgres
+    image: paradedb/paradedb:latest-pg17
+    environment:
+      - POSTGRES_USER=lobehub
+      - POSTGRES_PASSWORD=${LOBEHUB_DB_PASSWORD}
+      - POSTGRES_DB=lobehub
+    volumes:
+      - lobehub_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lobehub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    profiles: ["lobehub", "all"]
+
+volumes:
+  # Pinned to literal names for the same reason portainer's own volume is
+  # pinned — see that environment's docker-compose.yml comment — so they
+  # stay stable regardless of what directory this environment is deployed
+  # from. Prefixed chat-frontends_* (this environment's current folder
+  # name), NOT open-webui_* (its name before the SillyTavern/LobeHub/etc.
+  # rename) — if you deployed this environment back when it was still
+  # called open-webui, your existing data is sitting in open-webui_*
+  # volumes under the OLD names and will NOT be picked up automatically;
+  # see the README's "Migrating from the old open-webui_* volume names"
+  # section before redeploying, or you'll start over with empty volumes.
+  open_webui_data:
+    name: chat-frontends_open_webui_data
+  sillytavern_config:
+    name: chat-frontends_sillytavern_config
+  sillytavern_data:
+    name: chat-frontends_sillytavern_data
+  sillytavern_plugins:
+    name: chat-frontends_sillytavern_plugins
+  sillytavern_extensions:
+    name: chat-frontends_sillytavern_extensions
+  lobehub_postgres_data:
+    name: chat-frontends_lobehub_postgres_data
+  anythingllm_storage:
+    name: chat-frontends_anythingllm_storage

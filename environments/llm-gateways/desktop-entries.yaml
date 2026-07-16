@@ -1,0 +1,22 @@
+menu:
+  id: llm-gateways
+  name: "LLM Gateways"
+  icon: applications-science
+deployed_check:
+  kind: container
+  from_compose_service: litellm
+entries:
+  # /docs is FastAPI's own built-in interactive API console (Swagger UI) —
+  # always available regardless of whether litellm-db is enabled, unlike
+  # LiteLLM's separate /ui Admin dashboard, which needs Postgres to log in.
+  # No entry for Portkey Gateway: it's a pure API proxy with no browser
+  # landing page of its own, so a desktop link would just open a 404.
+  - id: pi-bootstrap-litellm
+    name: "LiteLLM API Console"
+    comment: "Interactive API docs/test console for the LiteLLM gateway"
+    icon: applications-science
+    kind: link
+    target: "http://localhost:${LITELLM_PORT:-4000}/docs"
+info:
+  id: pi-bootstrap-llm-gateways-info
+  name: "LLM Gateways Info"
