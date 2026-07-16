@@ -14,6 +14,13 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Force a UTF-8 locale before any of the emoji-laden progress output below
+# prints — see lib/locale-lib.sh's own comment for why. `|| true` because
+# a failed/missing-locale outcome there returns non-zero, which `set -e`
+# above would otherwise treat as this whole script failing.
+source "$REPO_DIR/lib/locale-lib.sh" || true
+
 DOCKER="${DOCKER_CMD:-docker}"
 if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 

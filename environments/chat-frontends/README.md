@@ -35,10 +35,20 @@ Open WebUI, SillyTavern, and LobeHub are confirmed multi-arch (`amd64`/`arm64`) 
 ```bash
 cd environments/chat-frontends
 cp .env.example .env
-# Edit ports, COMPOSE_PROFILES, or the LobeHub secrets below if you want it
+# Set a real SILLYTAVERN_PASSWORD (see below) — required even for the
+# default deploy, since SillyTavern is on by default. Edit ports,
+# COMPOSE_PROFILES, or the LobeHub secrets below if you want them too.
 ```
 
 Or use the repo's interactive `deploy.sh` menu, which walks you through the same `.env` fields.
+
+**`SILLYTAVERN_PASSWORD` is required, not optional, even for a bare default deploy** — SillyTavern is one of the two frontends on by default, and this environment forces its own auth on (see "Sign up / configure each frontend" below for why). Generate a real one:
+
+```bash
+openssl rand -base64 18
+```
+
+Leaving the `CHANGE_ME_TO_A_SECURE_PASSWORD` placeholder in place means SillyTavern starts up fine but with a publicly-known, guessable password — set a real one before you actually expose port 8000 to anything but yourself.
 
 **Want LobeHub too?** Add `lobehub` to `COMPOSE_PROFILES` and generate its three required secrets first — it (and its Postgres) will refuse to start with the `CHANGE_ME_*` placeholders left in place:
 
@@ -83,7 +93,7 @@ Pull it on the **host**, not inside any of these containers — Ollama itself is
 ### 4. Sign up / configure each frontend
 
 - **Open WebUI** (`http://<pi-ip>:3010`): the **first account created is made admin** — do this yourself before exposing the port to anyone else.
-- **SillyTavern** (`http://<pi-ip>:8000`): no accounts by default — point it at Ollama under Settings > API Connections > Text Completion (or Chat Completion) > Ollama, using `http://host.docker.internal:11434` (already the default `OLLAMA_BASE_URL` this environment sets).
+- **SillyTavern** (`http://<pi-ip>:8000`): your browser will prompt for the `SILLYTAVERN_USERNAME`/`SILLYTAVERN_PASSWORD` you set in `.env` (see "Configure your environment" above) — SillyTavern itself has no separate account system beyond that. Once in, point it at Ollama under Settings > API Connections > Text Completion (or Chat Completion) > Ollama, using `http://host.docker.internal:11434` (already the default `OLLAMA_BASE_URL` this environment sets).
 - **LobeHub** (`http://<pi-ip>:3210`, if enabled): first visit walks you through initial setup; Ollama is pre-wired via `OLLAMA_PROXY_URL`.
 - **NextChat** (`http://<pi-ip>:3020`, if enabled): Ollama is pre-wired via `BASE_URL` — just start chatting. If you set `NEXTCHAT_ACCESS_CODE`, enter it when prompted.
 - **AnythingLLM** (`http://<pi-ip>:3011`, if enabled): first visit walks you through initial setup (admin account, workspace creation); Ollama is pre-wired for both chat and embeddings via `OLLAMA_MODEL_PREF`/`EMBEDDING_MODEL_PREF`.
@@ -217,6 +227,7 @@ docker compose down
 ## 🔒 Security Notes
 
 - **Open WebUI: first sign-up becomes admin.** Create your own account immediately after first deploy, before exposing port 3010 to any network you don't fully trust.
+- **SillyTavern's `SILLYTAVERN_PASSWORD` is a real credential, not optional.** This environment forces `whitelistMode` off and `basicAuthMode` on (see `docker-compose.yml`'s own comment) — SillyTavern's default IP-whitelist security doesn't reliably work in a containerized/NAT'd setup (confirmed directly: it blocked even the host machine's own browser under Docker Desktop for Mac), so basic auth is the only thing actually gating access now. Leaving the placeholder password in place is a real security gap, not just an inconvenience.
 - **No auth in front of Ollama itself.** None of these frontends add authentication to the Ollama daemon they talk to. That's fine as long as Ollama's own port (11434) stays bound to localhost/host-only (Ollama's default), rather than being separately exposed to the LAN.
 - **LobeHub's secrets are real credentials**, not placeholders to skip — `LOBEHUB_KEY_VAULTS_SECRET` encrypts stored API keys/settings and `LOBEHUB_AUTH_SECRET` signs sessions. Treat `.env` itself accordingly (already gitignored repo-wide).
 - **NextChat has no auth by default.** Set `NEXTCHAT_ACCESS_CODE` before exposing port 3020 beyond your own trusted LAN — anyone who reaches it otherwise gets a free chat interface to your Ollama models.
