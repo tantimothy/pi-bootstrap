@@ -89,14 +89,6 @@ MNEMON_EMBED_ENDPOINT="${MNEMON_EMBED_ENDPOINT:-}"
 MNEMON_EMBED_MODEL="${MNEMON_EMBED_MODEL:-}"
 CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
-ENABLE_OPEN_WEBUI="${ENABLE_OPEN_WEBUI:-true}"
-OPEN_WEBUI_PORT="${OPEN_WEBUI_PORT:-3011}"
-WEBUI_AUTH="${WEBUI_AUTH:-true}"
-# Distinct from the standalone `open-webui` environment's own container
-# name ("open-webui") so both can be deployed on the same machine at once
-# without a name collision.
-OPEN_WEBUI_CONTAINER_NAME="${CONTAINER_NAME}-open-webui"
-OPEN_WEBUI_VOLUME_NAME="${CONTAINER_NAME}_open_webui_data"
 
 # Containers default to UTC with no timezone info of their own — /etc/localtime
 # is a symlink into .../zoneinfo/<Region>/<City> on both macOS and Linux, so
@@ -418,43 +410,6 @@ ensure_ollama_ready() {
     fi
 }
 
-# Bundled Open WebUI — a browser chat UI for the same host Ollama daemon
-# ensure_ollama_ready() above installs/manages, so deploying this environment
-# gives you a working chat interface without a separate step. A prebuilt,
-# closed upstream image (no source to patch), so unlike the orchestrator
-# there's no build step here — just pull-if-missing and run. Idempotent:
-# safe to call on every deploy, matching ensure_ollama_ready()'s own contract.
-ensure_open_webui() {
-    if [ "$ENABLE_OPEN_WEBUI" != "true" ]; then
-        return 0
-    fi
-
-    if $DOCKER ps --format '{{.Names}}' | grep -q "^${OPEN_WEBUI_CONTAINER_NAME}$"; then
-        echo "✅ Open WebUI is already running."
-        return 0
-    fi
-
-    if $DOCKER ps -a --format '{{.Names}}' | grep -q "^${OPEN_WEBUI_CONTAINER_NAME}$"; then
-        echo "🔄 Open WebUI container exists but is stopped. Starting..."
-        $DOCKER start "$OPEN_WEBUI_CONTAINER_NAME" >/dev/null
-        return 0
-    fi
-
-    echo "🌐 Launching Open WebUI (chat UI for Ollama) on port ${OPEN_WEBUI_PORT}..."
-    # host.docker.internal + host-gateway: same mechanism (and same OrbStack
-    # host.docker.internal-vs-bridge-gateway caveat) as the standalone
-    # open-webui environment — see that environment's README if this can't
-    # reach Ollama on your setup.
-    $DOCKER run -d --name "$OPEN_WEBUI_CONTAINER_NAME" --restart unless-stopped \
-        -e OLLAMA_BASE_URL="http://host.docker.internal:11434" \
-        -e WEBUI_AUTH="$WEBUI_AUTH" \
-        --add-host "host.docker.internal:host-gateway" \
-        -v "${OPEN_WEBUI_VOLUME_NAME}:/app/backend/data" \
-        -p "${OPEN_WEBUI_PORT}:8080" \
-        ghcr.io/open-webui/open-webui:main >/dev/null \
-        || echo "⚠️  Open WebUI failed to start — the rest of this deploy still succeeded, see 'docker logs ${OPEN_WEBUI_CONTAINER_NAME}'." >&2
-}
-
 # Mounted at the SAME absolute path both on the host and inside the
 # orchestrator container — not remapped to some internal path like
 # /workspace. NanoClaw spawns per-conversation-group agent containers
@@ -473,7 +428,6 @@ fi
 if [ "$POLICY" = "STOP" ]; then
     echo "🛑 [STOP] Pausing NanoClaw+Mnemon container (agent containers preserved)..."
     $DOCKER stop "$CONTAINER_NAME" 2>/dev/null || true
-    $DOCKER stop "$OPEN_WEBUI_CONTAINER_NAME" 2>/dev/null || true
     echo "✅ Container paused. Run with FAST to resume."
     exit 0
 fi
@@ -482,8 +436,6 @@ if [ "$POLICY" = "TEARDOWN" ]; then
     echo "🗑️  [TEARDOWN] Stopping and removing the orchestrator container and this install's agent containers..."
     $DOCKER stop "$CONTAINER_NAME" 2>/dev/null || true
     $DOCKER rm   "$CONTAINER_NAME" 2>/dev/null || true
-    $DOCKER stop "$OPEN_WEBUI_CONTAINER_NAME" 2>/dev/null || true
-    $DOCKER rm   "$OPEN_WEBUI_CONTAINER_NAME" 2>/dev/null || true
     remove_agent_containers
     bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
     echo "✅ Container and agent containers removed. Install path (\$NANOCLAW_INSTALL_PATH) untouched."
@@ -499,12 +451,6 @@ if [ "$POLICY" = "CLEAN" ]; then
     echo "🛑 Fresh image ready — tearing down the previous container and this install's agent containers..."
     $DOCKER stop "$CONTAINER_NAME" 2>/dev/null || true
     $DOCKER rm   "$CONTAINER_NAME" 2>/dev/null || true
-    # Open WebUI itself never changed (it's a pulled, not built, image) —
-    # torn down and recreated purely so a toggled ENABLE_OPEN_WEBUI/
-    # OPEN_WEBUI_PORT/WEBUI_AUTH actually takes effect. Its own data volume
-    # (OPEN_WEBUI_VOLUME_NAME) is untouched by this.
-    $DOCKER stop "$OPEN_WEBUI_CONTAINER_NAME" 2>/dev/null || true
-    $DOCKER rm   "$OPEN_WEBUI_CONTAINER_NAME" 2>/dev/null || true
     remove_agent_containers
     $DOCKER image prune -f >/dev/null 2>&1 || true
 fi
@@ -616,11 +562,6 @@ fi
 # the ENV lines get baked in regardless, this just tries to make sure
 # there's something actually listening on the other end.
 ensure_ollama_ready
-
-# Independent of NanoClaw's own source/patch/build pipeline entirely — a
-# separate pulled image, safe to bring up any time after Ollama's own
-# readiness check above.
-ensure_open_webui
 
 # Patch mnemon in BEFORE the orchestrator container ever builds NanoClaw's
 # own agent-sandbox image, so the very first build already includes it —
