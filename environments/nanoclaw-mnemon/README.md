@@ -77,7 +77,7 @@ Same reasons as the plain `nanoclaw` environment (`deploy.sh`'s generic fallback
 
 Both steps are applied **before** NanoClaw's own setup wizard builds the agent image for the first time, so the very first build already includes mnemon — no separate rebuild step needed, unlike applying this skill to an already-running install.
 
-**Version pinning**: `MNEMON_VERSION` in `.env` (default `0.1.1`) controls exactly which mnemon release gets installed. A `CLEAN` redeploy re-clones NanoClaw from scratch and reapplies the patch with whatever `MNEMON_VERSION` is currently set — bump it deliberately, it won't drift on its own.
+**Version pinning**: `MNEMON_VERSION` in `.env` (default `0.1.17`, [current as of this writing](https://github.com/mnemon-dev/mnemon/releases)) controls exactly which mnemon release gets installed. Pinned rather than "latest" specifically so a `CLEAN` redeploy doesn't silently pick up a new release without you choosing to — a `CLEAN` reapplies the patch with whatever `MNEMON_VERSION` is currently set, and it won't drift on its own between deploys. Bump it by editing `.env` and running `CLEAN` — check the [releases page](https://github.com/mnemon-dev/mnemon/releases) for what's current; this default only reflects whatever was latest when it was last updated, not a guarantee it stays current on its own.
 
 **Memory storage**: mnemon writes to `/home/node/.claude/mnemon/` inside each agent container, which maps onto that conversation group's own `.claude/` directory under `$NANOCLAW_INSTALL_PATH/groups/<group>/` — memory is per-group by default (mnemon also supports an optional shared/global read-only store; this environment doesn't configure that, it's mnemon's own default per-agent behavior).
 

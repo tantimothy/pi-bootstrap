@@ -79,7 +79,7 @@ if [[ "$(uname)" == "Darwin" ]] && [ "$INSTALL_PATH" = "/home/pi/nanoclaw-mnemon
     fi
 fi
 NANOCLAW_PORT="${NANOCLAW_PORT:-3081}"
-MNEMON_VERSION="${MNEMON_VERSION:-0.1.1}"
+MNEMON_VERSION="${MNEMON_VERSION:-0.1.17}"
 # Opt-in — mnemon's own optional hybrid graph+vector recall (unset by
 # default, matching the plain nanoclaw environment's own OLLAMA_HOST stub
 # in .env.example: commented out until you actually have Ollama running

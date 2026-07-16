@@ -25,6 +25,18 @@ if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 # invoking user at the end.
 SUDO_TAR="sudo tar"
 
+# GNU tar (Linux/Raspberry Pi) renames archive entries via --transform; BSD
+# tar (macOS's bundled /usr/bin/tar, libarchive-based) has no such flag at
+# all and errors outright ("tar: Option --transform is not supported") —
+# confirmed directly on a real Mac. BSD tar has the same sed-style renaming
+# under a different flag, -s, taking an identical "s#pattern#replacement#"
+# argument, so only the flag name needs to differ, not the pattern itself.
+if tar --version 2>&1 | grep -qi "GNU tar"; then
+    TAR_TRANSFORM_FLAG="--transform"
+else
+    TAR_TRANSFORM_FLAG="-s"
+fi
+
 INCLUDE_ENV=true
 OUT_DIR="$(pwd)"
 
@@ -54,10 +66,10 @@ INCLUDED_ENVS=()
 append_to_archive() {
     local archive_prefix="$1" src_dir="$2" src_name="$3"
     if [ "$FIRST_APPEND" = "true" ]; then
-        $SUDO_TAR --transform "s#^#${archive_prefix}#" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
+        $SUDO_TAR "$TAR_TRANSFORM_FLAG" "s#^#${archive_prefix}#" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
         FIRST_APPEND=false
     else
-        $SUDO_TAR --transform "s#^#${archive_prefix}#" -rf "$ARCHIVE" -C "$src_dir" "$src_name"
+        $SUDO_TAR "$TAR_TRANSFORM_FLAG" "s#^#${archive_prefix}#" -rf "$ARCHIVE" -C "$src_dir" "$src_name"
     fi
 }
 

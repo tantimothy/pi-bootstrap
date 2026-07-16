@@ -15,7 +15,7 @@ INSTALL_PATH="$HOME/nanoclaw-mnemon"     # or /home/pi/nanoclaw-mnemon on a Pi
 CONTAINER_NAME="nanoclaw-mnemon"
 IMAGE_TAG="nanoclaw-mnemon-orchestrator:latest"
 NANOCLAW_PORT=3081                       # plain nanoclaw uses 3080
-MNEMON_VERSION=0.1.1                     # see releases: https://github.com/mnemon-dev/mnemon/releases
+MNEMON_VERSION=0.1.17                    # see releases: https://github.com/mnemon-dev/mnemon/releases
 MNEMON_EMBED_ENDPOINT=                   # optional, unset by default — see step 4
 MNEMON_EMBED_MODEL=                      # optional, unset by default — see step 4
 ```
@@ -51,7 +51,7 @@ Edit `$INSTALL_PATH/container/Dockerfile`. Find the line `# ---- Bun runtime` an
 
 ```dockerfile
 # ---- mnemon — persistent agent memory ----------------------------------------
-ARG MNEMON_VERSION=0.1.1
+ARG MNEMON_VERSION=0.1.17
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://github.com/mnemon-dev/mnemon/releases/download/v${MNEMON_VERSION}/mnemon_${MNEMON_VERSION}_linux_${ARCH}.tar.gz" \
     | tar -xz -C /usr/local/bin mnemon && \

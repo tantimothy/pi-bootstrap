@@ -92,7 +92,17 @@ Or straight from `deploy.sh`'s menu — pick **Claude CLI** under **AI Assistant
 ssh -p ${SSH_PORT:-2222} claude@localhost
 ```
 
-You'll land in the tmux-attached `claude` session. First run prompts Claude's own `/login` OAuth flow — it prints a URL; paste it into a browser on whichever machine you're physically at (same reasoning as `nanoclaw-mnemon`'s own "First-Time Setup": there's no GUI/display inside this container to open one itself). This only needs doing once — the session persists in the `claude-cli_claude_home` named volume.
+You'll land in the tmux-attached `claude` session. First run prompts Claude's own `/login` OAuth flow — it prints a URL; paste it into a browser on whichever machine you're physically at (same reasoning as `nanoclaw-mnemon`'s own "First-Time Setup": there's no GUI/display inside this container to open one itself). This only needs doing once — the session persists in the `${CONTAINER_NAME:-claude-cli}_claude_home` named volume (see "Running Multiple Instances" below for why that name isn't fixed).
+
+---
+
+## 🧬 Running Multiple Instances
+
+Each instance needs its own copy of this environment's folder (e.g. `cp -r environments/claude-cli environments/claude-cli-work`) — `deploy.sh`'s model is one `.env` per environment directory, not multiple profiles inside one. Give the copy's `.env` a distinct `CONTAINER_NAME`, `SSH_PORT`, and `CLAUDE_WORKSPACE_PATH` (all three must differ, or you'll either collide on the port or point two containers at the same repo), then deploy it independently.
+
+**Named volumes and the SSH host key follow `CONTAINER_NAME` automatically** — `${CONTAINER_NAME:-claude-cli}_claude_home` and `${CONTAINER_NAME:-claude-cli}_ssh_host_keys` are both derived from it, not fixed literals, so two differently-named instances get fully separate Claude CLI login state and separate SSH host keys, not a shared, colliding one. Confirmed by reading `docker-compose.yml`'s own `volumes:` section — worth checking directly if you ever rename an existing instance's `CONTAINER_NAME` after the fact, since that's effectively a fresh pair of volumes (old ones orphaned, not migrated).
+
+Two instances with genuinely distinct `CONTAINER_NAME`s never overwrite each other — Docker Compose just creates two of everything, side by side.
 
 ---
 
