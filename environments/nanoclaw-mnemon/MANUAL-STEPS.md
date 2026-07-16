@@ -163,7 +163,7 @@ docker exec -it nanoclaw-mnemon bash -lc "cd '$INSTALL_PATH' && bash nanoclaw.sh
 
 Interactive — asks for your Anthropic API key (a separate registration from your existing `nanoclaw` install's own; nothing is shared between the two), first channel setup, and builds the agent-sandbox image for the first time. Because you patched mnemon in first (step 4), that first build already includes it.
 
-This environment doesn't bundle a chat UI — want one for Ollama? See the standalone `open-webui` environment instead; it's independent of NanoClaw entirely.
+This environment doesn't bundle a chat UI — want one for Ollama? See the standalone `chat-frontends` environment instead; it's independent of NanoClaw entirely.
 
 ## 7. (Optional) Set up a Karpathy LLM Wiki for a group
 

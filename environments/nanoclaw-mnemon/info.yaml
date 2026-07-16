@@ -19,7 +19,7 @@ delete_confirm_msg: "All conversation history and mnemon's persistent memory gra
 # DASHBOARD_PORT/DASHBOARD_SECRET, not wired to this variable at all) — it
 # was previously advertised here as a working URL, which it never was. This
 # environment no longer bundles Open WebUI either (see the standalone
-# `open-webui` environment instead) — so there's genuinely no web UI here.
+# `chat-frontends` environment instead) — so there's genuinely no web UI here.
 web_uis: []
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — "📌 Notes:" is intentionally at column 0 in the
@@ -44,5 +44,5 @@ useful_commands: |2
         Use the Docker Manager in the deploy menu to view or delete them.
      ❌ iMessage isn't offered — this environment is container-mode only (see
         the README's "Deployment Modes" section for why).
-     🌐 Want a chat UI for Ollama? See the standalone `open-webui` environment
+     🌐 Want a chat UI for Ollama? See the standalone `chat-frontends` environment
         instead — this environment no longer bundles one of its own.

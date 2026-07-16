@@ -1,0 +1,35 @@
+menu:
+  id: chat-frontends
+  name: "Chat Frontends"
+  icon: applications-science
+deployed_check:
+  kind: container
+  # Only checks open-webui (on by default) — this only works for the *one*
+  # service a multi-service compose file's desktop entries actually check,
+  # same convention as pihole-wireguard's own `from_compose_service: pihole`.
+  # SillyTavern/LobeHub entries below still get created even if you've
+  # toggled those specific services off via COMPOSE_PROFILES; they just
+  # won't resolve until you enable them.
+  from_compose_service: open-webui
+entries:
+  - id: pi-bootstrap-open-webui
+    name: "Open WebUI"
+    comment: "Chat-style web frontend for local Ollama models"
+    icon: applications-science
+    kind: link
+    target: "http://localhost:${OPEN_WEBUI_PORT:-3010}"
+  - id: pi-bootstrap-sillytavern
+    name: "SillyTavern"
+    comment: "Character/role-play focused chat frontend for local Ollama models"
+    icon: applications-science
+    kind: link
+    target: "http://localhost:${SILLYTAVERN_PORT:-8000}"
+  - id: pi-bootstrap-lobehub
+    name: "LobeHub"
+    comment: "Full-featured chat frontend for local Ollama models (opt-in — needs its own Postgres)"
+    icon: applications-science
+    kind: link
+    target: "http://localhost:${LOBEHUB_PORT:-3210}"
+info:
+  id: pi-bootstrap-chat-frontends-info
+  name: "Chat Frontends Info"

@@ -1,6 +1,6 @@
 # NanoClaw + Mnemon — Persistent Memory AI Assistant
 
-The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Three extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), and bundled `yt-dlp`/`whisper.cpp` for turning a video into a plain-text transcript you can feed into a group's wiki (see "🎙️ Transcribing Audio/Video" below). Want a chat UI for Ollama too? See the standalone `open-webui` environment — this one no longer bundles its own.
+The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Three extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), and bundled `yt-dlp`/`whisper.cpp` for turning a video into a plain-text transcript you can feed into a group's wiki (see "🎙️ Transcribing Audio/Video" below). Want a chat UI for Ollama too? See the standalone `chat-frontends` environment — this one no longer bundles its own.
 
 **Fully independent of the plain `nanoclaw` environment**: its own install path, its own container name, its own port. Both can be deployed on the same machine without colliding. The plain `nanoclaw` environment is intentionally left untouched by this one — see "Coexistence" below.
 
@@ -182,7 +182,7 @@ curl -s http://localhost:11434/api/chat -d '{
 
 This is entirely separate infrastructure from your NanoClaw conversation — a different model, reachable the same way (same `ollama serve` instance on `localhost:11434`), but nothing here touches mnemon, the wiki, or anything Claude-side. Useful for confirming Ollama itself is healthy beyond just the embeddings path, or just for local experimentation.
 
-**Want a proper chat UI instead of raw `curl`/CLI?** See the standalone `open-webui` environment — this one doesn't bundle its own.
+**Want a proper chat UI instead of raw `curl`/CLI?** See the standalone `chat-frontends` environment — this one doesn't bundle its own.
 
 ### Can NanoClaw Itself Talk to Ollama?
 
@@ -521,7 +521,7 @@ docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
 docker exec nanoclaw-mnemon ls "$NANOCLAW_INSTALL_PATH/.claude/skills/"
 ```
 
-NanoClaw itself still has no web UI of its own (see the plain `nanoclaw` environment's README) — there's no `http://<host-ip>:3081` to visit unless you've separately added its optional `/add-dashboard` skill. Want a browser chat UI for Ollama? See the standalone `open-webui` environment instead — this one doesn't bundle one.
+NanoClaw itself still has no web UI of its own (see the plain `nanoclaw` environment's README) — there's no `http://<host-ip>:3081` to visit unless you've separately added its optional `/add-dashboard` skill. Want a browser chat UI for Ollama? See the standalone `chat-frontends` environment instead — this one doesn't bundle one.
 
 ---
 
