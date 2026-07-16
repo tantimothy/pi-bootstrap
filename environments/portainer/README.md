@@ -33,8 +33,10 @@ Or use the repo's interactive `deploy.sh` menu, which walks you through the same
 ### 2. Deploy
 
 ```bash
-./run.sh
+docker compose up -d
 ```
+
+Or use `deploy.sh`'s menu instead (**Portainer** under **Management**) — it also refreshes desktop entries and prints the INFO summary afterward, neither of which a bare `docker compose up -d` does on its own. There's no `run.sh` here — `deploy.sh`'s generic Compose fallback drives this environment directly.
 
 ### 3. Create the admin account — within 5 minutes
 
@@ -52,16 +54,16 @@ Paste the token into the setup screen alongside your chosen username/password. I
 
 ## 🎛️ Deployment Policies
 
-Select a policy when deploying from the `deploy.sh` menu, or set `REBUILD_POLICY` when running `./run.sh` directly:
+Select a policy from `deploy.sh`'s menu — recommended, since it also handles desktop-entry refresh and `CLEAN`'s safe build-before-swap ordering. There's no `run.sh` here to set `REBUILD_POLICY` on directly; the table below shows the equivalent raw `docker compose` command for each policy if you'd rather run it by hand from this directory:
 
-| Policy | Action |
-|--------|--------|
-| `FAST` | Start stack if not running; otherwise reconcile against `docker-compose.yml` (no rebuild) so config-only edits still take effect |
-| `STOP` | Pause containers (resumable with FAST) |
-| `TEARDOWN` | Stop + remove containers; data directories untouched |
-| `CLEAN` | Pull/rebuild fresh, then stop + remove + redeploy |
-| `INFO` | List data directories with sizes and useful commands |
-| `WIPE` | Delete persisted data directories (irreversible — back up first) |
+| Policy | Action | Direct equivalent |
+|--------|--------|--------------------|
+| `FAST` | Start stack if not running; otherwise reconcile against `docker-compose.yml` (no rebuild) so config-only edits still take effect | `docker compose up -d` |
+| `STOP` | Pause containers (resumable with FAST) | `docker compose stop` |
+| `TEARDOWN` | Stop + remove containers; data directories untouched | `docker compose down` |
+| `CLEAN` | Pull/rebuild fresh, then stop + remove + redeploy | `docker compose pull && docker compose build --no-cache && docker compose down && docker compose up -d` |
+| `INFO` | List data directories with sizes and useful commands | `deploy.sh` menu only |
+| `WIPE` | Delete persisted data directories (irreversible — back up first) | `deploy.sh` menu only |
 
 ---
 
@@ -102,11 +104,11 @@ docker logs -f portainer
 docker compose ps
 
 # Pause / resume without losing data
-REBUILD_POLICY=STOP ./run.sh
-REBUILD_POLICY=FAST ./run.sh
+docker compose stop
+docker compose up -d
 
 # Full teardown (data directories untouched)
-REBUILD_POLICY=TEARDOWN ./run.sh
+docker compose down
 ```
 
 ---
@@ -123,7 +125,7 @@ This is **root-equivalent access to the host**, not a sandboxed permission — a
 
 ### Portainer's 5-minute initial-setup window
 
-Documented Portainer behavior: the very first time the container starts, it opens a short window (5 minutes) to create the initial admin account before the setup form times out for security reasons. If you miss it, `docker restart portainer` (or re-running `./run.sh`) gives you a new window — no data is lost, since nothing was created yet.
+Documented Portainer behavior: the very first time the container starts, it opens a short window (5 minutes) to create the initial admin account before the setup form times out for security reasons. If you miss it, `docker restart portainer` (or `docker compose up -d` again) gives you a new window — no data is lost, since nothing was created yet.
 
 ---
 

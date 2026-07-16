@@ -273,6 +273,8 @@ CONTAINER_NAME=my-app
 
 `desktop-entries.yaml`'s `deployed_check` needs this exact same resolved value to know whether the environment is actually running. For a `docker-compose.yml`-based environment, point it at the primary service instead of restating the name — see `from_compose_service` in `docs/environment-yaml-schemas.md`.
 
+**Running more than one instance of the same environment side by side** works the same way for any environment, not just one built specifically for it: copy the whole environment folder, give the copy's `.env` a distinct `CONTAINER_NAME` (and any other value that must not collide — ports, install paths), and deploy it independently. Docker Compose's own project scoping (derived from the directory name, since nothing in this repo pins `-p`/`COMPOSE_PROJECT_NAME`) plus this per-service `CONTAINER_NAME` parameterization is what keeps two copies from colliding on containers or named volumes. `desktop-entries.yaml`'s `entries[].id`/`menu.id`/`info.id` are **not** part of that — they're fixed literals, not `${CONTAINER_NAME}`-expanded, so a second copy's desktop shortcuts overwrite the first's rather than creating separate ones (the containers/volumes themselves are unaffected). See `claude-cli`'s README ("Running Multiple Instances") for a fully worked example, including that caveat in practice.
+
 ### Archetype 1: `run.sh` (Custom Script)
 
 **Use this when** you need something Archetype 2's generic fallback structurally cannot express — see "Routing Priority" above for exactly what it already covers on its own (safe build-before-teardown `CLEAN`, data-dir pre-creation, desktop refresh). Concretely, that means:

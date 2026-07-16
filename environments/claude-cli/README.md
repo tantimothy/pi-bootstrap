@@ -81,10 +81,10 @@ Or use the repo's interactive `deploy.sh` menu, which walks you through the same
 ### 2. Deploy
 
 ```bash
-./run.sh   # via deploy.sh's generic docker-compose.yml fallback — no custom run.sh here
+docker compose up -d
 ```
 
-Or straight from `deploy.sh`'s menu — pick **Claude CLI** under **AI Assistants**.
+Or use `deploy.sh`'s menu instead — pick **Claude CLI** under **AI Assistants**. It also refreshes desktop entries and prints the INFO summary afterward, neither of which a bare `docker compose up -d` does on its own. There's no `run.sh` here — `deploy.sh`'s generic Compose fallback drives this environment directly.
 
 ### 3. First login
 
@@ -100,9 +100,15 @@ You'll land in the tmux-attached `claude` session. First run prompts Claude's ow
 
 Each instance needs its own copy of this environment's folder (e.g. `cp -r environments/claude-cli environments/claude-cli-work`) — `deploy.sh`'s model is one `.env` per environment directory, not multiple profiles inside one. Give the copy's `.env` a distinct `CONTAINER_NAME`, `SSH_PORT`, and `CLAUDE_WORKSPACE_PATH` (all three must differ, or you'll either collide on the port or point two containers at the same repo), then deploy it independently.
 
-**Named volumes and the SSH host key follow `CONTAINER_NAME` automatically** — `${CONTAINER_NAME:-claude-cli}_claude_home` and `${CONTAINER_NAME:-claude-cli}_ssh_host_keys` are both derived from it, not fixed literals, so two differently-named instances get fully separate Claude CLI login state and separate SSH host keys, not a shared, colliding one. Confirmed by reading `docker-compose.yml`'s own `volumes:` section — worth checking directly if you ever rename an existing instance's `CONTAINER_NAME` after the fact, since that's effectively a fresh pair of volumes (old ones orphaned, not migrated).
+**How the isolation actually works:** there's no custom `run.sh` here (see "Deploy" above) — every lifecycle action goes through `deploy.sh`'s generic Compose fallback, which just runs plain `docker compose` commands (`up -d`/`stop`/`down`/`build --no-cache`) from inside whichever directory you invoke it from. Docker Compose's own project scope defaults to that directory's name (nothing in this repo pins `-p`/`COMPOSE_PROJECT_NAME`), so two differently-named folders are two separate Compose projects automatically — a `CLEAN` run against `claude-cli-work/` never touches whatever's running from `claude-cli/`. The container itself is also always given an explicit `container_name: ${CONTAINER_NAME:-claude-cli}`, so that's really a second, redundant layer keeping instances apart, not the only one.
 
-Two instances with genuinely distinct `CONTAINER_NAME`s never overwrite each other — Docker Compose just creates two of everything, side by side.
+**Named volumes and the SSH host key follow `CONTAINER_NAME` automatically** — `${CONTAINER_NAME:-claude-cli}_claude_home` and `${CONTAINER_NAME:-claude-cli}_ssh_host_keys` are both derived from it, not fixed literals, so two differently-named instances get fully separate Claude CLI login state and separate SSH host keys, not a shared, colliding one. Confirmed by reading `docker-compose.yml`'s own `volumes:` section — worth checking directly if you ever rename an existing instance's `CONTAINER_NAME` after the fact, since that's effectively a fresh pair of volumes (old ones orphaned, not migrated). `INFO`/`WIPE`/`backup.sh` all read `info.yaml` per-directory too, so each instance's own data listing and backup only ever cover its own two volumes, never a sibling instance's.
+
+Two instances with genuinely distinct `CONTAINER_NAME`s never overwrite each other's containers or volumes — Docker Compose just creates two of everything, side by side.
+
+**Two things this doesn't automatically handle:**
+- **The copy won't be in `deploy.sh`'s menu ordering.** `config/environments.yaml` only lists the original `claude-cli` folder — a copy still shows up (anything under `environments/` not listed there gets appended alphabetically by `deploy.sh`'s own fallback pass rather than hidden), just not grouped under "AI Assistants" with everything else. Add it to `config/environments.yaml` yourself if you want it grouped properly.
+- **Desktop entries collide.** `desktop-entries.yaml`'s `entries[].id`/`menu.id`/`info.id` are fixed literals, not `${CONTAINER_NAME}`-expanded (unlike `docker-compose.yml`'s own `container_name:`/volume `name:` fields) — installing desktop shortcuts for a second instance overwrites the first instance's shortcut files instead of creating separate ones, since both instances generate identical `.desktop` filenames. Only the most recently installed instance's shortcut survives on disk; the containers and volumes themselves are unaffected either way, and SSH/`docker exec` access (see "Useful Commands" below) works regardless, since neither depends on desktop entries at all.
 
 ---
 
@@ -167,22 +173,22 @@ Home Assistant has a built-in **Model Context Protocol Server** integration — 
 
 Once registered, Claude can see and act on exactly what you've exposed to Assist — nothing more. Revoking the long-lived token (or narrowing what's exposed to Assist) in Home Assistant itself is how you scope or pull this back later; nothing about it lives in this environment's own `.env` or volumes.
 
-This registration lives under `~/.claude` — the `claude-cli_claude_home` named volume — so it's tied to the container, not to any one connection method. Register it once (over an initial SSH session), and it's available whether you come back over SSH or through `/remote-control`.
+This registration lives under `~/.claude` — the `${CONTAINER_NAME:-claude-cli}_claude_home` named volume — so it's tied to the container, not to any one connection method. Register it once (over an initial SSH session), and it's available whether you come back over SSH or through `/remote-control`.
 
 ---
 
 ## 🎛️ Deployment Policies
 
-Select a policy when deploying from the `deploy.sh` menu, or set `REBUILD_POLICY` when running `./run.sh` directly:
+Select a policy from `deploy.sh`'s menu — recommended, since it also handles desktop-entry refresh and `CLEAN`'s safe build-before-swap ordering. There's no `run.sh` here to set `REBUILD_POLICY` on directly (see "Deploy" above); the table below shows the equivalent raw `docker compose` command for each policy if you'd rather run it by hand from this directory:
 
-| Policy | Action |
-|--------|--------|
-| `FAST` | Start container if not running; otherwise reconcile against `docker-compose.yml` (no rebuild) so config-only edits (e.g. a new `SSH_PORT`) still take effect |
-| `STOP` | Pause the container (resumable with `FAST`) |
-| `TEARDOWN` | Stop + remove the container; named volumes and `CLAUDE_WORKSPACE_PATH` untouched |
-| `CLEAN` | Rebuild the image fresh, then stop + remove + redeploy |
-| `INFO` | List data directories with sizes and useful commands |
-| `WIPE` | Delete the `claude-cli_claude_home` and `claude-cli_ssh_host_keys` named volumes (irreversible — signs you out and changes the SSH fingerprint; your workspace repo is untouched, see `info.yaml`'s own confirm message) |
+| Policy | Action | Direct equivalent |
+|--------|--------|--------------------|
+| `FAST` | Start container if not running; otherwise reconcile against `docker-compose.yml` (no rebuild) so config-only edits (e.g. a new `SSH_PORT`) still take effect | `docker compose up -d` |
+| `STOP` | Pause the container (resumable with `FAST`) | `docker compose stop` |
+| `TEARDOWN` | Stop + remove the container; named volumes and `CLAUDE_WORKSPACE_PATH` untouched | `docker compose down` |
+| `CLEAN` | Rebuild the image fresh, then stop + remove + redeploy | `docker compose build --no-cache && docker compose down && docker compose up -d` |
+| `INFO` | List data directories with sizes and useful commands | `deploy.sh` menu only |
+| `WIPE` | Delete the `${CONTAINER_NAME:-claude-cli}_claude_home` and `${CONTAINER_NAME:-claude-cli}_ssh_host_keys` named volumes (irreversible — signs you out and changes the SSH fingerprint; your workspace repo is untouched, see `info.yaml`'s own confirm message) | `deploy.sh` menu only |
 
 ---
 
@@ -192,8 +198,8 @@ Select a policy when deploying from the `deploy.sh` menu, or set `REBUILD_POLICY
 
 | Volume | Contents |
 |--------|---------|
-| `claude-cli_claude_home` | Claude CLI's own OAuth/session state (`~/.claude`) — deleting this signs you out |
-| `claude-cli_ssh_host_keys` | This container's own SSH host keys — deleting this changes its SSH fingerprint |
+| `${CONTAINER_NAME:-claude-cli}_claude_home` | Claude CLI's own OAuth/session state (`~/.claude`) — deleting this signs you out |
+| `${CONTAINER_NAME:-claude-cli}_ssh_host_keys` | This container's own SSH host keys — deleting this changes its SSH fingerprint |
 
 ### Bind Mount (Yours, Not This Environment's)
 
@@ -219,14 +225,14 @@ Run `../../install-desktop-entries.sh` (or the `[Desktop] Install Desktop Entrie
 ssh -p ${SSH_PORT:-2222} claude@<host>
 
 # Same thing, from the host directly, no SSH key needed
-docker exec -it claude-cli tmux attach -t claude
+docker exec -it ${CONTAINER_NAME:-claude-cli} tmux attach -t claude
 
 # sshd logs
-docker logs -f claude-cli
+docker logs -f ${CONTAINER_NAME:-claude-cli}
 
 # Pause / resume without losing data
-REBUILD_POLICY=STOP ./run.sh
-REBUILD_POLICY=FAST ./run.sh
+docker compose stop
+docker compose up -d
 ```
 
 ---

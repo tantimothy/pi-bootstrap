@@ -4,7 +4,7 @@ A small hub of self-hosted LLM gateways — an OpenAI-compatible HTTP layer in f
 
 This environment is deliberately thin: prebuilt upstream Docker images only, no custom `run.sh`, no Ollama of its own.
 
-Two gateways are available, toggled independently via `COMPOSE_PROFILES` in `.env` — no rebuild needed, just re-run `./run.sh` (or the generic Compose fallback's `up -d`) after changing it:
+Two gateways are available, toggled independently via `COMPOSE_PROFILES` in `.env` — no rebuild needed, just `docker compose up -d` again (or redeploy via `deploy.sh`) after changing it:
 
 ## 📂 Services & Ports
 
@@ -43,8 +43,10 @@ Or use the repo's interactive `deploy.sh` menu, which walks you through the same
 ### 2. Deploy
 
 ```bash
-./run.sh
+docker compose up -d
 ```
+
+Or use `deploy.sh`'s menu instead (**LLM Gateways** under **AI Assistants**) — it also pre-creates data directories, refreshes desktop entries, and prints the INFO summary afterward, none of which a bare `docker compose up -d` does on its own. There's no `run.sh` here — `deploy.sh`'s generic Compose fallback drives this environment directly.
 
 ### 3. Call it
 
@@ -66,7 +68,7 @@ LiteLLM runs config-only by default — no database, no persistent state beyond 
 1. Generate a password: `openssl rand -base64 24`, put it in `LITELLM_DB_PASSWORD` in `.env`.
 2. Set `LITELLM_DATABASE_URL=postgresql://litellm:<that password>@litellm-postgres:5432/litellm` in `.env` (the user/db name are fixed — only the password varies).
 3. Add `litellm-db` to `COMPOSE_PROFILES` in `.env`.
-4. Redeploy: `./run.sh` (or `REBUILD_POLICY=FAST ./run.sh`).
+4. Redeploy: `docker compose up -d` (or `FAST` from `deploy.sh`'s menu).
 
 Both steps 2 and 3 are required — the profile starts the database container, the connection string tells LiteLLM to actually use it. Skipping either leaves LiteLLM in its default config-only mode.
 
@@ -89,16 +91,16 @@ docker network inspect bridge --format '{{json .IPAM.Config}}'
 
 ## 🎛️ Deployment Policies
 
-Select a policy when deploying from the `deploy.sh` menu, or set `REBUILD_POLICY` when running `./run.sh` directly:
+Select a policy from `deploy.sh`'s menu — recommended, since it also handles data-dir pre-creation, desktop-entry refresh, and `CLEAN`'s safe build-before-swap ordering. There's no `run.sh` here to set `REBUILD_POLICY` on directly (see the intro above); the table below shows the equivalent raw `docker compose` command for each policy if you'd rather run it by hand from this directory:
 
-| Policy | Action |
-|--------|--------|
-| `FAST` | Start stack if not running; otherwise reconcile against `docker-compose.yml` (no rebuild) so config-only edits (including `COMPOSE_PROFILES` changes) still take effect |
-| `STOP` | Pause containers (resumable with FAST) |
-| `TEARDOWN` | Stop + remove containers; data directories untouched |
-| `CLEAN` | Pull/rebuild fresh, then stop + remove + redeploy |
-| `INFO` | List data directories with sizes and useful commands |
-| `WIPE` | Delete persisted data directories (irreversible — back up first) |
+| Policy | Action | Direct equivalent |
+|--------|--------|--------------------|
+| `FAST` | Start stack if not running; otherwise reconcile against `docker-compose.yml` (no rebuild) so config-only edits (including `COMPOSE_PROFILES` changes) still take effect | `docker compose up -d` |
+| `STOP` | Pause containers (resumable with FAST) | `docker compose stop` |
+| `TEARDOWN` | Stop + remove containers; data directories untouched | `docker compose down` |
+| `CLEAN` | Pull/rebuild fresh, then stop + remove + redeploy | `docker compose pull && docker compose build --no-cache && docker compose down && docker compose up -d` |
+| `INFO` | List data directories with sizes and useful commands | `deploy.sh` menu only |
+| `WIPE` | Delete persisted data directories (irreversible — back up first) | `deploy.sh` menu only |
 
 ---
 
@@ -146,11 +148,11 @@ curl http://localhost:4000/health/liveliness
 ollama list
 
 # Pause / resume without losing data
-REBUILD_POLICY=STOP ./run.sh
-REBUILD_POLICY=FAST ./run.sh
+docker compose stop
+docker compose up -d
 
 # Full teardown (data directories untouched)
-REBUILD_POLICY=TEARDOWN ./run.sh
+docker compose down
 ```
 
 ---
