@@ -45,11 +45,26 @@ services:
   # WebUI, no database needed. Talks to the same host Ollama daemon by
   # default, but (unlike Open WebUI) supports picking a different
   # backend/API entirely from its own in-app settings after first launch.
+  #
+  # whitelistMode disabled + basicAuthMode forced on, not left at
+  # upstream's own defaults (whitelist on, basic auth off) — confirmed
+  # directly against a real deploy: SillyTavern's default IP whitelist
+  # (127.0.0.1/::1 plus an auto-detected Docker host/gateway range) does
+  # NOT recognize Docker Desktop for Mac's own NAT gateway IP, so it blocks
+  # even the SAME machine's own browser, not just LAN/mobile access. Env
+  # vars follow SillyTavern's own SILLYTAVERN_<KEY> config-override
+  # convention (confirmed in their src/util.js's keyToEnv) — real
+  # credentials via basic auth are a strictly better default here anyway,
+  # since IP whitelisting never stopped anyone already on your LAN.
   sillytavern:
     container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}sillytavern
     image: ghcr.io/sillytavern/sillytavern:latest
     environment:
       - NODE_ENV=production
+      - SILLYTAVERN_WHITELISTMODE=false
+      - SILLYTAVERN_BASICAUTHMODE=true
+      - SILLYTAVERN_BASICAUTHUSER_USERNAME=${SILLYTAVERN_USERNAME:-user}
+      - SILLYTAVERN_BASICAUTHUSER_PASSWORD=${SILLYTAVERN_PASSWORD}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

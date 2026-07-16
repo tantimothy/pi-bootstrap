@@ -49,6 +49,13 @@ useful_commands: |2
      🔑 Open WebUI: first visit creates the initial admin account — whoever
         signs up first on a fresh install becomes admin. Don't leave this
         exposed to an untrusted network before that first sign-up.
+     🔒 SillyTavern requires SILLYTAVERN_PASSWORD, even for a bare default
+        deploy — its own default IP-whitelist security doesn't reliably
+        work in a containerized/NAT'd setup (confirmed directly: it
+        blocked even the host's own browser under Docker Desktop for Mac),
+        so this environment forces basic auth on instead. A browser login
+        prompt asking for SILLYTAVERN_USERNAME/SILLYTAVERN_PASSWORD is
+        expected, not a bug.
      🔐 LobeHub needs three secrets generated before its first deploy —
         see the README's "Configure your environment" step. Skipping this
         just leaves the CHANGE_ME_* placeholders in place, which LobeHub
