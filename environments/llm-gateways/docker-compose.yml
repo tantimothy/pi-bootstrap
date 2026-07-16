@@ -1,0 +1,83 @@
+services:
+  # LiteLLM proxy — an OpenAI-compatible gateway in front of your host's
+  # Ollama models (and, optionally, any hosted provider you add an API key
+  # for). Runs config-only by default: model_list comes from the committed
+  # litellm-config.yaml below, no database required at all — LITELLM_DATABASE_URL
+  # stays empty unless you opt into the litellm-db profile (see README's
+  # "Optional: Virtual Keys / Spend Tracking" section), matching upstream's
+  # own DB-less quick-start flow, not the Postgres-by-default shape their
+  # own docker-compose.yml demos (that one's aimed at their Admin UI, which
+  # this environment doesn't need for a personal single-host gateway).
+  litellm:
+    container_name: ${CONTAINER_NAME:-litellm}
+    image: docker.litellm.ai/berriai/litellm:main-stable
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=${LITELLM_DATABASE_URL:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+    command: ["--port", "4000", "--config", "/app/config.yaml"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    restart: unless-stopped
+    profiles: ["litellm", "all"]
+
+  # Opt-in Postgres for LiteLLM's Virtual Keys / spend-tracking / Admin UI
+  # login features — a sibling service, not gated behind the same profile
+  # as litellm itself (which is always on), so enabling it is a genuine
+  # two-step opt-in: add "litellm-db" to COMPOSE_PROFILES here AND set
+  # LITELLM_DATABASE_URL in .env, then redeploy so litellm picks up the new
+  # env var. See LOBEHUB_* in .env.example for the same two-step pattern
+  # used elsewhere in this repo's environments.
+  litellm-postgres:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}litellm-postgres
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=litellm
+      - POSTGRES_PASSWORD=${LITELLM_DB_PASSWORD}
+      - POSTGRES_DB=litellm
+    volumes:
+      - litellm_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    profiles: ["litellm-db", "all"]
+
+  # Portkey Gateway — a second, genuinely no-config, no-database gateway
+  # option: single container, credentials passed per-request via headers
+  # (not stored server-side), confirmed directly against upstream's own
+  # docs (Portkey-AI/gateway, docs/installation-deployments.md's own
+  # "docker run -p 8787:8787 portkeyai/gateway:latest" quick start — no
+  # compose file, no env vars, no volumes needed at all). Opt-in alongside
+  # LiteLLM if you want a lighter alternative or want to compare the two;
+  # neither depends on the other.
+  portkey-gateway:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}portkey-gateway
+    image: portkeyai/gateway:latest
+    ports:
+      - "${PORTKEY_PORT:-8787}:8787"
+    restart: unless-stopped
+    profiles: ["portkey", "all"]
+
+volumes:
+  litellm_postgres_data:
+    # Pinned to a literal name for the same reason portainer's own volume
+    # is pinned — see that environment's docker-compose.yml comment. Only
+    # created/used at all once you've opted into the litellm-db profile.
+    name: llm-gateways_litellm_postgres_data

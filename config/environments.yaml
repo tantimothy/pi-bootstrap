@@ -19,6 +19,7 @@ categories:
       - nanoclaw
       - nanoclaw-mnemon
       - chat-frontends
+      - llm-gateways
       - claude-cli
   - id: network-security
     name: "Networking & Security"
