@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Force a UTF-8 locale before anything below prints emoji or invokes
+# dialog — see lib/locale-lib.sh's own comment for why (a real macOS
+# session with no LANG/LC_ALL set hit both garbled INFO output and
+# dialog's own "Text has extra characters" complaint). Computed with
+# BASH_SOURCE rather than $PROJECT_DIR since that isn't determined until
+# much further down, and dialog is invoked before then too.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/locale-lib.sh" || true
+
 FALLBACK_PROJECT_DIR="$HOME/projects/bootstrap"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
 

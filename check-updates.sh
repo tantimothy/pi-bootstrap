@@ -31,6 +31,11 @@ set -uo pipefail
 # is an expected, common case here, not a reason to abort the whole scan.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Force a UTF-8 locale before any emoji-laden output below prints — see
+# lib/locale-lib.sh's own comment for why.
+source "$REPO_DIR/lib/locale-lib.sh" || true
+
 source "$REPO_DIR/lib/deploy-lib.sh"
 DOCKER="${DOCKER_CMD:-docker}"
 if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
