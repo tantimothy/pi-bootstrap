@@ -44,6 +44,22 @@ else
     TAR_TRANSFORM_FLAG="-s"
 fi
 
+# Escapes sed/regex metacharacters in $1 so it's safe to splice into a
+# tar -s/--transform pattern as a LITERAL string match, not a regex —
+# pure bash (no sed/awk) deliberately, so this doesn't introduce its own
+# GNU-vs-BSD inconsistency on top of the one it exists to work around.
+_tar_pattern_escape() {
+    local s="$1" out="" c i
+    for (( i=0; i<${#s}; i++ )); do
+        c="${s:$i:1}"
+        case "$c" in
+            .|'*'|'['|']'|^|'$'|'\') out+="\\$c" ;;
+            *) out+="$c" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
 INCLUDE_ENV=true
 OUT_DIR="$(pwd)"
 
@@ -72,11 +88,19 @@ INCLUDED_ENVS=()
 # so this stays cheap even for large data dirs (SDR captures, metrics, etc.).
 append_to_archive() {
     local archive_prefix="$1" src_dir="$2" src_name="$3"
+    # Anchored on the literal $src_name itself (e.g. "s#^\.env#prefix.env#"),
+    # not a bare "s#^#prefix#" zero-width match — confirmed directly on a
+    # real Mac that BSD tar's -s rejects a zero-length match outright
+    # ("tar: Invalid replacement string"), even though GNU tar's --transform
+    # accepts it fine. $src_name is always non-empty at every call site
+    # below, so this always matches real characters on both tar flavors.
+    local escaped_name; escaped_name="$(_tar_pattern_escape "$src_name")"
+    local transform_pattern="s#^${escaped_name}#${archive_prefix}${src_name}#"
     if [ "$FIRST_APPEND" = "true" ]; then
-        $SUDO_TAR "$TAR_TRANSFORM_FLAG" "s#^#${archive_prefix}#" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
+        $SUDO_TAR "$TAR_TRANSFORM_FLAG" "$transform_pattern" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
         FIRST_APPEND=false
     else
-        $SUDO_TAR "$TAR_TRANSFORM_FLAG" "s#^#${archive_prefix}#" -rf "$ARCHIVE" -C "$src_dir" "$src_name"
+        $SUDO_TAR "$TAR_TRANSFORM_FLAG" "$transform_pattern" -rf "$ARCHIVE" -C "$src_dir" "$src_name"
     fi
 }
 

@@ -21,6 +21,11 @@ delete_confirm_msg: "All conversation history and mnemon's persistent memory gra
 # environment no longer bundles Open WebUI either (see the standalone
 # `chat-frontends` environment instead) — so there's genuinely no web UI here.
 web_uis: []
+custom_actions:
+  - label: "Scaffold a Wiki for a Group"
+    command: 'read -rp "Group folder name (under groups/): " GROUP; bash ${ENV_DIR}/scripts/scaffold-wiki.sh "$GROUP"'
+  - label: "Check / Restart Ollama"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — "📌 Notes:" is intentionally at column 0 in the
 # rendered output; see ntopng/info.yaml for the full explanation. The

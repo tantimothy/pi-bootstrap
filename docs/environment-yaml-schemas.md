@@ -244,6 +244,10 @@ web_uis:                        # optional, default none
   - name: <string>
     url: <string>                # typically "http://${HOST_IP}:${PORT:-<default>}"
 
+custom_actions:                 # optional, default none — see its own
+  - label: <string>              # section below
+    command: <string>            # MUST be a single line — see below
+
 useful_commands: |               # optional block scalar — see the
   ...                            # indentation section below before writing one
 ```
@@ -253,6 +257,49 @@ file. `data_dirs`/`install_dirs`/`named_volumes` (combined) also decide
 `deploy.sh`'s `POLICY_HAS_WIPABLE_DATA` flag — if all three are empty,
 `WIPE` is hidden from that environment's policy menu entirely
 (`pi-barebones` is the one environment where this applies today).
+
+### `custom_actions`
+
+The fixed lifecycle policies (`FAST`/`STOP`/`TEARDOWN`/`CLEAN`/`INFO`/`WIPE`)
+are the only things `deploy.sh`'s own per-environment action menu shows by
+default — there's no way for an environment to add a brand-new item of its
+own to that list otherwise. `custom_actions` is that extension point:
+
+```yaml
+custom_actions:
+  - label: "Scaffold a Wiki for a Group"
+    command: 'read -rp "Group folder name (under groups/): " GROUP; bash ${ENV_DIR}/scripts/scaffold-wiki.sh "$GROUP"'
+  - label: "Check / Restart Ollama"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
+```
+
+Each entry appears as its own item in `deploy.sh`'s policy menu (alongside
+`FAST`/`STOP`/etc., using `label` as the displayed text), tagged internally
+as `ACTION_<index>` — never a real policy name, so there's no risk of a
+label colliding with `FAST`/`CLEAN`/etc. Selecting one runs `command`
+directly via `bash -c`, in the environment's own directory, with `.env`
+already sourced — fully interactive (a `read` prompt, a `docker exec -it`
+handoff) works exactly as if typed at the terminal, since this is run
+unwrapped, the same way `run.sh`'s own interactive handoffs are (see
+`lib/deploy-lib.sh`'s comment on `_run_logged` for why). One consequence
+of that: unlike `INFO`/`WIPE`/`FAST`/`CLEAN`, a custom action's output
+isn't saved to `environments/<env>/logs/`.
+
+`${VAR}`/`${VAR:-default}` markers in `command` are resolved the same way
+as everywhere else in this file (see the substitution section up top) —
+`ENV_DIR` is set to the environment's own absolute path, and since this
+runs from inside `deploy.sh` itself (not a fresh subshell), any of
+`deploy.sh`'s own real bash variables are available too, notably
+`PROJECT_DIR` (the repo root) — useful for invoking a repo-root script
+like `ollama-watchdog.sh` that isn't itself part of any one environment.
+
+**`command` must be a single line.** Confirmed directly against go-yq's
+own output for a multi-line block-scalar `command`: it prints embedded
+newlines *and* a blank-line separator between array elements, which the
+loader's line-by-line array reader would silently split into extra
+entries, misaligning every `command` against its `label` from that point
+on. Chain multiple statements with `;` or `&&` instead, or point `command`
+at a real script file if the logic is more than a line or two.
 
 ### `useful_commands` and the block-scalar indentation trap
 

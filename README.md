@@ -143,6 +143,31 @@ This re-runs the same scan, then asks individually — `[y/N/a=all/c=cancel]` pe
 
 ---
 
+## 🐕 Ollama Watchdog
+
+Ollama itself isn't one of this repo's environments — it's a host-level dependency `nanoclaw-mnemon` prompts to install and that `chat-frontends`/`llm-gateways` also talk to, always running natively rather than containerized (see those environments' own READMEs for why). None of them monitor it. `ollama-watchdog.sh` is a standalone script for that, born from a real incident: Ollama's process was alive, `ollama ps` even still showed a loaded model, but every chat request hung forever with nothing in any app's logs — only a full restart fixed it. A check that just confirms the process exists would have missed that entirely; this instead hits Ollama's own API with a hard timeout:
+
+```bash
+./ollama-watchdog.sh --check      # one-shot: is it actually responding right now?
+./ollama-watchdog.sh              # one-shot: check, and restart it if not
+./ollama-watchdog.sh --restart    # force a restart regardless of health
+```
+
+To run this automatically on a schedule instead of by hand:
+
+```bash
+./ollama-watchdog.sh --install    # every 5 minutes by default — launchd on macOS, cron on Linux
+./ollama-watchdog.sh --uninstall  # remove the scheduled job
+```
+
+Also reachable from `deploy.sh` itself — every environment that depends on Ollama (`nanoclaw-mnemon`, `chat-frontends`, `llm-gateways`) has a **"Check / Restart Ollama"** entry in its own action menu, via that environment's `info.yaml` `custom_actions` (see below) — no need to drop to a shell for it.
+
+Restart behavior is platform- and install-method-aware: macOS prefers `killall Ollama` + `open -a Ollama` if that's how it's running (the default Mac install), Linux prefers `systemctl restart ollama` if the official installer's systemd unit exists, and both fall back to killing/relaunching a bare `ollama serve` process otherwise. Every check and restart attempt is logged to `~/.ollama-watchdog.log` (override with `OLLAMA_WATCHDOG_LOG`), and on macOS a restart also fires a native notification via `osascript` (falls back to `notify-send` on Linux desktops that have it) — useful for a scheduled run where nothing's watching the terminal.
+
+**What this doesn't catch**: the health check hits Ollama's lightweight `/api/tags` endpoint (list installed models), not a real generation — enough to confirm the HTTP API itself is alive, which is what actually wedged in the incident above, but not a guarantee the generation engine specifically works if just that endpoint happens to still respond. A real `/api/generate` call would catch more, but needs a model already pulled, is slow, and burns real resources on every scheduled check — not worth it for something meant to run every few minutes.
+
+---
+
 ## 🏗️ How It Works
 
 ### Routing Priority
@@ -373,6 +398,8 @@ useful_commands: |2
 ```
 
 `${VAR}`/`${VAR:-default}` markers get resolved against `.env` (if present) and a couple of synthetic variables (`SCRIPT_DIR`, `HOST_IP`) — `.env.example` itself is never sourced, so every `.env`-driven marker needs its own explicit `:-default` matching that variable's `.env.example` default (`WEB_PORT` above defaults to `8080` because that's what `.env.example` documents; a marker with no default silently renders blank if `.env` doesn't set that key). Every field, the full substitution mechanism, and — importantly — the `useful_commands` block-scalar indentation trap (a plain `|` silently strips a uniformly-indented block's leading spaces to zero; always use `|2`) are documented in **[`docs/environment-yaml-schemas.md`](docs/environment-yaml-schemas.md)**.
+
+Also in there: `custom_actions` — an environment's own extension point for adding brand-new items to `deploy.sh`'s per-environment action menu, beyond the fixed `FAST`/`STOP`/`TEARDOWN`/`CLEAN`/`INFO`/`WIPE` set (`nanoclaw-mnemon`'s "Scaffold a Wiki for a Group" and "Check / Restart Ollama" entries are real, working examples).
 
 **Only add an `info.sh` override** if the environment needs something `info.yaml` genuinely can't express as static data — a conditional field set (`internet-pi`'s `PIHOLE_ENABLE`/`MONITORING_ENABLE` flags deciding which web UIs even exist) or an OS-dependent value (`nanoclaw`'s host-vs-macOS service commands). Call `_load_info_yaml` first for everything that *is* static, override just the one thing that varies, then call `run_info` directly — see `nanoclaw/info.sh` or `internet-pi/info.sh` as templates. `ACTION` is always one of `list` (terminal + regenerates `post-deploy-info.html`), `delete` (the `WIPE` policy, with a confirmation prompt), `manifest` (machine-readable, used by `backup.sh`), or `list-dirs` (machine-readable `data_dirs` paths only, one per line, used by `deploy.sh`'s generic fallback path) — none of these are something you call yourself.
 
