@@ -237,6 +237,45 @@ docker compose up -d
 
 ---
 
+## 🩺 Troubleshooting
+
+### `Permission denied (publickey)` on first SSH
+
+The most common cause: `SSH_AUTHORIZED_KEYS_PATH` (default `~/.ssh/authorized_keys` on the host) didn't exist yet the first time you deployed. Docker Compose's bind mount auto-creates a missing source path as an **empty directory**, not a file — so instead of your keys, the container got nothing to match against, and every key is rejected. Check for this first:
+
+```bash
+ls -la ~/.ssh/authorized_keys
+# a directory (not "-rw-------") confirms this is what happened
+```
+
+Fix it in three steps:
+
+1. **Remove the directory Docker created** (safe if empty — nothing you put there yourself):
+   ```bash
+   rmdir ~/.ssh/authorized_keys
+   ```
+2. **Create a real file containing your public key.** If you don't already have a keypair on disk (`ls ~/.ssh/*.pub` comes back empty — common if you use an SSH agent like 1Password's or a hardware key that never wrote a `.pub` file locally), check what your agent is offering first:
+   ```bash
+   ssh-add -L                      # lists keys held by your agent, if any
+   # found one? use it directly:
+   ssh-add -L >> ~/.ssh/authorized_keys
+   # nothing listed? generate a new keypair:
+   ssh-keygen -t ed25519
+   cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+   ```
+   ```bash
+   chmod 600 ~/.ssh/authorized_keys
+   ```
+3. **Recreate the container — a plain restart isn't enough.** The running container's mount was set up back when the host path was still a directory; `docker compose stop && docker compose up -d` reuses that same container and its stale mount config, and fails outright with a `not a directory: Are you trying to mount a directory onto a file` error. Force recreation instead (`deploy.sh`'s `TEARDOWN` + `FAST`, or by hand):
+   ```bash
+   docker compose down   # named volumes (claude_home, ssh_host_keys) are untouched
+   docker compose up -d
+   ```
+
+Then retry `ssh -p ${SSH_PORT:-2222} claude@localhost`.
+
+---
+
 ## 🔒 Security Notes
 
 - **Key-based auth only.** `sshd_config` is patched at build time (`PasswordAuthentication no`, `PermitRootLogin no`) — there's no password to guess, only whoever's public key is in `SSH_AUTHORIZED_KEYS_PATH`.
