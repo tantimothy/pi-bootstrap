@@ -38,6 +38,25 @@ conversation, not a new one. Detach on purpose with the usual tmux prefix
 this entirely and just runs `some-command` — scripted SSH use is
 unaffected.
 
+### Getting a Plain Shell Instead of the `claude` Conversation
+
+Since window 0 of the tmux session runs `claude` directly (not a shell that
+happens to launch `claude`), you can't just type a shell command at the
+prompt — it goes to `claude` as a chat message instead. Three ways to get
+an actual shell, for things like `git`, `gh`, or a one-time `claude mcp
+add` (see "Connecting to Home Assistant" below):
+
+- **New tmux window, same connection (recommended):** press `Ctrl-b c` —
+  only window 0 was launched with the `claude` command; any window you
+  create yourself gets a normal shell. Switch back to the conversation
+  with `Ctrl-b n`/`Ctrl-b p` (next/previous window) or `Ctrl-b 0`.
+- **A second, non-interactive SSH connection:** `ssh -p ${SSH_PORT:-2222}
+  claude@<host> '<command>'` — appending a command skips the tmux
+  auto-attach entirely (see above), so it runs and exits without touching
+  your live session at all. Good for scripting or a single quick command.
+- **From the Docker host directly:** `docker exec -it -u claude
+  ${CONTAINER_NAME:-claude-cli} bash`.
+
 ---
 
 ## 🌐 Why a Container-Own `sshd` Instead of Host SSH + `docker exec`
