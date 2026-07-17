@@ -1,0 +1,16 @@
+#!/bin/bash
+# Created by Ben Okopnik on Mon Apr  1 04:12:39 EST 2002
+
+line=$(($RANDOM%`grep -c '$' ~/bin/bofhserver/excuses.txt`))
+
+cat << !
+=== The BOFH-style Excuse Server --- Feel The Power!
+=== By Jeff Ballard <ballard@cs.wisc.edu>
+=== See http://www.cs.wisc.edu/~ballard/bofh/ for more info.
+!
+
+echo
+cat -n ~/bin/bofhserver/excuses.txt|while read a b
+do
+    [ "$a" = "$line" ] && { echo "Your BOFH excuse is: $b"; break; }
+done

@@ -1,0 +1,8 @@
+/* Austrian calendar file(s) */
+
+#ifndef _calendar_austria_
+#define _calendar_austria_
+
+#include <de_AT.UTF-8/calendar.feiertag>
+
+#endif /* !_calendar_austria_ */

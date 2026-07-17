@@ -1,0 +1,31 @@
+# Skip this whole injected section for non-interactive shells (scripts,
+# `ssh host command`, this repo's own tooling shelling out, etc.) — the
+# live version of this file had no such guard, which meant every
+# non-interactive bash invocation ran the full whimsy cascade below,
+# including a "press any key" prompt that hangs when stdin isn't a TTY.
+[[ $- == *i* ]] || return
+
+export PS1='\[\033k\033\\\]\u@\h:\w [$?]\$'
+# (The $? is the return code of the last command run)
+
+export BEEP=$(echo -en "\007")
+       WHITE="\[\033[0;97m\]"
+       GREEN="\[\033[0;32m\]"
+LIGHT_YELLOW="\[\033[0;93m\]"
+     MAGENTA="\[\033[0;35m\]"
+  LIGHT_CYAN="\[\033[0;96m\]"
+     DEFAULT="\[\033[0;0m\]"
+
+export GIT_PS1_SHOWDIRTYSTATE=true
+export GIT_PS1_SHOWUNTRACKEDFILES=true
+export GIT_PS1_SHOWUPSTREAM="auto"
+export GIT_PS1_SHOWCONFLICTSTATE="yes"
+export GIT_PS1_SHOWCOLORHINTS=true
+
+if [ -f /Library/Developer/CommandLineTools/usr/share/git-core/git-prompt.sh ]; then
+    source /Library/Developer/CommandLineTools/usr/share/git-core/git-completion.bash
+    source /Library/Developer/CommandLineTools/usr/share/git-core/git-prompt.sh
+    export PS1=$WHITE'\u@\h '$LIGHT_YELLOW'\w '$LIGHT_CYAN'[$?]'$DEFAULT'$(__git_ps1)\$ '
+else
+    export PS1=$WHITE'\u@\h '$LIGHT_YELLOW'\w '$LIGHT_CYAN'[$?]'$DEFAULT'\$ '
+fi

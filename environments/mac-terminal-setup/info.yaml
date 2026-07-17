@@ -1,0 +1,22 @@
+data_dirs: []
+install_dirs:
+  - path: "${HOME}/bin"
+    description: "Bundled whimsy scripts (bofhexcuse, insulthost.pl, piratehost.pl, calendar data) — only present if whimsy extras are enabled"
+no_data_msg: "(none — mac-terminal-setup only installs packages and configures dotfiles)"
+no_delete_msg: "mac-terminal-setup has no persistent data directories to delete.\n   Existing dotfiles it overwrote are backed up under ${HOME}/.pi-bootstrap-backups/ —\n   restore one by copying it back from the most recent mac-terminal-setup-* folder there.\n   To undo package installations, remove them manually with:\n   brew uninstall <formula>"
+custom_actions:
+  - label: "Toggle whimsical login extras"
+    command: 'CUR=$(grep -E "^WHIMSY_ENABLED=" ${ENV_DIR}/.env 2>/dev/null | cut -d= -f2-); if [ "$CUR" = "true" ]; then NEW=false; else NEW=true; fi; echo "WHIMSY_ENABLED=$NEW" > ${ENV_DIR}/.env; echo "Whimsy extras now: $NEW — applying..."; bash ${ENV_DIR}/run.sh'
+# |2 pins the strip to exactly 2 spaces regardless of which line is
+# least-indented — see ntopng/info.yaml for the full explanation.
+# ~/.bashrc and ~/bin below are literal tildes, not ${HOME} — informational
+# text for the user to type themselves.
+useful_commands: |2
+     cat ${SCRIPT_DIR}/.env                                            # Current whimsy on/off setting
+     grep -A3 'MAC TERMINAL PROMPT START' ~/.bashrc                    # View injected .bashrc blocks
+     grep -A3 'MAC TERMINAL WHIMSY START' ~/.bashrc
+     source ~/.bash_profile                                            # Reload shell config
+     tmux ls                                                           # List active tmux sessions
+     tmux attach                                                       # Attach to most recent tmux session
+     brew list --formula                                               # All installed Homebrew packages
+     ls -t ~/.pi-bootstrap-backups/ | head                             # Most recent backups from this environment

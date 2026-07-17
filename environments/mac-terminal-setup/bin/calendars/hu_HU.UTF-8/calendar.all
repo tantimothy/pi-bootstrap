@@ -1,0 +1,9 @@
+/* Magyar kalendárium */
+
+#ifndef _hu_HU_all_
+#define _hu_HU_all_
+
+#include <hu_HU.UTF-8/calendar.unnepek>
+#include <hu_HU.UTF-8/calendar.nevnapok>
+
+#endif /* !_hu_HU_all_ */
