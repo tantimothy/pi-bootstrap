@@ -35,7 +35,15 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 # Non-root login user. Claude CLI and its own OAuth/session state live
 # entirely under this user's home, matching how it's run everywhere else in
 # this repo (never as root).
-RUN useradd --create-home --shell /bin/bash claude
+#
+# node:20-slim already ships its own "node" user/group at uid/gid 1000 (every
+# official Node image does this). Remove it first so "claude" lands on
+# 1000:1000 instead of getting bumped to 1001 — entrypoint.sh's PUID/PGID
+# defaults are 1000, and its startup usermod/groupmod would otherwise collide
+# with the leftover "node" identity and fail on every single container start.
+RUN userdel -r node \
+    && groupdel node \
+    && useradd --uid 1000 --create-home --shell /bin/bash claude
 
 # sshd proper (not just the client) needs its own runtime dir and host keys.
 RUN mkdir -p /run/sshd
