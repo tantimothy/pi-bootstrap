@@ -306,7 +306,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
     && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp — standalone binary release, no Python install needed just for it.
-RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+# Must be an arch-matched `yt-dlp_linux*` asset, not the plain `yt-dlp`
+# asset: that one is a zipimport script (shebang `#!/usr/bin/env python3`)
+# that still needs a system python3 on PATH — this image has none, by
+# design. This agent-sandbox image is built on whatever host runs it (arm64
+# on a Raspberry Pi or Apple Silicon Mac, amd64 on an Intel Mac via
+# OrbStack/Docker Desktop), so the asset is picked via `uname -m` at build
+# time rather than hardcoded. See the orchestrator's own Dockerfile
+# (environments/nanoclaw-mnemon/Dockerfile) for the fuller writeup — this
+# block mirrors that fix.
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64) yt_asset=yt-dlp_linux ;; \
+        aarch64) yt_asset=yt-dlp_linux_aarch64 ;; \
+        armv7l) yt_asset=yt-dlp_linux_armv7l ;; \
+        *) echo "Unsupported architecture for yt-dlp: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${yt_asset}" -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 MEDIA_TOOLS_DOCKER_BLOCK
