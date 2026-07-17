@@ -101,6 +101,36 @@ Turning it off removes the `WHIMSY` block from `~/.bashrc` (so nothing runs)
 but deliberately leaves the already-copied `~/bin` scripts in place —
 they're inert once nothing calls them, and re-enabling later is instant.
 
+### Sources
+
+Where each whimsy piece comes from:
+
+- **Splash animations** — [cbonsai](https://gitlab.com/jallbrit/cbonsai),
+  [cmatrix](https://github.com/abishekvashok/cmatrix),
+  [asciiquarium](https://github.com/cmatsuoka/asciiquarium), and the
+  [cowsay](https://github.com/cowsay-org/cowsay) +
+  [fortune-mod](https://github.com/shlomif/fortune-mod) +
+  [lolcat](https://github.com/busyloop/lolcat) combo.
+- **BOFH excuse** (`bin/bofhexcuse`) — Jeff Ballard's
+  [BOFH-style Excuse Server](https://pages.cs.wisc.edu/~ballard/bofh/).
+- **Programming Excuse** — [programmingexcuses.com](http://programmingexcuses.com).
+- **Classic Tech/IRC Insult** — Simon Whiting's insult CGI at
+  [sweh.spuddy.org](https://sweh.spuddy.org)
+  ([insult.cgi](https://sweh.spuddy.org/Jokes/insult/insult.cgi) directly).
+- **Shakespearean Epithet** (`bin/insulthost.pl`) — the `insultserver`
+  backend of
+  [Acme::Scurvy::Whoreson::BilgeRat](https://metacpan.org/pod/Acme::Scurvy::Whoreson::BilgeRat)
+  on CPAN:
+  [Acme::Scurvy::Whoreson::BilgeRat::Backend::insultserver](https://metacpan.org/pod/Acme::Scurvy::Whoreson::BilgeRat::Backend::insultserver).
+- **Piratical Insult** (`bin/piratehost.pl`) — the same
+  [Acme::Scurvy::Whoreson::BilgeRat](https://metacpan.org/pod/Acme::Scurvy::Whoreson::BilgeRat)
+  module's `pirate` language, in the spirit of
+  [Talk Like a Pirate Day](https://talklikeapiratecom.wpcomstaging.com).
+- **Calendar facts** (`bin/calendars/`) — FreeBSD's
+  [calendar-data](https://github.com/freebsd/calendar-data) files (see
+  `bin/calendars/LICENSE`).
+- **Weather** — [wttr.in](https://github.com/chubin/wttr.in).
+
 ---
 
 ## Customising the Package List
