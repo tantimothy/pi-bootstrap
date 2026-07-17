@@ -6,7 +6,7 @@ no_data_msg: "(none — mac-terminal-setup only installs packages and configures
 no_delete_msg: "mac-terminal-setup has no persistent data directories to delete.\n   Existing dotfiles it overwrote are backed up under ${HOME}/.pi-bootstrap-backups/ —\n   restore one by copying it back from the most recent mac-terminal-setup-* folder there.\n   To undo package installations, remove them manually with:\n   brew uninstall <formula>"
 custom_actions:
   - label: "Toggle whimsical login extras"
-    command: 'CUR=$(grep -E "^WHIMSY_ENABLED=" ${ENV_DIR}/.env 2>/dev/null | cut -d= -f2-); if [ "$CUR" = "true" ]; then NEW=false; else NEW=true; fi; echo "WHIMSY_ENABLED=$NEW" > ${ENV_DIR}/.env; echo "Whimsy extras now: $NEW — applying..."; bash ${ENV_DIR}/run.sh'
+    command: 'CUR="${WHIMSY_ENABLED:-false}"; if [ "$CUR" = "true" ]; then NEW=false; else NEW=true; fi; echo "Whimsical login extras are currently: $CUR"; read -rp "Switch to $NEW instead? [y/N]: " ANSWER; if [[ "$ANSWER" =~ ^[Yy] ]]; then echo "WHIMSY_ENABLED=$NEW" > ${ENV_DIR}/.env; echo "Whimsy extras now: $NEW — applying..."; bash ${ENV_DIR}/run.sh; else echo "No changes made."; fi'
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — see ntopng/info.yaml for the full explanation.
 # ~/.bashrc and ~/bin below are literal tildes, not ${HOME} — informational
