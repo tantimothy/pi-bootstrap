@@ -143,6 +143,29 @@ This re-runs the same scan, then asks individually — `[y/N/a=all/c=cancel]` pe
 
 ---
 
+## 🐕 Ollama Watchdog
+
+Ollama itself isn't one of this repo's environments — it's a host-level dependency `nanoclaw-mnemon` prompts to install and that `chat-frontends`/`llm-gateways` also talk to, always running natively rather than containerized (see those environments' own READMEs for why). None of them monitor it. `ollama-watchdog.sh` is a standalone script for that, born from a real incident: Ollama's process was alive, `ollama ps` even still showed a loaded model, but every chat request hung forever with nothing in any app's logs — only a full restart fixed it. A check that just confirms the process exists would have missed that entirely; this instead hits Ollama's own API with a hard timeout:
+
+```bash
+./ollama-watchdog.sh --check      # one-shot: is it actually responding right now?
+./ollama-watchdog.sh              # one-shot: check, and restart it if not
+./ollama-watchdog.sh --restart    # force a restart regardless of health
+```
+
+To run this automatically on a schedule instead of by hand:
+
+```bash
+./ollama-watchdog.sh --install    # every 5 minutes by default — launchd on macOS, cron on Linux
+./ollama-watchdog.sh --uninstall  # remove the scheduled job
+```
+
+Restart behavior is platform- and install-method-aware: macOS prefers `killall Ollama` + `open -a Ollama` if that's how it's running (the default Mac install), Linux prefers `systemctl restart ollama` if the official installer's systemd unit exists, and both fall back to killing/relaunching a bare `ollama serve` process otherwise. Every check and restart attempt is logged to `~/.ollama-watchdog.log` (override with `OLLAMA_WATCHDOG_LOG`), and on macOS a restart also fires a native notification via `osascript` (falls back to `notify-send` on Linux desktops that have it) — useful for a scheduled run where nothing's watching the terminal.
+
+**What this doesn't catch**: the health check hits Ollama's lightweight `/api/tags` endpoint (list installed models), not a real generation — enough to confirm the HTTP API itself is alive, which is what actually wedged in the incident above, but not a guarantee the generation engine specifically works if just that endpoint happens to still respond. A real `/api/generate` call would catch more, but needs a model already pulled, is slow, and burns real resources on every scheduled check — not worth it for something meant to run every few minutes.
+
+---
+
 ## 🏗️ How It Works
 
 ### Routing Priority
