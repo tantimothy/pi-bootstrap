@@ -36,24 +36,50 @@ SUDO_TAR="sudo tar"
 # tar (macOS's bundled /usr/bin/tar, libarchive-based) has no such flag at
 # all and errors outright ("tar: Option --transform is not supported") —
 # confirmed directly on a real Mac. BSD tar has the same sed-style renaming
-# under a different flag, -s, taking an identical "s#pattern#replacement#"
-# argument, so only the flag name needs to differ, not the pattern itself.
+# under a different flag, -s, so only the flag name needs to differ — but
+# NOT the same delimiter-flexible syntax GNU tar's --transform allows.
+# Confirmed directly against libarchive's own bsdtar.1 man page: BSD tar's
+# -s pattern is hardcoded "/old/new/" — "/" specifically, not an arbitrary
+# delimiter the way sed (and GNU tar) support. An earlier version of this
+# fix used "#" as the delimiter (to dodge literal "/" in archived paths)
+# — GNU tar accepted that fine, which is exactly why it wasn't caught
+# until a real Mac hit "tar: Invalid replacement string" from BSD tar
+# rejecting the non-"/" delimiter outright. "/" now, on both flavors, with
+# any literal "/" in either half escaped instead.
 if tar --version 2>&1 | grep -qi "GNU tar"; then
     TAR_TRANSFORM_FLAG="--transform"
 else
     TAR_TRANSFORM_FLAG="-s"
 fi
 
-# Escapes sed/regex metacharacters in $1 so it's safe to splice into a
-# tar -s/--transform pattern as a LITERAL string match, not a regex —
-# pure bash (no sed/awk) deliberately, so this doesn't introduce its own
-# GNU-vs-BSD inconsistency on top of the one it exists to work around.
+# Escapes regex metacharacters (INCLUDING the delimiter, "/") in $1 so
+# it's safe to splice into a tar -s/--transform pattern's "old" (match)
+# half as a LITERAL string, not a regex. Pure bash (no sed/awk)
+# deliberately, so this doesn't introduce its own GNU-vs-BSD inconsistency
+# on top of the one it exists to work around.
 _tar_pattern_escape() {
     local s="$1" out="" c i
     for (( i=0; i<${#s}; i++ )); do
         c="${s:$i:1}"
         case "$c" in
-            .|'*'|'['|']'|^|'$'|'\') out+="\\$c" ;;
+            .|'*'|'['|']'|^|'$'|'\'|'/') out+="\\$c" ;;
+            *) out+="$c" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
+# Escapes $1 for the pattern's "new" (replacement) half instead — NOT the
+# same escaping as the pattern half above, since sed replacement text
+# isn't a regex (no "." wildcard, no "[...]" bracket expressions to worry
+# about) — only the delimiter ("/"), a literal backslash, and "&" (sed's
+# "whole match" token) actually mean something there.
+_tar_replacement_escape() {
+    local s="$1" out="" c i
+    for (( i=0; i<${#s}; i++ )); do
+        c="${s:$i:1}"
+        case "$c" in
+            '\'|'/'|'&') out+="\\$c" ;;
             *) out+="$c" ;;
         esac
     done
@@ -88,14 +114,15 @@ INCLUDED_ENVS=()
 # so this stays cheap even for large data dirs (SDR captures, metrics, etc.).
 append_to_archive() {
     local archive_prefix="$1" src_dir="$2" src_name="$3"
-    # Anchored on the literal $src_name itself (e.g. "s#^\.env#prefix.env#"),
-    # not a bare "s#^#prefix#" zero-width match — confirmed directly on a
+    # Anchored on the literal $src_name itself (e.g. "s/^\.env/prefix.env/"),
+    # not a bare "s/^/prefix/" zero-width match — confirmed directly on a
     # real Mac that BSD tar's -s rejects a zero-length match outright
     # ("tar: Invalid replacement string"), even though GNU tar's --transform
     # accepts it fine. $src_name is always non-empty at every call site
     # below, so this always matches real characters on both tar flavors.
-    local escaped_name; escaped_name="$(_tar_pattern_escape "$src_name")"
-    local transform_pattern="s#^${escaped_name}#${archive_prefix}${src_name}#"
+    local escaped_pattern; escaped_pattern="$(_tar_pattern_escape "$src_name")"
+    local escaped_replacement; escaped_replacement="$(_tar_replacement_escape "${archive_prefix}${src_name}")"
+    local transform_pattern="s/^${escaped_pattern}/${escaped_replacement}/"
     if [ "$FIRST_APPEND" = "true" ]; then
         $SUDO_TAR "$TAR_TRANSFORM_FLAG" "$transform_pattern" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
         FIRST_APPEND=false
