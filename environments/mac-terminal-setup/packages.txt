@@ -1,0 +1,3 @@
+# Core terminal setup — always installed
+tmux
+fastfetch

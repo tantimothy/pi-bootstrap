@@ -1,0 +1,7 @@
+# Whimsical login extras — only installed when WHIMSY_ENABLED=true (see .env.example)
+cbonsai
+cmatrix
+asciiquarium
+cowsay
+fortune
+lolcat

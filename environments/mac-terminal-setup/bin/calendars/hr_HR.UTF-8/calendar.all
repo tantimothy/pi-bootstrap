@@ -1,0 +1,8 @@
+/*  hrvatski calendar */
+
+#ifndef _hr_HR_all_
+#define _hr_HR_all_
+
+#include <hr_HR.UTF-8/calendar.praznici>
+
+#endif /* !_hr_HR_all_ */

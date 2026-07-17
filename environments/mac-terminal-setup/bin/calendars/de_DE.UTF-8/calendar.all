@@ -1,0 +1,13 @@
+/* deutscher Kalender */
+
+#ifndef _de_DE_all_
+#define _de_DE_all_
+
+#include <de_DE.UTF-8/calendar.feiertag>
+#include <de_DE.UTF-8/calendar.geschichte>
+#include <de_DE.UTF-8/calendar.kirche>
+#include <de_DE.UTF-8/calendar.literatur>
+#include <de_DE.UTF-8/calendar.musik>
+#include <de_DE.UTF-8/calendar.wissenschaft>
+
+#endif /* !_de_DE_all_ */
