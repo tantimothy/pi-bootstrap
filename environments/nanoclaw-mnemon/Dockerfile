@@ -85,8 +85,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
     && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp — the standalone, dependency-free binary release (no Python install
-# needed in this image just for it).
-RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+# needed in this image just for it). Must be an arch-matched `yt-dlp_linux*`
+# asset, not the plain `yt-dlp` asset: that one is a zipimport script
+# (shebang `#!/usr/bin/env python3`) that still needs a system python3 on
+# PATH to run at all — confirmed against a real failure ("python3: No such
+# file or directory"), since this image has no python3 installed by design.
+# This orchestrator image is built on whatever host runs it — arm64 on a
+# Raspberry Pi or an Apple Silicon Mac (OrbStack), amd64 on an Intel Mac —
+# so the asset is picked via `uname -m` at build time rather than hardcoded.
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64) yt_asset=yt-dlp_linux ;; \
+        aarch64) yt_asset=yt-dlp_linux_aarch64 ;; \
+        armv7l) yt_asset=yt-dlp_linux_armv7l ;; \
+        *) echo "Unsupported architecture for yt-dlp: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${yt_asset}" -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 # NanoClaw's own setup wizard installs the Claude CLI reactively, on demand,
