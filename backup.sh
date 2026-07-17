@@ -32,54 +32,56 @@ if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 # invoking user at the end.
 SUDO_TAR="sudo tar"
 
-# GNU tar (Linux/Raspberry Pi) renames archive entries via --transform; BSD
-# tar (macOS's bundled /usr/bin/tar, libarchive-based) has no such flag at
-# all and errors outright ("tar: Option --transform is not supported") —
-# confirmed directly on a real Mac. BSD tar has the same sed-style renaming
-# under a different flag, -s, so only the flag name needs to differ — but
-# NOT the same delimiter-flexible syntax GNU tar's --transform allows.
-# Confirmed directly against libarchive's own bsdtar.1 man page: BSD tar's
-# -s pattern is hardcoded "/old/new/" — "/" specifically, not an arbitrary
-# delimiter the way sed (and GNU tar) support. An earlier version of this
-# fix used "#" as the delimiter (to dodge literal "/" in archived paths)
-# — GNU tar accepted that fine, which is exactly why it wasn't caught
-# until a real Mac hit "tar: Invalid replacement string" from BSD tar
-# rejecting the non-"/" delimiter outright. "/" now, on both flavors, with
-# any literal "/" in either half escaped instead.
+# GNU tar (Linux/Raspberry Pi) renames archive entries via --transform,
+# which takes a full sed EXPRESSION as its argument (hence needs a leading
+# "s", e.g. "s#old#new#") — it hands that string straight to a real sed-
+# style engine. BSD tar (macOS's bundled /usr/bin/tar, libarchive-based)
+# has no --transform at all ("tar: Option --transform is not supported")
+# and instead takes the same substitution via -s — but -s's argument is
+# NOT a sed expression, just "#old#new#[flags]", no leading "s". The flag
+# name (-s) already means "substitute"; a leading "s" isn't stripped
+# before parsing.
+#
+# Confirmed directly against libarchive's own tar/subst.c source
+# (add_substitution(), matching the exact 3.7.4 release a real failing Mac
+# reported): it reads the FIRST character of whatever string you pass as
+# the delimiter, full stop — `end_pattern = strchr(rule_text + 1,
+# *rule_text)`. Passing "s#old#new#" (GNU tar's own required syntax) means
+# BSD tar treats the leading "s" ITSELF as the delimiter, then searches
+# for the next literal "s" character to close the pattern — which
+# silently corrupts the parse the moment any real "s" appears later in
+# the pattern or replacement (an near-certainty for this repo's own env/
+# path names, e.g. "chat-frontends") rather than stopping at the intended
+# "#". The garbled 3-way split then fails to find a matching final
+# delimiter at all, producing the exact bare "tar: Invalid replacement
+# string" a real Mac hit — unrelated to the delimiter *character* choice
+# itself (both "#" and "/" are valid, arbitrary delimiters to bsdtar, same
+# as sed) or to zero-width matches (both prior theories this session,
+# each fixed something real but neither was actually blocking this).
 if tar --version 2>&1 | grep -qi "GNU tar"; then
     TAR_TRANSFORM_FLAG="--transform"
+    TAR_SUBST_PREFIX="s"
 else
     TAR_TRANSFORM_FLAG="-s"
+    TAR_SUBST_PREFIX=""
 fi
 
-# Escapes regex metacharacters (INCLUDING the delimiter, "/") in $1 so
-# it's safe to splice into a tar -s/--transform pattern's "old" (match)
-# half as a LITERAL string, not a regex. Pure bash (no sed/awk)
-# deliberately, so this doesn't introduce its own GNU-vs-BSD inconsistency
-# on top of the one it exists to work around.
+# Escapes regex metacharacters in $1 so it's safe to splice into the
+# pattern's "old" (match) half as a LITERAL string, not a regex. "#" (the
+# delimiter) deliberately isn't escaped here at all — bsdtar's own parser
+# is a naive strchr() split with no escape awareness for the delimiter
+# (confirmed in the same source read above), so an escaped delimiter
+# wouldn't be understood as literal anyway. "#" is used specifically
+# because it's not a character any real environment name, path, or volume
+# name in this repo ever contains — the only real defense against
+# delimiter collision bsdtar allows is picking one that can't appear, not
+# escaping one that might.
 _tar_pattern_escape() {
     local s="$1" out="" c i
     for (( i=0; i<${#s}; i++ )); do
         c="${s:$i:1}"
         case "$c" in
-            .|'*'|'['|']'|^|'$'|'\'|'/') out+="\\$c" ;;
-            *) out+="$c" ;;
-        esac
-    done
-    printf '%s' "$out"
-}
-
-# Escapes $1 for the pattern's "new" (replacement) half instead — NOT the
-# same escaping as the pattern half above, since sed replacement text
-# isn't a regex (no "." wildcard, no "[...]" bracket expressions to worry
-# about) — only the delimiter ("/"), a literal backslash, and "&" (sed's
-# "whole match" token) actually mean something there.
-_tar_replacement_escape() {
-    local s="$1" out="" c i
-    for (( i=0; i<${#s}; i++ )); do
-        c="${s:$i:1}"
-        case "$c" in
-            '\'|'/'|'&') out+="\\$c" ;;
+            .|'*'|'['|']'|^|'$'|'\') out+="\\$c" ;;
             *) out+="$c" ;;
         esac
     done
@@ -114,15 +116,19 @@ INCLUDED_ENVS=()
 # so this stays cheap even for large data dirs (SDR captures, metrics, etc.).
 append_to_archive() {
     local archive_prefix="$1" src_dir="$2" src_name="$3"
-    # Anchored on the literal $src_name itself (e.g. "s/^\.env/prefix.env/"),
-    # not a bare "s/^/prefix/" zero-width match — confirmed directly on a
-    # real Mac that BSD tar's -s rejects a zero-length match outright
-    # ("tar: Invalid replacement string"), even though GNU tar's --transform
-    # accepts it fine. $src_name is always non-empty at every call site
-    # below, so this always matches real characters on both tar flavors.
+    # Anchored on the literal $src_name itself (e.g. "#^\.env#prefix.env#"),
+    # not a bare "#^#prefix#" zero-width match — kept from an earlier fix
+    # this session; not itself the bug that was actually blocking this
+    # (see the TAR_SUBST_PREFIX comment above), but doesn't hurt either.
+    # $src_name is always non-empty at every call site below.
+    #
+    # TAR_SUBST_PREFIX is "s" for GNU tar's --transform (a real sed
+    # expression, needs it) and empty for BSD tar's -s (whose argument is
+    # just the delimited pattern itself — see the comment above
+    # TAR_TRANSFORM_FLAG's own assignment for why a leading "s" there
+    # silently corrupts the parse instead of erroring cleanly).
     local escaped_pattern; escaped_pattern="$(_tar_pattern_escape "$src_name")"
-    local escaped_replacement; escaped_replacement="$(_tar_replacement_escape "${archive_prefix}${src_name}")"
-    local transform_pattern="s/^${escaped_pattern}/${escaped_replacement}/"
+    local transform_pattern="${TAR_SUBST_PREFIX}#^${escaped_pattern}#${archive_prefix}${src_name}#"
     if [ "$FIRST_APPEND" = "true" ]; then
         $SUDO_TAR "$TAR_TRANSFORM_FLAG" "$transform_pattern" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
         FIRST_APPEND=false
