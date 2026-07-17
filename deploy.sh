@@ -726,6 +726,42 @@ if [ -f "$ENV_INFO_YAML" ]; then
     fi
 fi
 
+# Optional per-environment extras beyond the fixed lifecycle policies above
+# — an environment declares these itself in info.yaml's own custom_actions
+# list (see docs/environment-yaml-schemas.md) rather than deploy.sh having
+# to know about any specific one. Tagged ACTION_<index> (never a bare
+# label) so there's no risk of a custom action's own label colliding with
+# a real policy name like FAST/CLEAN — the ACTION_ prefix is what the
+# dispatch block further down keys off of. Reset to empty on every pass
+# through deploy.sh's persistent menu loop, same reasoning as
+# POLICY_HAS_LIFECYCLE/POLICY_HAS_WIPABLE_DATA above: a later environment
+# must never inherit a previous one's custom actions.
+#
+# command must be a SINGLE LINE (chain multiple statements with ; or &&,
+# or point it at a script) — confirmed directly against go-yq's own output
+# for a multi-line block-scalar command: `.custom_actions[].command`
+# prints embedded newlines AND a blank-line separator between array
+# elements, which _read_lines (one array entry per physical line) would
+# silently split into extra entries, misaligning CUSTOM_ACTION_COMMANDS
+# against CUSTOM_ACTION_LABELS from that element onward. Single-line
+# values round-trip 1:1 with labels; this isn't worth the complexity of a
+# JSON-based extraction just to support multi-line strings here.
+CUSTOM_ACTION_LABELS=()
+CUSTOM_ACTION_COMMANDS=()
+if [ -f "$ENV_INFO_YAML" ]; then
+    # (.custom_actions // [])[] — NOT ".custom_actions[].label // \"\"" —
+    # confirmed directly: with custom_actions entirely absent (true for
+    # every environment except the ones that actually declare one), the
+    # latter form still emits one blank line rather than zero, which
+    # _read_lines would read as a genuine (empty-label) entry — a real
+    # environment with zero custom actions would otherwise get a single
+    # bogus blank ACTION_0 menu item every time.
+    _read_lines < <(_yq '(.custom_actions // [])[].label' "$ENV_INFO_YAML" 2>/dev/null)
+    CUSTOM_ACTION_LABELS=("${_LINES[@]}")
+    _read_lines < <(_yq '(.custom_actions // [])[].command' "$ENV_INFO_YAML" 2>/dev/null)
+    CUSTOM_ACTION_COMMANDS=("${_LINES[@]}")
+fi
+
 POLICY_MENU_ITEMS=()
 if [ "$POLICY_HAS_LIFECYCLE" = "true" ]; then
     POLICY_MENU_ITEMS+=(
@@ -743,6 +779,10 @@ POLICY_MENU_ITEMS+=( "INFO" "List data directories and useful commands" )
 if [ "$POLICY_HAS_WIPABLE_DATA" = "true" ]; then
     POLICY_MENU_ITEMS+=( "WIPE" "Delete persisted data directories (backup first!)" )
 fi
+for _i in "${!CUSTOM_ACTION_LABELS[@]}"; do
+    POLICY_MENU_ITEMS+=( "ACTION_${_i}" "${CUSTOM_ACTION_LABELS[$_i]}" )
+done
+unset _i
 
 TEMP_POLICY_FILE=$(mktemp)
 dialog --clear \
@@ -834,7 +874,7 @@ cd "$TARGET_WORKSPACE_DIR" || exit 1
 # =======================================================
 # 🔐 ADVANCED BULK FORM COMPILER WITH DEFAULT INJECTION
 # =======================================================
-if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLICY" != "TEARDOWN" ] && [ "$REBUILD_POLICY" != "INFO" ] && [ "$REBUILD_POLICY" != "WIPE" ]; then
+if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLICY" != "TEARDOWN" ] && [ "$REBUILD_POLICY" != "INFO" ] && [ "$REBUILD_POLICY" != "WIPE" ] && [[ "$REBUILD_POLICY" != ACTION_* ]]; then
     echo "🔑 Building multi-field runtime parameters board..."
     
     KEYS=()
@@ -976,6 +1016,35 @@ if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     fi
     echo ""
     _reset_tty_input
+    read -rp "Press Enter to return to the menu..."
+    continue
+fi
+
+# 6b. Custom actions (ACTION_<index>) — an environment's own info.yaml
+# extras, run directly and unwrapped (no _run_logged pty wrapping, unlike
+# INFO/WIPE above) so a fully interactive command (a `read` prompt, a
+# `docker exec -it` handoff) works exactly as if typed directly, the same
+# reasoning deploy_environment() itself uses for run.sh's own interactive
+# handoffs. That does mean these aren't session-logged to
+# environments/<env>/logs/ the way INFO/WIPE/FAST/CLEAN are — a deliberate
+# tradeoff for supporting interactivity at all, not an oversight.
+if [[ "$REBUILD_POLICY" == ACTION_* ]]; then
+    ACTION_INDEX="${REBUILD_POLICY#ACTION_}"
+    ACTION_LABEL="${CUSTOM_ACTION_LABELS[$ACTION_INDEX]}"
+    ACTION_CMD_RAW="${CUSTOM_ACTION_COMMANDS[$ACTION_INDEX]}"
+    cd "$TARGET_WORKSPACE_DIR" || exit 1
+    ENV_DIR="$TARGET_WORKSPACE_DIR"
+    [ -f ".env" ] && { set -a; source ".env"; set +a; }
+    ACTION_CMD="$(_yaml_expand "$ACTION_CMD_RAW")"
+    echo "🚀 [$ENV_NAME] $ACTION_LABEL"
+    echo ""
+    bash -c "$ACTION_CMD"
+    ACTION_STATUS=$?
+    echo ""
+    _reset_tty_input
+    if [ $ACTION_STATUS -ne 0 ]; then
+        echo "❌ '$ACTION_LABEL' exited with an error (status $ACTION_STATUS)."
+    fi
     read -rp "Press Enter to return to the menu..."
     continue
 fi

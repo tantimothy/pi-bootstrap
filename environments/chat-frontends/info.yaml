@@ -27,6 +27,9 @@ web_uis:
     url: "http://${HOST_IP}:${NEXTCHAT_PORT:-3020}"
   - name: "AnythingLLM (opt-in)"
     url: "http://${HOST_IP}:${ANYTHINGLLM_PORT:-3011}"
+custom_actions:
+  - label: "Check / Restart Ollama"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
 useful_commands: |2
      docker logs -f open-webui                                         # Open WebUI live logs
      docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}sillytavern    # SillyTavern live logs

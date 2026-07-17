@@ -9,6 +9,9 @@ web_uis:
     url: "http://${HOST_IP}:${LITELLM_PORT:-4000}"
   - name: "Portkey Gateway (opt-in, OpenAI-compatible endpoint)"
     url: "http://${HOST_IP}:${PORTKEY_PORT:-8787}"
+custom_actions:
+  - label: "Check / Restart Ollama"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
 useful_commands: |2
      docker logs -f litellm                                            # LiteLLM live logs
      docker logs -f ${CONTAINER_NAME:+${CONTAINER_NAME}-}portkey-gateway # Portkey Gateway live logs (if enabled)
