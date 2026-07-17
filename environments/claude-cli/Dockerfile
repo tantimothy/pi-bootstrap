@@ -41,8 +41,14 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 # 1000:1000 instead of getting bumped to 1001 — entrypoint.sh's PUID/PGID
 # defaults are 1000, and its startup usermod/groupmod would otherwise collide
 # with the leftover "node" identity and fail on every single container start.
+#
+# `userdel -r` already auto-removes node's own group along with it (Debian's
+# default USERGROUPS_ENAB=yes deletes a user-private group once its last
+# member is gone), so a separate `groupdel node` afterwards just errors with
+# "group 'node' does not exist" — `|| true` absorbs that either way, whether
+# userdel already cleaned it up or left it behind.
 RUN userdel -r node \
-    && groupdel node \
+    && (groupdel node || true) \
     && useradd --uid 1000 --create-home --shell /bin/bash claude
 
 # sshd proper (not just the client) needs its own runtime dir and host keys.
