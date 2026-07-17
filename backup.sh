@@ -114,6 +114,25 @@ INCLUDED_ENVS=()
 # ever copying it elsewhere first — the archive is built incrementally with
 # repeated `tar -c`/`tar -r` calls rather than staging a full copy on disk,
 # so this stays cheap even for large data dirs (SDR captures, metrics, etc.).
+#
+# --format=pax (not tar's own default, ustar): confirmed directly on a real
+# Mac that ustar's ~255-char path limit is a genuine problem here — this
+# repo's own DIR archiving preserves each entry's FULL original absolute
+# path inside the archive (see the DIR case below), which routinely blows
+# past that limit for a deep install path (e.g.
+# "nanoclaw-mnemon/data/Users/homer/nanoclaw-mnemon/data/..."), silently
+# dropping the file ("Pathname too long") rather than erroring loudly. pax
+# has no such limit (arbitrary-length paths via its own extended headers)
+# and is supported identically by both GNU tar and BSD tar.
+#
+# --exclude='*.sock': Unix domain sockets (NanoClaw's own cli.sock/ncl.sock
+# IPC sockets, confirmed directly) can't be meaningfully backed up at all —
+# a socket file on disk outside its owning process is a dead placeholder,
+# restoring it does nothing useful, and ustar/ancient tar formats can't
+# even represent the socket file type ("ustar format cannot archive
+# sockets"). Excluding them outright is quieter than letting tar warn and
+# skip them itself, and makes the "this was deliberately never backed up"
+# intent explicit rather than incidental.
 append_to_archive() {
     local archive_prefix="$1" src_dir="$2" src_name="$3"
     # Anchored on the literal $src_name itself (e.g. "#^\.env#prefix.env#"),
@@ -130,10 +149,10 @@ append_to_archive() {
     local escaped_pattern; escaped_pattern="$(_tar_pattern_escape "$src_name")"
     local transform_pattern="${TAR_SUBST_PREFIX}#^${escaped_pattern}#${archive_prefix}${src_name}#"
     if [ "$FIRST_APPEND" = "true" ]; then
-        $SUDO_TAR "$TAR_TRANSFORM_FLAG" "$transform_pattern" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
+        $SUDO_TAR --format=pax --exclude='*.sock' "$TAR_TRANSFORM_FLAG" "$transform_pattern" -cf "$ARCHIVE" -C "$src_dir" "$src_name"
         FIRST_APPEND=false
     else
-        $SUDO_TAR "$TAR_TRANSFORM_FLAG" "$transform_pattern" -rf "$ARCHIVE" -C "$src_dir" "$src_name"
+        $SUDO_TAR --format=pax --exclude='*.sock' "$TAR_TRANSFORM_FLAG" "$transform_pattern" -rf "$ARCHIVE" -C "$src_dir" "$src_name"
     fi
 }
 
