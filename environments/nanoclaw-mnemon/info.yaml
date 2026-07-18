@@ -24,6 +24,8 @@ web_uis: []
 custom_actions:
   - label: "Scaffold a Wiki for a Group"
     command: 'read -rp "Group folder name (under groups/): " GROUP; bash ${ENV_DIR}/scripts/scaffold-wiki.sh "$GROUP"'
+  - label: "Reload Mnemon for a Group"
+    command: 'read -rp "Group session ID (under data/v2-sessions/): " GROUP; bash ${ENV_DIR}/scripts/reload-mnemon.sh "$GROUP"'
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
 # |2 pins the strip to exactly 2 spaces regardless of which line is
