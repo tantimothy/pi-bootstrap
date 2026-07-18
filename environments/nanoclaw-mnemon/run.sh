@@ -221,11 +221,28 @@ MNEMON_DOCKER_BLOCK
             echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
             return 1
         fi
+        # Bare "mnemon setup --yes", NOT "--target claude-code --yes
+        # --global" (what this line used to be) — confirmed directly
+        # against mnemon's own README: every OTHER integration's own
+        # section (Codex, Cursor, TRAE, Nanobot, etc.) explicitly shows
+        # "mnemon setup --target <name> ..." in its code block, but
+        # Claude Code's own section shows only bare "mnemon setup"
+        # ("auto-detects Claude Code, then ... deploys skill, hooks, and
+        # behavioral guide") — no --target value for it appears anywhere
+        # else in the doc either. --global specifically is documented
+        # elsewhere as changing *where* hooks get installed for a
+        # different integration (Nanobot, to its global workspace dir
+        # instead of a project-local one) — not something Claude Code's
+        # own section calls for, and a real candidate for why a live
+        # deploy's hooks silently never showed up in the settings.json
+        # NanoClaw actually mounts per group. --yes still needed here
+        # regardless (skips the interactive prompt the docs describe;
+        # entrypoint.sh runs unattended, no TTY).
         local tmp; tmp=$(mktemp)
         {
             head -n "$anchor" "$entry"
             echo ""
-            echo 'mnemon setup --target claude-code --yes --global >/dev/stderr 2>&1'
+            echo 'mnemon setup --yes >/dev/stderr 2>&1'
             tail -n "+$((anchor + 1))" "$entry"
         } > "$tmp"
         mv "$tmp" "$entry"

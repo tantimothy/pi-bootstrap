@@ -63,8 +63,10 @@ ENV MNEMON_DATA_DIR=/home/node/.claude/mnemon
 Edit `$INSTALL_PATH/container/entrypoint.sh`. Find the line `set -e` and insert this line immediately **after** it:
 
 ```bash
-mnemon setup --target claude-code --yes --global >/dev/stderr 2>&1
+mnemon setup --yes >/dev/stderr 2>&1
 ```
+
+Bare `mnemon setup --yes`, not `--target claude-code --global` — confirmed directly against mnemon's own README: every other integration's own section explicitly shows `mnemon setup --target <name> ...`, but Claude Code's own section shows only bare `mnemon setup` (auto-detected), and `--global` is documented elsewhere as changing *where* hooks install for a different integration entirely.
 
 Both edits are idempotent by nature (re-applying them is only a problem if you paste them in twice by hand) — `grep -q 'MNEMON_VERSION' container/Dockerfile` and `grep -q 'mnemon setup' container/entrypoint.sh` tell you whether they're already there, which is exactly what this environment's own `apply_mnemon_patch()` checks before touching either file.
 
