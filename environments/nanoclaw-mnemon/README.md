@@ -77,7 +77,9 @@ Same reasons as the plain `nanoclaw` environment (`deploy.sh`'s generic fallback
 
 Both steps are applied **before** NanoClaw's own setup wizard builds the agent image for the first time, so the very first build already includes mnemon — no separate rebuild step needed, unlike applying this skill to an already-running install.
 
-**Reloading mnemon for a group that's already running**: a rebuilt image only affects a group the next time NanoClaw actually spawns a fresh container for it — waiting for that (a real chat message) isn't always convenient, especially right after fixing something. `./scripts/reload-mnemon.sh <group-session-id>` re-runs `mnemon setup --yes --global` directly against that group's real, persistent `.claude-shared` directory using the current image, with no chat round-trip needed — the same command verified above, just targeted immediately instead of waiting. Also available as **"Reload Mnemon for a Group"** from `deploy.sh`'s own menu for this environment. `<group-session-id>` is the directory name under `data/v2-sessions/` (e.g. `ag-1783945827013-hhyk7w`) — **not** the same as `scaffold-wiki.sh`'s own `<group-folder>` argument (`groups/<folder>`, a different identifier NanoClaw also uses); check `ls data/v2-sessions/` if unsure which one you need.
+**Reloading mnemon for a group that's already running**: a rebuilt image only affects a group the next time NanoClaw actually spawns a fresh container for it — waiting for that (a real chat message) isn't always convenient, especially right after fixing something. `./scripts/reload-mnemon.sh` re-runs `mnemon setup --yes --global` directly against that group's real, persistent `.claude-shared` directory using the current image, with no chat round-trip needed — the same command verified above, just targeted immediately instead of waiting.
+
+Run it with no arguments and it finds the group for you: it queries NanoClaw's own central DB (`data/v2.db`'s `agent_groups` table — confirmed directly against its own `src/db/agent-groups.ts`) for real registered group names, auto-picks if there's only one, or prompts with a numbered list if there's more than one — no need to already know a group's opaque `ag-<timestamp>-<hash>` session ID. Pass one explicitly (`./scripts/reload-mnemon.sh <group-session-id>`) to skip discovery, or if `sqlite3` isn't installed / `data/v2.db` doesn't exist yet, in which case it falls back to listing raw `data/v2-sessions/` folder names instead. Also available as **"Reload Mnemon for a Group"** from `deploy.sh`'s own menu for this environment — same no-argument discovery flow.
 
 **Version pinning**: `MNEMON_VERSION` in `.env` (default `0.1.17`, [current as of this writing](https://github.com/mnemon-dev/mnemon/releases)) controls exactly which mnemon release gets installed. Pinned rather than "latest" specifically so a `CLEAN` redeploy doesn't silently pick up a new release without you choosing to — a `CLEAN` reapplies the patch with whatever `MNEMON_VERSION` is currently set, and it won't drift on its own between deploys. Bump it by editing `.env` and running `CLEAN` — check the [releases page](https://github.com/mnemon-dev/mnemon/releases) for what's current; this default only reflects whatever was latest when it was last updated, not a guarantee it stays current on its own.
 
@@ -518,8 +520,8 @@ whisper-cli -m "$NANOCLAW_INSTALL_PATH/models/ggml-base.bin" -f audio-16k.wav -o
 ./scripts/scaffold-wiki.sh <group-folder>
 
 # Re-run mnemon setup for one group immediately, no chat message needed
-# (see "Mnemon Integration" above) — <group-session-id> is under data/v2-sessions/
-./scripts/reload-mnemon.sh <group-session-id>
+# (see "Mnemon Integration" above) — finds/prompts for the group for you
+./scripts/reload-mnemon.sh
 
 # Launch an interactive Claude Code session against the orchestrator's own
 # checkout — run skills (/add-karpathy-llm-wiki, /add-mnemon), or just ask
