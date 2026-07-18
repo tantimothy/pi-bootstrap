@@ -1,12 +1,18 @@
+# menu.id/entries[].id/info.id are ${CONTAINER_NAME}-expanded (like
+# docker-compose.yml's own volume names) rather than fixed literals, so a
+# second instance (see README's "Running Multiple Instances") deployed with
+# a distinct CONTAINER_NAME gets its own separate .desktop files instead of
+# overwriting this instance's. Left at their un-expanded defaults, a
+# single, unrenamed instance produces the exact same IDs as before.
 menu:
-  id: claude-cli
+  id: ${CONTAINER_NAME:-claude-cli}
   name: "Claude CLI"
   icon: utilities-terminal
 deployed_check:
   kind: container
   from_compose_service: claude-cli
 entries:
-  - id: pi-bootstrap-claude-cli
+  - id: pi-bootstrap-${CONTAINER_NAME:-claude-cli}
     name: "Claude CLI (SSH)"
     comment: "SSH into the standalone Claude CLI container and attach to its live tmux session"
     icon: utilities-terminal
@@ -14,5 +20,5 @@ entries:
     target: 'bash -c "ssh -p ${SSH_PORT:-2222} claude@localhost"'
     terminal: true
 info:
-  id: pi-bootstrap-claude-cli-info
+  id: pi-bootstrap-${CONTAINER_NAME:-claude-cli}-info
   name: "Claude CLI Info"

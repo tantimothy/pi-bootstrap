@@ -138,9 +138,10 @@ Each instance needs its own copy of this environment's folder (e.g. `cp -r envir
 
 Two instances with genuinely distinct `CONTAINER_NAME`s never overwrite each other's containers or volumes — Docker Compose just creates two of everything, side by side.
 
-**Two things this doesn't automatically handle:**
+**Desktop entries follow `CONTAINER_NAME` too** — `desktop-entries.yaml`'s `entries[].id`/`menu.id`/`info.id` are `${CONTAINER_NAME}`-expanded, same as `docker-compose.yml`'s own volume `name:` fields, so a second instance with a distinct `CONTAINER_NAME` installs its own separate `.desktop` files instead of overwriting the first instance's.
+
+**One thing this doesn't automatically handle:**
 - **The copy won't be in `deploy.sh`'s menu ordering.** `config/environments.yaml` only lists the original `claude-cli` folder — a copy still shows up (anything under `environments/` not listed there gets appended alphabetically by `deploy.sh`'s own fallback pass rather than hidden), just not grouped under "AI Assistants" with everything else. Add it to `config/environments.yaml` yourself if you want it grouped properly.
-- **Desktop entries collide.** `desktop-entries.yaml`'s `entries[].id`/`menu.id`/`info.id` are fixed literals, not `${CONTAINER_NAME}`-expanded (unlike `docker-compose.yml`'s own `container_name:`/volume `name:` fields) — installing desktop shortcuts for a second instance overwrites the first instance's shortcut files instead of creating separate ones, since both instances generate identical `.desktop` filenames. Only the most recently installed instance's shortcut survives on disk; the containers and volumes themselves are unaffected either way, and SSH/`docker exec` access (see "Useful Commands" below) works regardless, since neither depends on desktop entries at all.
 
 ---
 
