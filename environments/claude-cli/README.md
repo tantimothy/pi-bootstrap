@@ -27,8 +27,8 @@ ssh -p ${SSH_PORT:-2222} claude@<host>
 ```
 
 That's `/etc/profile.d/claude-tmux-attach.sh` (see `bashrc-tmux-attach.sh`)
-running `tmux new-session -A -s claude -c ~/workspace claude` on every
-interactive login — `-A` means *attach if it exists, create if it
+running `tmux new-session -A -s claude -c ~/workspace claude --continue` on
+every interactive login — `-A` means *attach if it exists, create if it
 doesn't*. Close the terminal, lose your WiFi, SSH in from a different
 device entirely — reconnecting drops you back into the exact same live
 conversation, not a new one. Detach on purpose with the usual tmux prefix
@@ -37,6 +37,38 @@ conversation, not a new one. Detach on purpose with the usual tmux prefix
 `ssh host some-command` (a non-interactive, non-login invocation) skips
 this entirely and just runs `some-command` — scripted SSH use is
 unaffected.
+
+**`--continue` (not bare `claude`) is what makes this also survive a
+*container* restart, not just a dropped connection.** tmux's own session is
+in-memory — it doesn't survive anything that kills the container's
+processes (`STOP`/`FAST`, `TEARDOWN`+redeploy, `CLEAN`, a plain
+`docker restart`), even though your actual conversation history does, since
+it's written under `~/.claude` — the `claude_cli_home` named volume. `-A`
+only skips re-running the launch command when a live tmux session already
+exists to attach to; after a restart there isn't one, so this command runs
+fresh and `--continue` is what resumes your most recent conversation
+instead of silently starting a blank one. Want a specific *older*
+conversation instead of just the latest? Get a plain shell (below) and run
+`claude --resume` for an interactive picker.
+
+### Getting a Plain Shell Instead of the `claude` Conversation
+
+Since window 0 of the tmux session runs `claude` directly (not a shell that
+happens to launch `claude`), you can't just type a shell command at the
+prompt — it goes to `claude` as a chat message instead. Three ways to get
+an actual shell, for things like `git`, `gh`, or a one-time `claude mcp
+add` (see "Connecting to Home Assistant" below):
+
+- **New tmux window, same connection (recommended):** press `Ctrl-b c` —
+  only window 0 was launched with the `claude` command; any window you
+  create yourself gets a normal shell. Switch back to the conversation
+  with `Ctrl-b n`/`Ctrl-b p` (next/previous window) or `Ctrl-b 0`.
+- **A second, non-interactive SSH connection:** `ssh -p ${SSH_PORT:-2222}
+  claude@<host> '<command>'` — appending a command skips the tmux
+  auto-attach entirely (see above), so it runs and exits without touching
+  your live session at all. Good for scripting or a single quick command.
+- **From the Docker host directly:** `docker exec -it -u claude
+  ${CONTAINER_NAME:-claude-cli} bash`.
 
 ---
 
