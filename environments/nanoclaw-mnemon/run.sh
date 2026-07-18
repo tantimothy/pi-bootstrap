@@ -221,28 +221,34 @@ MNEMON_DOCKER_BLOCK
             echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
             return 1
         fi
-        # Bare "mnemon setup --yes", NOT "--target claude-code --yes
-        # --global" (what this line used to be) — confirmed directly
-        # against mnemon's own README: every OTHER integration's own
-        # section (Codex, Cursor, TRAE, Nanobot, etc.) explicitly shows
-        # "mnemon setup --target <name> ..." in its code block, but
-        # Claude Code's own section shows only bare "mnemon setup"
-        # ("auto-detects Claude Code, then ... deploys skill, hooks, and
-        # behavioral guide") — no --target value for it appears anywhere
-        # else in the doc either. --global specifically is documented
-        # elsewhere as changing *where* hooks get installed for a
-        # different integration (Nanobot, to its global workspace dir
-        # instead of a project-local one) — not something Claude Code's
-        # own section calls for, and a real candidate for why a live
-        # deploy's hooks silently never showed up in the settings.json
-        # NanoClaw actually mounts per group. --yes still needed here
-        # regardless (skips the interactive prompt the docs describe;
-        # entrypoint.sh runs unattended, no TTY).
+        # "mnemon setup --yes --global" — NOT bare "mnemon setup --yes"
+        # (this line's own immediately-prior version) and NOT the
+        # original "--target claude-code --yes --global" either. Both
+        # earlier versions were reasoned from mnemon's own docs; this one
+        # is verified against its actual live behavior instead, which
+        # contradicted both:
+        #
+        # Confirmed directly inside a real agent-sandbox container:
+        # bare "mnemon setup --yes" DOES run and DOES auto-detect Claude
+        # Code correctly, but it writes hooks to a *project-local*
+        # ".claude/settings.json" relative to entrypoint.sh's own working
+        # directory (/workspace/group in this image) — a directory that
+        # has nothing to do with the *global* "/home/node/.claude/"
+        # NanoClaw actually bind-mounts per group and Claude Code
+        # actually reads. That's exactly why hooks never showed up in a
+        # real deploy even after fixing the flags once already: the
+        # command was succeeding, just writing to the wrong file entirely.
+        # Adding --global back (confirmed live, same container, same
+        # mnemon binary: "mnemon setup --yes --global" correctly targets
+        # "~/.claude/settings.json" instead) fixes it. --target claude-code
+        # was NOT re-added — auto-detection alone was never the problem,
+        # only the local-vs-global path was, and the working command
+        # above didn't need it either.
         local tmp; tmp=$(mktemp)
         {
             head -n "$anchor" "$entry"
             echo ""
-            echo 'mnemon setup --yes >/dev/stderr 2>&1'
+            echo 'mnemon setup --yes --global >/dev/stderr 2>&1'
             tail -n "+$((anchor + 1))" "$entry"
         } > "$tmp"
         mv "$tmp" "$entry"
