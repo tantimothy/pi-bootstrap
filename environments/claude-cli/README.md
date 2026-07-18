@@ -130,7 +130,9 @@ You'll land in the tmux-attached `claude` session. First run prompts Claude's ow
 
 ## 🧬 Running Multiple Instances
 
-Each instance needs its own copy of this environment's folder (e.g. `cp -r environments/claude-cli environments/claude-cli-work`) — `deploy.sh`'s model is one `.env` per environment directory, not multiple profiles inside one. Give the copy's `.env` a distinct `CONTAINER_NAME`, `SSH_PORT`, and `CLAUDE_WORKSPACE_PATH` (all three must differ, or you'll either collide on the port or point two containers at the same repo), then deploy it independently.
+**Fastest path:** once this instance is deployed, its application-menu submenu has a **"New Claude CLI Instance..."** entry (`new-instance.sh`) — it interactively asks for an instance name, SSH port, and workspace path, then does everything described below for you: copies the folder, writes the new `.env`, registers the copy in `config/environments.yaml`, deploys it, and installs its own desktop entries. Every instance carries its own copy of this script, so any instance's submenu can spawn the next one. On macOS (no application-menu submenus), run it directly instead: `./environments/claude-cli/new-instance.sh`.
+
+**By hand:** each instance needs its own copy of this environment's folder (e.g. `cp -r environments/claude-cli environments/claude-cli-work`) — `deploy.sh`'s model is one `.env` per environment directory, not multiple profiles inside one. Give the copy's `.env` a distinct `CONTAINER_NAME`, `SSH_PORT`, and `CLAUDE_WORKSPACE_PATH` (all three must differ, or you'll either collide on the port or point two containers at the same repo), then deploy it independently.
 
 **How the isolation actually works:** there's no custom `run.sh` here (see "Deploy" above) — every lifecycle action goes through `deploy.sh`'s generic Compose fallback, which just runs plain `docker compose` commands (`up -d`/`stop`/`down`/`build --no-cache`) from inside whichever directory you invoke it from. Docker Compose's own project scope defaults to that directory's name (nothing in this repo pins `-p`/`COMPOSE_PROJECT_NAME`), so two differently-named folders are two separate Compose projects automatically — a `CLEAN` run against `claude-cli-work/` never touches whatever's running from `claude-cli/`. The container itself is also always given an explicit `container_name: ${CONTAINER_NAME:-claude-cli}`, so that's really a second, redundant layer keeping instances apart, not the only one.
 
@@ -140,8 +142,7 @@ Two instances with genuinely distinct `CONTAINER_NAME`s never overwrite each oth
 
 **Desktop entries follow `CONTAINER_NAME` too** — `desktop-entries.yaml`'s `entries[].id`/`menu.id`/`info.id` are `${CONTAINER_NAME}`-expanded, same as `docker-compose.yml`'s own volume `name:` fields, so a second instance with a distinct `CONTAINER_NAME` installs its own separate `.desktop` files instead of overwriting the first instance's.
 
-**One thing this doesn't automatically handle:**
-- **The copy won't be in `deploy.sh`'s menu ordering.** `config/environments.yaml` only lists the original `claude-cli` folder — a copy still shows up (anything under `environments/` not listed there gets appended alphabetically by `deploy.sh`'s own fallback pass rather than hidden), just not grouped under "AI Assistants" with everything else. Add it to `config/environments.yaml` yourself if you want it grouped properly.
+**If you copy the folder by hand instead of using "New Claude CLI Instance...":** the copy won't be in `deploy.sh`'s menu ordering. `config/environments.yaml` only lists the original `claude-cli` folder — a copy still shows up (anything under `environments/` not listed there gets appended alphabetically by `deploy.sh`'s own fallback pass rather than hidden), just not grouped under "AI Assistants" with everything else. Add it to `config/environments.yaml` yourself (`new-instance.sh` does this step automatically) if you want it grouped properly.
 
 ---
 

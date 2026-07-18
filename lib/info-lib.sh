@@ -424,7 +424,9 @@ _load_info_yaml() {
     for i in "${!_raw[@]}"; do INSTALL_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
     _read_lines < <(_yq '.install_dirs[].description' "$yaml"); INSTALL_DESCRIPTIONS=("${_LINES[@]}")
 
-    _read_lines < <(_yq '.named_volumes[].name' "$yaml"); NAMED_VOLUMES=("${_LINES[@]}")
+    _read_lines < <(_yq '.named_volumes[].name' "$yaml"); _raw=("${_LINES[@]}")
+    NAMED_VOLUMES=()
+    for i in "${!_raw[@]}"; do NAMED_VOLUMES[i]="$(_yaml_expand "${_raw[$i]}")"; done
     _read_lines < <(_yq '.named_volumes[].description' "$yaml"); NAMED_VOLUME_DESCRIPTIONS=("${_LINES[@]}")
 
     _read_lines < <(_yq '.wipe_parent_dirs[]' "$yaml"); _raw=("${_LINES[@]}")

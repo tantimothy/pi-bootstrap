@@ -19,6 +19,13 @@ entries:
     kind: exec
     target: 'bash -c "ssh -p ${SSH_PORT:-2222} claude@localhost"'
     terminal: true
+  - id: pi-bootstrap-${CONTAINER_NAME:-claude-cli}-new-instance
+    name: "New Claude CLI Instance..."
+    comment: "Create and deploy a second, independent Claude CLI container — own SSH port, workspace, and login state"
+    icon: list-add
+    kind: exec
+    target: 'bash -c "''${ENV_DIR}''/new-instance.sh"'
+    terminal: true
 info:
   id: pi-bootstrap-${CONTAINER_NAME:-claude-cli}-info
   name: "Claude CLI Info"
