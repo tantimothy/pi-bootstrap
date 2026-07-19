@@ -195,6 +195,42 @@ conversation specifically.
       so neither is currently affected. Worth re-checking if either one
       adds a non-root user later.
 
+## Gateway Redirect — an Unverified Assumption Shipped Honestly Instead of Silently
+
+**Status:** open — this isn't a found-and-fixed bug like the issues above,
+it's a different kind of lesson: an assumption that went into a shipped
+feature (PR [#136](https://github.com/tantimothy/pi-bootstrap/pull/136))
+with an explicit, dated caveat instead of either (a) blocking the feature
+on verifying it first, or (b) shipping it silently as if confirmed. See
+`docs/future-enhancements/claude-cli-gateway-hardening.md` for the full
+tracking of what closing it out looks like.
+
+**What happened:** `scripts/point-to-gateway.sh` redirects Claude Code's
+`ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` at a self-hosted gateway (this
+repo's own `llm-gateways` environment — LiteLLM or Portkey). `llm-gateways`'
+own README documents calling those gateways via their **OpenAI-compatible**
+`/v1/chat/completions`-shaped endpoint. Claude Code's `ANTHROPIC_BASE_URL`
+expects a server speaking the **Anthropic Messages API** shape instead — a
+different request/response format. Both gateways document *some*
+Anthropic-compatible route of their own, but nobody has confirmed the
+specific base URLs `.env.gateway.litellm`/`.env.gateway.portkey` assume
+actually serve that shape for the versions this repo currently pins.
+
+**The lesson:** "OpenAI-compatible" and "Anthropic-Messages-API-compatible"
+are different shapes, easy to conflate because both get described in the
+wild as "just point your client's base URL at it" — but that phrase means
+something different depending on which client you're pointing. Before
+wiring `ANTHROPIC_BASE_URL` at any self-hosted gateway, confirm which
+shape it's actually serving at that specific route (some gateways expose
+both, on different paths), rather than assuming an "OpenAI-compatible"
+label implies Claude-Code-compatible. Separately: when a feature genuinely
+can't be verified before shipping (no live gateway available in this
+session), the honest move — used consistently across this repo, e.g. this
+same file's own issues #1–#7 above being confirmed against a real deploy
+rather than assumed — is to say plainly *where* the uncertainty is (in
+the shipped code's own comments, not just a side document) rather than
+implying something's tested when it isn't.
+
 ## Related PRs
 
 - [#128](https://github.com/tantimothy/pi-bootstrap/pull/128) — `gh` CLI
@@ -203,3 +239,6 @@ conversation specifically.
   tolerance, plain-shell docs, SSH deploy.sh menu action, `--continue`
   auto-resume fix (issues #3, #6, #7 above; issues #4–#5 were host-side
   troubleshooting documented in the README rather than code changes)
+- [#136](https://github.com/tantimothy/pi-bootstrap/pull/136) — gateway
+  redirect feature (`point-to-gateway.sh`/`revert-to-claude.sh`,
+  `.env.gateway.*`), shipped with the open API-shape assumption above

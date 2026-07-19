@@ -7,59 +7,11 @@ would save it for the next person (or agent) who hits the same shape of
 problem; don't add routine bug fixes here, those belong in the relevant
 environment's own README/commit history.
 
----
-
-## Don't trust a third-party tool's own docs over its live behavior inside your actual container
-
-**What happened:** `nanoclaw-mnemon` patches `mnemon setup` into NanoClaw's
-agent-sandbox `entrypoint.sh`. Two rounds of fixes, both reasoned from
-mnemon's own README, were both wrong:
-
-1. `mnemon setup --target claude-code --yes --global` — ran without
-   erroring on every container start, but never actually registered hooks
-   in a real group's `~/.claude/settings.json`.
-2. Bare `mnemon setup --yes` (removing `--target`/`--global`, reasoned from
-   mnemon's README showing no flags for its Claude Code integration
-   specifically, unlike every other target it documents) — also wrong.
-   Confirmed only by running it interactively inside a real agent-sandbox
-   container: it auto-detects Claude Code correctly and *does* write
-   hooks, but to a **project-local** `.claude/settings.json` relative to
-   `entrypoint.sh`'s own working directory, not the **global**
-   `~/.claude/settings.json` NanoClaw actually bind-mounts and Claude Code
-   actually reads.
-3. `mnemon setup --yes --global` — the actual fix, confirmed by testing,
-   not by re-reading the docs a third time.
-
-**The lesson:** when patching a third-party tool's invocation into a
-container, a documented example that "looks like" your use case (same
-target, same flags) can still be wrong for your specific working
-directory/HOME/mount layout. Docs describe the common case; your
-container's filesystem shape is what actually decides where a
-relative-path side effect lands. Verify against the real, running
-container — not the flag list in a README — before shipping a fix, and
-say so explicitly in the commit/doc once you have (see
-`environments/nanoclaw-mnemon/README.md`'s "Verified directly against a
-real deploy" section for the pattern this repo uses to record that).
-
----
-
-## "OpenAI-compatible" and "Anthropic-Messages-API-compatible" are different shapes — check which one you actually have
-
-**What happened:** `llm-gateways` (LiteLLM, Portkey) exposes an
-OpenAI-compatible `/v1/chat/completions`-style endpoint. Claude Code's own
-`ANTHROPIC_BASE_URL` expects a server that speaks the **Anthropic Messages
-API** shape instead — a different request/response format. The two are
-easy to conflate because both are commonly described as "just point your
-client's base URL at it," but that phrase means something different
-depending on which client you're pointing.
-
-**The lesson:** before wiring `ANTHROPIC_BASE_URL` at any self-hosted
-gateway, confirm which API shape it's actually serving at that specific
-route (some gateways expose both, on different paths) — don't assume
-"OpenAI-compatible" implies "Claude-Code-compatible." See
-`environments/claude-cli/.env.gateway.litellm`/`.env.gateway.portkey` and
-`docs/future-enhancements/claude-cli-gateway-hardening.md` for the current,
-still-open state of verifying this for real.
+**Environment-specific debugging sagas live in
+[`docs/lessons-learned/`](docs/lessons-learned/)** (one file per
+environment, e.g. `nanoclaw-mnemon.md`, `claude-cli.md`) instead of here —
+this file is for lessons that generalize across the whole repo, not one
+environment's own issue-by-issue account.
 
 ---
 
