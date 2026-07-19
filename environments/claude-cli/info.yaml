@@ -17,6 +17,8 @@ custom_actions:
     command: "bash ${ENV_DIR}/scripts/point-to-gateway.sh"
   - label: "Revert Claude CLI to Anthropic (undo Gateway)"
     command: "bash ${ENV_DIR}/scripts/revert-to-claude.sh"
+  - label: "New Claude CLI Instance..."
+    command: "bash ${ENV_DIR}/new-instance.sh"
 useful_commands: |2
      ssh -p ${SSH_PORT:-2222} claude@localhost                       # attach to the live tmux "claude" session
      docker exec -it ${CONTAINER_NAME:-claude-cli} tmux attach -t claude   # same thing, from the host directly (no SSH key needed)

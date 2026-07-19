@@ -246,12 +246,13 @@ if [ ${#ENV_DIRS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# Build the Environments submenu — numeric tags so users can jump with a
+# Build the Environments submenu — short tags so users can jump with a
 # keypress. Kept separate from the top-level MENU_OPTIONS below so the main
 # menu itself stays a short, fixed list of action categories instead of
 # growing by one row per environment.
 ENV_OPTIONS=()
-ENV_PATHS=()    # parallel array: index (1-based) → actual directory path
+ENV_PATHS=()    # parallel array: index → actual directory path
+ENV_TAGS=()     # parallel array: index → the dialog tag assigned below
 
 # First pass: collect name/type/compat-tag per environment, and the
 # longest folder name, so the type column below can be padded to line up
@@ -312,8 +313,27 @@ for dir in "${ENV_DIRS[@]}"; do
 done
 
 # Second pass: name first, then the type column padded to line up.
+#
+# Tags are 1-9 for the first nine environments (unchanged single-keypress
+# behavior for the common case), then A-Z for the 10th through 35th — past
+# nine, dialog's typeahead no longer maps a single digit to a single row
+# (e.g. "1" is now ambiguous between tag "1" and every tag starting with
+# "1", like a literal "10" would be), so letters are the only way to keep
+# one keypress = one environment once there are more than nine. Beyond 35
+# (9 + 26 letters) this falls back to a plain multi-digit number — dialog
+# still accepts typing it out, just without single-keypress access; not
+# worth two-letter tags for a case this repo is unlikely to ever hit.
+ENV_TAG_LETTERS="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 for i in "${!ENV_NAMES[@]}"; do
-    ENV_OPTIONS+=( "$((i + 1))" "$(printf '%-*s' "$MAX_NAME_LEN" "${ENV_NAMES[$i]}")  ${ENV_TYPES[$i]}${ENV_COMPATS[$i]}" )
+    if [ "$i" -lt 9 ]; then
+        TAG="$((i + 1))"
+    elif [ "$((i - 9))" -lt "${#ENV_TAG_LETTERS}" ]; then
+        TAG="${ENV_TAG_LETTERS:$((i - 9)):1}"
+    else
+        TAG="$((i + 1))"
+    fi
+    ENV_TAGS+=("$TAG")
+    ENV_OPTIONS+=( "$TAG" "$(printf '%-*s' "$MAX_NAME_LEN" "${ENV_NAMES[$i]}")  ${ENV_TYPES[$i]}${ENV_COMPATS[$i]}" )
 done
 
 # Top-level menu — a fixed set of action categories, not one row per
@@ -391,7 +411,16 @@ if [ "$SELECTED_PATH" = "_environments" ]; then
         continue
     fi
 
-    SELECTED_PATH="${ENV_PATHS[$((SELECTED_ENV_NUM - 1))]}"
+    # Tags aren't a plain 1-based index once letters are in play (see the
+    # ENV_TAGS comment above) — look the chosen tag up in ENV_TAGS instead
+    # of computing an offset.
+    SELECTED_PATH=""
+    for i in "${!ENV_TAGS[@]}"; do
+        if [ "${ENV_TAGS[$i]}" = "$SELECTED_ENV_NUM" ]; then
+            SELECTED_PATH="${ENV_PATHS[$i]}"
+            break
+        fi
+    done
     # Falls through intentionally, not `continue` — SELECTED_PATH is now a
     # real environment directory, so the rest of the script (the deployment
     # policy selector onward) picks it up exactly as if it had been chosen
