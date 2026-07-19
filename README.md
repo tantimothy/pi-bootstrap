@@ -457,15 +457,14 @@ Environments without a case here fall through to the default (`*) true ;;`) — 
 
 Repo-wide notes that don't belong in any single environment's own README:
 
-- **[`docs/lessons-learned.md`](docs/lessons-learned.md)** — cross-cutting
-  things discovered the hard way that generalize across the whole repo
-  (checking `origin/master` for unrelated work before every push, a
-  merged PR's branch being done for good, etc.).
 - **[`docs/lessons-learned/`](docs/lessons-learned)** — one file per
   environment, the detailed found-it/fixed-it account for that
   environment's own real-world debugging sessions (e.g.
   `nanoclaw-mnemon.md`'s `mnemon setup --global` saga, `claude-cli.md`'s
-  first-deploy issues).
+  first-deploy issues), plus `general.md` for lessons that generalize
+  across the whole repo instead of one environment (checking
+  `origin/master` for unrelated work before every push, a merged PR's
+  branch being done for good, etc.).
 - **[`docs/refactoring-opportunities.md`](docs/refactoring-opportunities.md)**
   — known, real code duplication deliberately left alone until a genuine
   third use case justifies extracting it, with the reasoning for why and

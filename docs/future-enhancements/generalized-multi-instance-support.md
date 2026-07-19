@@ -20,7 +20,7 @@ a second environment wanting the same capability today means re-copying
 `new-instance.sh` line-by-line and independently re-discovering every
 place its own YAML files need `${CONTAINER_NAME}` expansion, the same way
 that coverage was found missing (twice, independently) for `claude-cli`
-itself (see `docs/lessons-learned.md`'s `${VAR}`-expansion entry).
+itself (see `docs/lessons-learned/general.md`'s `${VAR}`-expansion entry).
 
 ## Current state (what actually exists today, specific to `claude-cli`)
 
