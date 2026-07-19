@@ -49,7 +49,7 @@ Deploy `llm-gateways` for real, fill in a real `ANTHROPIC_AUTH_TOKEN` in
   it may not be the bare base URL these files currently assume) and fix
   `.env.gateway.litellm`/`.env.gateway.portkey`'s defaults, the same way
   `apply_mnemon_patch()` went through two wrong fixes before the verified
-  one — see `docs/lessons-learned.md`'s first entry.
+  one — see `docs/lessons-learned/nanoclaw-mnemon.md`.
 
 ### 2. Live-verify `/remote-control` + gateway redirect interaction
 
