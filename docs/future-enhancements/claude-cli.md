@@ -96,14 +96,3 @@ guard against colliding with any other account, and their failure mode
 diagnostic beyond whatever `usermod` printed. Worth revisiting alongside
 that enhancement rather than as a separate change, since it's the same code
 path.
-
-### 3. Desktop entry ID collisions across multiple instances
-
-Already documented as a known limitation in the README's "Running Multiple
-Instances" section, not something newly discovered here — carried over
-into this list since it's a genuine, still-open refactoring target.
-`desktop-entries.yaml`'s `entries[].id`/`menu.id`/`info.id` are fixed
-literals rather than `${CONTAINER_NAME}`-expanded (unlike
-`docker-compose.yml`'s own `container_name:`/volume `name:` fields), so a
-second `claude-cli`-derived instance's desktop shortcuts silently overwrite
-the first instance's on install.
