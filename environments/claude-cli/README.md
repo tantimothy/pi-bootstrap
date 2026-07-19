@@ -271,6 +271,13 @@ docker compose up -d
 
 ## 🩺 Troubleshooting
 
+For the full story behind each of these — root causes, why the fixes look
+the way they do, and what's still open — see
+`docs/lessons-learned/claude-cli.md` (retrospective on this environment's
+first real deploy) and `docs/future-enhancements/claude-cli.md`
+(follow-ups worth doing deliberately, including CI build validation that
+would have caught some of this automatically).
+
 ### `Permission denied (publickey)` on first SSH
 
 The most common cause: `SSH_AUTHORIZED_KEYS_PATH` (default `~/.ssh/authorized_keys` on the host) didn't exist yet the first time you deployed. Docker Compose's bind mount auto-creates a missing source path as an **empty directory**, not a file — so instead of your keys, the container got nothing to match against, and every key is rejected. Check for this first:
