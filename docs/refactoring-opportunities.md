@@ -179,6 +179,34 @@ this fixed anywhere.
 
 ---
 
+## `mac-terminal-setup`'s backup-before-overwrite helpers have no shared home
+
+`environments/mac-terminal-setup/run.sh`'s `_deploy_file`/`_deploy_dir`
+(back up an existing file/dir into a timestamped
+`~/.pi-bootstrap-backups/<env>-<timestamp>/` before overwriting it, only if
+it exists and actually differs) is new to this repo — its closest sibling,
+`environments/pi-barebones/run.sh` (also host-level, no Docker, no
+`lib/deploy-lib.sh` involvement), overwrites `.tmux.conf` and injects
+`.bashrc` blocks directly with no backup step at all.
+
+**Why not extracted now:** only one real caller exists today, and the two
+environments have genuinely different risk profiles by design — Pi
+dotfiles are treated as fully repo-owned with nothing pre-existing worth
+protecting, while a Mac's `.bash_profile`/`.bashrc` are assumed to already
+carry the user's own unrelated content, which is *why* mac-terminal-setup
+backs up before overwriting in the first place. Forcing pi-barebones to
+adopt the same backup behavior isn't obviously correct just because the
+code could be shared.
+
+**Revisit when:** a third `run.sh`-based, non-Docker environment needs the
+same "back up before overwriting a real host file, only if it changed"
+behavior — at that point extract `_deploy_file`/`_deploy_dir` and the
+timestamped-backup-dir convention into a small `lib/host-deploy-lib.sh`,
+following the same pattern `lib/deploy-lib.sh` already provides for
+Docker-compose-based environments.
+
+---
+
 ## No automated tests cover `lib/*.sh`'s `${VAR}`-expansion contract
 
 `_yaml_expand` (`lib/yaml-lib.sh`) and the loaders that use it
