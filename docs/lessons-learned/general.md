@@ -1,17 +1,15 @@
-# Lessons Learned
+# General Lessons Learned
 
 Cross-cutting things discovered the hard way while working on this repo —
-kept separate from any single environment's README because they generalize
-beyond it. Add to this file when something costs real debugging time and
-would save it for the next person (or agent) who hits the same shape of
-problem; don't add routine bug fixes here, those belong in the relevant
-environment's own README/commit history.
-
-**Environment-specific debugging sagas live in
-[`docs/lessons-learned/`](docs/lessons-learned/)** (one file per
-environment, e.g. `nanoclaw-mnemon.md`, `claude-cli.md`) instead of here —
-this file is for lessons that generalize across the whole repo, not one
-environment's own issue-by-issue account.
+kept separate from any single environment's own file in this directory
+because they generalize beyond it (git workflow, `lib/*.sh` internals,
+documentation practice), not because they're a lower tier of finding. Add
+to this file when something costs real debugging time and would save it
+for the next person (or agent) who hits the same shape of problem; don't
+add routine bug fixes here, those belong in the relevant environment's own
+README/commit history, or that environment's own file in this directory
+(e.g. `claude-cli.md`, `nanoclaw-mnemon.md`) if it's a real debugging
+session specific to one environment.
 
 ---
 

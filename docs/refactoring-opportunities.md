@@ -149,7 +149,7 @@ but no longer the only signal.
 
 `_yaml_expand` (`lib/yaml-lib.sh`) and the loaders that use it
 (`_load_desktop_entries_yaml`, `_load_info_yaml`) had a real, silent gap —
-see `docs/lessons-learned.md`'s `${VAR}`-expansion entry — found only by
+see `docs/lessons-learned/general.md`'s `${VAR}`-expansion entry — found only by
 manual, ad hoc re-auditing during this session, with nothing preserved
 afterward to catch a regression or the next missed field.
 
