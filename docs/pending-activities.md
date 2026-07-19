@@ -70,6 +70,23 @@ the fix). Not yet done:
   `/workspace/agent`, the next routine container respawn (which happens
   on its own, unprompted) will wipe them again.
 
+## mac-terminal-setup: core feature merged and tested, two auto-install paths unverified
+
+Full account in `docs/lessons-learned/mac-terminal-setup.md`. The
+environment itself, the whimsy-toggle confirmation fix, and the README
+sources documentation are all merged to `master` and confirmed working by
+the user on their own Mac. Not yet done:
+
+- **Homebrew and `cpan` auto-install paths in `run.sh`** — both were
+  written to handle a Mac missing Homebrew /
+  `Acme::Scurvy::Whoreson::BilgeRat`, but the development machine already
+  had both, so neither branch has actually executed. See
+  `docs/future-enhancements/mac-terminal-setup.md` #1.
+- **Calendar data re-sync cadence** — `bin/calendars/` was refreshed
+  against `freebsd/calendar-data` once, as a point-in-time snapshot; no
+  process exists yet to catch it drifting again over time. See
+  `docs/future-enhancements/mac-terminal-setup.md` #3.
+
 ## Known, deliberately-deferred code quality items
 
 Tracked in full in `docs/refactoring-opportunities.md`, not duplicated
@@ -79,5 +96,7 @@ else fall back" implementations, `backup.sh`'s manually-maintained
 `is_deployed()` case statement, `new-instance.sh`'s `sed`-based
 `config/environments.yaml` registration and its SSH-port suggestion not
 checking real port availability, `nanoclaw-mnemon`'s yt-dlp arch-detection
-logic duplicated across three files, and the total absence of automated
-tests for `lib/*.sh`'s `${VAR}`-expansion contract.
+logic duplicated across three files, `mac-terminal-setup`'s
+backup-before-overwrite helpers having no shared home with any other
+`run.sh`-based environment, and the total absence of automated tests for
+`lib/*.sh`'s `${VAR}`-expansion contract.

@@ -120,6 +120,55 @@ directory).
 
 ---
 
+## A local commit isn't safely landed until its push is confirmed — external git activity can wipe it first
+
+**What happened:** while fixing `mac-terminal-setup`'s custom-action
+command, a commit was created on a freshly checked-out branch, but by the
+time the next command ran, both the commit and its working-tree change had
+vanished — the branch was back to matching `origin/master` exactly, edit
+and all. `git reflog` showed an extra `reset: moving to origin/master`
+sitting right after the branch's creation and the lost commit, with no
+corresponding action taken by any command actually run in this session —
+consistent with something else (the user's own terminal, or the IDE's
+Source Control panel doing a sync/discard) touching the same working copy
+on the same machine at the same time.
+
+**The lesson:** a repo checked out on the same machine a human is actively
+using (via their own terminal, or an IDE's git integration) isn't
+exclusively under this session's control — a commit made here can be
+silently reset away by something else before it's pushed, with no error
+of its own to signal it happened. Don't treat `git commit` succeeding as
+"the work is safe" when working alongside a live human session on the same
+checkout; commit and push together (in the same breath, not as separate
+steps with other work in between), and after any git operation that's
+supposed to have landed something, a quick `git log --oneline -3` /
+`git status` check confirms it actually did rather than assuming the
+previous command's success carried through.
+
+---
+
+## Copied dotfiles can carry personal-identity content that doesn't belong in a reproducible environment
+
+**What happened:** while turning a raw copy of a user's live Mac dotfiles
+(`environments/mac-terminal-setup/`) into a reproducible `run.sh`, a
+`.gitconfig` containing the user's real email had been dropped into the
+source directory alongside the intended files — not something asked for,
+just present because it came from the same live `~/`. The user caught it
+and had it removed themselves ("accidentally added to directory, has my
+email in it"). Separately, a `.screenrc` in the same directory turned out
+to be dead config the user no longer used (they'd switched to tmux) and
+was dropped from the deploy for that reason instead.
+
+**The lesson:** when a task involves "make this raw folder of copied
+dotfiles/config into a real thing," don't assume everything sitting in
+that folder belongs in the output just because it's there — audit each
+file for personal-identity content (`.gitconfig`, SSH config, credentials,
+anything with an email/name/token baked in) and for whether it's actually
+still in active use, rather than deploying the directory's contents
+wholesale.
+
+---
+
 ## Pushing more commits to an already-merged PR's branch does not get them into `master`
 
 **What happened:** two follow-up commits (a `deploy.sh` keyboard-shortcut
