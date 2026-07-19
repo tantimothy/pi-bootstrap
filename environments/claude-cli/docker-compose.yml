@@ -11,6 +11,11 @@ services:
       - GIT_USER_NAME=${GIT_USER_NAME:-}
       - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
       - GH_TOKEN=${GH_TOKEN:-}
+      # Optional gateway redirect — see scripts/point-to-gateway.sh and the
+      # README's "Pointing Claude CLI at a Gateway". Empty/unset (the
+      # default) is a no-op in entrypoint.sh, same as the three above.
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
+      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
     ports:
       - "${SSH_PORT:-2222}:22"
     volumes:

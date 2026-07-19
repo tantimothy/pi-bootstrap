@@ -73,4 +73,21 @@ if [ -n "${GH_TOKEN:-}" ]; then
     runuser -u claude -- env GH_TOKEN="$GH_TOKEN" gh auth setup-git
 fi
 
+# Optional ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN — redirects `claude` at
+# a self-hosted gateway instead of api.anthropic.com (see
+# scripts/point-to-gateway.sh and the README's "Pointing Claude CLI at a
+# Gateway"). Written to /etc/environment the same way GH_TOKEN is above,
+# so every future login shell sees it. Unlike GH_TOKEN, always stripped
+# first regardless of whether either is currently set — scripts/
+# revert-to-claude.sh's whole job is clearing these back out, and without
+# an unconditional strip a prior gateway's values would survive here even
+# after .env no longer sets them.
+sed -i '/^ANTHROPIC_BASE_URL=/d; /^ANTHROPIC_AUTH_TOKEN=/d' /etc/environment
+if [ -n "${ANTHROPIC_BASE_URL:-}" ]; then
+    echo "ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}" >> /etc/environment
+fi
+if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+    echo "ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN}" >> /etc/environment
+fi
+
 exec /usr/sbin/sshd -D -e

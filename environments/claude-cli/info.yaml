@@ -13,10 +13,16 @@ web_uis: []
 custom_actions:
   - label: "SSH into Claude CLI"
     command: 'ssh -p ${SSH_PORT:-2222} claude@localhost'
+  - label: "Point Claude CLI at a Gateway (LiteLLM/Portkey)"
+    command: "bash ${ENV_DIR}/scripts/point-to-gateway.sh"
+  - label: "Revert Claude CLI to Anthropic (undo Gateway)"
+    command: "bash ${ENV_DIR}/scripts/revert-to-claude.sh"
 useful_commands: |2
      ssh -p ${SSH_PORT:-2222} claude@localhost                       # attach to the live tmux "claude" session
      docker exec -it ${CONTAINER_NAME:-claude-cli} tmux attach -t claude   # same thing, from the host directly (no SSH key needed)
      docker logs -f ${CONTAINER_NAME:-claude-cli}                    # sshd logs
+     ./scripts/point-to-gateway.sh [litellm|portkey]                 # Redirect Claude CLI at a self-hosted gateway (see README)
+     ./scripts/revert-to-claude.sh                                   # Undo — back to api.anthropic.com
 
   📌 Notes:
      🔑 First connection: run `claude` interactively once (via either
@@ -25,3 +31,8 @@ useful_commands: |2
      💻 Multiple devices can SSH in at once and land in the SAME tmux
         session — closing one terminal doesn't end the conversation,
         it just detaches. Reconnect from anywhere to pick it back up.
+     🔀 Pointing Claude CLI at LiteLLM/Portkey (see "Pointing Claude CLI
+        at a Gateway" in the README): fill in .env.gateway.litellm and/or
+        .env.gateway.portkey first, then use the two menu actions above
+        (or the scripts directly). Both restart the container — any live
+        tmux session ends, but reconnecting resumes it (--continue).

@@ -13,6 +13,7 @@ categories:
     name: "Host Setup"
     environments:
       - pi-barebones
+      - mac-terminal-setup
   - id: ai
     name: "AI Assistants"
     environments:
