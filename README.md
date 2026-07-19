@@ -469,7 +469,8 @@ Repo-wide notes that don't belong in any single environment's own README:
 - **[`docs/future-enhancements/`](docs/future-enhancements)** — design
   proposals and hardening plans for not-yet-fully-verified features (Pi-hole
   HA, additional `pihole-wireguard` services, `claude-cli`'s gateway
-  redirect), one file per topic.
+  redirect, generalizing `claude-cli`'s multi-instance pattern), one file
+  per topic.
 - **[`docs/pending-activities.md`](docs/pending-activities.md)** — a
   snapshot of currently open follow-ups; GitHub's own PR/issue state is
   always the source of truth, this is a convenience index that goes stale
