@@ -314,25 +314,29 @@ _load_desktop_entries_yaml() {
 
     [ -f "$env_dir/.env" ] && { set -a; source "$env_dir/.env"; set +a; }
 
-    MENU_ID=$(_yq '.menu.id' "$yaml")
+    MENU_ID=$(_yaml_expand "$(_yq '.menu.id' "$yaml")")
     MENU_NAME=$(_yq '.menu.name' "$yaml")
     MENU_ICON=$(_yq '.menu.icon // "utilities-terminal"' "$yaml")
 
-    _read_lines < <(_yq '.entries[].id' "$yaml");      ENTRY_IDS=("${_LINES[@]}")
+    local _raw_ids _raw_targets i
+    _read_lines < <(_yq '.entries[].id' "$yaml"); _raw_ids=("${_LINES[@]}")
+    ENTRY_IDS=()
+    for i in "${!_raw_ids[@]}"; do
+        ENTRY_IDS[i]="$(_yaml_expand "${_raw_ids[$i]}")"
+    done
     _read_lines < <(_yq '.entries[].name' "$yaml");     ENTRY_NAMES=("${_LINES[@]}")
     _read_lines < <(_yq '.entries[].comment' "$yaml");  ENTRY_COMMENTS=("${_LINES[@]}")
     _read_lines < <(_yq '.entries[].icon' "$yaml");     ENTRY_ICONS=("${_LINES[@]}")
     _read_lines < <(_yq '.entries[].kind' "$yaml");     ENTRY_KINDS=("${_LINES[@]}")
     _read_lines < <(_yq '.entries[].terminal // "false"' "$yaml"); ENTRY_TERMINAL=("${_LINES[@]}")
 
-    local _raw_targets i
     _read_lines < <(_yq '.entries[].target' "$yaml"); _raw_targets=("${_LINES[@]}")
     ENTRY_TARGETS=()
     for i in "${!_raw_targets[@]}"; do
         ENTRY_TARGETS[i]="$(_yaml_expand "${_raw_targets[$i]}")"
     done
 
-    INFO_ID=$(_yq '.info.id' "$yaml")
+    INFO_ID=$(_yaml_expand "$(_yq '.info.id' "$yaml")")
     INFO_NAME=$(_yq '.info.name' "$yaml")
 }
 
