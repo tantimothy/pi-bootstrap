@@ -450,3 +450,28 @@ my-environment)
 ```
 
 Environments without a case here fall through to the default (`*) true ;;`) — always treated as deployed, which is harmless but less precise than an explicit check.
+
+---
+
+## 📋 Project Notes
+
+Repo-wide notes that don't belong in any single environment's own README:
+
+- **[`docs/lessons-learned.md`](docs/lessons-learned.md)** — cross-cutting
+  things discovered the hard way (verify third-party tool behavior
+  live rather than trusting its own docs, OpenAI-compatible vs.
+  Anthropic-Messages-API-compatible endpoints, checking `origin/master`
+  for unrelated work before every push, etc.).
+- **[`docs/refactoring-opportunities.md`](docs/refactoring-opportunities.md)**
+  — known, real code duplication deliberately left alone until a genuine
+  third use case justifies extracting it, with the reasoning for why and
+  what would change that.
+- **[`docs/future-enhancements/`](docs/future-enhancements)** — design
+  proposals and hardening plans for not-yet-fully-verified features (Pi-hole
+  HA, additional `pihole-wireguard` services, `claude-cli`'s gateway
+  redirect), one file per topic.
+- **[`docs/pending-activities.md`](docs/pending-activities.md)** — a
+  snapshot of currently open follow-ups; GitHub's own PR/issue state is
+  always the source of truth, this is a convenience index that goes stale
+  the moment something's resolved — prune it accordingly rather than
+  trusting it blindly.
