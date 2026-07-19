@@ -28,10 +28,10 @@ export DESKTOP_DIR
 # The main dashboard launcher below (an XDG .desktop app-menu entry) has
 # no macOS equivalent, so it's skipped there — but per-environment web UI
 # shortcuts and info pages still get delegated to run-install-desktop.sh
-# below, which on macOS writes those as .webloc files via
+# below, which on macOS writes those as .webloc/.fileloc shortcuts via
 # run_desktop_install() in lib/desktop-lib.sh. An earlier version of this
 # script exited entirely on Darwin before ever reaching that loop, which
-# meant .webloc files were never actually produced through this entry
+# meant those shortcuts were never actually produced through this entry
 # point despite lib/desktop-lib.sh supporting them.
 IS_DARWIN=false
 [[ "$(uname)" == "Darwin" ]] && IS_DARWIN=true
@@ -80,7 +80,7 @@ done
 
 echo ""
 if $IS_DARWIN; then
-    echo "✅  Done. Web UI shortcuts and info pages written as .webloc files to $DESKTOP_DIR"
+    echo "✅  Done. Web UI shortcuts (.webloc) and info pages (.fileloc) written to $DESKTOP_DIR"
 else
     echo "✅  Done. Entries installed to $APPS_DIR"
     echo "   ...and mirrored as icons on the Desktop ($DESKTOP_DIR)"

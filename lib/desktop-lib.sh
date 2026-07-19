@@ -157,22 +157,38 @@ install_info_icon() {
 # which writes both a menu entry and a Desktop icon — this only ever
 # writes to $DESKTOP_DIR.
 #
-# The .webloc content is a bare single-key plist (URL only) — nothing
-# else, not even a second dict key. Two earlier versions tried to carry an
-# ownership marker (X-PiBootstrap-MenuID) inside the file itself: first as
-# an XML comment before the <plist> root, then as an extra <key>/<string>
-# pair in the dict. Both produced a file real macOS Finder (and BBEdit)
-# refused to open at all ("document could not be opened ... not readable
-# or in the wrong format"), even though `plutil -lint` confirmed the
-# extra-key version was a perfectly valid plist. Whatever narrow reader
-# Finder actually uses for .webloc is apparently stricter than plist
-# syntax allows and rejects anything beyond the single URL key — so
-# ownership tracking lives in a separate hidden manifest file instead
-# (below), never inside the .webloc.
+# Two shortcut flavors share this one implementation, chosen by the
+# target URL's scheme: .webloc for http(s):// targets (web UIs), .fileloc
+# for file:// targets (the generated info page) — macOS treats these as
+# genuinely different document types, not just a naming convention. A
+# file:// URL written as .webloc fails to open at all: LaunchServices
+# rejects it outright (`open` reports
+# "_LSOpenURLsWithCompletionHandler() failed with error -10400", the same
+# failure double-clicking in Finder produces), confirmed by comparing
+# against a real Finder-authored .fileloc (made via Automator's "New File
+# Alias" and inspected with `cat`) — which turned out to be a *binary*
+# plist (bplist00), not the XML text every .webloc/.fileloc example above
+# this comment previously assumed. Two earlier versions of this function
+# additionally tried carrying an ownership marker (X-PiBootstrap-MenuID)
+# inside the plist itself — first as an XML comment before the <plist>
+# root, then as an extra <key>/<string> pair in the dict — and both
+# produced files Finder refused to open even before the .fileloc/binary
+# issue was found (confirmed separately via `plutil -lint`, which accepted
+# the extra-key version as valid while Finder still rejected it — whatever
+# narrow reader Finder uses here is stricter than plist syntax and wants
+# nothing but a single URL key). So the plist content written below is
+# always just that one key, and `plutil -convert binary1` (a standard
+# macOS tool — safe to rely on here since this whole function only ever
+# runs under the Darwin branch) produces the binary encoding Finder
+# actually expects; ownership tracking lives in a separate hidden
+# manifest file (below) instead, never inside the shortcut's own content.
 install_webloc() {
     local name="$1" url="$2" menu_id="$3"
+    local ext=webloc
+    [[ "$url" == file://* ]] && ext=fileloc
+    local path="$DESKTOP_DIR/${name}.${ext}"
     mkdir -p "$DESKTOP_DIR"
-    cat > "$DESKTOP_DIR/${name}.webloc" << EOF
+    cat > "$path" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -182,22 +198,24 @@ install_webloc() {
 </dict>
 </plist>
 EOF
-    echo "${name}.webloc" >> "$DESKTOP_DIR/.pi-bootstrap-webloc-manifest-${menu_id}"
+    plutil -convert binary1 "$path"
+    echo "${name}.${ext}" >> "$DESKTOP_DIR/.pi-bootstrap-webloc-manifest-${menu_id}"
 }
 
 remove_webloc() {
     local name="$1"
-    rm -f "$DESKTOP_DIR/${name}.webloc"
+    rm -f "$DESKTOP_DIR/${name}.webloc" "$DESKTOP_DIR/${name}.fileloc"
 }
 
-# .webloc equivalent of _desktop_remove_all_for_menu — same self-healing
-# rationale (an entry ID renamed/removed since the last install shouldn't
-# leave an orphaned file forever). Ownership is tracked via the hidden
-# manifest install_webloc appends to (one per menu, listing every .webloc
-# filename it wrote), not via content inside the .webloc files themselves —
-# see install_webloc's comment for why. Removing the manifest here means
-# each run_desktop_install call starts from a clean slate: this always
-# runs before that run's install_webloc calls repopulate it.
+# .webloc/.fileloc equivalent of _desktop_remove_all_for_menu — same
+# self-healing rationale (an entry ID renamed/removed since the last
+# install shouldn't leave an orphaned file forever). Ownership is tracked
+# via the hidden manifest install_webloc appends to (one per menu, listing
+# every shortcut filename — with whichever extension — it wrote), not via
+# content inside the shortcut files themselves — see install_webloc's
+# comment for why. Removing the manifest here means each
+# run_desktop_install call starts from a clean slate: this always runs
+# before that run's install_webloc calls repopulate it.
 _webloc_remove_all_for_menu() {
     local menu_id="$1"
     local manifest="$DESKTOP_DIR/.pi-bootstrap-webloc-manifest-${menu_id}"
@@ -444,9 +462,10 @@ run_desktop_install() {
     # this environment produces DO have a real macOS equivalent though,
     # so those still happen: post-deploy-info.html (plain self-contained
     # HTML, no XDG involvement) gets regenerated, and any "link"-kind
-    # entries (web UI URLs) get written as .webloc files on the Desktop —
-    # macOS's own native double-clickable internet shortcut, see
-    # install_webloc's comment. "exec"-kind entries (a terminal command,
+    # entries (web UI URLs) get written as .webloc (or .fileloc, for the
+    # info page's file:// target) shortcuts on the Desktop — macOS's own
+    # native double-clickable internet/file shortcuts, see install_webloc's
+    # comment. "exec"-kind entries (a terminal command,
     # e.g. launching run.sh) have no equivalent this library builds —
     # there's no macOS analog to a Linux Terminal=true .desktop launcher
     # without wrapping it in a real .app bundle, out of scope here.
@@ -481,7 +500,7 @@ run_desktop_install() {
 
         bash "$REPO_DIR/lib/run-info.sh" "$ENV_DIR" list >/dev/null 2>&1 || true
         install_webloc "$INFO_ID" "file://$ENV_DIR/post-deploy-info.html" "$MENU_ID"
-        echo "  ✓  Info page (.webloc) — generated ${ENV_DIR}/post-deploy-info.html"
+        echo "  ✓  Info page (.fileloc) — generated ${ENV_DIR}/post-deploy-info.html"
         return 0
     fi
 
