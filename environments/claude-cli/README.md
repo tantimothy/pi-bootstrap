@@ -167,6 +167,81 @@ This is a genuinely good structural fit for this container specifically: `docker
 
 ---
 
+## 🔀 Pointing Claude CLI at a Gateway (LiteLLM/Portkey)
+
+Two menu actions — **"Point Claude CLI at a Gateway (LiteLLM/Portkey)"**
+and **"Revert Claude CLI to Anthropic (undo Gateway)"** — redirect this
+container's `claude` at a self-hosted gateway (this repo's own
+`llm-gateways` environment, or any other Anthropic-Messages-API-compatible
+endpoint) instead of `api.anthropic.com`, and back again. Both are also
+plain scripts if you'd rather run them directly:
+`./scripts/point-to-gateway.sh [litellm|portkey]` and
+`./scripts/revert-to-claude.sh`.
+
+**How it works:** Claude Code reads two env vars at startup —
+`ANTHROPIC_BASE_URL` (where to send requests) and `ANTHROPIC_AUTH_TOKEN`
+(the bearer credential for that endpoint). `point-to-gateway.sh` reads
+both from `.env.gateway.litellm` or `.env.gateway.portkey` (two small,
+separate parameter files in this directory — never this environment's own
+`.env`, so switching gateways or reverting never loses track of the other
+one's settings), writes them into this environment's own `.env`, and
+restarts the container (`docker compose up -d` — the same command
+`deploy.sh`'s `FAST` policy already runs) so `entrypoint.sh` re-exports
+them into `/etc/environment` for every future login shell, the same
+mechanism `GH_TOKEN` already uses. `revert-to-claude.sh` just removes
+both lines from `.env` and restarts the same way — `claude` then falls
+back to the OAuth session already stored under `~/.claude` (the
+persistent `claude_cli_home` volume) from your original `/login`; the
+env-var override and that OAuth session are separate auth paths, so
+clearing one doesn't sign you out of the other.
+
+**Before using this, fill in the gateway file first**: open
+`.env.gateway.litellm` and/or `.env.gateway.portkey` and set
+`ANTHROPIC_AUTH_TOKEN` (for LiteLLM: `LITELLM_MASTER_KEY` from
+`environments/llm-gateways/.env`; for Portkey: whatever key it should
+forward to Anthropic on your behalf — Portkey ships with no server-side
+auth of its own, see `llm-gateways`' own README "Security Notes"). Both
+files default `ANTHROPIC_BASE_URL` to `http://host.docker.internal:<port>`
+rather than a container name or `localhost` — `claude-cli` and
+`llm-gateways` are separate Compose projects with no shared Docker
+network, so the only way this container reaches either gateway's
+published port is through the host itself, same reasoning `llm-gateways`'
+own README gives for why LiteLLM reaches Ollama that way. If you changed
+`LITELLM_PORT`/`PORTKEY_PORT` from their defaults (4000/8787) in
+`llm-gateways`' own `.env`, update the matching gateway file here to
+match.
+
+**Not independently verified against a live gateway from inside this
+repo** — worth stating plainly rather than implying it's been tested,
+consistent with how `nanoclaw-mnemon`'s own README handles claims like
+this. Claude Code's `ANTHROPIC_BASE_URL` expects an endpoint that speaks
+the Anthropic Messages API shape specifically — a different
+request/response format than the `/v1/chat/completions` OpenAI-compatible
+endpoint `llm-gateways`' own README documents calling directly. LiteLLM
+and Portkey both document their own Anthropic-compatible routes, but
+confirm your installed version still exposes one at the base URL each
+`.env.gateway.*` file here assumes, before relying on it: run
+`point-to-gateway.sh`, then send `claude` a real message inside the
+session and check it actually responds rather than erroring, instead of
+trusting this comment alone.
+
+**Restarting ends any live tmux session, but doesn't lose it** — same as
+any other config change here (see "How Login Works" above): SSH back in
+and `--continue` resumes the same conversation, now against whichever
+endpoint you just pointed it at.
+
+**Interaction with `/remote-control`** (see "Using This as Your Remote
+Runner" below): redirecting `ANTHROPIC_BASE_URL` only changes where
+*model* traffic goes — `/remote-control`'s own linkage is gated on your
+Pro/Max/Team/Enterprise OAuth subscription login, a separate channel from
+wherever inference requests are actually routed. Whether an already-linked
+`/remote-control` session tolerates a live gateway redirect without
+needing to be re-linked hasn't been tested against a real deploy — treat
+it as a "verify live" case rather than an assumed-safe one, same caveat
+as the gateway compatibility itself above.
+
+---
+
 ## 🐙 Connecting to a GitHub Repo
 
 `CLAUDE_WORKSPACE_PATH` gets you one repo, already checked out on the host. Two ways to give `claude` real GitHub access beyond that — for cloning other repos, pushing, or opening PRs — lightest first:
@@ -265,6 +340,12 @@ docker logs -f ${CONTAINER_NAME:-claude-cli}
 # Pause / resume without losing data
 docker compose stop
 docker compose up -d
+
+# Redirect Claude CLI at a self-hosted gateway, and back again
+# (see "Pointing Claude CLI at a Gateway" above — fill in the matching
+# .env.gateway.* file first)
+./scripts/point-to-gateway.sh [litellm|portkey]
+./scripts/revert-to-claude.sh
 ```
 
 ---
