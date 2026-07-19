@@ -94,3 +94,74 @@ own `container_name:`/service list when no explicit `case` arm exists,
 falling back to `*) true ;;` only when that can't be determined either.
 Not attempted here since it's unrelated to any of this session's actual
 tasks.
+
+---
+
+## `new-instance.sh` registers `config/environments.yaml` via a `sed -i.bak` line insertion, not a structured YAML edit
+
+`environments/claude-cli/new-instance.sh` adds a new instance to
+`config/environments.yaml`'s `ai` category with `sed -i.bak "/^      -
+claude-cli$/a\\ ..."` — it works, but depends on the literal line `      -
+claude-cli` existing verbatim with that exact indentation, and doesn't
+understand YAML structure at all (it would silently do nothing, not
+error, if that anchor line ever moved or got reformatted).
+
+**Why not fixed now:** this repo has no established `yq -i` (in-place
+edit) convention anywhere yet — every other `yq` use in the codebase is
+read-only (`yq eval '<query>' file`). Switching to `yq -i eval '.categories[]
+|= ...'` would need confirming first that it doesn't reflow or strip
+`config/environments.yaml`'s own header comment (a real, untested risk) —
+not worth taking on for the one call site that exists today.
+
+**Revisit when:** a second script needs to write into
+`config/environments.yaml` (or any other YAML this repo currently only
+reads) — at that point, verify `yq -i eval` preserves comments/formatting
+on this specific file, and if it does, replace the `sed` anchor-line
+approach here too.
+
+---
+
+## `new-instance.sh`'s SSH-port suggestion doesn't check real port availability
+
+`_suggest_port()` (see this doc's "auto-discover, else prompt" entry above
+for its shared shape with two other pickers) only scans sibling
+`claude-cli*/.env` files for an already-claimed `SSH_PORT` — not the OS's
+actual bound ports (`ss`/`nc`), and not other, unrelated environments'
+`.env` files that might already claim the same port for something else
+entirely. A real collision only surfaces later, as a `docker compose up`
+port-bind failure, not as a clean validation message at prompt time.
+
+**Why not fixed now:** the existing check already covers the common case
+(two `claude-cli` instances colliding with each other) cheaply, with no
+new dependency; a real availability check needs either `ss -tlnp` parsing
+(Linux-only, needs a macOS fallback) or an actual bind-and-release probe,
+either of which is more code than the wizard currently needs to justify.
+
+**Revisit when:** a port collision with a *different* environment (or a
+process outside this repo entirely) actually happens to someone — at that
+point, add a real `ss`/`nc`-based check (with a macOS fallback) ahead of
+the `.env`-scan suggestion, keeping the scan as the *default value* shown
+but no longer the only signal.
+
+---
+
+## No automated tests cover `lib/*.sh`'s `${VAR}`-expansion contract
+
+`_yaml_expand` (`lib/yaml-lib.sh`) and the loaders that use it
+(`_load_desktop_entries_yaml`, `_load_info_yaml`) had a real, silent gap —
+see `docs/lessons-learned.md`'s `${VAR}`-expansion entry — found only by
+manual, ad hoc re-auditing during this session, with nothing preserved
+afterward to catch a regression or the next missed field.
+
+**Why not fixed now:** this repo has no test runner or test convention of
+any kind today (`bash -n`/manual YAML-parse checks were this session's own
+verification, not a repeatable suite) — introducing one (bats, shunit2, or
+even a plain bash-assert script) is a bigger, more foundational decision
+than fixing the two fields that happened to be missing.
+
+**Revisit when:** a test framework gets adopted for this repo at all — at
+that point, a small, high-value first suite would be exactly this: for
+each field in `desktop-entries.yaml`/`info.yaml`'s documented schema,
+assert a `${VAR}` marker in that field actually resolves after loading.
+Cheap to write once a runner exists, and would have caught both gaps this
+session found immediately instead of by inspection.
