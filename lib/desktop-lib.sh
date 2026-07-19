@@ -157,17 +157,18 @@ install_info_icon() {
 # which writes both a menu entry and a Desktop icon — this only ever
 # writes to $DESKTOP_DIR.
 #
-# The ownership marker (X-PiBootstrap-MenuID) is stored as an extra plist
-# dict key rather than an XML comment. An earlier version put it in an XML
-# comment between the DOCTYPE and the <plist> root element, reasoning that
-# a comment is inert to any conformant XML parser; in practice real macOS
-# Finder failed to open the resulting .webloc at all ("document could not
-# be opened ... not readable or in the wrong format"). Whatever Finder uses
-# to read .webloc files is apparently not a fully general XML parser and
-# doesn't tolerate that construct, even though it's legal XML. An extra key
-# in the dict is the standard, widely-used way plist files carry custom
-# metadata (third-party tools do this to Info.plist constantly) and is
-# read back fine.
+# The .webloc content is a bare single-key plist (URL only) — nothing
+# else, not even a second dict key. Two earlier versions tried to carry an
+# ownership marker (X-PiBootstrap-MenuID) inside the file itself: first as
+# an XML comment before the <plist> root, then as an extra <key>/<string>
+# pair in the dict. Both produced a file real macOS Finder (and BBEdit)
+# refused to open at all ("document could not be opened ... not readable
+# or in the wrong format"), even though `plutil -lint` confirmed the
+# extra-key version was a perfectly valid plist. Whatever narrow reader
+# Finder actually uses for .webloc is apparently stricter than plist
+# syntax allows and rejects anything beyond the single URL key — so
+# ownership tracking lives in a separate hidden manifest file instead
+# (below), never inside the .webloc.
 install_webloc() {
     local name="$1" url="$2" menu_id="$3"
     mkdir -p "$DESKTOP_DIR"
@@ -178,11 +179,10 @@ install_webloc() {
 <dict>
 	<key>URL</key>
 	<string>${url}</string>
-	<key>X-PiBootstrap-MenuID</key>
-	<string>${menu_id}</string>
 </dict>
 </plist>
 EOF
+    echo "${name}.webloc" >> "$DESKTOP_DIR/.pi-bootstrap-webloc-manifest-${menu_id}"
 }
 
 remove_webloc() {
@@ -192,17 +192,22 @@ remove_webloc() {
 
 # .webloc equivalent of _desktop_remove_all_for_menu — same self-healing
 # rationale (an entry ID renamed/removed since the last install shouldn't
-# leave an orphaned file forever), same content-based ownership check
-# rather than a filename or ENTRY_IDS-list match.
+# leave an orphaned file forever). Ownership is tracked via the hidden
+# manifest install_webloc appends to (one per menu, listing every .webloc
+# filename it wrote), not via content inside the .webloc files themselves —
+# see install_webloc's comment for why. Removing the manifest here means
+# each run_desktop_install call starts from a clean slate: this always
+# runs before that run's install_webloc calls repopulate it.
 _webloc_remove_all_for_menu() {
     local menu_id="$1"
+    local manifest="$DESKTOP_DIR/.pi-bootstrap-webloc-manifest-${menu_id}"
     local f
-    for f in "$DESKTOP_DIR"/*.webloc; do
-        [ -f "$f" ] || continue
-        grep -qF "<key>X-PiBootstrap-MenuID</key>" "$f" 2>/dev/null &&
-            grep -qF "<string>${menu_id}</string>" "$f" 2>/dev/null &&
-            rm -f "$f"
-    done
+    if [ -f "$manifest" ]; then
+        while IFS= read -r f; do
+            [ -n "$f" ] && rm -f "$DESKTOP_DIR/$f"
+        done < "$manifest"
+    fi
+    rm -f "$manifest"
     return 0
 }
 
