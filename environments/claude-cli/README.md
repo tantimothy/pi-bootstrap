@@ -213,6 +213,14 @@ own README gives for why LiteLLM reaches Ollama that way. If you changed
 `llm-gateways`' own `.env`, update the matching gateway file here to
 match.
 
+**Adding a gateway beyond these two**: copy `.env.gateway.example` (a
+generic, secrets-free template — same role `.env.example` plays for
+`.env`) to `.env.gateway.<name>` and fill in both values; it then shows
+up in `point-to-gateway.sh`'s picker automatically. `.env.gateway.example`
+itself is deliberately excluded from that picker (it has no real
+`ANTHROPIC_BASE_URL` to point at), the same way `.env.example` is never
+mistaken for a real `.env` anywhere else in this repo.
+
 **Not independently verified against a live gateway from inside this
 repo** — worth stating plainly rather than implying it's been tested,
 consistent with how `nanoclaw-mnemon`'s own README handles claims like

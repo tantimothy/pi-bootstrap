@@ -34,7 +34,11 @@ if [ -z "$GATEWAY" ]; then
     NAMES=()
     while IFS= read -r f; do
         NAMES+=("$(basename "$f" | sed 's/^\.env\.gateway\.//')")
-    done < <(ls "$ENV_DIR"/.env.gateway.* 2>/dev/null | sort)
+    # .env.gateway.example is the generic, secrets-free template for
+    # adding a new gateway (see that file's own comment) — never a real,
+    # selectable target itself, so it's excluded here the same way
+    # .env.example is never treated as a real .env anywhere in this repo.
+    done < <(ls "$ENV_DIR"/.env.gateway.* 2>/dev/null | grep -v '/\.env\.gateway\.example$' | sort)
 
     if [ "${#NAMES[@]}" -eq 0 ]; then
         echo "❌ No .env.gateway.* files found in $ENV_DIR" >&2
