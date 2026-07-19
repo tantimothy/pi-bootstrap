@@ -157,23 +157,29 @@ install_info_icon() {
 # which writes both a menu entry and a Desktop icon — this only ever
 # writes to $DESKTOP_DIR.
 #
-# The ownership marker is an XML comment (X-PiBootstrap-MenuID), not an
-# extra plist dict key, specifically so it's guaranteed inert to any
-# .webloc reader (a stray dict key MacOS's own parser doesn't expect
-# might not be — an XML comment definitely is, by spec, for any parser).
-# Not verified against a real macOS Finder in this environment — built by
-# reading the plist/webloc format spec, not observed firsthand.
+# The ownership marker (X-PiBootstrap-MenuID) is stored as an extra plist
+# dict key rather than an XML comment. An earlier version put it in an XML
+# comment between the DOCTYPE and the <plist> root element, reasoning that
+# a comment is inert to any conformant XML parser; in practice real macOS
+# Finder failed to open the resulting .webloc at all ("document could not
+# be opened ... not readable or in the wrong format"). Whatever Finder uses
+# to read .webloc files is apparently not a fully general XML parser and
+# doesn't tolerate that construct, even though it's legal XML. An extra key
+# in the dict is the standard, widely-used way plist files carry custom
+# metadata (third-party tools do this to Info.plist constantly) and is
+# read back fine.
 install_webloc() {
     local name="$1" url="$2" menu_id="$3"
     mkdir -p "$DESKTOP_DIR"
     cat > "$DESKTOP_DIR/${name}.webloc" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- X-PiBootstrap-MenuID: ${menu_id} -->
 <plist version="1.0">
 <dict>
 	<key>URL</key>
 	<string>${url}</string>
+	<key>X-PiBootstrap-MenuID</key>
+	<string>${menu_id}</string>
 </dict>
 </plist>
 EOF
@@ -193,7 +199,9 @@ _webloc_remove_all_for_menu() {
     local f
     for f in "$DESKTOP_DIR"/*.webloc; do
         [ -f "$f" ] || continue
-        grep -qF "X-PiBootstrap-MenuID: ${menu_id} -->" "$f" 2>/dev/null && rm -f "$f"
+        grep -qF "<key>X-PiBootstrap-MenuID</key>" "$f" 2>/dev/null &&
+            grep -qF "<string>${menu_id}</string>" "$f" 2>/dev/null &&
+            rm -f "$f"
     done
     return 0
 }
