@@ -27,8 +27,8 @@ ssh -p ${SSH_PORT:-2222} claude@<host>
 ```
 
 That's `/etc/profile.d/claude-tmux-attach.sh` (see `bashrc-tmux-attach.sh`)
-running `tmux new-session -A -s claude -c ~/workspace claude` on every
-interactive login — `-A` means *attach if it exists, create if it
+running `tmux new-session -A -s claude -c ~/workspace claude --continue` on
+every interactive login — `-A` means *attach if it exists, create if it
 doesn't*. Close the terminal, lose your WiFi, SSH in from a different
 device entirely — reconnecting drops you back into the exact same live
 conversation, not a new one. Detach on purpose with the usual tmux prefix
@@ -37,6 +37,38 @@ conversation, not a new one. Detach on purpose with the usual tmux prefix
 `ssh host some-command` (a non-interactive, non-login invocation) skips
 this entirely and just runs `some-command` — scripted SSH use is
 unaffected.
+
+**`--continue` (not bare `claude`) is what makes this also survive a
+*container* restart, not just a dropped connection.** tmux's own session is
+in-memory — it doesn't survive anything that kills the container's
+processes (`STOP`/`FAST`, `TEARDOWN`+redeploy, `CLEAN`, a plain
+`docker restart`), even though your actual conversation history does, since
+it's written under `~/.claude` — the `claude_cli_home` named volume. `-A`
+only skips re-running the launch command when a live tmux session already
+exists to attach to; after a restart there isn't one, so this command runs
+fresh and `--continue` is what resumes your most recent conversation
+instead of silently starting a blank one. Want a specific *older*
+conversation instead of just the latest? Get a plain shell (below) and run
+`claude --resume` for an interactive picker.
+
+### Getting a Plain Shell Instead of the `claude` Conversation
+
+Since window 0 of the tmux session runs `claude` directly (not a shell that
+happens to launch `claude`), you can't just type a shell command at the
+prompt — it goes to `claude` as a chat message instead. Three ways to get
+an actual shell, for things like `git`, `gh`, or a one-time `claude mcp
+add` (see "Connecting to Home Assistant" below):
+
+- **New tmux window, same connection (recommended):** press `Ctrl-b c` —
+  only window 0 was launched with the `claude` command; any window you
+  create yourself gets a normal shell. Switch back to the conversation
+  with `Ctrl-b n`/`Ctrl-b p` (next/previous window) or `Ctrl-b 0`.
+- **A second, non-interactive SSH connection:** `ssh -p ${SSH_PORT:-2222}
+  claude@<host> '<command>'` — appending a command skips the tmux
+  auto-attach entirely (see above), so it runs and exits without touching
+  your live session at all. Good for scripting or a single quick command.
+- **From the Docker host directly:** `docker exec -it -u claude
+  ${CONTAINER_NAME:-claude-cli} bash`.
 
 ---
 
@@ -234,6 +266,45 @@ docker logs -f ${CONTAINER_NAME:-claude-cli}
 docker compose stop
 docker compose up -d
 ```
+
+---
+
+## 🩺 Troubleshooting
+
+### `Permission denied (publickey)` on first SSH
+
+The most common cause: `SSH_AUTHORIZED_KEYS_PATH` (default `~/.ssh/authorized_keys` on the host) didn't exist yet the first time you deployed. Docker Compose's bind mount auto-creates a missing source path as an **empty directory**, not a file — so instead of your keys, the container got nothing to match against, and every key is rejected. Check for this first:
+
+```bash
+ls -la ~/.ssh/authorized_keys
+# a directory (not "-rw-------") confirms this is what happened
+```
+
+Fix it in three steps:
+
+1. **Remove the directory Docker created** (safe if empty — nothing you put there yourself):
+   ```bash
+   rmdir ~/.ssh/authorized_keys
+   ```
+2. **Create a real file containing your public key.** If you don't already have a keypair on disk (`ls ~/.ssh/*.pub` comes back empty — common if you use an SSH agent like 1Password's or a hardware key that never wrote a `.pub` file locally), check what your agent is offering first:
+   ```bash
+   ssh-add -L                      # lists keys held by your agent, if any
+   # found one? use it directly:
+   ssh-add -L >> ~/.ssh/authorized_keys
+   # nothing listed? generate a new keypair:
+   ssh-keygen -t ed25519
+   cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+   ```
+   ```bash
+   chmod 600 ~/.ssh/authorized_keys
+   ```
+3. **Recreate the container — a plain restart isn't enough.** The running container's mount was set up back when the host path was still a directory; `docker compose stop && docker compose up -d` reuses that same container and its stale mount config, and fails outright with a `not a directory: Are you trying to mount a directory onto a file` error. Force recreation instead (`deploy.sh`'s `TEARDOWN` + `FAST`, or by hand):
+   ```bash
+   docker compose down   # named volumes (claude_home, ssh_host_keys) are untouched
+   docker compose up -d
+   ```
+
+Then retry `ssh -p ${SSH_PORT:-2222} claude@localhost`.
 
 ---
 

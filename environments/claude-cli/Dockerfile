@@ -28,14 +28,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages/stable/apt stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root login user. Claude CLI and its own OAuth/session state live
 # entirely under this user's home, matching how it's run everywhere else in
 # this repo (never as root).
-RUN useradd --create-home --shell /bin/bash claude
+#
+# node:20-slim already ships its own "node" user/group at uid/gid 1000 (every
+# official Node image does this). Remove it first so "claude" lands on
+# 1000:1000 instead of getting bumped to 1001 — entrypoint.sh's PUID/PGID
+# defaults are 1000, and its startup usermod/groupmod would otherwise collide
+# with the leftover "node" identity and fail on every single container start.
+#
+# `userdel -r` already auto-removes node's own group along with it (Debian's
+# default USERGROUPS_ENAB=yes deletes a user-private group once its last
+# member is gone), so a separate `groupdel node` afterwards just errors with
+# "group 'node' does not exist" — `|| true` absorbs that either way, whether
+# userdel already cleaned it up or left it behind.
+RUN userdel -r node \
+    && (groupdel node || true) \
+    && useradd --uid 1000 --create-home --shell /bin/bash claude
 
 # sshd proper (not just the client) needs its own runtime dir and host keys.
 RUN mkdir -p /run/sshd

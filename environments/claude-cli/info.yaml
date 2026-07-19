@@ -7,6 +7,9 @@ named_volumes:
     description: "This container's own SSH host keys — deleting this changes its SSH fingerprint, you'll see a REMOTE HOST IDENTIFICATION HAS CHANGED warning on your next connection"
 delete_confirm_msg: "Claude CLI's login session and this container's SSH host key identity will be lost — you'll need to /login again and your SSH client will warn about a changed host key on next connect. Your workspace repo at CLAUDE_WORKSPACE_PATH is NOT touched (it's your own pre-existing directory, not something this environment owns)."
 web_uis: []
+custom_actions:
+  - label: "SSH into Claude CLI"
+    command: 'ssh -p ${SSH_PORT:-2222} claude@localhost'
 useful_commands: |2
      ssh -p ${SSH_PORT:-2222} claude@localhost                       # attach to the live tmux "claude" session
      docker exec -it ${CONTAINER_NAME:-claude-cli} tmux attach -t claude   # same thing, from the host directly (no SSH key needed)

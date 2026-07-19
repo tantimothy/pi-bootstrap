@@ -1,0 +1,206 @@
+# Whimsical login extras — only injected when WHIMSY_ENABLED=true (see
+# run.sh). Runs entirely in a subshell so none of its `cd`s leak into the
+# interactive shell that sourced .bashrc.
+(
+cd ~ || exit 0
+
+# Randomly pick between 1, 2, 3, or 4
+case $((1 + RANDOM % 4)) in
+    1)
+        cbonsai --screensaver
+        ;;
+    2)
+        cmatrix -s
+        ;;
+    3)
+        asciiquarium
+        ;;
+    4)
+        # 1. Dynamically gather and parse available cow templates from cowsay -l
+        # (This strips out the header lines text and creates a clean index array)
+        cow_list=($(cowsay -l | tail -n +1))
+
+        # 2. Pick a completely random index number from the array
+        random_cow=${cow_list[$RANDOM % ${#cow_list[@]}]}
+
+        # 3. Output the fortune using the randomly selected template
+        fortune | cowsay -n -f "$random_cow" | lolcat
+        echo "$random_cow"
+        echo ""
+
+        # 4. macOS-safe pause mechanism — only if stdin is an actual terminal,
+        # otherwise this would hang forever waiting for a keypress that never
+        # comes (e.g. `ssh host command`, a script piping input in).
+        if [ -t 0 ]; then
+            echo -n "Press any key to continue..."
+            stty -icanon; dd ibs=1 count=1 status=none >/dev/null; stty icanon
+            echo ""
+        fi
+        ;;
+esac
+
+fortune
+
+echo
+# Source 1: BOFH
+~/bin/bofhexcuse
+
+# Source 2: Programming Excuses
+echo -n "Programming Excuse: "
+curl --max-time 3 -s programmingexcuses.com | egrep -o "<a[^<>]+>[^<>]+</a>" | egrep -o "[^<>]+" | sed -n 2p
+
+# Source 3: Classic Tech / IRC Insults
+echo -n "Classic Tech Insult: "
+curl --max-time 3 -s https://sweh.spuddy.org/Jokes/insult/insult.cgi
+
+# Source 4: Shakespearean Epithets
+# Powered by https://metacpan.org/pod/Acme::Scurvy::Whoreson::BilgeRat::Backend::insultserver
+echo -n "Shakespearean Epithet: "
+perl ~/bin/insulthost.pl
+echo
+
+# Source 5: Piratical Insults
+echo -n "Piratical Insult: "
+# Powered by https://metacpan.org/pod/Acme::Scurvy::Whoreson::BilgeRat
+perl ~/bin/piratehost.pl
+echo
+
+echo
+# https://github.com/freebsd/calendar-data
+
+echo "--- Today's Calendars ---"
+cd ~/bin/calendars || exit 0
+today=$(date +%m/%d)
+
+# 1. Gather events, pulling multi-line continuations onto a single unified line
+calendar_output=$(
+    for file in calendar.*; do
+        # Use awk to find today's date and cleanly concatenate multi-line entries
+        events=$(awk -v date="$today" '
+            # If a line starts with today date pattern
+            $0 ~ "^" date {
+                if (current_event != "") print current_event
+                current_event = $0
+                next
+            }
+            # If we are tracking an event and the line starts with spaces/tabs (continuation)
+            current_event != "" && $0 ~ "^[ \t]+" {
+                # Clean up the leading tabs/spaces from the file continuation
+                sub(/^[ \t]+/, " ", $0)
+                current_event = current_event $0
+                next
+            }
+            # If it is any other date pattern, flush the saved event and stop tracking
+            $0 ~ "^[0-9]{2}/[0-9]{2}" {
+                if (current_event != "") { print current_event; current_event = "" }
+            }
+            END {
+                if (current_event != "") print current_event
+            }
+        ' "$file")
+
+        # If events were found, output the tag followed by the cleaned single-line entries
+        if [ -n "$events" ]; then
+            echo "[$file]"
+            echo "$events" | expand -t 2 | tr -s ' '
+            echo "" # Adds a blank line between calendar types
+        fi
+    done
+)
+
+# 2. Print based on screen width
+if [ -n "$calendar_output" ]; then
+    screen_width=$(tput cols 2>/dev/null)
+    [ -z "$screen_width" ] && screen_width=80
+
+    # 1) Determine formatting metrics based on layout mode
+    if [ "$screen_width" -lt 65 ]; then
+        remaining_width=$(( screen_width - 10 ))
+        is_narrow=true
+    else
+        col_width=$(( (screen_width / 2) - 2 ))
+        remaining_width=$(( col_width - 8 ))
+        is_narrow=false
+    fi
+
+    # 2) Run the universal formatting loop
+    formatted_output=$(echo "$calendar_output" | while read -r line; do
+        if [[ "$line" =~ ^[0-9]{2}/[0-9]{2} ]]; then
+            date_prefix="${line:0:8}"
+            event_text="${line:8}"
+            echo "$event_text" | fmt -w $remaining_width | awk -v dp="$date_prefix" '
+                NR==1 { print dp $0 }
+                NR>1  { print "        " $0 }
+            '
+        elif [[ "$line" =~ ^\[ && "$is_narrow" == true ]]; then
+            echo "$line" | sed 's/^\[/═════&/'
+        else
+            echo "$line"
+        fi
+    done)
+
+    # 3) Output based on final layout target
+    if [ "$is_narrow" == true ]; then
+        echo "$formatted_output"
+    else
+        # -------------------------------------------------------------
+        # BULLETPROOF TWO-COLUMN LAYOUT WITH BLOCK PROTECTION & SPACE
+        # -------------------------------------------------------------
+
+        # Count total formatted lines to determine the fixed height of Column 1
+        total_lines=$(echo "$formatted_output" | wc -l)
+
+        # Column height must be at least half the lines, plus space for potential padding
+        col_height=$(( (total_lines + 1) / 2 ))
+
+        echo "$formatted_output" | awk -v h="$col_height" -v w="$col_width" '
+            BEGIN {
+                RS = ""            # Read data in paragraphs (file blocks separated by blank lines)
+                col1_lines = 0     # Track how many lines are committed to column 1
+                col1_idx = 1       # Index for column 1 array storage
+                col2_idx = 1       # Index for column 2 array storage
+            }
+            {
+                # Count lines in the current file block plus 1 extra for a blank separator line
+                block_lines = gsub(/\n/, "\n", $0) + 1
+                actual_needed = block_lines + 1
+
+                # Check if adding this block (and its trailing space) breaks column 1 mid-file
+                if (col1_lines == 0 || (col1_lines + actual_needed <= h)) {
+                    split($0, lines, "\n")
+                    for (i = 1; i <= block_lines; i++) {
+                        c1[col1_idx++] = lines[i]
+                    }
+                    c1[col1_idx++] = ""  # Re-inject the pristine trailing blank line
+                    col1_lines += actual_needed
+                } else {
+                    split($0, lines, "\n")
+                    for (i = 1; i <= block_lines; i++) {
+                        c2[col2_idx++] = lines[i]
+                    }
+                    c2[col2_idx++] = ""  # Re-inject the pristine trailing blank line
+                }
+            }
+            END {
+                # Determine final loop limit based on whichever column holds more data
+                max_rows = (col1_idx - 1 > col2_idx - 1) ? (col1_idx - 1) : (col2_idx - 1)
+                if (max_rows < h) max_rows = h
+
+                # Render the columns side-by-side perfectly spaced
+                for (r = 1; r <= max_rows; r++) {
+                    val1 = (r in c1) ? c1[r] : ""
+                    val2 = (r in c2) ? c2[r] : ""
+                    printf "%-*s  %s\n", w, val1, val2
+                }
+            }
+        '
+    fi
+else
+    echo "Nothing on the calendar for today!"
+fi
+
+curl --max-time 3 -s wttr.in/Singapore?format="%l:+%c+%x+%C+%t+%w+%p+%m+%M\n"
+curl --max-time 3 -s wttr.in/Singapore?0
+
+cal -A 1
+)
