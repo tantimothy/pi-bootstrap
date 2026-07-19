@@ -129,9 +129,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
     && apt-get purge -y --auto-remove build-essential cmake clang \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64) yt_asset=yt-dlp_linux ;; \
+        aarch64) yt_asset=yt-dlp_linux_aarch64 ;; \
+        armv7l) yt_asset=yt-dlp_linux_armv7l ;; \
+        *) echo "Unsupported architecture for yt-dlp: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${yt_asset}" -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 ```
+
+(Not the plain `yt-dlp` asset — that one is a zipimport script needing a system python3 on PATH, which this image doesn't have. See `docs/lessons-learned/nanoclaw-mnemon.md` for the full story of how that bug surfaced and got fixed in the automated patch this manual version mirrors.)
 
 Then pull a whisper model into the **specific group's own folder** that wants this (not the top-level install path — verified directly against `container-runner.ts`'s own `buildMounts()`: only that group's folder is mounted into its agent container, at `/workspace/agent`):
 

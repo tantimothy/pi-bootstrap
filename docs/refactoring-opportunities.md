@@ -145,6 +145,40 @@ but no longer the only signal.
 
 ---
 
+## `nanoclaw-mnemon`'s yt-dlp arch-detection `case` block is duplicated across three files
+
+The `uname -m`-based asset-selection logic added to fix the yt-dlp/python3
+bug (see `docs/lessons-learned/nanoclaw-mnemon.md`'s "yt-dlp / python3
+Dependency Chain" section) exists verbatim in three places:
+`environments/nanoclaw-mnemon/Dockerfile`, the heredoc block
+`apply_media_tools_patch()` writes in `environments/nanoclaw-mnemon/run.sh`,
+and the hand-written mirror in `environments/nanoclaw-mnemon/MANUAL-STEPS.md`.
+The same bug already existed independently in the first two before being
+fixed in both separately — exactly the failure mode this duplication
+invites again the next time this logic needs to change (a new yt-dlp
+release renaming an asset, an additional architecture).
+
+**Why not extracted now:** two of the three copies are `RUN` lines inside
+two entirely different Dockerfiles (this environment's own orchestrator
+image, and NanoClaw's own upstream `container/Dockerfile`, patched at
+deploy time) — there's no straightforward way to share a bash snippet
+across two independent Docker build contexts without either committing to
+a `curl`-fetched shared script (a new external dependency and failure mode
+for ~10 lines) or maintaining a small shared file that gets copied into
+both at build time (more machinery than three ~10-line copies justify
+today). The third copy (`MANUAL-STEPS.md`) is documentation, not code, and
+inherently can't share an executable block with the other two.
+
+**Revisit when:** a fourth place in this repo needs to download an
+architecture-matched GitHub release asset (yt-dlp or otherwise) — at that
+point, a small `scripts/install-arch-binary.sh` (parameterized by
+repo/asset-name-per-arch) copied into whichever Dockerfiles need it would
+be worth the indirection; until then, keep all three copies in sync by hand
+and grep the whole repo for the literal download URL before considering
+this fixed anywhere.
+
+---
+
 ## No automated tests cover `lib/*.sh`'s `${VAR}`-expansion contract
 
 `_yaml_expand` (`lib/yaml-lib.sh`) and the loaders that use it

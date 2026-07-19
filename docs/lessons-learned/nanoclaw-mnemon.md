@@ -1,4 +1,11 @@
-# NanoClaw-Mnemon — Mnemon Hook Registration Lessons Learned
+# NanoClaw-Mnemon Environment — Debugging & Setup Lessons Learned
+
+This file holds every real debugging session specific to this environment,
+each as its own dated section below — not just one story. Add a new `## `
+section here the next time a real issue in this environment gets root-caused
+and fixed, rather than starting a separate file.
+
+## Mnemon Hook Registration
 
 **Status:** retrospective. The fix below is merged (PRs
 [#130](https://github.com/tantimothy/pi-bootstrap/pull/130),
@@ -8,7 +15,7 @@
 working against a real, live deploy — this document is the record of what
 was tried, what was wrong about each attempt, and why.
 
-## Summary
+### Summary
 
 `run.sh`'s `apply_mnemon_patch()` patches a `mnemon setup` invocation into
 NanoClaw's own agent-sandbox `container/entrypoint.sh`, run on every agent
@@ -18,9 +25,9 @@ two wrong versions, both reasoned from mnemon's own README, before a
 third — verified against real, live container behavior instead — actually
 worked.
 
-## Issue Found & Fixed
+### Issue Found & Fixed
 
-### Mnemon's Claude Code hooks never actually registered in a real group
+#### Mnemon's Claude Code hooks never actually registered in a real group
 
 **Symptom:** The patch applied cleanly on every `CLEAN` deploy, and the
 agent container started without error. But a real conversation group's
@@ -68,7 +75,7 @@ independently, after a full `CLEAN` redeploy against a real Mac install —
 a real group's `~/.claude/settings.json` came back with mnemon's hooks
 present alongside NanoClaw's own two.
 
-## General Lessons
+### General Lessons
 
 - **A documented example that "looks like" your use case can still be
   wrong for your specific working directory.** mnemon's own docs never
@@ -103,7 +110,7 @@ present alongside NanoClaw's own two.
   group names from NanoClaw's own `data/v2.db`, auto-picking if there's
   only one or prompting with a numbered list otherwise.
 
-## Related PRs
+### Related PRs
 
 - [#130](https://github.com/tantimothy/pi-bootstrap/pull/130) — attempt 2
   (bare `mnemon setup --yes`) — merged, later found to be a regression
@@ -116,3 +123,221 @@ present alongside NanoClaw's own two.
 - [#133](https://github.com/tantimothy/pi-bootstrap/pull/133) —
   `reload-mnemon.sh`'s group auto-discovery, replacing the manual-ID-required
   UX
+
+---
+
+## yt-dlp / python3 Dependency Chain
+
+**Status:** retrospective. Every fix below is merged (PRs
+[#124](https://github.com/tantimothy/pi-bootstrap/pull/124),
+[#126](https://github.com/tantimothy/pi-bootstrap/pull/126),
+[#127](https://github.com/tantimothy/pi-bootstrap/pull/127)) and confirmed
+against a real, live agent successfully transcribing a video end-to-end —
+this document is the record of how a one-line diagnosis ("python3 is
+missing, please install it") turned out to be masking three independent,
+compounding bugs, each only found by tracing the actual failure instead of
+accepting the stated symptom.
+
+### Summary
+
+A live agent ("Clawdia") hit `yt-dlp: python3: No such file or directory`
+and filed a proper `install_packages` approval request: install `python3`
+via `apt`. The request's own reasoning ("yt-dlp shells out to a python3
+interpreter") sounded plausible and matched the literal error — but this
+environment's own Dockerfile comment already claimed `yt-dlp` was installed
+specifically as "the standalone, dependency-free binary release" to avoid
+needing Python at all. That contradiction was the first sign the stated
+diagnosis was wrong, and approving the literal ask (installing `python3`)
+would have reintroduced a dependency this environment had deliberately
+designed around, rather than fixing the actual bug. Four rounds of
+"should be fixed now" followed before the real, full fix actually landed —
+each round exposed one more layer.
+
+### Issues Found & Fixed
+
+#### 1. Wrong yt-dlp release asset — needs python3 despite the "standalone" comment
+
+**Symptom:** `yt-dlp: python3: No such file or directory`, inside an image
+that has no `python3` installed by design.
+
+**Root cause:** `yt-dlp`'s GitHub releases publish several assets under
+similar names. The plain `yt-dlp` asset — what both the orchestrator's
+`Dockerfile` and the agent-sandbox patch (`apply_media_tools_patch()` in
+`run.sh`) were downloading — is a zipimport script (shebang
+`#!/usr/bin/env python3`) that still needs a system Python on `PATH` to
+run at all. The actual standalone, dependency-free binary is a
+differently-named asset (`yt-dlp_linux`, `yt-dlp_linux_aarch64`,
+`yt-dlp_linux_armv7l`, depending on architecture) — the Dockerfile
+comment's claim was aspirational, not verified against what URL it
+actually pointed at.
+
+**Fix:** Detect the build host's architecture via `uname -m` and download
+the correct arch-matched standalone asset instead. Needed in both places
+this environment builds a `yt-dlp`-bearing image: the orchestrator's own
+`Dockerfile`, and the agent-sandbox patch text `run.sh` splices into
+NanoClaw's own `container/Dockerfile`. `MANUAL-STEPS.md`'s hand-written
+mirror of that same patch text still had the old broken line even after
+both automated copies were fixed — found only by grepping the whole repo
+for the literal download URL, not by assuming "fixed in the automated
+path" meant "fixed everywhere the same snippet was copied."
+
+#### 2. Fixing the orchestrator's Dockerfile didn't fix the agent's own container
+
+**Symptom:** After the fix in #1 landed (merged, on `master`), the same
+agent hit the identical error again.
+
+**Root cause:** The orchestrator's own `Dockerfile` and the agent-sandbox
+image are two entirely separate build artifacts. An agent like Clawdia
+runs inside NanoClaw's own per-conversation-group agent-sandbox container
+(built from `container/Dockerfile` *inside the NanoClaw checkout*, patched
+at deploy time by `apply_media_tools_patch()` in this environment's
+`run.sh`) — not inside the orchestrator container at all. The first fix
+only touched the orchestrator's own copy of the same broken download line;
+the agent-sandbox patch text in `run.sh` had an independent copy of the
+identical bug, untouched.
+
+**Fix:** Apply the identical `uname -m`-based fix to the heredoc block
+`apply_media_tools_patch()` writes into `container/Dockerfile`.
+
+**Lesson:** the same broken snippet existed in two independent places
+because it had been copy-pasted between them rather than shared — fixing
+one is not evidence the other is fixed too. Before declaring a bug fixed,
+grep the whole repo for the same literal pattern, not just the one file
+that was actually touched.
+
+#### 3. `CLEAN`'s own local-edit-preservation step silently revived the stale patch
+
+**Symptom:** After the fix in #2 was merged and a real `CLEAN` redeploy
+run, the deploy log showed `✅ yt-dlp/ffmpeg/whisper.cpp already patched
+into container/Dockerfile` — not the expected `🎙️ Patching
+yt-dlp/ffmpeg/whisper.cpp...` — and the rebuilt agent-sandbox image still
+had the old broken binary. Confirmed directly by grepping the actual
+`container/Dockerfile` on the deploy host: it still had the pre-fix
+one-liner, and `docker images`' timestamp for the agent-sandbox image
+predated the whole incident.
+
+**Root cause:** `CLEAN` has a separate mechanism (added to stop
+channel/provider skills like `/add-telegram` from getting silently
+unwired by the hard reset) that snapshots *every* locally-modified tracked
+file as a patch before `git reset --hard`, then reapplies that patch
+afterward — with no distinction between genuine skill wiring
+(`src/channels/index.ts`, `package.json`) and `container/Dockerfile`/
+`container/entrypoint.sh`, which `apply_mnemon_patch`/
+`apply_media_tools_patch` already own and regenerate idempotently,
+unconditionally, right after the reset. The (stale, pre-fix)
+`container/Dockerfile` text got snapshotted, hard-reset away, then
+reapplied verbatim on top of the freshly-synced source — so
+`apply_media_tools_patch()`'s own idempotency check (`grep -q 'yt-dlp'`)
+saw the *old* broken line again immediately and skipped re-patching,
+exactly as if `CLEAN` had never run.
+
+**Fix:** Exclude `container/Dockerfile`/`container/entrypoint.sh` from
+that snapshot/reapply mechanism via git pathspec exclusion on both the
+`status` and `diff` calls — those two files now always get a clean
+hard-reset, and the patch functions see pristine upstream content to
+patch fresh, every `CLEAN`.
+
+**Lesson:** this meant no `CLEAN` could *ever* have picked up a fix to
+either Dockerfile-patching function's generated text, not just this one —
+a mechanism added to protect one category of local edit (user-installed
+skill wiring) silently defeated a different category (this repo's own
+idempotent codegen) that happened to look identical to git. When two
+independent things both show up as "local modifications to a tracked
+file," don't assume a blanket preserve-and-reapply mechanism is safe for
+both just because it's safe for one.
+
+#### 4. Post-deploy summary garbling into raw hex-byte escapes
+
+**Symptom:** Surfaced in the same `CLEAN` run's captured log — the
+post-deploy summary (`lib/info-lib.sh`, via `lib/run-info.sh`) printed
+`<F0><9F><93><81>` etc. instead of emoji.
+
+**Root cause:** `lib/locale-lib.sh` exists specifically to force a UTF-8
+locale and prevent exactly this failure mode (its own header comment
+documents this exact byte-escape example) — but it's sourced by
+`deploy.sh` and the other top-level entry scripts only, never by any
+per-environment `run.sh`, including this one. Invoking `run.sh` directly
+(bypassing `deploy.sh`'s menu, as this deploy did) skipped that guard
+entirely.
+
+**Fix:** Source `lib/locale-lib.sh` early in this environment's `run.sh`,
+matching `deploy.sh`'s own pattern. The same gap exists in every other
+environment's `run.sh` in this repo (confirmed by checking, not fixed
+here — see `docs/future-enhancements/nanoclaw-mnemon.md`).
+
+#### 5. (Not a bug) whisper.cpp libs/model wiped from an agent's home directory
+
+**Symptom:** After the real fix above finally landed and the agent
+respawned onto the rebuilt image, the agent reported its previously
+self-installed whisper.cpp libs/model were gone, and had to reinstall
+them before transcription could proceed.
+
+**This was expected behavior, not a new bug:** `/workspace/agent` is the
+only path inside an agent's container that's bind-mounted to real host
+storage (`$NANOCLAW_INSTALL_PATH/groups/<group>/`) and therefore survives
+a respawn or image rebuild. Everything else, including the container's
+own home directory, lives in the container's ephemeral layer and is
+wiped on *any* respawn — not just a deliberate one; idle agent containers
+get torn down and recreated routinely on their own regardless. The agent
+had installed whisper.cpp's libs/model outside `/workspace/agent`, so
+they were always going to disappear sooner or later — this rebuild just
+happened to be the trigger this time. A prior agent (see
+`environments/nanoclaw-mnemon/GIST-PARITY.md` and the README's
+"Agent-improvised, rootless" section) already learned this same lesson
+the hard way and moved everything into `/workspace/agent` specifically
+because of it — worth surfacing that precedent proactively rather than
+letting each agent rediscover it independently.
+
+### General Lessons
+
+- **An `install_packages` approval request's own stated diagnosis can be
+  wrong, even when it matches the literal error message.** "python3 is
+  missing" was true and would have made the immediate error go away, but
+  the actual fix was "download the right binary," not "add the missing
+  dependency" — approving the literal ask would have quietly reintroduced
+  a dependency this environment was deliberately built to avoid. Trace the
+  root cause before implementing (or approving) the stated fix, especially
+  when the request's own reasoning conflicts with something already
+  documented in the codebase (here, the Dockerfile's own "no Python
+  needed" comment).
+- **A fix applied to one file is not evidence it's fixed everywhere the
+  same snippet exists.** The broken download line existed independently
+  in three places (orchestrator `Dockerfile`, the agent-sandbox patch text
+  in `run.sh`, and `MANUAL-STEPS.md`'s hand-written mirror of it) — each
+  found only by grepping the whole repo for the literal pattern, not by
+  assuming the one file already touched was the only copy.
+- **Verify a fix actually took effect against real deploy output — build
+  timestamps, log messages, the actual patched file's contents — before
+  telling anyone to re-test.** Multiple "should be fixed now" messages in
+  this saga were wrong: first because `CLEAN` had never actually been run
+  yet, then because `CLEAN` ran but silently no-op'd due to issue #3 above.
+  Both were only caught by asking for concrete evidence (`git log`,
+  `grep`'d file contents, `docker images` timestamps) rather than trusting
+  restated confidence.
+- **A mechanism that protects one category of local file edit isn't
+  automatically safe for a different category that looks identical to
+  git.** `CLEAN`'s local-edit-preservation step didn't distinguish
+  "user-installed channel-skill wiring" from "this repo's own idempotent
+  Dockerfile codegen" — both are just "modified tracked files" from git's
+  point of view, but only one of them should ever be snapshotted and
+  reapplied blindly.
+- **Container ephemeral storage claims another victim, exactly as
+  documented.** An agent installing tools outside `/workspace/agent` will
+  lose them on the next respawn regardless of what triggers that respawn
+  — this had already been learned once (see the "Agent-improvised,
+  rootless" README section) and happened again independently in this
+  saga, suggesting the lesson needs to reach agents more proactively than
+  a README section they may never read.
+
+### Related PRs
+
+- [#124](https://github.com/tantimothy/pi-bootstrap/pull/124) — issue #1's
+  fix in the orchestrator's own `Dockerfile` only; confirmed later to be
+  incomplete (issue #2)
+- [#126](https://github.com/tantimothy/pi-bootstrap/pull/126) — issue #1's
+  fix repeated in the agent-sandbox patch text (`apply_media_tools_patch()`
+  in `run.sh`), the copy that actually reaches an agent's own container
+- [#127](https://github.com/tantimothy/pi-bootstrap/pull/127) — issue #3
+  (`CLEAN`'s local-edit-preservation step reviving the stale patch) and
+  issue #4 (`lib/locale-lib.sh` not sourced by this environment's `run.sh`),
+  both found only by tracing a real `CLEAN` run's own captured output
