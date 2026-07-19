@@ -25,23 +25,25 @@ export REPO_DIR
 source "$REPO_DIR/lib/desktop-lib.sh"
 export DESKTOP_DIR
 
-# Same reasoning as run_desktop_install()'s own guard in lib/desktop-lib.sh
-# (each environment's install-desktop.sh would skip individually anyway) —
-# checked here too so this prints one clear message instead of one per
-# environment, and so the main dashboard launcher below is never written
-# either.
-if [[ "$(uname)" == "Darwin" ]]; then
-    echo "Desktop entries are Linux-only (XDG .desktop files have no macOS equivalent) — nothing to do here."
-    echo "On macOS, just run ./deploy.sh directly, or add it to your Dock/Login Items yourself."
-    exit 0
-fi
+# The main dashboard launcher below (an XDG .desktop app-menu entry) has
+# no macOS equivalent, so it's skipped there — but per-environment web UI
+# shortcuts and info pages still get delegated to run-install-desktop.sh
+# below, which on macOS writes those as .webloc files via
+# run_desktop_install() in lib/desktop-lib.sh. An earlier version of this
+# script exited entirely on Darwin before ever reaching that loop, which
+# meant .webloc files were never actually produced through this entry
+# point despite lib/desktop-lib.sh supporting them.
+IS_DARWIN=false
+[[ "$(uname)" == "Darwin" ]] && IS_DARWIN=true
 
 ACTION="${1:-install}"
 
 if [ "$ACTION" = "--uninstall" ]; then
     echo "Removing pi-bootstrap desktop entries..."
-    rm -f "$APPS_DIR/pi-bootstrap.desktop"
-    remove_desktop_icon "pi-bootstrap"
+    if ! $IS_DARWIN; then
+        rm -f "$APPS_DIR/pi-bootstrap.desktop"
+        remove_desktop_icon "pi-bootstrap"
+    fi
     for env_dir in "$REPO_DIR"/environments/*/; do
         bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}" --uninstall
     done
@@ -49,12 +51,15 @@ if [ "$ACTION" = "--uninstall" ]; then
     exit 0
 fi
 
-mkdir -p "$APPS_DIR"
 echo "Installing pi-bootstrap desktop entries..."
 echo ""
 
-# Main dashboard launcher
-cat > "$APPS_DIR/pi-bootstrap.desktop" << EOF
+if $IS_DARWIN; then
+    echo "  ⏭  pi-bootstrap (main dashboard): skipped (macOS — no app-menu equivalent; run ./deploy.sh directly, or add it to your Dock/Login Items)"
+else
+    mkdir -p "$APPS_DIR"
+    # Main dashboard launcher
+    cat > "$APPS_DIR/pi-bootstrap.desktop" << EOF
 [Desktop Entry]
 Name=Pi Bootstrap
 Comment=Raspberry Pi Docker environment launcher
@@ -64,8 +69,9 @@ Type=Application
 Categories=System;
 Terminal=true
 EOF
-install_desktop_icon "pi-bootstrap"
-echo "  ✓  pi-bootstrap (main dashboard)"
+    install_desktop_icon "pi-bootstrap"
+    echo "  ✓  pi-bootstrap (main dashboard)"
+fi
 
 # Delegate to each environment via the dispatcher
 for env_dir in "$REPO_DIR"/environments/*/; do
@@ -73,12 +79,16 @@ for env_dir in "$REPO_DIR"/environments/*/; do
 done
 
 echo ""
-echo "✅  Done. Entries installed to $APPS_DIR"
-echo "   ...and mirrored as icons on the Desktop ($DESKTOP_DIR)"
-echo ""
-echo "Raspberry Pi OS picks up new entries automatically — no refresh needed."
-echo "If you're on XFCE or GNOME and an entry doesn't show up right away:"
-echo "  XFCE:   xfce4-panel --restart"
-echo "  GNOME:  Alt+F2 → r  (or log out/in)"
+if $IS_DARWIN; then
+    echo "✅  Done. Web UI shortcuts and info pages written as .webloc files to $DESKTOP_DIR"
+else
+    echo "✅  Done. Entries installed to $APPS_DIR"
+    echo "   ...and mirrored as icons on the Desktop ($DESKTOP_DIR)"
+    echo ""
+    echo "Raspberry Pi OS picks up new entries automatically — no refresh needed."
+    echo "If you're on XFCE or GNOME and an entry doesn't show up right away:"
+    echo "  XFCE:   xfce4-panel --restart"
+    echo "  GNOME:  Alt+F2 → r  (or log out/in)"
+fi
 echo ""
 echo "To uninstall:  $0 --uninstall"
