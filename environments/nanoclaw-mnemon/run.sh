@@ -698,8 +698,25 @@ if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scrip
 else
     patch_rc=$?
 fi
-if [ "$patch_rc" -eq 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
-    echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
+
+# requestApproval() (src/modules/approvals/primitive.ts) silently drops an
+# approval card — logging apparent success — whenever getDeliveryAdapter()
+# returns falsy, instead of failing loudly. Confirmed against a live
+# install: an agent's install_packages approval sat 'pending' for a week,
+# re-requested 3 times, with the card never once reaching the owner's
+# Telegram DM and nothing in the logs indicating a failure — see
+# patch-approval-delivery.cjs's own header for the full investigation.
+# Same idempotent every-run treatment and exit-code-2 rebuild signal as the
+# host-gateway patch above, and for the same set -e reason, exit-code
+# capture happens inside the `if` itself.
+if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-approval-delivery.cjs"; then
+    approval_patch_rc=0
+else
+    approval_patch_rc=$?
+fi
+
+if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway and/or approval-delivery fix)..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
 fi
@@ -708,9 +725,9 @@ fi
 # an upgrade of an existing install (dist/index.js already built from a
 # prior run) rather than a first-time install, rebuild from that freshly-
 # synced source so the upgrade actually takes effect instead of silently
-# continuing to run the old build. Skipped when the host-gateway patch
-# above already did this same rebuild+restart (patch_rc 2).
-if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+# continuing to run the old build. Skipped when either patch above already
+# did this same rebuild+restart (patch_rc/approval_patch_rc == 2).
+if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"

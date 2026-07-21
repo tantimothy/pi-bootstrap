@@ -126,6 +126,92 @@ present alongside NanoClaw's own two.
 
 ---
 
+## Approval-Card Silent Delivery Failure
+
+**Status:** fix implemented (`environments/nanoclaw-mnemon/scripts/patch-approval-delivery.cjs`,
+wired into `run.sh` alongside the existing `patch-host-gateway.cjs` call) —
+not yet merged.
+
+### Summary
+
+An agent's `install_packages` self-mod approval request sat in
+`pending_approvals` with `status='pending'` for over a week, re-requested 3
+separate times, and the approval card **never once appeared** in the
+owner's Telegram DM — with nothing in the logs indicating any failure at
+all. Investigation (full writeup: a NanoClaw-repo incident report supplied
+by the operator, not reproduced here) traced this to NanoClaw's own
+`src/modules/approvals/primitive.ts`, and the fix is patched in at deploy
+time the same way `patch-host-gateway.cjs` already patches
+`src/container-runtime.ts` — this environment doesn't vendor NanoClaw's
+source, so an upstream bug fix has to be applied as an idempotent text
+splice against the freshly cloned tree, not a direct edit.
+
+### Issue Found & Fixed
+
+#### `requestApproval()` silently no-ops when no delivery adapter is set
+
+**Symptom:** Three `pending_approvals` rows stuck since Jul 14/17/21, all
+for the same action, with no delivery-failure log line
+(`Failed to deliver approval card`) and no "no adapter"/"no owner
+configured" fallback message ever appearing either — the code has both of
+those failure paths, and neither fired.
+
+**Root cause:** `requestApproval()`'s delivery call was shaped
+`if (adapter) { try { await adapter.deliver(...) } catch { ...handle... } }`
+with no `else` branch. When `getDeliveryAdapter()` returns falsy, the
+entire block is skipped — no error, no cleanup, no notification — and
+execution falls straight through to the function's own closing
+`log.info('Approval requested', ...)`, logging apparent success despite
+never attempting delivery. The delivery mechanism itself was proven sound
+by two live tests directly against `chat-sdk-bridge.ts`'s `deliver()` (no
+mocking) — the bug is entirely in this silent-no-op shape upstream of it.
+Root cause for *why* the adapter was null at those specific moments inside
+the long-running host process was not conclusively pinned down (leading,
+unconfirmed hypothesis: `getDeliveryAdapter()` racing container/service
+startup) — the fix addresses the silent-failure symptom regardless of
+which specific cause triggers it.
+
+**Fix:** `if (!adapter) { ...same log-error/delete-row/notify-agent
+handling as the existing catch block... return; }` before the `try`, so a
+missing adapter fails exactly as loudly as a `deliver()` throw already
+did. Also fixed `createPendingApproval()`'s call at this same site to
+persist `agent_group_id`/`channel_type`/`platform_id` (previously always
+`NULL` here, unlike the sibling OneCLI credential-approval flow in
+`onecli-approvals.ts` which already sets them) — not the delivery bug
+itself (the click-resolution path looks the row up by `approval_id` alone
+and never reads those columns), but worth fixing for consistency while
+touching this call.
+
+### General Lessons
+
+- **`if (thing) { try {...important work...} catch {...} }` with no
+  `else` is a silent-no-op trap**, not just an incomplete error path — a
+  falsy `thing` skips the whole block and, unless the surrounding function
+  has nothing left to fall through to, can end up logging a *success*
+  message for work that never happened. Worth grepping for this exact
+  shape anywhere delivery/notification is conditional on a possibly-null
+  singleton.
+- **"No error in the logs" is not evidence nothing went wrong** — it's
+  only evidence none of the code's own explicit failure branches fired.
+  The stuck-approval symptom here produced zero log signal for a week
+  specifically because the one code path that *could* have logged
+  something was the one being skipped entirely.
+- **Live-testing the delivery mechanism in isolation, separately from the
+  code path that's supposed to invoke it, is what actually located the
+  bug.** Both layers looked plausible individually (adapter code: proven
+  fine; call site: no visible error) — the gap only became visible by
+  testing each independently against the real chat rather than trusting
+  either one's absence of errors.
+- **An upstream bug fix in a cloned (not vendored) dependency needs the
+  same idempotent patch-at-deploy-time treatment as any other patch this
+  environment applies** — a local, uncommitted edit to the source tree
+  used for the original investigation doesn't reach a fresh install or an
+  existing one's next `CLEAN` re-sync on its own.
+
+### Related PRs
+
+- (this fix — PR not yet opened)
+
 ## yt-dlp / python3 Dependency Chain
 
 **Status:** retrospective. Every fix below is merged (PRs
