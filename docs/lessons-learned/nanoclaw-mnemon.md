@@ -215,8 +215,8 @@ mode.
 
 ### Related PRs
 
-- (this fix, plus the port to the plain `nanoclaw` environment — PR link
-  filled in once opened)
+- [#149](https://github.com/tantimothy/pi-bootstrap/pull/149) — this fix,
+  plus the port to the plain `nanoclaw` environment (both deploy modes)
 
 ## yt-dlp / python3 Dependency Chain
 

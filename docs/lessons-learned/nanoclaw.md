@@ -112,4 +112,4 @@ install is a separate, larger design change, deliberately left alone here.
 
 ### Related PRs
 
-- (this fix — PR link filled in once opened)
+- [#149](https://github.com/tantimothy/pi-bootstrap/pull/149) — this fix
