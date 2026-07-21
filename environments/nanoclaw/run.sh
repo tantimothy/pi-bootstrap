@@ -217,8 +217,23 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         else
             patch_rc=$?
         fi
-        if [ "$patch_rc" -eq 2 ]; then
-            echo "🔄 Rebuilding NanoClaw to pick up the OrbStack host-gateway patch..."
+
+        # requestApproval() (src/modules/approvals/primitive.ts) silently
+        # drops an approval card — logging apparent success — whenever
+        # getDeliveryAdapter() returns falsy, instead of failing loudly.
+        # Same bug, same fix, same idempotent patch mechanism as the
+        # host-gateway patch just above — see
+        # patch-approval-delivery.cjs's own header (and
+        # nanoclaw-mnemon/run.sh, where this was actually found and fixed
+        # first) for the full investigation.
+        if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-approval-delivery.cjs"; then
+            approval_patch_rc=0
+        else
+            approval_patch_rc=$?
+        fi
+
+        if [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ]; then
+            echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway and/or approval-delivery fix)..."
             $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
             $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
         fi
@@ -320,6 +335,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
 
     if [ "$SOURCE_SYNCED" = "true" ]; then
         $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-host-gateway.cjs" || true
+        $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-approval-delivery.cjs" || true
         $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-nohup-autostart.cjs" || true
     fi
 
@@ -613,6 +629,19 @@ else
     echo "📦 Install path exists. Pulling latest changes..."
     git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
 fi
+
+# requestApproval() (src/modules/approvals/primitive.ts) silently drops an
+# approval card — logging apparent success — whenever getDeliveryAdapter()
+# returns falsy, instead of failing loudly. Same bug as the container-mode
+# branch above patches (see patch-approval-delivery.cjs's own header, and
+# nanoclaw-mnemon/run.sh where this was actually found and fixed first) —
+# plain application logic, not container/OrbStack-specific, so host mode
+# needs it too. No `docker exec` wrapper here: NanoClaw's own orchestrator
+# process isn't containerized in host mode, so this runs directly against
+# $INSTALL_PATH on the host, the same place `bash nanoclaw.sh` below will
+# build from. No separate rebuild/restart dance needed either — the wizard
+# call right after this always (re)builds from whatever's on disk.
+node "$SCRIPT_DIR/scripts/patch-approval-delivery.cjs" "$INSTALL_PATH" || true
 
 echo ""
 echo "🧙 Handing off to the NanoClaw interactive setup wizard..."

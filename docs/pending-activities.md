@@ -70,6 +70,36 @@ the fix). Not yet done:
   `/workspace/agent`, the next routine container respawn (which happens
   on its own, unprompted) will wipe them again.
 
+## nanoclaw / nanoclaw-mnemon: approval-delivery patch not yet verified against a live deploy
+
+Full account in `docs/lessons-learned/nanoclaw-mnemon.md`'s "Approval-Card
+Silent Delivery Failure" section and `docs/lessons-learned/nanoclaw.md`'s
+porting section. The underlying bug and fix were confirmed against a real,
+live NanoClaw install (see that section for the investigation) — what's
+**not** yet confirmed is that `scripts/patch-approval-delivery.cjs`'s own
+text-splice actually applies cleanly against a fresh `git clone` of
+`nanocoai/nanoclaw`. It was written directly from the incident report's
+own diff (exact anchor text, indentation included) and passes `node -c`
+plus a byte-for-byte match against `patch-host-gateway.cjs`'s established
+pattern, but this repo doesn't vendor NanoClaw's source, so there's no
+local copy to run the patch against and confirm the anchor still matches
+upstream today. Not yet done:
+
+- **Run a real `CLEAN` deploy of `nanoclaw-mnemon`** (or `nanoclaw`,
+  either deploy mode) against a fresh clone and confirm the patch's own
+  console output says "Patched src/modules/approvals/primitive.ts..."
+  rather than the "expected body ... has changed upstream — skipping"
+  warning path.
+- **`pnpm exec tsc --noEmit` / `pnpm run build` after the patch applies**
+  — confirm the patched file still compiles cleanly (the incident report's
+  own diff was verified this way against the operator's local checkout,
+  but that verification doesn't carry over automatically to this repo's
+  copy of the patch text).
+- **An actual end-to-end repro**: null out the delivery adapter somehow
+  (or wait for the original race condition) and confirm a fresh approval
+  request now logs the new error + notifies the agent instead of silently
+  vanishing.
+
 ## mac-terminal-setup: core feature merged and tested, two auto-install paths unverified
 
 Full account in `docs/lessons-learned/mac-terminal-setup.md`. The
