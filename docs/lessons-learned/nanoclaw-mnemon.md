@@ -208,9 +208,15 @@ touching this call.
   used for the original investigation doesn't reach a fresh install or an
   existing one's next `CLEAN` re-sync on its own.
 
+**Ported to the plain `nanoclaw` environment**, which clones the same
+upstream source: see `docs/lessons-learned/nanoclaw.md` for the porting
+details, including why host mode needed different wiring than container
+mode.
+
 ### Related PRs
 
-- (this fix — PR not yet opened)
+- (this fix, plus the port to the plain `nanoclaw` environment — PR link
+  filled in once opened)
 
 ## yt-dlp / python3 Dependency Chain
 
