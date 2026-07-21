@@ -630,6 +630,19 @@ else
     git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
 fi
 
+# requestApproval() (src/modules/approvals/primitive.ts) silently drops an
+# approval card — logging apparent success — whenever getDeliveryAdapter()
+# returns falsy, instead of failing loudly. Same bug as the container-mode
+# branch above patches (see patch-approval-delivery.cjs's own header, and
+# nanoclaw-mnemon/run.sh where this was actually found and fixed first) —
+# plain application logic, not container/OrbStack-specific, so host mode
+# needs it too. No `docker exec` wrapper here: NanoClaw's own orchestrator
+# process isn't containerized in host mode, so this runs directly against
+# $INSTALL_PATH on the host, the same place `bash nanoclaw.sh` below will
+# build from. No separate rebuild/restart dance needed either — the wizard
+# call right after this always (re)builds from whatever's on disk.
+node "$SCRIPT_DIR/scripts/patch-approval-delivery.cjs" "$INSTALL_PATH" || true
+
 echo ""
 echo "🧙 Handing off to the NanoClaw interactive setup wizard..."
 echo "   The wizard will ask for your Anthropic API key, channel setup, and more."
