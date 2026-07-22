@@ -11,6 +11,22 @@ data_dirs_label: "📁 Persistent Data Directories (back these up):"
 install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
 delete_install_dirs: false
 delete_confirm_msg: "All conversation history and memory will be lost."
+custom_actions:
+  # Not this environment's own container — a convenience shortcut into the
+  # separate, standalone claude-cli environment (if it's deployed on this
+  # same machine), for a plain terminal Claude session alongside NanoClaw's
+  # own chat-platform one. $SSH_PORT is deliberately NOT ${SSH_PORT} here —
+  # ${...} markers get eagerly expanded against THIS environment's own
+  # scope (deploy.sh has no SSH_PORT of its own while processing nanoclaw's
+  # info.yaml, so a ${SSH_PORT:-2222} marker would resolve to a permanently
+  # hardcoded "2222" the moment this file loads, never claude-cli's real,
+  # possibly-different configured port). Plain $SSH_PORT survives that
+  # expansion untouched and is instead resolved live, inside the `bash -c`
+  # that actually runs this command, after sourcing claude-cli's own real
+  # .env — see docs/lessons-learned/general.md's "${VAR}-expansion" entry
+  # for the underlying mechanism this works around.
+  - label: "SSH into Claude CLI"
+    command: 'CLI_ENV="${PROJECT_DIR}/environments/claude-cli/.env"; if [ ! -f "$CLI_ENV" ]; then echo "Claude CLI environment is not deployed yet -- deploy it first from Environments > Claude CLI."; exit 1; fi; set -a; source "$CLI_ENV"; set +a; ssh -p "$SSH_PORT" claude@localhost'
 # No web_uis entry: NanoClaw has no default web interface at all — its own
 # README says so directly ("Beyond setup there's no monitoring dashboard or
 # debugging UI either: describe the problem in chat"). NANOCLAW_PORT exists
@@ -44,3 +60,7 @@ useful_commands: |2
         host Ollama daemon, its own browser UI at http://<host-ip>:3010
         by default (not listed under Web UIs above since it's a separate,
         optional environment, not part of this one).
+     🖥️ Need a plain terminal Claude session instead of the chat-platform
+        one? "SSH into Claude CLI" in this environment's own deploy.sh menu
+        jumps into the separate, standalone claude-cli environment's own
+        SSH session — deploy that environment too if you haven't.
