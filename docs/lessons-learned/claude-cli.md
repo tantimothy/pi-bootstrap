@@ -234,7 +234,9 @@ implying something's tested when it isn't.
 ## `~/.claude.json` (MCP Registrations) Silently Not Persisted
 
 **Status:** fix implemented (`entrypoint.sh` now symlinks `~/.claude.json`
-into the existing `claude_cli_home` volume) — not yet merged.
+into the existing `claude_cli_home` volume, PR
+[#151](https://github.com/tantimothy/pi-bootstrap/pull/151)) — not yet
+merged.
 
 **What happened:** a user asked directly whether `/home/claude/.claude.json`
 would survive a rebuild. Checking `docker-compose.yml`'s actual volume
@@ -280,4 +282,4 @@ than the environment being audited for it proactively.
 - [#136](https://github.com/tantimothy/pi-bootstrap/pull/136) — gateway
   redirect feature (`point-to-gateway.sh`/`revert-to-claude.sh`,
   `.env.gateway.*`), shipped with the open API-shape assumption above
-- (unmerged) — `~/.claude.json` persistence fix above
+- [#151](https://github.com/tantimothy/pi-bootstrap/pull/151) — `~/.claude.json` persistence fix above
