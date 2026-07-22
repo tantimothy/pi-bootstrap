@@ -5,10 +5,10 @@ install_dirs: []
 # ever touches its own volumes, never a sibling instance's.
 named_volumes:
   - name: ${CONTAINER_NAME:-claude-cli}_claude_home
-    description: "Claude CLI's own OAuth/session state (~/.claude) — deleting this signs you out, next login re-prompts /login"
+    description: "Claude CLI's own OAuth/session state (~/.claude) and MCP server registrations (~/.claude.json, symlinked in — see README's 'Connecting to Home Assistant') — deleting this signs you out, drops registered MCP servers, and next login re-prompts /login"
   - name: ${CONTAINER_NAME:-claude-cli}_ssh_host_keys
     description: "This container's own SSH host keys — deleting this changes its SSH fingerprint, you'll see a REMOTE HOST IDENTIFICATION HAS CHANGED warning on your next connection"
-delete_confirm_msg: "Claude CLI's login session and this container's SSH host key identity will be lost — you'll need to /login again and your SSH client will warn about a changed host key on next connect. Your workspace repo at CLAUDE_WORKSPACE_PATH is NOT touched (it's your own pre-existing directory, not something this environment owns)."
+delete_confirm_msg: "Claude CLI's login session, any registered MCP servers, and this container's SSH host key identity will be lost — you'll need to /login (and re-register any MCP servers) again, and your SSH client will warn about a changed host key on next connect. Your workspace repo at CLAUDE_WORKSPACE_PATH is NOT touched (it's your own pre-existing directory, not something this environment owns)."
 web_uis: []
 custom_actions:
   - label: "SSH into Claude CLI"
@@ -38,3 +38,6 @@ useful_commands: |2
         .env.gateway.portkey first, then use the two menu actions above
         (or the scripts directly). Both restart the container — any live
         tmux session ends, but reconnecting resumes it (--continue).
+     🔌 MCP servers registered via `claude mcp add` (see README's
+        "Connecting to Home Assistant") now survive a CLEAN redeploy —
+        entrypoint.sh symlinks ~/.claude.json into this same volume.

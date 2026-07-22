@@ -21,6 +21,27 @@ fi
 if [ "$PGID" != "$CURRENT_GID" ]; then
     groupmod -g "$PGID" claude
 fi
+
+# ~/.claude.json holds Claude Code's MCP server registrations, onboarding
+# state, and trusted-project list — a real file Claude Code writes
+# directly to ~/.claude.json itself, NOT under ~/.claude/ (the directory
+# docker-compose.yml's claude_cli_home named volume actually mounts).
+# Left alone it lives only on this container's own writable layer and is
+# silently lost on every rebuild/recreate. Symlinking it into the
+# already-persistent ~/.claude/ volume fixes that without needing a
+# second named volume mounted at an individual file path — confirmed
+# nothing in this repo accounted for it before now.
+mkdir -p /home/claude/.claude
+if [ -f /home/claude/.claude.json ] && [ ! -L /home/claude/.claude.json ]; then
+    # A real file already exists — either this container's very first
+    # start, or an existing deploy from before this fix shipped. Move it
+    # into the volume rather than discarding it, so anyone who's already
+    # registered real MCP servers or completed onboarding doesn't lose
+    # that switching to the symlinked layout.
+    mv /home/claude/.claude.json /home/claude/.claude/.claude.json
+fi
+ln -sf .claude/.claude.json /home/claude/.claude.json
+
 chown -R claude:claude /home/claude
 
 # Host keys persist in a named volume (see docker-compose.yml) so the

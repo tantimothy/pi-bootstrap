@@ -288,9 +288,9 @@ Home Assistant has a built-in **Model Context Protocol Server** integration — 
    Run `claude mcp add --help` first to confirm the current flag names — Claude Code's own MCP CLI surface isn't something this environment scripts or pins a version of, since the registration is per-user state stored in Claude Code's own config, not something `.env`/`docker-compose.yml` should hold a token for.
 4. `<ha-host>` is whatever address *this container* can actually reach Home Assistant at: the same LAN IP/hostname you'd type into a browser if Home Assistant runs on a separate device (e.g. a Pi running HAOS — the common case), or `host.docker.internal` if it happens to run as a process on this same host (see `chat-frontends`' README for the OrbStack caveat on that hostname specifically, if that's your setup and it doesn't resolve).
 
-Once registered, Claude can see and act on exactly what you've exposed to Assist — nothing more. Revoking the long-lived token (or narrowing what's exposed to Assist) in Home Assistant itself is how you scope or pull this back later; nothing about it lives in this environment's own `.env` or volumes.
+Once registered, Claude can see and act on exactly what you've exposed to Assist — nothing more. Revoking the long-lived token (or narrowing what's exposed to Assist) in Home Assistant itself is how you scope or pull this back later; nothing about it lives in this environment's own `.env`.
 
-This registration lives under `~/.claude` — the `${CONTAINER_NAME:-claude-cli}_claude_home` named volume — so it's tied to the container, not to any one connection method. Register it once (over an initial SSH session), and it's available whether you come back over SSH or through `/remote-control`.
+This registration actually lives in `~/.claude.json` — **not** under `~/.claude/` itself, a distinction that matters: `~/.claude.json` is a separate file Claude Code writes directly to the home directory, outside the `~/.claude/` directory the `${CONTAINER_NAME:-claude-cli}_claude_home` named volume mounts. Left alone that file would live only on the container's own writable layer and be silently lost on every `CLEAN` rebuild — confirmed as a real, previously-unhandled gap, not a hypothetical one. `entrypoint.sh` now symlinks `~/.claude.json` into the same `claude_cli_home` volume (migrating any already-existing real file into it on first start, so already-registered MCP servers aren't lost), so this registration is tied to the container the same way `~/.claude`'s own OAuth state already was. Register it once (over an initial SSH session), and it's available whether you come back over SSH or through `/remote-control` — survives a `CLEAN` redeploy too, now.
 
 ---
 
@@ -315,7 +315,7 @@ Select a policy from `deploy.sh`'s menu — recommended, since it also handles d
 
 | Volume | Contents |
 |--------|---------|
-| `${CONTAINER_NAME:-claude-cli}_claude_home` | Claude CLI's own OAuth/session state (`~/.claude`) — deleting this signs you out |
+| `${CONTAINER_NAME:-claude-cli}_claude_home` | Claude CLI's own OAuth/session state (`~/.claude`), plus `~/.claude.json` (MCP server registrations, onboarding state — symlinked in by `entrypoint.sh`, see "Connecting to Home Assistant") — deleting this signs you out and drops any registered MCP servers |
 | `${CONTAINER_NAME:-claude-cli}_ssh_host_keys` | This container's own SSH host keys — deleting this changes its SSH fingerprint |
 
 ### Bind Mount (Yours, Not This Environment's)
