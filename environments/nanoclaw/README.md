@@ -213,6 +213,7 @@ http://<pi-ip>:3080
 
 ## Notes
 
+- **"SSH into Claude CLI"** in this environment's own `deploy.sh` action menu (`info.yaml`'s `custom_actions`) is a shortcut into the separate, standalone `claude-cli` environment's own SSH session — a plain terminal `claude` conversation alongside NanoClaw's chat-platform one — if you've deployed that environment too. It reads `claude-cli`'s real, live `SSH_PORT` from its own `.env` at the moment you use it, not a hardcoded default, so it stays correct even if you've customized that port.
 - **Docker Manager** in the deploy menu will show dynamically-created NanoClaw group containers alongside your other containers — plus the `nanoclaw` orchestrator container itself in `container` mode.
 - NanoClaw containers never see raw API keys — a local HTTP proxy (OneCLI) injects credentials at request time. This is true in both deploy modes; `container` mode additionally limits what the *orchestrator itself* can reach on the host filesystem (see "Deployment Modes" above) — it doesn't change credential handling, which was already scoped away from the agent containers before `container` mode existed.
 - `container` mode still needs full Docker daemon access (via the bind-mounted socket) to spawn/manage agent containers — that's unavoidable in either mode, since spawning agent containers is the orchestrator's whole job. The security improvement is specifically about *filesystem* access, not Docker access.
