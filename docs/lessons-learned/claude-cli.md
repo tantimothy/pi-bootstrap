@@ -231,6 +231,44 @@ rather than assumed — is to say plainly *where* the uncertainty is (in
 the shipped code's own comments, not just a side document) rather than
 implying something's tested when it isn't.
 
+## `~/.claude.json` (MCP Registrations) Silently Not Persisted
+
+**Status:** fix implemented (`entrypoint.sh` now symlinks `~/.claude.json`
+into the existing `claude_cli_home` volume) — not yet merged.
+
+**What happened:** a user asked directly whether `/home/claude/.claude.json`
+would survive a rebuild. Checking `docker-compose.yml`'s actual volume
+list answered it immediately: `claude_cli_home` mounts `~/.claude` (the
+**directory**) — `~/.claude.json` is a separate **file** one level up, a
+sibling of that directory rather than something nested inside it, so it
+was never covered by that mount (or any other). Confirmed via a repo-wide
+grep that nothing anywhere had ever accounted for this file at all. The
+user then confirmed `~/.claude.json` is exactly where `claude mcp add`
+(see "Connecting to Home Assistant" above) writes its registrations —
+meaning every MCP server anyone registered was silently lost on the next
+`CLEAN` rebuild, with the README at the time actively claiming the
+opposite ("This registration lives under `~/.claude`... tied to the
+container").
+
+**The fix:** `entrypoint.sh` now symlinks `~/.claude.json` to
+`~/.claude/.claude.json` (inside the already-persistent volume) on every
+start, migrating any real pre-existing file into the volume first rather
+than discarding it, so an existing deploy with real MCP servers already
+registered doesn't lose them switching to the symlinked layout.
+
+**The lesson:** a named volume mounted at a directory covers *only* paths
+nested inside that directory — a sibling file one level up, even one with
+a very similar name (`~/.claude.json` vs. `~/.claude/`), is a completely
+different, uncovered path. This is exactly the kind of gap that's easy to
+miss by pattern-matching "this app's config lives under `~/.claude`,
+that's mounted, so we're covered" rather than checking each actual file
+Claude Code writes individually — the same shape of mistake as this
+file's own `${VAR}`-expansion-adjacent findings in
+`docs/lessons-learned/general.md` (a documented contract, or a plausible
+assumption, standing in for verifying the actual code/file layout).
+Caught here only because a user asked a direct, specific question rather
+than the environment being audited for it proactively.
+
 ## Related PRs
 
 - [#128](https://github.com/tantimothy/pi-bootstrap/pull/128) — `gh` CLI
@@ -242,3 +280,4 @@ implying something's tested when it isn't.
 - [#136](https://github.com/tantimothy/pi-bootstrap/pull/136) — gateway
   redirect feature (`point-to-gateway.sh`/`revert-to-claude.sh`,
   `.env.gateway.*`), shipped with the open API-shape assumption above
+- (unmerged) — `~/.claude.json` persistence fix above

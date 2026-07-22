@@ -33,6 +33,10 @@ services:
       - "${SSH_AUTHORIZED_KEYS_PATH}:/run/host-authorized_keys:ro"
       # Claude CLI's own OAuth/session state (~/.claude) — named volume so
       # `claude /login` only has to happen once, surviving CLEAN rebuilds.
+      # entrypoint.sh also symlinks ~/.claude.json (MCP server registrations,
+      # onboarding state — a real file Claude Code writes OUTSIDE ~/.claude/
+      # itself) into this same volume, so `claude mcp add` also survives a
+      # rebuild instead of silently needing to be re-run every time.
       - "claude_cli_home:/home/claude/.claude"
       # SSH host keys — named volume so the container's SSH fingerprint
       # stays stable across recreation (no "REMOTE HOST IDENTIFICATION HAS
