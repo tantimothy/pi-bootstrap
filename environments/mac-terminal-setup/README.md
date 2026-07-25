@@ -48,7 +48,8 @@ management:
    for it (unlike Homebrew's one-liner), so this is informational only; the
    MacPorts `PATH` lines in `.bash_profile` are harmless no-ops without it.
 5. **Deploys `.tmux.conf` and `.bash_profile`**, and — only if whimsy is
-   enabled — the bundled `~/bin` scripts and calendar data.
+   enabled — the bundled `~/bin` scripts, calendar data, and TalkingMoose
+   phrase files (fetched from GitHub here, once, rather than on every shell).
 6. **Injects four `.bashrc` blocks**, always reassembled in this order:
    `prompt` → `tmux` → `fastfetch` → `whimsy` (only if enabled). The whole
    injected region is guarded behind `[[ $- == *i* ]] || return`, so
@@ -113,9 +114,10 @@ Where each whimsy piece comes from:
   [fortune-mod](https://github.com/shlomif/fortune-mod) +
   [lolcat](https://github.com/busyloop/lolcat) combo, and a random "PAUSE"
   activity phrase from Uli Kusterer's
-  [TalkingMoose](https://github.com/uliwitness/talkingmoose) (fetched live
-  from its `TalkingMoose/Phrases/*.phraseFile` files on GitHub, piped
-  through `cowsay -f moose`).
+  [TalkingMoose](https://github.com/uliwitness/talkingmoose), piped
+  through `cowsay -f moose`. Like the calendar facts below, the phrase
+  files are fetched once by `./run.sh` into `~/bin/moose-phrases/` rather
+  than hit live on every new shell.
 - **BOFH excuse** (`bin/bofhexcuse`) — Jeff Ballard's
   [BOFH-style Excuse Server](https://pages.cs.wisc.edu/~ballard/bofh/).
 - **Programming Excuse** — [programmingexcuses.com](http://programmingexcuses.com).
