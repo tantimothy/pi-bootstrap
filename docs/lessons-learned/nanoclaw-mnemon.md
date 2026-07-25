@@ -433,3 +433,107 @@ letting each agent rediscover it independently.
   (`CLEAN`'s local-edit-preservation step reviving the stale patch) and
   issue #4 (`lib/locale-lib.sh` not sourced by this environment's `run.sh`),
   both found only by tracing a real `CLEAN` run's own captured output
+
+## Live, Uncommitted NanoClaw Checkout Changes — Ollama + Telegram (2026-07-25)
+
+**Status:** informational snapshot, not a bug report. This documents a
+real user's in-progress, **uncommitted** local modifications to their own
+`$NANOCLAW_INSTALL_PATH` checkout (the actual upstream NanoClaw repo,
+patched into this environment at deploy time — not `pi-bootstrap` itself)
+as of the date above, plus the `CLEAN`-safety implications of leaving them
+uncommitted, per issue #3 above. No pi-bootstrap code changed as part of
+this entry.
+
+### Summary
+
+`git status` inside the running container's install path showed two
+distinct feature areas in progress, per the user's own categorization,
+plus a few files whose attribution isn't fully certain and three files
+that are normal generated runtime state rather than feature code at all.
+
+**Ollama integration** (modified: `container/Dockerfile`,
+`container/entrypoint.sh`, `src/container-runtime.ts`; new:
+`container/agent-runner/src/ollama-mcp-stdio.ts`,
+`container/agent-runner/src/ollama-registration.test.ts`,
+`src/ollama-env.ts`, `src/ollama-wiring.test.ts`) — wires the host's
+native Ollama daemon into the agent-sandbox container as an MCP stdio
+server, touching both the image build (`Dockerfile`/`entrypoint.sh`) and
+the orchestrator's own container-launch code (`container-runtime.ts`).
+
+**Telegram channel** (modified: `src/channels/index.ts`; new:
+`src/channels/telegram.ts`, `src/channels/telegram-pairing.ts` +
+`.test.ts`, `src/channels/telegram-markdown-sanitize.ts` + `.test.ts`,
+`src/channels/telegram-registration.test.ts`) — a new chat-platform
+channel following the same shape as NanoClaw's other `/add-<channel>`
+skills: a barrel-import registration in `channels/index.ts` plus the
+channel's own implementation files.
+
+**Ambiguous — plausibly Telegram-related but not confirmed:**
+`package.json`, `pnpm-lock.yaml`, `setup/service.ts`,
+`src/modules/approvals/primitive.ts`. The first two match the shape
+`run.sh`'s own comments describe for channel-skill wiring (new
+dependency + lockfile churn alongside `channels/index.ts`); `service.ts`
+and `approvals/primitive.ts` could belong to either feature area (or be
+incidental) — not asserted here without reading their actual diffs.
+
+**Not feature code — normal generated/runtime state, despite showing as
+"Untracked (new)":**
+- `start-nanoclaw.sh` — written automatically by `setup/service.ts`'s own
+  "nohup fallback" path when no systemd/launchd unit is available; not
+  hand-authored.
+- `nanoclaw.pid` — the PID file that same nohup-fallback background
+  process writes while running.
+- `.claude/settings.local.json` — Claude Code's own standard
+  project-local settings file, unrelated to either feature.
+
+### CLEAN-safety risk analysis
+
+This environment's `CLEAN` policy runs `git -C "$INSTALL_PATH" fetch
+origin` then `git -C "$INSTALL_PATH" reset --hard '@{u}'`
+(`run.sh`, ~line 604). A snapshot-and-reapply mechanism added for issue #3
+above (~lines 555-613) protects most locally-modified **tracked** files
+from that hard reset automatically — `git status --porcelain -- . ':!container/Dockerfile' ':!container/entrypoint.sh'`
+saves a `git diff HEAD` patch before the reset and tries to `git apply` it
+back after, succeeding silently in the common case or leaving a warning +
+saved patch path on conflict.
+
+That mechanism explicitly **excludes** `container/Dockerfile` and
+`container/entrypoint.sh` by pathspec, because this repo's own
+`apply_mnemon_patch()`/`apply_media_tools_patch()` already own and
+regenerate those two files idempotently right after the reset — see issue
+#3 above for why treating them the same as user edits was itself a bug.
+The practical consequence for this checkout: the Ollama feature's edits to
+those two specific files are **not** protected by the snapshot/reapply
+mechanism at all, and will be silently discarded by the next `CLEAN` (a
+plain hard reset to upstream, followed by this repo's own patch functions
+reapplying only what they already know about — none of the Ollama
+wiring). The other 6 modified tracked files (`package.json`,
+`pnpm-lock.yaml`, `setup/service.ts`, `src/channels/index.ts`,
+`src/container-runtime.ts`, `src/modules/approvals/primitive.ts`) **are**
+covered by the snapshot/reapply step, with the usual caveat that a
+conflicting upstream change to the same lines would leave a warning and a
+saved `.patch` file to apply by hand rather than silently losing the
+work. All untracked new files (the Ollama MCP/test files, all the
+Telegram files) are inherently unaffected by `git reset --hard` regardless
+of any of this — untracked files are never touched by a hard reset.
+
+**Actionable takeaway:** commit (or otherwise back up) `container/Dockerfile`
+and `container/entrypoint.sh` specifically before running `CLEAN` on this
+checkout — those two are the only files in the current diff genuinely at
+risk of silent loss.
+
+### General Lessons
+
+- **"Untracked" in `git status` doesn't always mean "someone's new work."**
+  `start-nanoclaw.sh` and `nanoclaw.pid` show up identically to genuine new
+  feature files but are ordinary generated runtime state this repo's own
+  tooling (`setup/service.ts`'s nohup fallback) writes on its own — worth
+  checking what actually produces a file before folding it into a feature
+  inventory.
+- **A blanket local-edit-preservation mechanism has known, deliberate
+  blind spots — check them by name, not just by category.** `CLEAN`'s
+  snapshot/reapply step (issue #3 above) protects most locally-modified
+  tracked files, but `container/Dockerfile`/`container/entrypoint.sh` are
+  excluded on purpose; any real feature work touching those two files
+  specifically needs its own commit/backup discipline, independent of
+  whatever protection the rest of the diff enjoys.
