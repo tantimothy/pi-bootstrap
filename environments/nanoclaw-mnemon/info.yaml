@@ -29,16 +29,24 @@ custom_actions:
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
   # Opens an interactive `claude` session directly inside THIS environment's
-  # own orchestrator container — the same `docker exec -it ... claude`
-  # already documented in useful_commands below, just one click instead of
-  # copy-pasting it. \$NANOCLAW_INSTALL_PATH is deliberately escaped (not a
-  # bare $NANOCLAW_INSTALL_PATH, and not a ${...} marker either) so it's
-  # evaluated by the CONTAINER's own shell once `docker exec` actually
-  # attaches — run.sh passes it into the container via `-e
-  # NANOCLAW_INSTALL_PATH=...`, matching the same "evaluated by the
-  # container's own shell" reasoning useful_commands' own comment gives.
+  # own orchestrator container — a shortcut for `docker exec -it ... claude`.
+  # Deliberately lands in /root, NOT $NANOCLAW_INSTALL_PATH (unlike the
+  # useful_commands entry below) — confirmed directly against a real,
+  # already-in-use deploy: Claude Code's own conversation continuity is
+  # scoped to the exact launch directory, and the container's real,
+  # already-existing admin conversation history lives under /root (this
+  # container runs as root, with no explicit WORKDIR set, so a plain
+  # `docker exec -it ... bash` — how that conversation was originally
+  # started, before this menu action existed — lands there by default).
+  # Landing this action anywhere else would silently start a second,
+  # parallel conversation instead of resuming the real one, or fail with
+  # Claude Code's own "This conversation is from a different directory"
+  # error if you then tried `--continue`/`--resume` from here expecting it
+  # to find that history. If you've never used this container's admin
+  # `claude` session before (no /root history exists yet), this just
+  # starts a fresh one there instead — same as it would anywhere else.
   - label: "Open a Claude Session"
-    command: 'docker exec -it ${CONTAINER_NAME:-nanoclaw-mnemon} bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"'
+    command: 'docker exec -it ${CONTAINER_NAME:-nanoclaw-mnemon} bash -lc "cd /root && claude"'
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — "📌 Notes:" is intentionally at column 0 in the
 # rendered output; see ntopng/info.yaml for the full explanation. The
