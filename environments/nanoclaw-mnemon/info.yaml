@@ -58,7 +58,7 @@ useful_commands: |2
      docker logs -f nanoclaw-mnemon                                  # Orchestrator live logs
      docker restart nanoclaw-mnemon                                  # Restart after a config change
      docker ps --filter name=nanoclaw-agent                          # List agent containers (both nanoclaw environments, if both deployed)
-     docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && claude"   # Then: /add-telegram, /add-whatsapp, /add-discord, etc. (see README's "Adding Channels")
+     docker exec -it nanoclaw-mnemon bash -lc "cd /root && claude"                # Then: /add-telegram, /add-whatsapp, /add-discord, etc. (see README's "Adding Channels", and "Launching Claude CLI Directly" for why /root)
      docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"   # Update Anthropic API key
      ollama pull llama3.2                                              # Pull a chat-capable model for mnemon's optional embeddings (nomic-embed-text is embedding-only)
 
