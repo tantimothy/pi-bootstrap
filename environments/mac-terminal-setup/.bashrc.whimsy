@@ -4,8 +4,8 @@
 (
 cd ~ || exit 0
 
-# Randomly pick between 1, 2, 3, or 4
-case $((1 + RANDOM % 4)) in
+# Randomly pick between 1, 2, 3, 4, or 5
+case $((1 + RANDOM % 5)) in
     1)
         cbonsai --screensaver
         ;;
@@ -35,6 +35,68 @@ case $((1 + RANDOM % 4)) in
             echo -n "Press any key to continue..."
             stty -icanon; dd ibs=1 count=1 status=none >/dev/null; stty icanon
             echo ""
+        fi
+        ;;
+    5)
+        # Uli Kusterer's TalkingMoose (github.com/uliwitness/talkingmoose)
+        # ships dozens of *.phraseFile files, each holding several
+        # activities (PAUSE, HELLO, GOODBYE, LAUNCH APPLICATION, etc.) as
+        # blank-line-delimited phrases under an ALL-CAPS header line —
+        # PAUSE is the idle-desk-toy one-liner activity this shortcut
+        # wants. Picked live from GitHub rather than vendoring a copy, so
+        # this tracks upstream's own phrase list without its own sync
+        # step. moose_files below is every *.phraseFile under
+        # TalkingMoose/Phrases as of this writing, percent-encoded for the
+        # raw.githubusercontent.com URL — not all of them actually have a
+        # PAUSE section (confirmed: App Launch:Quit, Easter Eggs,
+        # Moosepionage, MorePhrases, Settings Stuff, and Time Announcements
+        # don't), so a miss just falls through to the plain fortune below
+        # rather than erroring.
+        moose_files=(
+            "Advice.phraseFile" "App%20Launch:Quit.phraseFile" "Cats.phraseFile"
+            "Children.phraseFile" "Coffee%21.phraseFile" "Dictionary%20Definitions.phraseFile"
+            "Dogs.phraseFile" "Easter%20Eggs.phraseFile" "EvenMorePhrases.phraseFile"
+            "Food.phraseFile" "Geekdom.phraseFile" "Healthy%20Life.phraseFile"
+            "Here%27s%20to%20Doug.phraseFile" "Insults.phraseFile"
+            "Last%20Words%20and%20Trouble.phraseFile" "Lazyness.phraseFile"
+            "Moosepionage.phraseFile" "More%20Moose%21.phraseFile" "MorePhrases.phraseFile"
+            "Office%20and%20Jobs.phraseFile" "Phrases.phraseFile" "Pratchett.phraseFile"
+            "Proverbs.phraseFile" "Punch%20Lines.phraseFile" "Quotations%20I.phraseFile"
+            "Quotations%20II.phraseFile" "Settings%20Stuff.phraseFile" "Songs.phraseFile"
+            "Stargate.phraseFile" "StillMorePhrases.phraseFile" "Time%20Announcements.phraseFile"
+            "War%20of%20the%20OSs.phraseFile" "Witticisms%20I.phraseFile" "Witticisms%20II.phraseFile"
+            "Witticisms%20III.phraseFile" "Witticisms%20IV.phraseFile" "Witticisms%20V.phraseFile"
+            "Witticisms%20VI.phraseFile"
+        )
+        moose_url="https://raw.githubusercontent.com/uliwitness/talkingmoose/main/TalkingMoose/Phrases/${moose_files[$RANDOM % ${#moose_files[@]}]}"
+        moose_text=$(curl --max-time 3 -fsSL "$moose_url" 2>/dev/null)
+
+        # awk in paragraph mode (RS="") turns each blank-line-delimited
+        # phrase, and each ALL-CAPS activity header, into one record; \x1e
+        # (ASCII record separator — never appears in the phrase text
+        # itself) re-joins just the PAUSE ones so `read -a` below can
+        # split them back into a bash array. %%-prefixed paragraphs are
+        # TalkingMoose's own non-text directives (e.g. "%%SOUNDFILE
+        # Blech"), not phrases — skipped.
+        pause_phrases=$(printf '%s' "$moose_text" | awk '
+            BEGIN { RS=""; ORS="\x1e" }
+            $0 ~ /^[A-Z][A-Z ]*$/ { activity = $0; next }
+            activity == "PAUSE" && $0 !~ /^%%/ { print }
+        ')
+
+        if [ -n "$pause_phrases" ]; then
+            IFS=$'\x1e' read -r -d '' -a moose_phrase_arr < <(printf '%s\0' "$pause_phrases")
+            moose_phrase="${moose_phrase_arr[$RANDOM % ${#moose_phrase_arr[@]}]}"
+            # %s is TalkingMoose's own printf-style placeholder for
+            # whatever app/window prompted the phrase originally (rare in
+            # PAUSE specifically) — swapped for $USER since there's no
+            # such context here.
+            moose_phrase="${moose_phrase//%s/$USER}"
+            echo "$moose_phrase" | cowsay -f moose
+        else
+            # Network hiccup, or this run's randomly-picked file just
+            # doesn't have a PAUSE section — always show a moose regardless.
+            fortune | cowsay -f moose
         fi
         ;;
 esac

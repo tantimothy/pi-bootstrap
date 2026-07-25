@@ -85,8 +85,9 @@ To restore: copy the file(s) you want back out of the relevant
 
 Off by default. When enabled, a new interactive shell runs — strictly
 *after* tmux and fastfetch — one randomly-picked splash (`cbonsai`,
-`cmatrix`, `asciiquarium`, or a `cowsay`+`fortune`+`lolcat` combo with a
-"press any key" pause), then `fortune`, a BOFH excuse, a couple of
+`cmatrix`, `asciiquarium`, a `cowsay`+`fortune`+`lolcat` combo with a
+"press any key" pause, or a random Talking Moose phrase piped through
+`cowsay -f moose`), then `fortune`, a BOFH excuse, a couple of
 network-sourced insults, today's entries from a bundled calendar-facts
 database, and the weather via `wttr.in`.
 
@@ -107,10 +108,14 @@ Where each whimsy piece comes from:
 
 - **Splash animations** — [cbonsai](https://gitlab.com/jallbrit/cbonsai),
   [cmatrix](https://github.com/abishekvashok/cmatrix),
-  [asciiquarium](https://github.com/cmatsuoka/asciiquarium), and the
+  [asciiquarium](https://github.com/cmatsuoka/asciiquarium), the
   [cowsay](https://github.com/cowsay-org/cowsay) +
   [fortune-mod](https://github.com/shlomif/fortune-mod) +
-  [lolcat](https://github.com/busyloop/lolcat) combo.
+  [lolcat](https://github.com/busyloop/lolcat) combo, and a random "PAUSE"
+  activity phrase from Uli Kusterer's
+  [TalkingMoose](https://github.com/uliwitness/talkingmoose) (fetched live
+  from its `TalkingMoose/Phrases/*.phraseFile` files on GitHub, piped
+  through `cowsay -f moose`).
 - **BOFH excuse** (`bin/bofhexcuse`) — Jeff Ballard's
   [BOFH-style Excuse Server](https://pages.cs.wisc.edu/~ballard/bofh/).
 - **Programming Excuse** — [programmingexcuses.com](http://programmingexcuses.com).
