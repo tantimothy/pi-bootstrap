@@ -259,6 +259,12 @@ MNEMON_DOCKER_BLOCK
             echo 'mnemon setup --yes --global >/dev/stderr 2>&1'
             tail -n "+$((anchor + 1))" "$entry"
         } > "$tmp"
+        # mktemp's own file starts non-executable regardless of $entry's
+        # mode — mv-ing it straight over $entry silently dropped
+        # entrypoint.sh's exec bit (755 -> 644) on every patch application
+        # until this line was added. `chmod +x` (not `chmod --reference`,
+        # which BSD/macOS chmod doesn't support) to stay portable.
+        chmod +x "$tmp"
         mv "$tmp" "$entry"
     fi
 }
