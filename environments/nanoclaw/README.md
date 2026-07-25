@@ -109,8 +109,10 @@ The Anthropic API key is registered interactively by the wizard and stored by Na
 cd ~/nanoclaw && claude
 
 # container mode
-docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
+docker exec -it nanoclaw bash -lc "cd /root && claude"
 ```
+
+**Container mode lands in `/root`, not `$NANOCLAW_INSTALL_PATH`** — deliberately. The orchestrator container runs as root with no explicit `WORKDIR`, so a plain, unwrapped `docker exec -it nanoclaw bash` lands you at `/root` by default, and Claude Code's own conversation continuity is scoped to the *exact* directory a session was launched from, not the container as a whole. If your first admin session here started that way (the common case, before this exact command existed as documented instruction), your real conversation history lives at `/root` — running from `$NANOCLAW_INSTALL_PATH` instead would either start a second, parallel conversation or hit Claude Code's own "This conversation is from a different directory" error on `--continue`/`--resume`. Confirmed directly against a real deploy of the sibling `nanoclaw-mnemon` environment (identical Dockerfile shape — root user, no `WORKDIR`), not assumed.
 
 Then, inside that session, run the skill for whichever channel you want: `/add-telegram`, `/add-whatsapp`, `/add-discord`, `/add-slack`, `/add-signal`, `/add-teams`, or `/add-imessage` (macOS `host` mode only — see "Deployment Modes" above; not offered in `container` mode at all). Each one walks you through it interactively: copies in that channel's adapter code, asks for whatever credential it needs (e.g. Telegram: create a bot via **@BotFather**, paste the token), restarts the service automatically, then runs a pairing/linking handshake (a one-time code, or a QR/pairing code for WhatsApp) so the service knows which chat is yours.
 
@@ -199,7 +201,7 @@ docker restart nanoclaw
 # Register or update Anthropic API key
 docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"
 # Add channels (see "Adding Channels" above — /add-telegram, /add-whatsapp, etc., not scripts)
-docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"
+docker exec -it nanoclaw bash -lc "cd /root && claude"
 
 # --- both modes ---
 # List running agent containers
