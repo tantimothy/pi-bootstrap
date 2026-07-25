@@ -41,10 +41,22 @@ useful_commands_host: |2
      sudo systemctl restart nanoclaw                                 # Restart service
 useful_commands_macos: |2
      tail -f ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/logs/nanoclaw.log                        # Live logs
+# The lines below are shown regardless of NANOCLAW_DEPLOY_MODE (this
+# script only branches on host OS for the SERVICE_COMMANDS prefix above,
+# not on deploy mode — see info.sh) — labeled by mode, same as the
+# README's own Useful Commands section, rather than assuming either one.
+# Container mode's own two lines deliberately land in /root, not
+# $NANOCLAW_INSTALL_PATH — see README's "Adding Channels" for why.
 useful_commands: |2
      docker ps --filter name=nanoclaw                                # List agent containers
+
+     # host mode
      cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && claude                                    # Then: /add-telegram, /add-whatsapp, etc. (see README's "Adding Channels")
      cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/register-claude-token.sh       # Update Anthropic API key
+
+     # container mode
+     docker exec -it nanoclaw bash -lc "cd /root && claude"                                      # Same, but see README's "Adding Channels" for why /root
+     docker exec -it nanoclaw bash -lc "cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/register-claude-token.sh"
 
   📌 Notes:
      🐳 NanoClaw manages its own Docker containers per conversation group.
