@@ -28,21 +28,17 @@ custom_actions:
     command: "bash ${ENV_DIR}/scripts/reload-mnemon.sh"
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
-  # Not this environment's own container — a convenience shortcut into the
-  # separate, standalone claude-cli environment (if it's deployed on this
-  # same machine), for a plain terminal Claude session alongside NanoClaw's
-  # own chat-platform one. $SSH_PORT is deliberately NOT ${SSH_PORT} here —
-  # ${...} markers get eagerly expanded against THIS environment's own
-  # scope (deploy.sh has no SSH_PORT of its own while processing this
-  # info.yaml, so a ${SSH_PORT:-2222} marker would resolve to a permanently
-  # hardcoded "2222" the moment this file loads, never claude-cli's real,
-  # possibly-different configured port). Plain $SSH_PORT survives that
-  # expansion untouched and is instead resolved live, inside the `bash -c`
-  # that actually runs this command, after sourcing claude-cli's own real
-  # .env — see docs/lessons-learned/general.md's "${VAR}-expansion" entry
-  # for the underlying mechanism this works around.
-  - label: "SSH into Claude CLI"
-    command: 'CLI_ENV="${PROJECT_DIR}/environments/claude-cli/.env"; if [ ! -f "$CLI_ENV" ]; then echo "Claude CLI environment is not deployed yet -- deploy it first from Environments > Claude CLI."; exit 1; fi; set -a; source "$CLI_ENV"; set +a; ssh -p "$SSH_PORT" claude@localhost'
+  # Opens an interactive `claude` session directly inside THIS environment's
+  # own orchestrator container — the same `docker exec -it ... claude`
+  # already documented in useful_commands below, just one click instead of
+  # copy-pasting it. \$NANOCLAW_INSTALL_PATH is deliberately escaped (not a
+  # bare $NANOCLAW_INSTALL_PATH, and not a ${...} marker either) so it's
+  # evaluated by the CONTAINER's own shell once `docker exec` actually
+  # attaches — run.sh passes it into the container via `-e
+  # NANOCLAW_INSTALL_PATH=...`, matching the same "evaluated by the
+  # container's own shell" reasoning useful_commands' own comment gives.
+  - label: "Open a Claude Session"
+    command: 'docker exec -it ${CONTAINER_NAME:-nanoclaw-mnemon} bash -lc "cd \$NANOCLAW_INSTALL_PATH && claude"'
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — "📌 Notes:" is intentionally at column 0 in the
 # rendered output; see ntopng/info.yaml for the full explanation. The
@@ -68,7 +64,8 @@ useful_commands: |2
         the README's "Deployment Modes" section for why).
      🌐 Want a chat UI for Ollama? See the standalone `chat-frontends` environment
         instead — this environment no longer bundles one of its own.
-     🖥️ Need a plain terminal Claude session instead of the chat-platform
-        one? "SSH into Claude CLI" in this environment's own deploy.sh menu
-        jumps into the separate, standalone claude-cli environment's own
-        SSH session — deploy that environment too if you haven't.
+     🖥️ "Open a Claude Session" in this environment's own deploy.sh menu
+        attaches directly to this environment's own orchestrator container
+        via `docker exec -it` — a plain terminal `claude` conversation
+        alongside NanoClaw's own chat-platform one, no separate SSH server
+        needed.
