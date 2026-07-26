@@ -612,4 +612,110 @@ absence.
 
 ### Related PRs
 
-- (this fix)
+- [#154](https://github.com/tantimothy/pi-bootstrap/pull/154) — this fix,
+  bundled with the corrected CLEAN-risk documentation above
+
+## Telegram Down for 3 Days After a Host Reboot — entrypoint.sh's One-Shot Relaunch Check Wasn't Enough
+
+**Status:** fixed (same shape applied to the sibling `nanoclaw` environment
+too, since both share this entrypoint.sh).
+
+### Summary
+
+A Mac mini host reboot raced Docker's own startup against NanoClaw's
+container-runtime readiness check, NanoClaw's Node process exited FATAL
+seconds after being launched, and nothing ever relaunched it — the
+`nanoclaw-mnemon` container itself stayed up and healthy throughout
+(`docker ps` would have shown nothing wrong), while the actual service
+inside it — Telegram included — was dead for 3 days until someone
+happened to check.
+
+### Issue Found & Fixed
+
+**Symptom:** Telegram (and every other channel) unreachable. `docker ps`
+showed the `nanoclaw-mnemon` container running normally the whole time —
+nothing about the container's own health looked wrong. `nanoclaw.pid`
+held a long-gone PID.
+
+**Root cause, two layers:**
+
+1. NanoClaw's own `ensureContainerRuntimeRunning()`
+   (`container-runtime.ts:45`) hit `spawnSync /bin/sh ETIMEDOUT` trying to
+   reach Docker's sibling daemon at boot — a real race, not specific to
+   this container: on a host reboot, this container can start (and pass
+   its own `--restart unless-stopped` gate) before the host's Docker
+   daemon has actually finished coming up. NanoClaw's readiness check has
+   no retry/backoff of its own; the first timeout is fatal, and the whole
+   process exits.
+2. This repo's own `scripts/entrypoint.sh` (PID 1 of the container) only
+   ever checked *once*, at container start, whether NanoClaw's nohup'd
+   background process (`setupNohupFallback()` in NanoClaw's own
+   `setup/service.ts` — there's no systemd inside this container for it
+   to use instead) was alive, then blocked forever on `exec tail -F
+   logs/nanoclaw.log`. That one check ran and found the process alive
+   (entrypoint.sh had just launched it) — the crash in (1) happened
+   *after* that check, with nothing left watching. The container's own
+   PID 1 (this script, now just tailing a log file) never exited, so
+   Docker's `--restart unless-stopped` policy — which reacts to the
+   *container* exiting, not to a process living inside it dying — never
+   had anything to react to either. Two independently-reasonable
+   mechanisms (a one-shot start-time check, and container-level restart
+   policy) each assumed the other layer covered the "process crashes
+   mid-flight" case; neither did.
+
+**Fix:** replaced the one-shot check in both `nanoclaw-mnemon`'s and
+`nanoclaw`'s `scripts/entrypoint.sh` with a real supervision loop —
+polls every 10s whether `nanoclaw.pid`'s process is still alive via
+`kill -0`, and relaunches `node dist/index.js` (updating `nanoclaw.pid`)
+the same way the original one-shot check did if not. Kept the exact same
+`nohup` + PID-file shape rather than switching to a simpler foreground
+`while true; do node dist/index.js; done` loop, because `nanoclaw.pid` is
+load-bearing elsewhere: `scripts/systemctl-shim.sh`'s `is-active` check
+reads it directly (NanoClaw's own channel-skill "restart the service"
+step shells out to `systemctl --user restart`, faked by this repo's shim
+since there's no real systemd in this container), and NanoClaw's own
+generated `start-nanoclaw.sh` wrapper follows the same convention — a
+different supervision shape here would have silently broken both.
+`tail -F logs/nanoclaw.log` (for `docker logs -f`) is now backgrounded
+rather than `exec`'d, since the watchdog loop needs to be the container's
+real PID 1 instead. Added an explicit `wait "$pid"` right before each
+relaunch to reap the just-exited process — without it, a sustained crash
+loop (e.g. Docker's sibling daemon staying unreachable for an extended
+stretch) would accumulate zombie processes under this script's PID 1
+indefinitely, since nothing else in this container would ever reap them.
+
+Verified against a fake `node` binary that crashes on its first two
+invocations and stays up on the third: the watchdog correctly relaunched
+twice within the poll interval, and a mid-run process-table check
+between crash cycles showed no zombie accumulation.
+
+**Not fixed here — flagged instead:** `container-runtime.ts`'s own lack
+of retry/backoff on its Docker-readiness check is NanoClaw's own upstream
+source, not this repo's. The watchdog fix above makes it a non-issue in
+practice regardless (any crash it causes now self-heals within ~10s), so
+this wasn't patched blind against a repo this environment doesn't own the
+source of — same reasoning as leaving `container/Dockerfile`/
+`entrypoint.sh` to this repo's own idempotent patch functions rather than
+hand-editing NanoClaw's own generated output elsewhere in this file.
+
+### General Lessons
+
+- **A container staying up (`docker ps` looks fine) is not evidence the
+  service inside it is fine.** `--restart unless-stopped` reacts to the
+  *container's* PID 1 exiting — a supervisor script blocking forever on
+  `tail -F` satisfies that condition trivially while the actual
+  application it was supposed to be watching has been dead for days.
+  Health has to be checked at the layer that actually matters, not
+  inferred from a layer above it staying green.
+- **A "check once at start, then just block" pattern is not the same
+  thing as supervision, even though it looks like it covers the
+  "relaunch after a restart" case.** It only catches processes that were
+  already dead *before* the check ran — anything that dies immediately
+  after is invisible to it forever, silently, since nothing else is
+  watching afterward.
+- **When two failure-handling mechanisms sit at different layers (here:
+  a process-level relaunch check, and a container-level restart policy),
+  don't assume together they form a complete safety net without tracing
+  the exact boundary between what each one actually covers.** Each layer
+  here was individually reasonable and each individually left the exact
+  same gap uncovered.

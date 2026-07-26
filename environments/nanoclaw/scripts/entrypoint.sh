@@ -46,25 +46,61 @@ fi
 # check whether that background process is already alive; if the
 # container was just recreated and it isn't, relaunch it directly rather
 # than re-running the whole interactive wizard.
+mkdir -p logs
+touch logs/nanoclaw.log
+
 if [ -f "dist/index.js" ]; then
     if [ ! -f nanoclaw.pid ] || ! kill -0 "$(cat nanoclaw.pid)" 2>/dev/null; then
         echo "🔄 Relaunching NanoClaw's background process..."
-        mkdir -p logs
         nohup node dist/index.js >> logs/nanoclaw.log 2>> logs/nanoclaw.error.log &
         echo $! > nanoclaw.pid
     fi
+
+    # Makes `docker logs -f nanoclaw` show NanoClaw's actual application
+    # log — the nohup'd process above writes to a file, not to this
+    # script's own stdout. Backgrounded (not exec'd) because the watchdog
+    # loop below needs to be this container's real PID 1.
+    tail -F logs/nanoclaw.log &
+
+    # Crash-recovery watchdog. Real incident that motivated this (in the
+    # sibling nanoclaw-mnemon environment, same entrypoint shape): on a
+    # host reboot, NanoClaw's own ensureContainerRuntimeRunning()
+    # (container-runtime.ts) hit Docker's sibling daemon before it had
+    # finished starting, got ETIMEDOUT on its one-shot readiness check
+    # (no retry/backoff there — worth fixing upstream too, but this loop
+    # makes it a non-issue regardless), and exited FATAL. The relaunch
+    # check above only runs once, at container start, before this loop —
+    # it caught nothing here because the process it launched was still
+    # alive at that exact moment; the crash happened seconds later, after
+    # this script had already moved on. With no supervisor watching
+    # afterward, the container itself stayed running (this script's PID 1
+    # never exited, so Docker's --restart policy never triggered) while
+    # NanoClaw's own service sat dead inside it, unreachable, until
+    # someone noticed and ran start-nanoclaw.sh by hand.
+    #
+    # Polls every 10s — cheap, and there's no reason to relaunch faster
+    # than a human would notice an outage anyway. `wait "$pid"` reaps the
+    # just-exited process before relaunching (it's a genuine child of
+    # this script via the `&` above, so this is a real, immediate reap —
+    # not a blocking wait on a live process) — without it, a persistent
+    # crash loop would accumulate zombies under this script's PID 1 until
+    # the container itself was recreated.
+    while true; do
+        sleep 10
+        pid="$(cat nanoclaw.pid 2>/dev/null)"
+        if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid" 2>/dev/null
+            echo "🔄 [$(date '+%Y-%m-%d %H:%M:%S')] NanoClaw's background process isn't running — relaunching..." >> logs/nanoclaw.log
+            nohup node dist/index.js >> logs/nanoclaw.log 2>> logs/nanoclaw.error.log &
+            echo $! > nanoclaw.pid
+        fi
+    done
 else
     echo "⏳ NanoClaw isn't installed yet in this container."
     echo "   run.sh hands off to the interactive setup wizard automatically"
     echo "   on first deploy — if you're seeing this some other way, run:"
     echo "   docker exec -it ${CONTAINER_NAME:-nanoclaw} bash -lc 'cd \$NANOCLAW_INSTALL_PATH && bash nanoclaw.sh'"
+    # Nothing to watch yet — just keep the container (PID 1) alive and
+    # `docker logs -f` working until a manual setup run creates dist/.
+    exec tail -F logs/nanoclaw.log
 fi
-
-# Keeps this container's PID 1 (and therefore the container itself) alive,
-# and doubles as making `docker logs -f nanoclaw` show NanoClaw's actual
-# application log — the nohup'd process above writes to a file, not to
-# this script's own stdout, so without this `docker logs` would show
-# nothing.
-mkdir -p logs
-touch logs/nanoclaw.log
-exec tail -F logs/nanoclaw.log
