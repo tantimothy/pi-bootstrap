@@ -153,6 +153,70 @@ if [ "$WHIMSY_ENABLED" = "true" ]; then
     _deploy_file "$SCRIPT_DIR/bin/piratehost.pl" "$HOME/bin/piratehost.pl"
     _deploy_file "$SCRIPT_DIR/bin/bofhserver/excuses.txt" "$HOME/bin/bofhserver/excuses.txt"
     _deploy_dir "$SCRIPT_DIR/bin/calendars" "$HOME/bin/calendars"
+
+    # Uli Kusterer's TalkingMoose (github.com/uliwitness/talkingmoose)
+    # phrase files, fetched here — once, at install/redeploy time — rather
+    # than by .bashrc.whimsy on every new interactive shell. That runs on
+    # every login and every new terminal tab/pane, all day; hitting
+    # raw.githubusercontent.com that often is both slow (added shell
+    # startup latency) and needlessly hammers someone else's repo. Not
+    # vendored into this repo's own git history either (unlike
+    # bin/calendars above) — there's no reason to carry upstream's content
+    # in our own history when a periodic re-fetch keeps it just as fresh.
+    #
+    # Only the files confirmed (as of this writing) to actually contain a
+    # PAUSE activity section are listed — TalkingMoose splits each
+    # *.phraseFile into several activities (PAUSE, HELLO, GOODBYE, LAUNCH
+    # APPLICATION, etc.), and PAUSE — the idle-desk-toy one-liners — is
+    # the only one .bashrc.whimsy uses. App Launch:Quit.phraseFile, Easter
+    # Eggs.phraseFile, Moosepionage.phraseFile, MorePhrases.phraseFile,
+    # Settings Stuff.phraseFile, and Time Announcements.phraseFile don't
+    # have one and are deliberately skipped, so every file that lands in
+    # MOOSE_DIR is guaranteed usable.
+    echo ""
+    echo "🎭 Fetching TalkingMoose phrases to ~/bin/moose-phrases..."
+    MOOSE_DIR="$HOME/bin/moose-phrases"
+    mkdir -p "$MOOSE_DIR"
+    MOOSE_FILES=(
+        "Advice.phraseFile" "Cats.phraseFile" "Children.phraseFile"
+        "Coffee!.phraseFile" "Dictionary Definitions.phraseFile" "Dogs.phraseFile"
+        "EvenMorePhrases.phraseFile" "Food.phraseFile" "Geekdom.phraseFile"
+        "Healthy Life.phraseFile" "Here's to Doug.phraseFile" "Insults.phraseFile"
+        "Last Words and Trouble.phraseFile" "Lazyness.phraseFile" "More Moose!.phraseFile"
+        "Office and Jobs.phraseFile" "Phrases.phraseFile" "Pratchett.phraseFile"
+        "Proverbs.phraseFile" "Punch Lines.phraseFile" "Quotations I.phraseFile"
+        "Quotations II.phraseFile" "Songs.phraseFile" "Stargate.phraseFile"
+        "StillMorePhrases.phraseFile" "War of the OSs.phraseFile" "Witticisms I.phraseFile"
+        "Witticisms II.phraseFile" "Witticisms III.phraseFile" "Witticisms IV.phraseFile"
+        "Witticisms V.phraseFile" "Witticisms VI.phraseFile"
+    )
+    # Skip the network entirely once every expected file is already
+    # cached — re-running ./run.sh shouldn't re-fetch all 32 files from
+    # GitHub every single time.
+    MOOSE_MISSING=false
+    for name in "${MOOSE_FILES[@]}"; do
+        [ -f "$MOOSE_DIR/$name" ] || { MOOSE_MISSING=true; break; }
+    done
+    if [ "$MOOSE_MISSING" = "false" ]; then
+        echo "   ✅ Already cached ($(( ${#MOOSE_FILES[@]} )) files)."
+    else
+        MOOSE_OK=0
+        for name in "${MOOSE_FILES[@]}"; do
+            # Percent-encode just the characters this exact, static file
+            # list actually contains — not a general-purpose urlencode.
+            enc="${name// /%20}"; enc="${enc//!/%21}"; enc="${enc//\'/%27}"
+            if curl --max-time 5 -fsSL \
+                "https://raw.githubusercontent.com/uliwitness/talkingmoose/main/TalkingMoose/Phrases/${enc}" \
+                -o "$MOOSE_DIR/$name.tmp"; then
+                mv "$MOOSE_DIR/$name.tmp" "$MOOSE_DIR/$name"
+                MOOSE_OK=$((MOOSE_OK + 1))
+            else
+                rm -f "$MOOSE_DIR/$name.tmp"
+                echo "   ⚠️  Couldn't fetch \"$name\" — skipping." >&2
+            fi
+        done
+        echo "   ✅ Fetched $MOOSE_OK/${#MOOSE_FILES[@]} phrase files."
+    fi
 fi
 
 # --- STEP 7: IDEMPOTENTLY INJECT .bashrc BLOCKS ---

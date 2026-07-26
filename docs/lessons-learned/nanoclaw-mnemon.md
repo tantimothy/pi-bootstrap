@@ -433,3 +433,183 @@ letting each agent rediscover it independently.
   (`CLEAN`'s local-edit-preservation step reviving the stale patch) and
   issue #4 (`lib/locale-lib.sh` not sourced by this environment's `run.sh`),
   both found only by tracing a real `CLEAN` run's own captured output
+
+## Live, Uncommitted NanoClaw Checkout Changes — Ollama + Telegram (2026-07-25)
+
+**Status:** informational snapshot, not a bug report. This documents a
+real user's in-progress, **uncommitted** local modifications to their own
+`$NANOCLAW_INSTALL_PATH` checkout (the actual upstream NanoClaw repo,
+patched into this environment at deploy time — not `pi-bootstrap` itself)
+as of the date above, plus the `CLEAN`-safety implications of leaving them
+uncommitted, per issue #3 above. No pi-bootstrap code changed as part of
+this entry.
+
+### Summary
+
+`git status` inside the running container's install path showed two
+distinct feature areas in progress, per the user's own categorization,
+plus a few files whose attribution isn't fully certain and three files
+that are normal generated runtime state rather than feature code at all.
+
+**Ollama integration** (modified: `src/container-runtime.ts`; new:
+`container/agent-runner/src/ollama-mcp-stdio.ts`,
+`container/agent-runner/src/ollama-registration.test.ts`,
+`src/ollama-env.ts`, `src/ollama-wiring.test.ts`) — wires the host's
+native Ollama daemon into the agent-sandbox container as an MCP stdio
+server, via the orchestrator's own container-launch code
+(`container-runtime.ts`).
+
+**Correction, confirmed against a real diff of this checkout's
+`container/Dockerfile`/`container/entrypoint.sh`:** these two files'
+"modified" status is **not** part of this feature — it's `run.sh`'s own
+`apply_mnemon_patch()`/`apply_media_tools_patch()` output (mnemon binary
+install + `MNEMON_EMBED_ENDPOINT` pointed at `host.docker.internal:11434`/
+`nomic-embed-text`, ffmpeg/whisper-cli/yt-dlp), regenerated identically on
+every deploy including `CLEAN` — see the "CLEAN-safety risk analysis"
+section below, corrected accordingly.
+
+**Telegram channel** (modified: `src/channels/index.ts`; new:
+`src/channels/telegram.ts`, `src/channels/telegram-pairing.ts` +
+`.test.ts`, `src/channels/telegram-markdown-sanitize.ts` + `.test.ts`,
+`src/channels/telegram-registration.test.ts`) — a new chat-platform
+channel following the same shape as NanoClaw's other `/add-<channel>`
+skills: a barrel-import registration in `channels/index.ts` plus the
+channel's own implementation files.
+
+**Ambiguous — plausibly Telegram-related but not confirmed:**
+`package.json`, `pnpm-lock.yaml`, `setup/service.ts`,
+`src/modules/approvals/primitive.ts`. The first two match the shape
+`run.sh`'s own comments describe for channel-skill wiring (new
+dependency + lockfile churn alongside `channels/index.ts`); `service.ts`
+and `approvals/primitive.ts` could belong to either feature area (or be
+incidental) — not asserted here without reading their actual diffs.
+
+**Not feature code — normal generated/runtime state, despite showing as
+"Untracked (new)":**
+- `start-nanoclaw.sh` — written automatically by `setup/service.ts`'s own
+  "nohup fallback" path when no systemd/launchd unit is available; not
+  hand-authored.
+- `nanoclaw.pid` — the PID file that same nohup-fallback background
+  process writes while running.
+- `.claude/settings.local.json` — Claude Code's own standard
+  project-local settings file, unrelated to either feature.
+
+### CLEAN-safety risk analysis
+
+This environment's `CLEAN` policy runs `git -C "$INSTALL_PATH" fetch
+origin` then `git -C "$INSTALL_PATH" reset --hard '@{u}'`
+(`run.sh`, ~line 604). A snapshot-and-reapply mechanism added for issue #3
+above (~lines 555-613) protects most locally-modified **tracked** files
+from that hard reset automatically — `git status --porcelain -- . ':!container/Dockerfile' ':!container/entrypoint.sh'`
+saves a `git diff HEAD` patch before the reset and tries to `git apply` it
+back after, succeeding silently in the common case or leaving a warning +
+saved patch path on conflict.
+
+That mechanism explicitly **excludes** `container/Dockerfile` and
+`container/entrypoint.sh` by pathspec — and, confirmed directly against
+this checkout's actual diff content (see the correction above), that
+exclusion is correct and not a risk here: everything currently different
+in those two files is exactly what `apply_mnemon_patch()`/
+`apply_media_tools_patch()` (called unconditionally right after the reset,
+`run.sh` ~lines 630-631) already regenerate from scratch on every deploy.
+Nothing user-authored lives in either file for this checkout — `CLEAN`
+reproduces them identically. The other 6 modified tracked files
+(`package.json`, `pnpm-lock.yaml`, `setup/service.ts`,
+`src/channels/index.ts`, `src/container-runtime.ts`,
+`src/modules/approvals/primitive.ts`) **are** covered by the
+snapshot/reapply step regardless, with the usual caveat that a
+conflicting upstream change to the same lines would leave a warning and a
+saved `.patch` file to apply by hand rather than silently losing the
+work. All untracked new files (the Ollama MCP/test files, all the
+Telegram files) are inherently unaffected by `git reset --hard` regardless
+of any of this — untracked files are never touched by a hard reset.
+
+**Actionable takeaway, revised:** nothing in this checkout's current diff
+needs a manual backup before `CLEAN` — every tracked-file modification is
+either auto-protected by the snapshot/reapply mechanism or (for
+`container/Dockerfile`/`container/entrypoint.sh`) already owned and
+regenerated by this repo's own idempotent patch functions, and every new
+file is untracked and therefore untouched by `git reset --hard` outright.
+(An earlier version of this entry asserted the opposite for
+`container/Dockerfile`/`container/entrypoint.sh` — reasoned from the file
+names alone, without actually diffing their contents against `run.sh`'s
+patch functions first. Left here, struck through in spirit rather than
+deleted outright, as a reminder to verify a "these two files are excluded
+from the safety net" claim against what's actually *in* the diff before
+telling anyone to go back up files that turn out to already be safe.)
+
+### General Lessons
+
+- **"Untracked" in `git status` doesn't always mean "someone's new work."**
+  `start-nanoclaw.sh` and `nanoclaw.pid` show up identically to genuine new
+  feature files but are ordinary generated runtime state this repo's own
+  tooling (`setup/service.ts`'s nohup fallback) writes on its own — worth
+  checking what actually produces a file before folding it into a feature
+  inventory.
+- **A file's name being on an exclusion list doesn't mean whatever's
+  currently in it is at risk — check what the diff actually contains
+  before warning anyone about it.** `container/Dockerfile`/
+  `container/entrypoint.sh` being excluded from `CLEAN`'s snapshot/reapply
+  step (issue #3 above) is deliberate and correct *because* this repo's
+  own patch functions already own and regenerate their content — the
+  exclusion is what makes them safe, not what puts them at risk. The first
+  pass of this very entry got that backwards by reasoning from the
+  filenames and the exclusion pathspec alone, without diffing the actual
+  file contents against what `apply_mnemon_patch()`/
+  `apply_media_tools_patch()` write.
+
+## `apply_mnemon_patch()` Silently Dropped entrypoint.sh's Executable Bit
+
+**Status:** fixed, confirmed root-caused directly against `run.sh`'s own
+source (not yet re-verified against a live redeploy at time of writing).
+
+### Summary
+
+A real checkout showed `container/entrypoint.sh`'s file mode changed from
+755 to 644 (executable bit gone) after this environment's mnemon patch
+had run against it — found while reviewing the same live checkout covered
+in the entry above.
+
+### Issue Found & Fixed
+
+**Symptom:** `container/entrypoint.sh` lost its executable bit in a real,
+patched NanoClaw checkout, despite no one having manually `chmod`'d it.
+
+**Root cause:** `apply_mnemon_patch()`'s entrypoint-wiring step (`run.sh`,
+~lines 255-262) writes the patched file to a `mktemp` temp file, then
+`mv`s it over `$entry`:
+```bash
+local tmp; tmp=$(mktemp)
+{ ... } > "$tmp"
+mv "$tmp" "$entry"
+```
+`mktemp` creates its file with default/umask-derived permissions, not a
+copy of `$entry`'s existing mode — `mv` then replaces `entrypoint.sh`
+with that non-executable file wholesale. This runs on every deploy where
+the idempotency check (`grep -q 'mnemon setup' "$entry"`) doesn't already
+find the patch applied, i.e. any time the file is freshly synced from
+upstream (a fresh install, or right after `CLEAN`'s `git reset --hard`).
+
+**Fix:** `chmod +x "$tmp"` immediately before the `mv`. Used plain
+`chmod +x` rather than `chmod --reference="$entry" "$tmp"` — the latter
+is GNU-only and not available under BSD/macOS `chmod`, and this repo
+targets both (see this repo's own bash-3.2/macOS-portability constraint).
+`apply_mnemon_patch()`'s other `mktemp`+`mv` (for `container/Dockerfile`,
+~line 218) doesn't need the same fix — Dockerfiles aren't executed
+directly, only `docker build`-parsed, so a dropped exec bit there has no
+functional effect.
+
+**Lesson:** a `mktemp` + rewrite-in-place + `mv` pattern silently
+resets file mode to whatever `mktemp`'s own default is, not the original
+file's — worth checking for on any script that patches an existing file
+this way, not just this one. Whether the dropped bit actually breaks
+anything downstream (e.g. if NanoClaw's own Dockerfile invokes
+`entrypoint.sh` via `COPY --chmod=`, the exec bit might get re-asserted at
+build time regardless) wasn't verified either way; fixed unconditionally
+since a correct exec bit on a script named `entrypoint.sh` is the correct
+default regardless of whether the specific build happens to tolerate its
+absence.
+
+### Related PRs
+
+- (this fix)

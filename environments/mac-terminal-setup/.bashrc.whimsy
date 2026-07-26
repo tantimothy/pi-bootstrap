@@ -4,8 +4,8 @@
 (
 cd ~ || exit 0
 
-# Randomly pick between 1, 2, 3, or 4
-case $((1 + RANDOM % 4)) in
+# Randomly pick between 1, 2, 3, 4, or 5
+case $((1 + RANDOM % 5)) in
     1)
         cbonsai --screensaver
         ;;
@@ -35,6 +35,58 @@ case $((1 + RANDOM % 4)) in
             echo -n "Press any key to continue..."
             stty -icanon; dd ibs=1 count=1 status=none >/dev/null; stty icanon
             echo ""
+        fi
+        ;;
+    5)
+        # Uli Kusterer's TalkingMoose (github.com/uliwitness/talkingmoose)
+        # phrase files — pre-fetched into ~/bin/moose-phrases by run.sh at
+        # install/redeploy time, NOT hit live over the network here. This
+        # block runs on every new interactive shell; curling GitHub from
+        # here would mean a raw.githubusercontent.com request on every
+        # login and every new terminal tab/pane, all day — the same
+        # reason bin/calendars is a local copy rather than fetched here.
+        shopt -s nullglob
+        moose_files=("$HOME"/bin/moose-phrases/*.phraseFile)
+        shopt -u nullglob
+        if [ ${#moose_files[@]} -gt 0 ]; then
+            moose_text=$(cat "${moose_files[$RANDOM % ${#moose_files[@]}]}" 2>/dev/null)
+        else
+            moose_text=""
+        fi
+
+        # Each *.phraseFile holds several activities (PAUSE, HELLO,
+        # GOODBYE, LAUNCH APPLICATION, etc.) as blank-line-delimited
+        # phrases under an ALL-CAPS header line — PAUSE is the idle-desk-
+        # toy one-liner activity this shortcut wants. awk in paragraph
+        # mode (RS="") turns each phrase, and each header, into one
+        # record; \x1e (ASCII record separator — never appears in the
+        # phrase text itself) re-joins just the PAUSE ones so `read -a`
+        # below can split them back into a bash array. %%-prefixed
+        # paragraphs are TalkingMoose's own non-text directives (e.g.
+        # "%%SOUNDFILE Blech"), not phrases — skipped. (run.sh only
+        # fetches files confirmed to have a PAUSE section, so in practice
+        # this always finds at least one — the fallback below is purely
+        # for a stale/partial cache, e.g. before the first re-run of
+        # run.sh after this feature was added.)
+        pause_phrases=$(printf '%s' "$moose_text" | awk '
+            BEGIN { RS=""; ORS="\x1e" }
+            $0 ~ /^[A-Z][A-Z ]*$/ { activity = $0; next }
+            activity == "PAUSE" && $0 !~ /^%%/ { print }
+        ')
+
+        if [ -n "$pause_phrases" ]; then
+            IFS=$'\x1e' read -r -d '' -a moose_phrase_arr < <(printf '%s\0' "$pause_phrases")
+            moose_phrase="${moose_phrase_arr[$RANDOM % ${#moose_phrase_arr[@]}]}"
+            # %s is TalkingMoose's own printf-style placeholder for
+            # whatever app/window prompted the phrase originally (rare in
+            # PAUSE specifically) — swapped for $USER since there's no
+            # such context here.
+            moose_phrase="${moose_phrase//%s/$USER}"
+            echo "$moose_phrase" | cowsay -f moose
+        else
+            # No cache yet (run.sh hasn't fetched it), or an empty/corrupt
+            # file slipped through — always show a moose regardless.
+            fortune | cowsay -f moose
         fi
         ;;
 esac
