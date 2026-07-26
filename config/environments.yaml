@@ -34,3 +34,8 @@ categories:
     name: "Management"
     environments:
       - portainer
+  - id: retro-computing
+    name: "Retro Computing"
+    environments:
+      - macintoshpi
+      - sheepshaver

@@ -211,6 +211,7 @@ _dockerfile_for_image() {
         *ntopng*)     echo "$REPO_DIR/environments/ntopng/Dockerfile" ;;
         dragonos-pi)  echo "$REPO_DIR/environments/dragonos-sdr/Dockerfile" ;;
         pi-pentest*)  echo "$REPO_DIR/environments/kali-pentest/Dockerfile" ;;
+        pi-bootstrap-sheepshaver) echo "$REPO_DIR/environments/sheepshaver/Dockerfile" ;;
         *) return 1 ;;
     esac
 }

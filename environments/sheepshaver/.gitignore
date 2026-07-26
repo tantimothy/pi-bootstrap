@@ -1,0 +1,11 @@
+# Your Mac ROM, hard disk image, and any files shared with the emulated Mac
+# — copyrighted/personal, never committed. Also doubles as the Docker
+# VOLUME's build-context placeholder (COPY data /data in the Dockerfile),
+# which only needs the directory to exist, not its contents.
+data/*
+shared/*
+!data/.gitkeep
+!shared/.gitkeep
+
+# Local environment config — never committed
+.env
