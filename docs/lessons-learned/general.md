@@ -273,3 +273,44 @@ multi-stage build got added to the tracked list. Fixed by taking the last
 not just multi-stage ones. When a user reports "still happening after I
 just fixed the cause," don't assume the same root cause under-fired;
 check whether there's a second, independent path to the same symptom.
+
+---
+
+## `check-updates.sh`'s `*nanoclaw*` pattern also caught NanoClaw's own dynamically-spawned agent containers
+
+**What happened:** even after both fixes above, a container still showed
+"UPDATE AVAILABLE — base image node:20-slim has moved" on every scan.
+It wasn't `nanoclaw-mnemon` (which now correctly reported "up to date")
+— it was `nanoclaw-agent-v2-91b144eb:ag-1783945827013-hhyk7w`, one of
+NanoClaw's own per-conversation-group agent-sandbox containers (see that
+environment's own notes: "NanoClaw manages its own Docker containers per
+conversation group"). `_dockerfile_for_image()`'s `*nanoclaw*` pattern —
+added to correctly match the fixed orchestrator image tags
+(`nanoclaw-orchestrator:latest`, `nanoclaw-mnemon-orchestrator:latest`)
+— also matched this agent container's own, unrelated, dynamically
+generated image tag, and pointed it at this repo's orchestrator
+Dockerfile: a file that has nothing to do with how the agent container
+was actually built (that's NanoClaw's own `container/Dockerfile`, inside
+the git-cloned, per-deployment install path, patched by
+`apply_mnemon_patch`/`apply_media_tools_patch` — not a static path this
+repo can ever correctly predict from just an image name). The two
+Dockerfiles happening to share the same `node:20-slim` base is what made
+this look plausible instead of obviously wrong — the check was comparing
+the right base-image *string* against the wrong image's actual layers,
+which is exactly as broken as comparing against the wrong string
+entirely, just harder to spot.
+
+**The lesson:** a substring pattern (`*nanoclaw*`) chosen to match a
+*specific, fixed* set of tags (`IMAGE_TAG` in a couple of `run.sh`
+files) can silently also match anything else that happens to share that
+substring — including, in this case, an entire other category of
+container (dynamically-named, NanoClaw's own, not this repo's to
+Dockerfile-track at all) that nobody was thinking about when the pattern
+was written. Two fixes to the same function's actual comparison logic
+didn't surface this, because the bug wasn't in the comparison — it was
+in deciding which containers the comparison should even run against.
+Fixed by matching the exact tag prefixes (`nanoclaw-mnemon-orchestrator:*`,
+`nanoclaw-orchestrator:*`) instead of a bare substring. When a match
+pattern is meant to identify "this repo's own container X," prefer
+matching what this repo's own code actually names it, not a substring
+that's merely *usually* unique to it.
