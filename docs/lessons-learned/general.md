@@ -194,7 +194,7 @@ to a branch that's already fully landed and closed.
 
 ---
 
-## `check-updates.sh` flagged `nanoclaw`/`nanoclaw-mnemon` as having an update on nearly every scan
+## `check-updates.sh` flagged `nanoclaw`/`nanoclaw-mnemon`/`claude-cli` as having an update on nearly every scan
 
 **What happened:** `check-updates.sh`'s `check_locally_built()` — built
 for images with no upstream registry tag to `docker pull`-compare against
@@ -204,29 +204,36 @@ show anything. The base-image check was already correctly scoped to a
 curated list (`_dockerfile_for_image()`), but the apt-upgradable check
 wasn't gated on that list at all — it ran for *any* container with
 `apt-get` present, mapped or not. `nanoclaw`/`nanoclaw-mnemon`'s
-orchestrator images (`node:20-slim`-based, also unpullable — locally
-built, no registry tag) have `apt-get` for a handful of supporting
-packages (git, curl, ca-certificates, procps, iproute2, jq, ffmpeg), so
-they fell into that same unscoped check. Debian trickles a security patch
-into at least one of curl/ca-certificates/git often enough that this
+orchestrator images and `claude-cli`'s image (all `node:20-slim`-based,
+also unpullable — locally built, no registry tag) have `apt-get` for a
+handful of supporting packages (nanoclaw: git, curl, ca-certificates,
+procps, iproute2, jq, ffmpeg; claude-cli: openssh-server, tmux, git,
+curl, ca-certificates, procps, less, vim, gh), so all three fell into
+that same unscoped check. Debian trickles a security patch into at least
+one of curl/ca-certificates/git/openssh-server/gh often enough that this
 flagged "UPDATE AVAILABLE" on very nearly every single scan — technically
-true each time, but not a useful signal, since rebuilding either image
-(whisper.cpp is compiled from source) takes several minutes over what
-amounts to routine base-OS package churn nobody was asking to track.
+true each time, but not a useful signal, since rebuilding any of these
+images takes real time (nanoclaw's compiles whisper.cpp from source) over
+what amounts to routine base-OS package churn nobody was asking to track.
 
 **The lesson:** a two-part check with only one part actually scoped to
 its documented, curated list is a silent scope-creep bug waiting for the
 first unmapped-but-incidentally-matching image to trip it — here, "has
 apt-get installed" turned out to be a much broader net than "is one of
-the four images this feature was written for." The fix
-(`_apt_upgrade_relevant()`, gating the apt-upgradable check per-image
-rather than applying it to every apt-having container) also needed a
-value judgment, not just a scoping fix: for nanoclaw/nanoclaw-mnemon the
-apt packages are incidental infrastructure, not the point of the image
-(unlike darkstat, where the apt package *is* the whole image) — so the
-right call was excluding them from that specific check while still
-registering both in `_dockerfile_for_image()` for the base-image-drift
-check, which stayed a meaningful, low-noise signal for them. Don't assume
-a check's blast radius matches its doc comment's stated scope; verify
-each individual gate actually enforces that scope, not just the one that
-happens to be checked first.
+the four images this feature was written for," and it caught a third,
+unrelated environment (claude-cli) the same way once someone thought to
+check. The fix (`_apt_upgrade_relevant()`, gating the apt-upgradable
+check per-image rather than applying it to every apt-having container)
+also needed a value judgment, not just a scoping fix: for
+nanoclaw/nanoclaw-mnemon/claude-cli the apt packages are incidental
+infrastructure, not the point of the image (unlike darkstat, where the
+apt package *is* the whole image) — so the right call was excluding all
+three from that specific check while still registering them in
+`_dockerfile_for_image()` for the base-image-drift check, which stayed a
+meaningful, low-noise signal for them. Don't assume a check's blast
+radius matches its doc comment's stated scope; verify each individual
+gate actually enforces that scope, not just the one that happens to be
+checked first — and once a scoping bug like this is found in one place,
+check every other environment sharing the same underlying shape (here:
+locally-built, `node:20-slim`-based, apt-get present) rather than
+assuming it was unique to the one that got reported.
