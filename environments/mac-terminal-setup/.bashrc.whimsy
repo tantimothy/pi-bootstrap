@@ -88,6 +88,17 @@ case $((1 + RANDOM % 5)) in
             # file slipped through — always show a moose regardless.
             fortune | cowsay -f moose
         fi
+
+        # Same pause as case 4 above, and for the same reason: without it,
+        # the moose bubble just printed gets immediately scrolled off by
+        # everything below (fortune, BOFH excuse, insults, calendar,
+        # weather — none of which pause either), so the whole shell looks
+        # like it "flashed straight to the prompt" with nothing shown.
+        if [ -t 0 ]; then
+            echo -n "Press any key to continue..."
+            stty -icanon; dd ibs=1 count=1 status=none >/dev/null; stty icanon
+            echo ""
+        fi
         ;;
 esac
 
