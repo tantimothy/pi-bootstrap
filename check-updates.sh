@@ -17,9 +17,10 @@
 # mismatch means an update is available but not yet applied.
 #
 # Images with no matching upstream registry entry (built locally, e.g.
-# darkstat/ntopng/dragonos-sdr/kali-pentest's own Dockerfile builds) can't be
-# checked that way — there's no registry tag for the built image itself to
-# compare against. For those, see check_locally_built() below instead.
+# darkstat/ntopng/dragonos-sdr/kali-pentest/nanoclaw/nanoclaw-mnemon/
+# infinite-mac's own Dockerfile builds) can't be checked that way — there's
+# no registry tag for the built image itself to compare against. For those,
+# see check_locally_built() below instead.
 #
 # Usage:
 #   ./check-updates.sh            # scan only, report what's out of date
@@ -207,12 +208,39 @@ apply_update() {
 # or run.sh, not user-configurable, so they're a stable match target.
 _dockerfile_for_image() {
     case "$1" in
-        *darkstat*)     echo "$REPO_DIR/environments/pihole-wireguard/darkstat/Dockerfile" ;;
-        *ntopng*)       echo "$REPO_DIR/environments/ntopng/Dockerfile" ;;
-        dragonos-pi)    echo "$REPO_DIR/environments/dragonos-sdr/Dockerfile" ;;
-        pi-pentest*)    echo "$REPO_DIR/environments/kali-pentest/Dockerfile" ;;
-        *infinite-mac*) echo "$REPO_DIR/environments/infinite-mac/Dockerfile" ;;
+        *darkstat*)         echo "$REPO_DIR/environments/pihole-wireguard/darkstat/Dockerfile" ;;
+        *ntopng*)           echo "$REPO_DIR/environments/ntopng/Dockerfile" ;;
+        dragonos-pi)        echo "$REPO_DIR/environments/dragonos-sdr/Dockerfile" ;;
+        pi-pentest*)        echo "$REPO_DIR/environments/kali-pentest/Dockerfile" ;;
+        *infinite-mac*)     echo "$REPO_DIR/environments/infinite-mac/Dockerfile" ;;
+        # Order matters: nanoclaw-mnemon's own image ref
+        # ("nanoclaw-mnemon-orchestrator:latest") also contains "nanoclaw",
+        # so its own, more specific pattern has to come first or the plain
+        # nanoclaw one below would shadow it.
+        *nanoclaw-mnemon*)  echo "$REPO_DIR/environments/nanoclaw-mnemon/Dockerfile" ;;
+        *nanoclaw*)         echo "$REPO_DIR/environments/nanoclaw/Dockerfile" ;;
         *) return 1 ;;
+    esac
+}
+
+# Whether "an apt package has a newer version" (the check below) is even a
+# meaningful signal for a given locally-built image — true for
+# darkstat/ntopng/dragonos-sdr/kali-pentest, where the apt package named in
+# the image *is* the whole point of the image, so a newer version is worth
+# knowing about. False for nanoclaw/nanoclaw-mnemon: their few apt packages
+# (git, curl, ca-certificates, procps, iproute2, jq, ffmpeg) are incidental
+# supporting infra, not what these images exist to run. Debian trickles
+# security patches into at least one of curl/ca-certificates/git often
+# enough that, unfiltered, this flagged "UPDATE AVAILABLE" on very nearly
+# every scan — confirmed directly, not a one-off — which isn't a useful
+# signal to rebuild an image that takes several minutes (whisper.cpp is
+# compiled from source) over. The base-image-drift check below still
+# applies to both regardless — a real base-image move is a much rarer,
+# more meaningful signal than "some apt package somewhere got a patch."
+_apt_upgrade_relevant() {
+    case "$1" in
+        *nanoclaw*) return 1 ;;
+        *) return 0 ;;
     esac
 }
 
@@ -259,10 +287,12 @@ check_locally_built() {
         return
     fi
 
-    local upgradable
-    upgradable=$($DOCKER exec "$container_id" sh -c \
-        'apt-get update -qq >/dev/null 2>&1 && apt list --upgradable 2>/dev/null' \
-        | grep -v '^Listing' || true)
+    local upgradable=""
+    if _apt_upgrade_relevant "$image_ref"; then
+        upgradable=$($DOCKER exec "$container_id" sh -c \
+            'apt-get update -qq >/dev/null 2>&1 && apt list --upgradable 2>/dev/null' \
+            | grep -v '^Listing' || true)
+    fi
 
     local base_msg="" dockerfile base_ref base_layers image_layers
     dockerfile=$(_dockerfile_for_image "$image_ref") || true
@@ -307,7 +337,11 @@ check_locally_built() {
         UPDATES_AVAILABLE+=("$name")
         UPDATE_KINDS+=("local")
     else
-        echo "✅  $name ($image_ref) — up to date (base image + all installed apt packages current)"
+        if _apt_upgrade_relevant "$image_ref"; then
+            echo "✅  $name ($image_ref) — up to date (base image + all installed apt packages current)"
+        else
+            echo "✅  $name ($image_ref) — up to date (base image current; apt packages not tracked — see _apt_upgrade_relevant)"
+        fi
         UP_TO_DATE=$((UP_TO_DATE + 1))
     fi
 }
