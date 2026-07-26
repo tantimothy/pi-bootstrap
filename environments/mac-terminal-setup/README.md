@@ -86,11 +86,14 @@ To restore: copy the file(s) you want back out of the relevant
 
 Off by default. When enabled, a new interactive shell runs — strictly
 *after* tmux and fastfetch — one randomly-picked splash (`cbonsai`,
-`cmatrix`, `asciiquarium`, a `cowsay`+`fortune`+`lolcat` combo with a
-"press any key" pause, or a random Talking Moose phrase piped through
-`cowsay -f moose`), then `fortune`, a BOFH excuse, a couple of
-network-sourced insults, today's entries from a bundled calendar-facts
-database, and the weather via `wttr.in`.
+`cmatrix`, `asciiquarium`, a `cowsay`+`fortune`+`lolcat` combo, or a
+random Talking Moose phrase piped through `cowsay -f moose`), then
+`fortune`, a BOFH excuse, a couple of network-sourced insults, today's
+entries from a bundled calendar-facts database, and the weather via
+`wttr.in`. The `cowsay`/Talking Moose splashes each pause on "Press any
+key to continue..." before the rest runs — without it the whole
+unpaused sequence below would scroll straight past the splash to the
+prompt before you could read it.
 
 **Toggling it:**
 - Re-run `./run.sh` and answer differently — but it only asks once, so:
