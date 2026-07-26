@@ -172,7 +172,7 @@ is_deployed() {
         portainer)
             $DOCKER ps -a --filter "name=^/portainer$" -q 2>/dev/null | grep -q .
             ;;
-        dragonos-sdr|kali-pentest|macintoshpi|sheepshaver)
+        dragonos-sdr|kali-pentest|macintoshpi)
             [ -f "${env_path}.deployed" ]
             ;;
         nanoclaw)
