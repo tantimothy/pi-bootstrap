@@ -1,4 +1,6 @@
-data_dirs: []
+data_dirs:
+  - path: "${SCRIPT_DIR}/backups"
+    description: "Tarballs of /usr/share/macintoshpi made by the \"Backup Mac OS hard disk images\" action — nothing here unless you've run it"
 install_dirs:
   - path: "/usr/share/macintoshpi"
     description: "Compiled emulators, Mac OS ROMs, hard disk images (macos7/8/9), VICE/CDEmu/SyncTERM binaries — upstream's own hardcoded BASE_DIR"
@@ -9,9 +11,24 @@ install_dirs:
 install_dirs_label: "📂 Installed Files (upstream's own fixed paths — not relocatable without patching MacintoshPi itself):"
 delete_install_dirs: true
 delete_confirm_msg: "This deletes every compiled emulator AND every Mac OS hard disk image (macos7/8/9) — anything you installed inside those emulated systems will be lost. Your ~/Downloads shared folder is NOT touched."
-no_data_msg: "(none — MacintoshPi only writes to the install directories below, plus your existing ~/Downloads as a shared Unix folder with the emulated Mac OS systems)"
 no_delete_msg: "MacintoshPi has not been installed (FAST installs it first)."
 custom_actions:
+  - label: "Launch Mac OS 9 (local console only — needs the Pi's own display, not SSH)"
+    command: 'command -v mac >/dev/null 2>&1 && mac os9 || echo "Run FAST first to install MacintoshPi."'
+  - label: "Launch Mac OS 8 (local console only)"
+    command: 'command -v mac >/dev/null 2>&1 && mac os8 || echo "Run FAST first to install MacintoshPi."'
+  - label: "Launch Mac OS 7 (local console only)"
+    command: 'command -v mac >/dev/null 2>&1 && mac os7 || echo "Run FAST first to install MacintoshPi."'
+  - label: "Backup Mac OS hard disk images (do this before CLEAN)"
+    command: '[ -d /usr/share/macintoshpi ] && (sudo mkdir -p ${ENV_DIR}/backups && sudo tar czf ${ENV_DIR}/backups/macintoshpi-$(date +%Y%m%d-%H%M%S).tar.gz -C /usr/share/macintoshpi . && sudo chown $(id -u):$(id -g) ${ENV_DIR}/backups/*.tar.gz && echo Saved to ${ENV_DIR}/backups/) || echo "Nothing installed yet — run FAST first."'
+  - label: "Mount a CD/DVD image (cdload)"
+    command: 'command -v cdload >/dev/null 2>&1 && { read -rp "Path to CD/DVD image (.iso/.toast/etc.): " IMG; cdload "$IMG"; } || echo "CDEmu is not installed — run its reinstall action first."'
+  - label: "Unmount the CD/DVD image (cdunload)"
+    command: 'command -v cdunload >/dev/null 2>&1 && cdunload || echo "CDEmu is not installed — run its reinstall action first."'
+  - label: "Virtual modem status"
+    command: 'sudo systemctl status vmodem'
+  - label: "Restart virtual modem (needed after every kernel update)"
+    command: 'sudo systemctl restart vmodem'
   - label: "Reinstall Mac OS 9 only (SheepShaver)"
     command: 'bash -c "[ -d ${ENV_DIR}/src/MacintoshPi/macos9 ] && (cd ${ENV_DIR}/src/MacintoshPi/macos9 && ./macos9.sh) || echo Run FAST first to fetch the MacintoshPi source."'
   - label: "Reinstall Mac OS 8 only (Basilisk II)"

@@ -75,9 +75,17 @@ chmod +x run.sh
 | `STOP` | Stops the virtual modem systemd service. Mac OS/VICE sessions are interactive foreground processes (exit with `CTRL+SHIFT+ESC`), not background services, so there's nothing else to pause. |
 | `TEARDOWN` | Stops and disables the virtual modem service, clears the deployed marker (so the next FAST reinstalls). Leaves installed files in place — use `WIPE` to actually remove them. |
 | `INFO` | Lists install directories and useful commands. |
-| `WIPE` | Deletes `/usr/share/macintoshpi`, `/etc/macintoshpi`, and the vendored source checkout — **including every Mac OS hard disk image**. Your `~/Downloads` shared folder is untouched. |
+| `WIPE` | Deletes `/usr/share/macintoshpi`, `/etc/macintoshpi`, the vendored source checkout, and any `backups/` made by the custom action below — **including every Mac OS hard disk image**. Your `~/Downloads` shared folder is untouched. |
 
-Custom actions (in `deploy.sh`'s per-environment menu) let you reinstall a single component — Mac OS 9, Mac OS 8, Mac OS 7, VICE, CDEmu, Virtual Modem, or SyncTERM — without touching the others.
+## 🔧 Custom Actions (in `deploy.sh`'s per-environment menu)
+
+| Action | What it does |
+|--------|--------------|
+| **Launch Mac OS 9 / 8 / 7** | Runs `mac os9`/`os8`/`os7` directly. **Local console only** — SDL2 draws straight to the framebuffer, so this needs to be run at the Pi's own display, not over SSH. |
+| **Backup Mac OS hard disk images** | Tars up all of `/usr/share/macintoshpi` (every emulator, ROM, and hard disk image) into `backups/` in this environment's own directory. Run this before `CLEAN` if you've installed anything inside the emulated systems you want to keep. |
+| **Mount / Unmount a CD/DVD image** | `cdload`/`cdunload`, prompting for the image path on mount. |
+| **Virtual modem status / Restart virtual modem** | `systemctl status`/`restart vmodem` — needed after every kernel update, since the `tty0tty` kernel module has to be rebuilt against it. |
+| **Reinstall Mac OS 9 / 8 / 7, VICE, CDEmu, Virtual Modem, SyncTERM** | Reinstalls a single component from the vendored source checkout, without touching the others. |
 
 ---
 
@@ -96,6 +104,8 @@ cdunload                   # Unmount it
 sudo systemctl status vmodem    # Virtual modem status
 sudo systemctl restart vmodem   # Restart (needed after every kernel update)
 nano /etc/vmodem.conf           # Change modem speed (default 2400 bps)
+
+tar czf backups/macintoshpi-$(date +%Y%m%d-%H%M%S).tar.gz -C /usr/share/macintoshpi .   # Manual backup (or use the custom action)
 ```
 
 `~/Downloads` is shared with every emulated Mac OS as a "Unix" drive — copy files both ways (apps can't be launched directly from it). Software must predate 2000 to run against these ROMs; see upstream's README for download sources (Macintosh Garden, Macintosh Repository, etc.) and the three install methods depending on file type (`.sit`/`.toast`, `.sit`/`.img`/`.dsk`, plain `.sit`).
