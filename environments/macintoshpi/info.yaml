@@ -1,0 +1,66 @@
+data_dirs:
+  - path: "${SCRIPT_DIR}/backups"
+    description: "Tarballs of /usr/share/macintoshpi made by the \"Backup Mac OS hard disk images\" action — nothing here unless you've run it"
+install_dirs:
+  - path: "/usr/share/macintoshpi"
+    description: "Compiled emulators, Mac OS ROMs, hard disk images (macos7/8/9), VICE/CDEmu/SyncTERM binaries — upstream's own hardcoded BASE_DIR"
+  - path: "/etc/macintoshpi"
+    description: "MacintoshPi Launcher's per-resolution config.txt/rc.local overlays — upstream's own hardcoded CONF_DIR"
+  - path: "${SCRIPT_DIR}/src/MacintoshPi"
+    description: "Vendored clone of the MacintoshPi build scripts (re-fetched fresh on every FAST/CLEAN install — safe to delete)"
+install_dirs_label: "📂 Installed Files (upstream's own fixed paths — not relocatable without patching MacintoshPi itself):"
+delete_install_dirs: true
+delete_confirm_msg: "This deletes every compiled emulator AND every Mac OS hard disk image (macos7/8/9) — anything you installed inside those emulated systems will be lost. Your ~/Downloads shared folder is NOT touched."
+no_delete_msg: "MacintoshPi has not been installed (FAST installs it first)."
+custom_actions:
+  - label: "Launch Mac OS 9 (local console only — needs the Pi's own display, not SSH)"
+    command: 'command -v mac >/dev/null 2>&1 && mac os9 || echo "Run FAST first to install MacintoshPi."'
+  - label: "Launch Mac OS 8 (local console only)"
+    command: 'command -v mac >/dev/null 2>&1 && mac os8 || echo "Run FAST first to install MacintoshPi."'
+  - label: "Launch Mac OS 7 (local console only)"
+    command: 'command -v mac >/dev/null 2>&1 && mac os7 || echo "Run FAST first to install MacintoshPi."'
+  - label: "Backup Mac OS hard disk images (do this before CLEAN)"
+    command: '[ -d /usr/share/macintoshpi ] && (sudo mkdir -p ${ENV_DIR}/backups && sudo tar czf ${ENV_DIR}/backups/macintoshpi-$(date +%Y%m%d-%H%M%S).tar.gz -C /usr/share/macintoshpi . && sudo chown $(id -u):$(id -g) ${ENV_DIR}/backups/*.tar.gz && echo Saved to ${ENV_DIR}/backups/) || echo "Nothing installed yet — run FAST first."'
+  - label: "Mount a CD/DVD image (cdload)"
+    command: 'command -v cdload >/dev/null 2>&1 && { read -rp "Path to CD/DVD image (.iso/.toast/etc.): " IMG; cdload "$IMG"; } || echo "CDEmu is not installed — run its reinstall action first."'
+  - label: "Unmount the CD/DVD image (cdunload)"
+    command: 'command -v cdunload >/dev/null 2>&1 && cdunload || echo "CDEmu is not installed — run its reinstall action first."'
+  - label: "Virtual modem status"
+    command: 'sudo systemctl status vmodem'
+  - label: "Restart virtual modem (needed after every kernel update)"
+    command: 'sudo systemctl restart vmodem'
+  - label: "Reinstall Mac OS 9 only (SheepShaver)"
+    command: 'bash -c "[ -d ${ENV_DIR}/src/MacintoshPi/macos9 ] && (cd ${ENV_DIR}/src/MacintoshPi/macos9 && ./macos9.sh) || echo Run FAST first to fetch the MacintoshPi source."'
+  - label: "Reinstall Mac OS 8 only (Basilisk II)"
+    command: 'bash -c "[ -d ${ENV_DIR}/src/MacintoshPi/macos8 ] && (cd ${ENV_DIR}/src/MacintoshPi/macos8 && ./macos8.sh) || echo Run FAST first to fetch the MacintoshPi source."'
+  - label: "Reinstall Mac OS 7 only (Basilisk II)"
+    command: 'bash -c "[ -d ${ENV_DIR}/src/MacintoshPi/macos7 ] && (cd ${ENV_DIR}/src/MacintoshPi/macos7 && ./macos7.sh) || echo Run FAST first to fetch the MacintoshPi source."'
+  - label: "Reinstall VICE (Commodore 64/128/PET)"
+    command: 'bash -c "[ -d ${ENV_DIR}/src/MacintoshPi/vice ] && (cd ${ENV_DIR}/src/MacintoshPi/vice && ./vice.sh) || echo Run FAST first to fetch the MacintoshPi source."'
+  - label: "Reinstall CDEmu (CD/DVD image mounting)"
+    command: 'bash -c "[ -d ${ENV_DIR}/src/MacintoshPi/cdemu ] && (cd ${ENV_DIR}/src/MacintoshPi/cdemu && ./cdemu.sh) || echo Run FAST first to fetch the MacintoshPi source."'
+  - label: "Reinstall Virtual Modem (telnet BBS)"
+    command: 'bash -c "[ -d ${ENV_DIR}/src/MacintoshPi/vmodem ] && (cd ${ENV_DIR}/src/MacintoshPi/vmodem && ./vmodem.sh) || echo Run FAST first to fetch the MacintoshPi source."'
+  - label: "Reinstall SyncTERM (BBS terminal)"
+    command: 'bash -c "[ -d ${ENV_DIR}/src/MacintoshPi/syncterm ] && (cd ${ENV_DIR}/src/MacintoshPi/syncterm && ./syncterm.sh) || echo Run FAST first to fetch the MacintoshPi source."'
+# |2 pins the strip to exactly 2 spaces — see ntopng/info.yaml for why an
+# explicit indicator is needed rather than a plain "|".
+useful_commands: |2
+     mac os9                          # Launch Mac OS 9 (SheepShaver) full-screen — CTRL+SHIFT+ESC to quit
+     mac os8                          # Launch Mac OS 8 (Basilisk II)
+     mac os7                          # Launch Mac OS 7 / System 7.5.5 (Basilisk II)
+     mac os9 file.img                 # Launch with an extra .img/.dsk mounted as a second drive
+     mac os9-768                      # Reboot into 768-row resolution, then auto-launch Mac OS 9 (see MacintoshPi Launcher docs)
+
+     cdload image.toast               # Mount a CD/DVD image via CDEmu (appears as /dev/sr0)
+     cdunload                         # Unmount it
+
+     ATDT bbs.example.com:6400        # From inside Mac OS/VICE's terminal software: dial a telnet BBS via the virtual modem
+     sudo systemctl status vmodem     # Virtual modem service status
+     sudo systemctl restart vmodem    # Restart it (needed after every kernel update — see README)
+     nano /etc/vmodem.conf            # Change virtual modem speed (default 2400 bps)
+
+     📌 Notes:
+     Shared folder: ~/Downloads appears inside every Mac OS as a "Unix" drive — copy files both ways, but
+     you can't launch an app directly from it.
+     Software must be from before 2000 to load on the emulated ROMs — see the README for download sources.

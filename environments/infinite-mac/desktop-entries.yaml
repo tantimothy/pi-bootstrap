@@ -1,0 +1,17 @@
+menu:
+  id: infinite-mac
+  name: "Infinite Mac"
+  icon: utilities-terminal
+deployed_check:
+  kind: container
+  from_compose_service: infinite-mac
+entries:
+  - id: pi-bootstrap-infinite-mac
+    name: "Infinite Mac"
+    comment: "Classic Mac OS (System 1 through 7.5.5) running in a browser — self-signed HTTPS, browser will warn"
+    icon: utilities-terminal
+    kind: link
+    target: "https://localhost:${INFINITE_MAC_PORT:-4127}"
+info:
+  id: pi-bootstrap-infinite-mac-info
+  name: "Infinite Mac Info"

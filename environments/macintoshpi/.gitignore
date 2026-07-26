@@ -1,0 +1,3 @@
+# Vendored clone of upstream's build scripts — fetched fresh by run.sh on
+# every FAST/CLEAN install, never committed here.
+src/

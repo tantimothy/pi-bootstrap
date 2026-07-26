@@ -1,0 +1,15 @@
+services:
+  # Serves the pre-built Infinite Mac site (`vite preview`, HTTPS via a
+  # self-signed cert — see README). No persistent data: the built site is
+  # entirely static, and each Mac's own disk state lives in the *browser's*
+  # IndexedDB, not on this server at all.
+  infinite-mac:
+    container_name: ${CONTAINER_NAME:-infinite-mac}
+    build:
+      context: .
+      args:
+        INFINITE_MAC_REPO: ${INFINITE_MAC_REPO:-https://github.com/mihaip/infinite-mac.git}
+        INFINITE_MAC_REF: ${INFINITE_MAC_REF:-main}
+    ports:
+      - "${INFINITE_MAC_PORT:-4127}:4127"
+    restart: unless-stopped

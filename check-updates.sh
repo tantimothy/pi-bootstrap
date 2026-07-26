@@ -207,10 +207,11 @@ apply_update() {
 # or run.sh, not user-configurable, so they're a stable match target.
 _dockerfile_for_image() {
     case "$1" in
-        *darkstat*)   echo "$REPO_DIR/environments/pihole-wireguard/darkstat/Dockerfile" ;;
-        *ntopng*)     echo "$REPO_DIR/environments/ntopng/Dockerfile" ;;
-        dragonos-pi)  echo "$REPO_DIR/environments/dragonos-sdr/Dockerfile" ;;
-        pi-pentest*)  echo "$REPO_DIR/environments/kali-pentest/Dockerfile" ;;
+        *darkstat*)     echo "$REPO_DIR/environments/pihole-wireguard/darkstat/Dockerfile" ;;
+        *ntopng*)       echo "$REPO_DIR/environments/ntopng/Dockerfile" ;;
+        dragonos-pi)    echo "$REPO_DIR/environments/dragonos-sdr/Dockerfile" ;;
+        pi-pentest*)    echo "$REPO_DIR/environments/kali-pentest/Dockerfile" ;;
+        *infinite-mac*) echo "$REPO_DIR/environments/infinite-mac/Dockerfile" ;;
         *) return 1 ;;
     esac
 }
