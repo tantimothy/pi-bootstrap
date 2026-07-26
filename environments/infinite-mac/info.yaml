@@ -1,0 +1,32 @@
+data_dirs: []
+install_dirs: []
+named_volumes: []
+no_data_msg: "(none — the built site is entirely static; each emulated Mac's own disk state lives in the browser's IndexedDB, not on this server)"
+web_uis:
+  - name: "Infinite Mac (self-signed HTTPS — browser will warn on first visit)"
+    url: "https://${HOST_IP}:${INFINITE_MAC_PORT:-4127}"
+custom_actions:
+  - label: "Update to latest infinite-mac and rebuild"
+    command: 'cd ${ENV_DIR} && docker compose build --build-arg CACHEBUST=$(date +%s) && docker compose up -d --force-recreate'
+  - label: "Shell into the container"
+    command: 'docker exec -it ${CONTAINER_NAME:-infinite-mac} bash'
+  - label: "Tail live logs"
+    command: 'docker logs -f ${CONTAINER_NAME:-infinite-mac}'
+# |2 pins the strip to exactly 2 spaces — see ntopng/info.yaml for why.
+useful_commands: |2
+     docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps            # Stack status
+     docker logs -f ${CONTAINER_NAME:-infinite-mac}                   # Live logs
+     docker exec -it ${CONTAINER_NAME:-infinite-mac} bash             # Shell in
+
+     📌 Notes:
+     🔐 The site is served over HTTPS with a self-signed certificate (required for the
+        emulators' use of SharedArrayBuffer/service workers) — your browser will show a
+        security warning on first visit; proceed past it (or accept/import the cert).
+     🖴 "FAST" only builds the image once — normal (non-CLEAN) rebuilds reuse Docker's
+        cached layers, including the git clone step, so they will NOT pick up upstream
+        infinite-mac changes. Use the "Update to latest infinite-mac" action above for
+        that (busts just the clone-onward layers), or CLEAN for a full from-scratch
+        rebuild.
+     📚 Ships with System 1 through 7.5.5 and an empty CD-ROM/downloads library
+        (upstream's "minimal"/"placeholder" presets) — no ROM licensing or Macintosh
+        Garden data dump needed. See README.md for how to build the full library instead.

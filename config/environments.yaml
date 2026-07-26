@@ -38,3 +38,4 @@ categories:
     name: "Retro Computing"
     environments:
       - macintoshpi
+      - infinite-mac
