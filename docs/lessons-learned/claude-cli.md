@@ -271,6 +271,78 @@ assumption, standing in for verifying the actual code/file layout).
 Caught here only because a user asked a direct, specific question rather
 than the environment being audited for it proactively.
 
+## `~/.claude.json` Persistence Fix, Round 2 — the Symlink Didn't Survive Real Use
+
+**Status:** fixed, not yet re-confirmed against a live rebuild (the
+original symlink fix above also looked correct on paper and in isolated
+filesystem tests — this one's actual proof will be a real `claude mcp
+add` followed by a real `CLEAN` rebuild).
+
+### Summary
+
+A real user reported losing their registered MCP server on a routine
+`CLEAN` rebuild of `claude-cli` — exactly the symptom the fix above
+(PR #151) was supposed to prevent. Root cause: PR #151's symlink
+(`~/.claude.json` → `.claude/.claude.json`, inside the persistent
+`claude_cli_home` volume) is correct right up until Claude Code itself
+writes to `~/.claude.json` for the first time (e.g. `claude mcp add`).
+Claude Code writes this file via an atomic temp-file-then-`rename()` —
+and POSIX `rename()` onto a path that's currently a symlink **replaces
+the symlink itself**, it does not follow it through to the target. So
+the very first MCP registration silently clobbered the symlink with a
+real, ordinary file sitting on the container's own ephemeral layer —
+invisibly, since nothing looked different from the inside (`~/.claude.json`
+still worked fine as a plain file for every read/write after that). No
+further `entrypoint.sh` run happened in between to notice and re-fix it
+(`entrypoint.sh` only runs at container start, not continuously), so by
+the time the next `CLEAN` rebuild tore the old container down, that
+file — the *only* copy with the real registration in it — was destroyed
+along with it. The persistent volume never actually received the data;
+the symlink only ever protected the brief window before Claude Code's
+own first write replaced it.
+
+**Fix:** `~/.claude.json` now has its own named volume
+(`${CONTAINER_NAME:-claude-cli}_claude_json`), mounted directly at that
+exact path in `docker-compose.yml` — a real mount point, not a symlink.
+`rename()` onto a mount point lands on the volume-backed storage
+regardless of how the file underneath gets rewritten, so this doesn't
+share the symlink's failure mode. For Docker to mount a *file*-level
+volume there (rather than defaulting to a directory, which is what
+happens when nothing already exists at an empty volume's target path),
+the `Dockerfile` now `touch`es a placeholder file at that path at build
+time — Docker copies that in when the volume is first attached, and from
+then on treats the mount as file-level. `entrypoint.sh` also carries a
+one-time migration: if the *old* symlink target
+(`~/.claude/.claude.json`, inside the still-untouched `claude_cli_home`
+volume) still has real content and the new volume-backed
+`~/.claude.json` is still empty, it's copied over once — for anyone
+whose registration hadn't yet been silently clobbered by the bug above
+at the moment they upgrade. Anyone who'd *already* hit the bug (like the
+reporting user) has to re-register once more; that data was already gone
+before this fix could reach it.
+
+### General Lessons
+
+- **A symlink into a persistent volume only protects a file for as long
+  as nothing ever replaces the symlink itself.** Programs that write
+  "atomically" via temp-file-then-`rename()` — a common, genuinely good
+  practice for avoiding corruption on crash/power-loss — silently defeat
+  a symlink-based persistence trick the very first time they write,
+  because `rename()` never follows a trailing symlink at its destination;
+  it overwrites the link itself. This is invisible from both sides: the
+  app just sees a normal file it can read/write, and the symlink looked
+  completely correct at the moment it was set up and tested. The only
+  robust fix for "make an app's config file survive a container rebuild"
+  is a mount point *at that exact path* — not a link to one elsewhere.
+- **An isolated filesystem test of a persistence mechanism (as the
+  original PR #151 did — fresh-start, migration, idempotent-rerun cases)
+  proves the mechanism handles *entrypoint.sh's own* file operations
+  correctly. It says nothing about what happens when the actual
+  application being wrapped writes to that same path its own way.** The
+  gap here was entirely in behavior neither entrypoint.sh nor its tests
+  ever exercised — Claude Code's own write pattern — which only a real
+  `claude mcp add` followed by a real rebuild would have caught.
+
 ## Related PRs
 
 - [#128](https://github.com/tantimothy/pi-bootstrap/pull/128) — `gh` CLI
@@ -282,4 +354,5 @@ than the environment being audited for it proactively.
 - [#136](https://github.com/tantimothy/pi-bootstrap/pull/136) — gateway
   redirect feature (`point-to-gateway.sh`/`revert-to-claude.sh`,
   `.env.gateway.*`), shipped with the open API-shape assumption above
-- [#151](https://github.com/tantimothy/pi-bootstrap/pull/151) — `~/.claude.json` persistence fix above
+- [#151](https://github.com/tantimothy/pi-bootstrap/pull/151) — `~/.claude.json` persistence fix above (the symlink version, later found incomplete)
+- (this fix) — the `~/.claude.json` persistence fix, round 2, above

@@ -51,6 +51,16 @@ RUN userdel -r node \
     && (groupdel node || true) \
     && useradd --uid 1000 --create-home --shell /bin/bash claude
 
+# Placeholder so docker-compose.yml's claude_cli_json named volume mounts
+# as a FILE at this exact path, not a directory — Docker decides that by
+# looking at what's already at the target path in the image the first
+# time an empty volume gets attached there; a real (if empty) file here
+# is what makes it copy that in and treat the mount as file-level rather
+# than defaulting to a directory. See entrypoint.sh's own comment for why
+# this replaced an earlier symlink-based approach that looked equivalent
+# on paper but wasn't.
+RUN touch /home/claude/.claude.json && chown claude:claude /home/claude/.claude.json
+
 # sshd proper (not just the client) needs its own runtime dir and host keys.
 RUN mkdir -p /run/sshd
 
