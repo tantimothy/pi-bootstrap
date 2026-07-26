@@ -1,0 +1,18 @@
+services:
+  classic-mac-vnc:
+    container_name: ${CONTAINER_NAME:-classic-mac-vnc}
+    build: .
+    restart: unless-stopped
+    environment:
+      - MAC_OS_VERSION=${MAC_OS_VERSION:-8}
+      - VNC_PASSWORD=${VNC_PASSWORD:-}
+      - SCREEN_WIDTH=${SCREEN_WIDTH:-800}
+      - SCREEN_HEIGHT=${SCREEN_HEIGHT:-600}
+    ports:
+      - "${VNC_PORT:-5900}:5900"
+    volumes:
+      # ROM + hard-disk image + generated .cfg, one subdirectory per Mac
+      # OS version — see entrypoint.sh. Persists across CLEAN/recreate so
+      # switching MAC_OS_VERSION or redeploying doesn't re-download
+      # anything or reset a saved disk.
+      - "./data:/data"

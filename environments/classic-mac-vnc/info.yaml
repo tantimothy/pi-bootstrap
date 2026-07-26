@@ -1,0 +1,32 @@
+data_dirs:
+  - path: "${ENV_DIR}/data"
+    description: "ROM + hard-disk image + generated .cfg, one subdirectory per Mac OS version (macos7/macos8/macos9)"
+install_dirs: []
+named_volumes: []
+delete_confirm_msg: "The emulated Mac's own hard disk (all files/settings inside it) will be lost. ROM files will be re-downloaded on next start."
+custom_actions:
+  - label: "Shell into the container"
+    command: 'docker exec -it ${CONTAINER_NAME:-classic-mac-vnc} bash'
+  - label: "Tail live logs"
+    command: 'docker logs -f ${CONTAINER_NAME:-classic-mac-vnc}'
+# |2 pins the strip to exactly 2 spaces — see ntopng/info.yaml for why.
+useful_commands: |2
+     docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps            # Stack status
+     docker logs -f ${CONTAINER_NAME:-classic-mac-vnc}                # Live logs (incl. ROM/disk fetch progress on first start)
+     docker exec -it ${CONTAINER_NAME:-classic-mac-vnc} bash          # Shell in
+
+     📌 Notes:
+     🖥️ Connect any VNC client to ${HOST_IP}:${VNC_PORT:-5900}. No local
+        monitor/keyboard needed — this is VNC-only, unlike this repo's
+        separate macintoshpi environment (which runs full-screen directly
+        on the Pi's own display, no VNC, by upstream design).
+     🍏 MAC_OS_VERSION in .env picks which classic Mac OS boots — 7/8
+        (Basilisk II, 68k) or 9 (SheepShaver, PowerPC). Each keeps its own
+        separate saved disk under data/macos<version>/.
+     🐌 SheepShaver (Mac OS 9) has no JIT on arm64/Apple Silicon hosts —
+        interpreter-only there, noticeably slower than 7/8. See README.
+     🔐 Set VNC_PASSWORD in .env — VNC has no built-in encryption, and an
+        unauthenticated server is reachable by anyone who can reach
+        VNC_PORT.
+     ⚠️ UNVERIFIED: this environment's Dockerfile hasn't been build-tested
+        against a real Docker daemon yet — see README before relying on it.

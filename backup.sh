@@ -175,6 +175,9 @@ is_deployed() {
         infinite-mac)
             $DOCKER ps -a --filter "name=^/infinite-mac$" -q 2>/dev/null | grep -q .
             ;;
+        classic-mac-vnc)
+            $DOCKER ps -a --filter "name=^/classic-mac-vnc$" -q 2>/dev/null | grep -q .
+            ;;
         dragonos-sdr|kali-pentest|macintoshpi)
             [ -f "${env_path}.deployed" ]
             ;;
