@@ -23,24 +23,32 @@ if [ "$PGID" != "$CURRENT_GID" ]; then
 fi
 
 # ~/.claude.json holds Claude Code's MCP server registrations, onboarding
-# state, and trusted-project list — a real file Claude Code writes
-# directly to ~/.claude.json itself, NOT under ~/.claude/ (the directory
-# docker-compose.yml's claude_cli_home named volume actually mounts).
-# Left alone it lives only on this container's own writable layer and is
-# silently lost on every rebuild/recreate. Symlinking it into the
-# already-persistent ~/.claude/ volume fixes that without needing a
-# second named volume mounted at an individual file path — confirmed
-# nothing in this repo accounted for it before now.
+# state, and trusted-project list — mounted as its own named volume
+# directly at this exact path (see docker-compose.yml's claude_cli_json)
+# rather than symlinked into the claude_cli_home volume like an earlier
+# version of this file did. That symlink looked like it should work but
+# didn't survive real use: Claude Code writes this file via an atomic
+# temp-file-then-rename, and POSIX rename() onto a path that's currently
+# a symlink replaces the symlink itself instead of following it through
+# to its target — so the very first `claude mcp add` silently broke the
+# symlink and started writing to this container's own ephemeral layer
+# again, invisibly, with no further entrypoint.sh run happening to notice
+# and re-fix it before the next rebuild threw that whole layer away.
+# Confirmed directly: a real deploy lost its MCP registration on a
+# routine CLEAN rebuild. A real mount point doesn't have this failure
+# mode — rename() onto it lands on the volume-backed storage regardless
+# of how the file underneath gets written.
 mkdir -p /home/claude/.claude
-if [ -f /home/claude/.claude.json ] && [ ! -L /home/claude/.claude.json ]; then
-    # A real file already exists — either this container's very first
-    # start, or an existing deploy from before this fix shipped. Move it
-    # into the volume rather than discarding it, so anyone who's already
-    # registered real MCP servers or completed onboarding doesn't lose
-    # that switching to the symlinked layout.
-    mv /home/claude/.claude.json /home/claude/.claude/.claude.json
+
+# One-time migration for anyone upgrading from that old symlinked setup:
+# the claude_cli_home volume (unaffected by this fix) may still hold real
+# data at the old symlink's target path from before the rename() bug ever
+# bit — if so, and the new claude_cli_json-backed ~/.claude.json is still
+# empty (this container has never written under the new scheme yet),
+# carry it over once rather than silently starting fresh.
+if [ -s /home/claude/.claude/.claude.json ] && [ ! -s /home/claude/.claude.json ]; then
+    cp /home/claude/.claude/.claude.json /home/claude/.claude.json
 fi
-ln -sf .claude/.claude.json /home/claude/.claude.json
 
 chown -R claude:claude /home/claude
 
