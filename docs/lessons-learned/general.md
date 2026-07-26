@@ -237,3 +237,39 @@ checked first — and once a scoping bug like this is found in one place,
 check every other environment sharing the same underlying shape (here:
 locally-built, `node:20-slim`-based, apt-get present) rather than
 assuming it was unique to the one that got reported.
+
+---
+
+## `check-updates.sh`'s base-image check still flagged `nanoclaw`/`nanoclaw-mnemon` right after a fresh rebuild
+
+**What happened:** after the apt-upgradable fix above shipped,
+`nanoclaw-mnemon` still showed "UPDATE AVAILABLE" on every scan — even
+immediately following a real `CLEAN` rebuild, which should have left
+nothing at all to flag. The remaining check
+(`check_locally_built()`'s base-image-drift comparison) extracted the
+Dockerfile's base image via `grep -m1 '^FROM' "$dockerfile"` — the
+*first* `FROM` line. `nanoclaw`/`nanoclaw-mnemon`'s Dockerfiles are
+multi-stage: `FROM docker:27-cli AS docker-cli` first (just to grab the
+`docker` CLI binary via `COPY --from=docker-cli`), `FROM node:20-slim`
+second — the actual base the final image is built on. `grep -m1` picked
+`docker:27-cli` every time, whose layers are never part of the final
+image's `RootFS.Layers` prefix at all (`COPY --from=` copies specific
+files out of that stage, not its layers) — so the layer-prefix comparison
+failed unconditionally, on every single scan, regardless of whether
+`node:20-slim` had actually moved. Not a flaky check; a check that could
+never once have passed for either environment.
+
+**The lesson:** a fix verified against the *reported* symptom (apt
+package noise, confirmed gone) doesn't mean the underlying feature is now
+correct — the same function had a second, independent bug the whole
+time, invisible until the first one stopped masking it. `grep -m1` for "a
+Dockerfile's base image" is a single-stage assumption baked into the
+pattern itself; it's silently wrong the moment any Dockerfile it's
+pointed at goes multi-stage, and every other Dockerfile this repo tracks
+here being single-stage (where first and last `FROM` are the same line)
+meant nothing exposed the gap until an environment with an actual
+multi-stage build got added to the tracked list. Fixed by taking the last
+`FROM` line instead (`grep '^FROM' | tail -1`) — correct for both shapes,
+not just multi-stage ones. When a user reports "still happening after I
+just fixed the cause," don't assume the same root cause under-fired;
+check whether there's a second, independent path to the same symptom.

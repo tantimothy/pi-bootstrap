@@ -302,7 +302,21 @@ check_locally_built() {
     local base_msg="" dockerfile base_ref base_layers image_layers
     dockerfile=$(_dockerfile_for_image "$image_ref") || true
     if [ -n "$dockerfile" ] && [ -f "$dockerfile" ]; then
-        base_ref=$(grep -m1 '^FROM' "$dockerfile" | awk '{print $2}')
+        # The LAST `FROM` line, not the first (`grep -m1` — what this used
+        # to do): nanoclaw/nanoclaw-mnemon's Dockerfiles are multi-stage
+        # (`FROM docker:27-cli AS docker-cli` first, just to grab the
+        # `docker` CLI binary via `COPY --from=`; `FROM node:20-slim`
+        # second, the actual base the final image builds on). `grep -m1`
+        # picked the first-stage image every time, whose layers are never
+        # part of the final image's own `RootFS.Layers` prefix at all (a
+        # `COPY --from=` copies specific files, not that stage's layers)
+        # — so the comparison below failed unconditionally, flagging
+        # "base image has moved" on literally every scan regardless of
+        # whether it had, confirmed directly against a container rebuilt
+        # seconds earlier. Every other Dockerfile this repo tracks here is
+        # single-stage, where first and last `FROM` are the same line, so
+        # this is a strict improvement with no behavior change for them.
+        base_ref=$(grep '^FROM' "$dockerfile" | tail -1 | awk '{print $2}')
         if [ -n "$base_ref" ] && $DOCKER pull "$base_ref" >/dev/null 2>&1; then
             # NOT `docker history`'s IMAGE column (what this used to compare
             # against) — under BuildKit, Docker's default builder since
