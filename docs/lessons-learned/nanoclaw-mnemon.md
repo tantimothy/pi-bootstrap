@@ -719,3 +719,66 @@ hand-editing NanoClaw's own generated output elsewhere in this file.
   the exact boundary between what each one actually covers.** Each layer
   here was individually reasonable and each individually left the exact
   same gap uncovered.
+
+---
+
+## `ensure_ollama_ready()` Checked `host.docker.internal` From the Host Itself, Where It Doesn't Resolve
+
+**Status:** fixed.
+
+### Summary
+
+A real deploy reported `run.sh` unable to reach a genuinely-running,
+genuinely-reachable Ollama daemon ("Still couldn't reach Ollama at
+http://host.docker.internal:11434 — mnemon will run graph-only for
+now."), immediately after this same function had just tried (and
+apparently failed) to start it. Ollama was fine the whole time — the
+check itself was probing the wrong address for the context it actually
+runs in.
+
+### Issue Found & Fixed
+
+**Symptom:** `MNEMON_EMBED_ENDPOINT` left at its documented default
+(`http://host.docker.internal:11434`), Ollama genuinely installed and
+reachable on the host — but every deploy logged "Still couldn't reach
+Ollama," and mnemon fell back to graph-only every time, never actually
+using the embeddings that were supposed to be enabled.
+
+**Root cause:** `ensure_ollama_ready()` executes directly on the HOST as
+part of `run.sh` — it is never invoked inside any container. But
+`host.docker.internal` is a hostname Docker's own embedded DNS resolves
+*only inside containers*, specifically so a container can reach back out
+to its host — it carries no meaning to the bare host's own shell/DNS
+resolution at all. Every `curl`/`ollama` call in this function was built
+against `$endpoint` directly (the same variable also baked into the
+container's own image via `apply_mnemon_patch`, where `host.docker.internal`
+*is* the correct value) — so the host-side check was, in effect, asking
+"can the host reach itself via a hostname that only containers can
+resolve," which fails regardless of whether Ollama is actually running.
+
+**Fix:** introduced a separate `probe_endpoint` local
+(`${endpoint//host.docker.internal/localhost}`), used for every
+functional `curl`/`OLLAMA_HOST` call in this function; `$endpoint` itself
+is untouched everywhere else (log messages, and the value that ends up
+baked into the container's own `Dockerfile` patch) so the container's own
+real reachability need is unaffected. A remote, non-local
+`MNEMON_EMBED_ENDPOINT` is unaffected either way — the substring
+substitution is a no-op when `host.docker.internal` isn't present.
+
+### General Lessons
+
+- **The same variable serving two different execution contexts (a host
+  shell vs. a container's own runtime) can need two different actual
+  values, even when it's semantically "the same endpoint" in both
+  places.** `host.docker.internal` is exactly this kind of context-
+  dependent name: correct and necessary from inside a container, actively
+  wrong from the host that's asking the question in the first place.
+  Don't assume a single variable is safe to reuse verbatim just because
+  the concept ("where's Ollama") is identical in both places.
+- **A function's own log output can look completely plausible while
+  testing the wrong thing.** "Checking Ollama at
+  http://host.docker.internal:11434" reads as a reasonable, specific
+  diagnostic — nothing about the message itself hints that the actual
+  `curl` call underneath is doomed regardless of whether Ollama is
+  running, because the hostname in it was never resolvable from where the
+  check actually executes.

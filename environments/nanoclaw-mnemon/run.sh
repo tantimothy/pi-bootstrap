@@ -387,9 +387,26 @@ ensure_ollama_ready() {
         *host.docker.internal*|*localhost*|*127.0.0.1*) is_local=true ;;
     esac
 
+    # This function runs directly on the HOST, not inside any container —
+    # so "host.docker.internal" (a hostname Docker's own embedded DNS
+    # resolves only for containers, routing them back to the host) may not
+    # resolve at all from a bare host shell, even on a machine where
+    # Docker Desktop/OrbStack otherwise works fine. Ollama itself is still
+    # genuinely reachable there via plain "localhost" — every curl/ollama
+    # call below targets this variable instead of $endpoint directly.
+    # $endpoint itself is left untouched for display, and for the value
+    # later baked into the container's own image (apply_mnemon_patch, a
+    # separate code path) — the CONTAINER's own resolution DOES need
+    # host.docker.internal, unlike this host-side probe. Confirmed
+    # directly: a real deploy reported "still couldn't reach Ollama"
+    # despite Ollama genuinely running and reachable at localhost:11434
+    # the whole time — this function's own curl calls were the only thing
+    # actually failing to reach it.
+    local probe_endpoint="${endpoint//host.docker.internal/localhost}"
+
     echo "🔎 Checking Ollama at $endpoint (mnemon embeddings are enabled in .env)..."
 
-    if ! curl -fsS "${endpoint}/api/tags" >/dev/null 2>&1; then
+    if ! curl -fsS "${probe_endpoint}/api/tags" >/dev/null 2>&1; then
         if [ "$is_local" != "true" ]; then
             echo "⚠️  $endpoint isn't reachable, and isn't a local address this script manages." >&2
             echo "   mnemon will run graph-only until that endpoint is reachable — nothing else to do here." >&2
@@ -431,7 +448,7 @@ ensure_ollama_ready() {
             fi
         fi
 
-        if command -v ollama >/dev/null 2>&1 && ! curl -fsS "${endpoint}/api/tags" >/dev/null 2>&1; then
+        if command -v ollama >/dev/null 2>&1 && ! curl -fsS "${probe_endpoint}/api/tags" >/dev/null 2>&1; then
             echo "🚀 Starting Ollama..."
             if [[ "$(uname)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
                 brew services start ollama >/dev/null 2>&1 || (nohup ollama serve >/dev/null 2>&1 &)
@@ -439,13 +456,13 @@ ensure_ollama_ready() {
                 (nohup ollama serve >/dev/null 2>&1 &)
             fi
             local tries=0
-            while [ "$tries" -lt 10 ] && ! curl -fsS "${endpoint}/api/tags" >/dev/null 2>&1; do
+            while [ "$tries" -lt 10 ] && ! curl -fsS "${probe_endpoint}/api/tags" >/dev/null 2>&1; do
                 sleep 1
                 tries=$((tries + 1))
             done
         fi
 
-        if ! curl -fsS "${endpoint}/api/tags" >/dev/null 2>&1; then
+        if ! curl -fsS "${probe_endpoint}/api/tags" >/dev/null 2>&1; then
             echo "⚠️  Still couldn't reach Ollama at $endpoint — mnemon will run graph-only for now." >&2
             return 0
         fi
@@ -453,11 +470,11 @@ ensure_ollama_ready() {
 
     echo "✅ Ollama is reachable."
 
-    if curl -fsS "${endpoint}/api/tags" 2>/dev/null | grep -q "\"name\":\"${model}"; then
+    if curl -fsS "${probe_endpoint}/api/tags" 2>/dev/null | grep -q "\"name\":\"${model}"; then
         echo "✅ Model '$model' already pulled."
     elif [ "$is_local" = "true" ] && command -v ollama >/dev/null 2>&1; then
         echo "📥 Pulling '$model' (this can take a while the first time)..."
-        OLLAMA_HOST="${endpoint#http://}" ollama pull "$model" || echo "⚠️  Pull failed — mnemon will run graph-only until '$model' is available." >&2
+        OLLAMA_HOST="${probe_endpoint#http://}" ollama pull "$model" || echo "⚠️  Pull failed — mnemon will run graph-only until '$model' is available." >&2
     else
         echo "⚠️  '$model' isn't pulled on $endpoint and it's not a local daemon this script manages — pull it there yourself." >&2
     fi
