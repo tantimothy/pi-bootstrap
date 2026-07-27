@@ -1,0 +1,48 @@
+data_dirs: []
+install_dirs: []
+named_volumes:
+  - name: ${CONTAINER_NAME:-aider}_ssh_host_keys
+    description: "This container's own SSH host keys — deleting this changes its SSH fingerprint, you'll see a REMOTE HOST IDENTIFICATION HAS CHANGED warning on your next connection"
+delete_confirm_msg: "This container's SSH host key identity will be lost — your SSH client will warn about a changed host key on next connect. Your workspace repo at AIDER_WORKSPACE_PATH is NOT touched (it's your own pre-existing directory, not something this environment owns)."
+web_uis:
+  - name: "Aider Browser GUI (opt-in launch, EXPERIMENTAL)"
+    url: "http://${HOST_IP}:${AIDER_GUI_PORT:-8501}"
+  - name: "OpenVSCode Server (opt-in — needs \"ide\" in COMPOSE_PROFILES)"
+    url: "http://${HOST_IP}:${AIDER_IDE_PORT:-8443}"
+custom_actions:
+  - label: "SSH into Aider"
+    command: 'ssh -p ${SSH_PORT:-2223} aider@localhost'
+  - label: "Choose Model"
+    command: "bash ${ENV_DIR}/scripts/choose-model.sh"
+  # Frontend Option A — launches (or no-ops if already running) a detached
+  # tmux session inside the SAME container running `aider --gui`. -d, not
+  # -it: this is a background launch, not an interactive session — see
+  # scripts/aider-gui.sh's own header for why this is flagged experimental.
+  - label: "Launch Aider (Browser GUI, EXPERIMENTAL)"
+    command: 'docker exec -d -u aider ${CONTAINER_NAME:-aider} bash -lc "aider-gui.sh"'
+useful_commands: |2
+     ssh -p ${SSH_PORT:-2223} aider@localhost                       # attach to the live tmux "aider" base session (each SSH login gets its own window into it)
+     docker exec -it ${CONTAINER_NAME:-aider} tmux attach -t aider   # same thing, from the host directly (no SSH key needed)
+     docker logs -f ${CONTAINER_NAME:-aider}                    # sshd logs
+     docker compose --profile ide up -d                          # start OpenVSCode Server (Frontend Option B) alongside the SSH service
+
+  📌 Notes:
+     🔑 Needs a real provider API key before first use — see README's
+        "Choosing a Provider". Unlike claude-cli, there's no browser
+        /login flow; Aider is not Claude Code.
+     💻 Multiple devices can SSH in at once, each landing in its own tmux
+        window grouped onto the same "aider" session (shared window
+        list/history, independent current-window per client) — closing
+        one terminal doesn't end Aider's run, it just detaches. Reconnect
+        from anywhere to pick it back up.
+     🔀 Route through this repo's own llm-gateways environment (Claude,
+        DeepSeek, local Ollama, all behind one endpoint) by setting
+        OPENAI_API_BASE/OPENAI_API_KEY in .env instead of ANTHROPIC_API_KEY
+        directly — see README's "Choosing a Provider".
+     🖥️ Two extra frontends beyond plain SSH — see README's "Frontend
+        Options": Aider's own built-in browser GUI (menu action above,
+        EXPERIMENTAL per Aider's own docs), and a full OpenVSCode Server
+        IDE with Aider pre-installed (opt-in via COMPOSE_PROFILES). A
+        third option some setups add — Open WebUI — is deliberately NOT
+        built here; see this repo's separate chat-frontends environment
+        instead, and README's "Frontend Options" for why.

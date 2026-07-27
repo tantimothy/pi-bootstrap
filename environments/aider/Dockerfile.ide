@@ -1,0 +1,29 @@
+# Frontend Option B (OpenVSCode Server) — a full browser-based VS Code IDE
+# pointed at the same workspace the plain SSH/tmux `aider` service uses,
+# with `aider` itself pre-installed so the integrated terminal can run it
+# immediately with no extra setup. Opt-in (see docker-compose.yml's
+# "ide" profile) — this is a second, heavier container on top of the
+# default SSH/tmux one, not a replacement for it.
+#
+# linuxserver/openvscode-server, not coder/code-server or a hand-rolled
+# VS Code build — same image the original brainstorming session (see
+# README's "Why This Exists") named for this exact role, and linuxserver's
+# own PUID/PGID/TZ convention matches how every other container in this
+# environment already handles host file ownership. Confirmed directly
+# against linuxserver's own documented image (lscr.io/linuxserver/
+# openvscode-server): Ubuntu-based, listens on 3000, workspace lives at
+# /config/workspace.
+FROM lscr.io/linuxserver/openvscode-server:latest
+
+# The base image is Ubuntu Jammy (22.04) — confirmed directly against its
+# own Dockerfile — which predates Debian/Ubuntu's PEP 668
+# "externally-managed-environment" pip restriction (that started with
+# Ubuntu 23.10/Debian bookworm's later point releases), so a plain
+# `pip install` works here with no --break-system-packages workaround
+# needed, same as the plain python:3.12-slim base the main Dockerfile uses.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        git \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --no-cache-dir aider-chat

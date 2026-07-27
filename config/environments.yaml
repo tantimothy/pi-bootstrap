@@ -22,6 +22,7 @@ categories:
       - chat-frontends
       - llm-gateways
       - claude-cli
+      - aider
   - id: network-security
     name: "Networking & Security"
     environments:

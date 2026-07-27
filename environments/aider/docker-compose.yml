@@ -1,0 +1,91 @@
+services:
+  aider:
+    container_name: ${CONTAINER_NAME:-aider}
+    build: .
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # Optional — see .env.example. Empty/unset is a no-op in
+      # entrypoint.sh.
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      # Provider configuration — see README's "Choosing a Provider". All
+      # optional/independent; empty/unset is a no-op in entrypoint.sh.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-}
+      # Optional — which model `aider` launches with. Empty/unset lets
+      # Aider fall back to its own default (currently Sonnet, per its own
+      # docs) or error asking you to pick one if no provider key is set at
+      # all. See the "Choose Model" menu action.
+      - AIDER_MODEL=${AIDER_MODEL:-}
+    ports:
+      - "${SSH_PORT:-2223}:22"
+      # Frontend Option A (Aider's own built-in --gui) — same container,
+      # a second tmux session launched on demand (see "Launch Aider
+      # (Browser GUI)" custom_action / scripts/aider-gui.sh), not a
+      # separate service: it's the same `aider` process with a different
+      # flag, not different software, unlike Option B below. Published
+      # unconditionally since it's cheap (nothing listens here until you
+      # actually launch it) — see README's "Frontend Options" for why this
+      # one is flagged experimental.
+      - "${AIDER_GUI_PORT:-8501}:8501"
+    volumes:
+      # Your own git repo (or any directory) — landed at ~/workspace
+      # inside the container, and where the auto-attached tmux session's
+      # `aider` starts.
+      - "${AIDER_WORKSPACE_PATH}:/home/aider/workspace"
+      # Read-only: copied into ~/.ssh/authorized_keys by entrypoint.sh on
+      # every start — see that file, and claude-cli's own entrypoint.sh
+      # comment (identical reasoning), for why it's copied rather than
+      # bind-mounted directly onto authorized_keys itself.
+      - "${SSH_AUTHORIZED_KEYS_PATH}:/run/host-authorized_keys:ro"
+      # SSH host keys — named volume so the container's SSH fingerprint
+      # stays stable across recreation (no "REMOTE HOST IDENTIFICATION HAS
+      # CHANGED" warning on your next connection after a redeploy).
+      - "aider_ssh_host_keys:/etc/ssh"
+
+  # Frontend Option B (OpenVSCode Server) — a full browser-based IDE, a
+  # genuinely different piece of software from the plain `aider` service
+  # above (not just a different flag, unlike Option A), so it's its own
+  # container/image (Dockerfile.ide) rather than reusing this one's. Opt-in
+  # via COMPOSE_PROFILES (see .env.example) — off by default so a plain
+  # `docker compose up -d` doesn't pull/build a second, heavier image
+  # nobody asked for. Shares the SAME workspace bind mount as the `aider`
+  # service above — edits from either frontend land in the same place.
+  aider-ide:
+    container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}ide
+    build:
+      context: .
+      dockerfile: Dockerfile.ide
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+      # Same provider config as the `aider` service above — set once,
+      # used by both, so `aider` run from this container's own integrated
+      # terminal works immediately with no separate setup.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-}
+    volumes:
+      # /config/workspace, not /home/aider/workspace — linuxserver's own
+      # openvscode-server image convention (confirmed directly against its
+      # own documented layout), unrelated to the plain `aider` service's
+      # own home-directory path above; both point at the SAME host
+      # directory regardless of the differing container-side path.
+      - "${AIDER_WORKSPACE_PATH}:/config/workspace"
+    ports:
+      - "${AIDER_IDE_PORT:-8443}:3000"
+    profiles: ["ide", "all-frontends"]
+
+volumes:
+  # Named per CONTAINER_NAME, not a fixed literal — a second instance
+  # deployed with a different CONTAINER_NAME gets its own separate SSH
+  # host key instead of silently sharing this one's. Same pattern
+  # claude-cli's own docker-compose.yml uses.
+  aider_ssh_host_keys:
+    name: ${CONTAINER_NAME:-aider}_ssh_host_keys

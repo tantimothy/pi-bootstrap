@@ -4,6 +4,8 @@ A small hub of browser-based chat UIs for the Ollama models already running on t
 
 **Already using `nanoclaw-mnemon`?** It no longer bundles a chat UI of its own — deploy this standalone environment instead if you want one for your host's Ollama. The two are namespaced apart (different container names, ports, and data volumes) so both can run at once, though there's normally no reason to run both.
 
+**Setting this up alongside `aider`/`llm-gateways` (Claude/DeepSeek in the model dropdown, not just Ollama)?** See [`docs/aider-provider-stack.md`](../../docs/aider-provider-stack.md) for the full walkthrough, or jump straight to "Connecting Open WebUI to `llm-gateways`" below.
+
 Five frontends are available, toggled independently via `COMPOSE_PROFILES` in `.env` — no rebuild needed, just `docker compose up -d` again (or redeploy via `deploy.sh`) after changing it:
 
 ## 📂 Services & Ports
@@ -115,6 +117,21 @@ docker network inspect bridge --format '{{json .IPAM.Config}}'
 # change the same address in its own API Connections settings instead,
 # since it isn't driven by a .env variable
 ```
+
+---
+
+## 🔀 Connecting Open WebUI to `llm-gateways` (Claude, DeepSeek, etc.)
+
+Beyond the host's Ollama models, Open WebUI can also show every model this repo's own `llm-gateways` environment's LiteLLM proxy registers — Claude, DeepSeek, or anything else you've added to that environment's `litellm-config.yaml`. Set in `.env` (see `.env.example`'s own comment):
+
+```bash
+OPENAI_API_BASE_URL=http://host.docker.internal:4000/v1
+OPENAI_API_KEY=<llm-gateways' own LITELLM_MASTER_KEY>
+```
+
+Deploy `llm-gateways` first if you haven't — `host.docker.internal`, not a container name, since these are separate Compose projects with no shared Docker network (same reasoning the `aider` environment's own README gives for its identical setup). Both `OLLAMA_BASE_URL` and this stay active together — Open WebUI merges Ollama's and LiteLLM's model lists into one dropdown, so you don't lose your local Ollama models by adding this.
+
+**This is a generic chat connection only** — it lets you casually chat with the same models the `aider` environment can use, through the same gateway, but it does **not** connect Open WebUI to Aider itself. Open WebUI has no shell or file-system access; it can't drive Aider's edit loop even when pointed at a model Aider also happens to be using. If you're looking for a browser-based way to actually run Aider, see that environment's own README ("Frontend Options") for its built-in browser GUI and OpenVSCode Server options instead — those are Aider running with a different frontend, not Open WebUI talking to Aider.
 
 ---
 
