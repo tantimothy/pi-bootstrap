@@ -48,11 +48,23 @@ model_list:
       model: anthropic/claude-fable-5
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  # Older, still-real pinned version — not part of the current lineup above,
-  # but valid to keep around if you specifically want an older model rather
-  # than whatever "current" resolves to over time. Uncomment to add it
-  # alongside the four above; same ANTHROPIC_API_KEY requirement.
-  # - model_name: claude-sonnet-4-5
-  #   litellm_params:
-  #     model: anthropic/claude-sonnet-4-5
-  #     api_key: os.environ/ANTHROPIC_API_KEY
+  # Real, still-current pinned versions — not what `sonnet`/`opus` resolve
+  # to on the Anthropic API by default (that's the 5-series above), but
+  # exactly what those aliases currently resolve to on other providers
+  # (Claude Platform on AWS: Sonnet 4.6; Microsoft Foundry: Opus 4.6/Sonnet
+  # 4.5 — see the same model configuration docs cited above), and directly
+  # nameable on the Anthropic API too if you specifically want one of these
+  # instead of whatever "current" resolves to over time. Same
+  # ANTHROPIC_API_KEY requirement as the four above.
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-sonnet-4-5
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY

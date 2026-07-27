@@ -38,7 +38,7 @@ openssl rand -base64 32
 
 Or use the repo's interactive `deploy.sh` menu, which walks you through the same `.env` fields.
 
-**Which models does LiteLLM proxy?** That's controlled by `litellm-config.yaml` in this directory, not `.env` — it ships wired to your host's Ollama (every model you've pulled, under `ollama/*`) plus the current Claude lineup enabled by default (`claude-sonnet-5`, `claude-opus-5`, `claude-haiku-4-5`, `claude-fable-5` — set `ANTHROPIC_API_KEY` in `.env` for those to actually work), with a commented-out example for adding OpenAI alongside it. Uncomment an entry and set the matching `*_API_KEY` in `.env` to add another hosted provider.
+**Which models does LiteLLM proxy?** That's controlled by `litellm-config.yaml` in this directory, not `.env` — it ships wired to your host's Ollama (every model you've pulled, under `ollama/*`) plus seven Claude entries enabled by default (`claude-sonnet-5`, `claude-opus-5`, `claude-haiku-4-5`, `claude-fable-5` — the current Anthropic-API lineup — and `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-sonnet-4-5` — real, still-current pinned versions other providers' `sonnet`/`opus` aliases resolve to; set `ANTHROPIC_API_KEY` in `.env` for any of these to actually work), with a commented-out example for adding OpenAI alongside it. Uncomment an entry and set the matching `*_API_KEY` in `.env` to add another hosted provider.
 
 ### 2. Deploy
 

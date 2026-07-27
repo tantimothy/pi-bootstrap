@@ -20,7 +20,13 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-MODELS=(claude-sonnet-5 claude-opus-5 claude-haiku-4-5-20251001 claude-fable-5)
+# Current lineup on the Anthropic API, plus two real (not hallucinated —
+# see this repo's own README correction) pinned versions that some other
+# providers' `opus`/`sonnet` aliases currently resolve to instead
+# (Claude Platform on AWS: Sonnet 4.6; Microsoft Foundry: Opus 4.6/Sonnet
+# 4.5) — verified against Claude Code's own model configuration docs
+# (https://code.claude.com/docs/en/model-config), not guessed either way.
+MODELS=(claude-sonnet-5 claude-opus-5 claude-haiku-4-5-20251001 claude-fable-5 claude-sonnet-4-6 claude-opus-4-6 claude-sonnet-4-5)
 
 echo "Which model should \`aider\` launch with?"
 echo "  (Quick picks below are direct-Anthropic Claude models — requires ANTHROPIC_API_KEY in .env."
