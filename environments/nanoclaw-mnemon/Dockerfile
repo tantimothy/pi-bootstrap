@@ -126,6 +126,19 @@ ENV PATH="/root/.local/bin:${PATH}"
 # both login and non-login shells regardless of PATH.
 RUN ln -sf /root/.local/bin/claude /usr/local/bin/claude
 
+# Placeholder so ${CONTAINER_NAME}_claude_json (see run.sh) mounts as a
+# FILE at this exact path, not a directory — Docker decides that by
+# looking at what's already at the target path in the image the first
+# time an empty volume gets attached there; a real (if empty) file here is
+# what makes it copy that in and treat the mount as file-level rather than
+# defaulting to a directory. Same fix, same reasoning, as claude-cli's own
+# identical placeholder (see that Dockerfile's own comment for the fuller
+# writeup): ~/.claude.json is a separate file Claude Code writes OUTSIDE
+# ~/.claude/ itself via an atomic temp-file-then-rename, so it needs its
+# own volume distinct from the ${CONTAINER_NAME}_claude_home one covering
+# ~/.claude/ — a directory-only volume doesn't protect this file at all.
+RUN touch /root/.claude.json
+
 COPY scripts/entrypoint.sh /usr/local/bin/nanoclaw-entrypoint.sh
 RUN chmod +x /usr/local/bin/nanoclaw-entrypoint.sh
 

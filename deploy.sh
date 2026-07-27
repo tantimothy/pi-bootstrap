@@ -1037,6 +1037,37 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
             CAPTURED_USER_INPUTS=("${_LINES[@]}")
             rm -f "$TEMP_FORM_OUT"
 
+            # Snapshot any KEY=value already in .env that this form does NOT
+            # manage — every commented-out, optional line in .env.example
+            # (e.g. "#CLAUDE_MODEL=", "#GH_TOKEN=") is documentation-only
+            # from this form's own perspective (the parser above only turns
+            # UNcommented .env.example lines into KEYS), so without this,
+            # the truncate-and-rewrite two lines down would silently drop
+            # any such value — including ones a dedicated picker/script set
+            # deliberately (nanoclaw-mnemon's "Choose Claude Model" writing
+            # CLAUDE_MODEL, claude-cli's point-to-gateway.sh writing
+            # ANTHROPIC_BASE_URL, etc.) — on the very next FAST/CLEAN run
+            # through this menu, even though nothing about that variable
+            # changed. Confirmed directly: CLAUDE_MODEL set via
+            # nanoclaw-mnemon's own model picker vanished after the next
+            # deploy.sh-driven redeploy. Re-appended verbatim below, after
+            # the form's own fields are written.
+            PRESERVED_LINES=()
+            if [ -f ".env" ]; then
+                while IFS= read -r existing_line; do
+                    EXISTING_KEY="${existing_line%%=*}"
+                    [ -z "$EXISTING_KEY" ] && continue
+                    IS_FORM_KEY=false
+                    for k in "${KEYS[@]}"; do
+                        if [ "$k" = "$EXISTING_KEY" ]; then
+                            IS_FORM_KEY=true
+                            break
+                        fi
+                    done
+                    [ "$IS_FORM_KEY" = false ] && PRESERVED_LINES+=("$existing_line")
+                done < .env
+            fi
+
             # DYNAMIC FIX: Overwrite/Truncate existing configurations to prevent duplicated trailing rows
             > .env
             for i in "${!KEYS[@]}"; do
@@ -1063,6 +1094,11 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
                 # Any literal single quote in a value is escaped as '\''.
                 SAFE_VAL="${RAW_VAL//\'/\'\\\'\'}"
                 printf "%s='%s'\n" "${KEYS[$i]}" "$SAFE_VAL" >> .env
+            done
+            # Re-append whatever this form doesn't manage, preserved above
+            # — see that snapshot's own comment for why this is needed.
+            for preserved_line in "${PRESERVED_LINES[@]}"; do
+                printf "%s\n" "$preserved_line" >> .env
             done
             echo "✅ Finished compiling system configs successfully."
         else

@@ -13,6 +13,38 @@ INSTALL_DIR="${NANOCLAW_INSTALL_PATH:?NANOCLAW_INSTALL_PATH must be set}"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
+# Written fresh on every container start — see the sibling nanoclaw-mnemon
+# environment's identical addition for the full reasoning (same file, same
+# comment there, not repeated verbatim here). Short version: gives a
+# BRAND NEW admin `claude` session ("Open a Claude Session", launched in
+# /root) basic self-awareness even with no prior conversation history to
+# draw on — without this, a fresh session has no way to know it's running
+# inside this container at all. Container mode only; this entrypoint never
+# runs in host mode (no Docker container for the orchestrator there at all).
+cat > /root/CLAUDE.md <<CLAUDEMD
+# Context for the admin \`claude\` session inside this container
+
+You are running inside the **${CONTAINER_NAME:-nanoclaw}** orchestrator
+container — the \`nanoclaw\` environment (container mode) from the
+\`pi-bootstrap\` repo (https://github.com/tantimothy/pi-bootstrap). This
+container runs [NanoClaw](https://github.com/nanocoai/nanoclaw) itself
+(its Telegram/Discord/etc. channel bot orchestrator, spawning
+per-conversation-group agent sandbox containers via the host's Docker
+socket).
+
+- NanoClaw's own source/install path: \`${NANOCLAW_INSTALL_PATH}\` (this
+  container's env var \`NANOCLAW_INSTALL_PATH\`) — \`groups/\` holds
+  per-conversation-group data, \`data/\` holds sessions/message DB/task
+  scheduler state.
+- This \`claude\` session itself (the one reading this file) is a separate,
+  independent conversation from NanoClaw's own chat-platform one — you are
+  not NanoClaw, you're an admin/maintenance session running alongside it in
+  the same container, for things like adding channels (\`/add-telegram\`
+  etc.), inspecting logs, or debugging.
+- \`docker logs -f ${CONTAINER_NAME:-nanoclaw}\` (from the HOST, not from
+  inside here) shows NanoClaw's own live application log.
+CLAUDEMD
+
 # NanoClaw's own OneCLI (its agent-key vault) can't auto-detect a bind
 # address from inside this container: it's a Docker-outside-of-Docker
 # sibling container — only eth0/lo exist in its own network namespace, no

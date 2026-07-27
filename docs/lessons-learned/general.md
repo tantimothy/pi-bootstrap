@@ -314,3 +314,113 @@ Fixed by matching the exact tag prefixes (`nanoclaw-mnemon-orchestrator:*`,
 pattern is meant to identify "this repo's own container X," prefer
 matching what this repo's own code actually names it, not a substring
 that's merely *usually* unique to it.
+
+---
+
+## `deploy.sh`'s own config form silently drops any `.env` var it doesn't manage — including ones set by a dedicated script
+
+**What happened:** `nanoclaw-mnemon`'s new `CLAUDE_MODEL` (set via its own
+"Choose Claude Model" picker) kept vanishing after an unrelated, routine
+redeploy through `deploy.sh`'s menu — reported directly by a user testing
+a live deploy, not caught by any of this repo's own review before
+merging. Root cause: `deploy.sh`'s "ADVANCED BULK FORM COMPILER" — the
+dialog form that runs on every menu-driven `FAST`/`CLEAN` — parses
+`.env.example` line by line, and *every* line starting with `#` is
+treated purely as documentation, including this repo's own established
+convention of writing a commented-out optional variable as
+`#SOME_VAR=default` (19 such lines existed across this repo's
+environments already, e.g. `#GH_TOKEN=`, `#ANTHROPIC_BASE_URL=`, before
+`CLAUDE_MODEL` added a 20th). Those never become form fields (`KEYS`),
+and the form then does `> .env` (full truncate) followed by writing back
+*only* the fields it collected — so any variable that was ever set in
+`.env` but isn't an uncommented `.env.example` line gets silently dropped
+on the very next form submission, regardless of whether the user touched
+it, whether a dedicated script (`choose-model.sh`, claude-cli's
+`point-to-gateway.sh`) had deliberately written it, or whether it changed
+at all. This wasn't specific to `CLAUDE_MODEL` or even new — it's been
+true of every commented-out `.env.example` variable in this repo since
+the form itself was written, just never previously reported because
+nothing had made a user's own redeploy-through-the-menu habit collide
+with a value set outside that same form until now.
+
+**The lesson:** a config form that reconstructs a file from scratch
+(`> .env` then rewrite) needs to account for *every* way that file can
+legitimately be written, not just its own input path — "this form is the
+only thing that touches `.env`" was an unstated assumption that had
+already been false for as long as any environment's `.env.example` had a
+commented-out optional variable, since deploy.sh's own TUI form isn't the
+only place `.env` gets edited (custom_actions scripts routinely do their
+own targeted `sed` edits — see `choose-model.sh`,
+`point-to-gateway.sh`/`revert-to-claude.sh`). Fixed by snapshotting any
+`.env` key the form doesn't recognize as one of its own `KEYS` *before*
+truncating, then re-appending those lines verbatim after the form's own
+fields are written — preserves anything set outside the form without
+changing what the form itself shows or asks for. Worth remembering for
+any future "rebuild this file from a known set of fields" pattern: decide
+explicitly whether unrecognized existing content should be dropped or
+preserved, rather than letting a truncate-and-rewrite make that decision
+by default.
+
+---
+
+## A container's writable layer looking "persistent" can just mean it was never recreated yet
+
+**What happened:** `nanoclaw-mnemon`'s admin `claude` session (launched via
+"Open a Claude Session," `docker exec`'d into `/root` with no volume of
+its own) appeared to retain conversation history and environmental
+context across a long period of use — reported directly by a user as
+"it knew about its own environment, as it has previously." That was never
+actually persisted anywhere: Claude Code writes conversation history under
+`~/.claude/`, and for this container `~` is `/root`, which had no bind
+mount or named volume at all — `run.sh`'s own `docker run` call only ever
+mounted `$NANOCLAW_INSTALL_PATH`, the Docker socket, `/tmp`, and
+`/etc/localtime`. The history had simply never been tested against an
+actual container recreation before — once one happened (a `CLEAN`, or
+"Choose Claude Model"'s own `docker stop`+`rm`+relaunch, added in the same
+session that introduced the bug), the container's entire previous
+writable layer was gone, and with it every trace of that history, with no
+warning anywhere that this was even a risk. `claude-cli`, built earlier in
+this repo's history, got this right from the start (a dedicated
+`claude_cli_home` named volume) — the gap was specific to `nanoclaw-mnemon`
+and plain `nanoclaw` container mode's own admin sessions never getting the
+same treatment, not a general oversight in how this repo handles container
+state.
+
+**The lesson:** "this container's own state has survived every restart so
+far" is not evidence that it's actually persisted — it's only evidence
+that the container hasn't been *recreated* yet (a plain `docker
+restart`/`stop`+`start` keeps the same writable layer; `rm`+a fresh `run`
+does not). Before treating any path inside a container as safe to
+accumulate real state in, check whether it's actually backed by a bind
+mount or named volume — if it isn't, anything written there is one
+`docker rm` away from being gone, and a feature that routinely recreates
+the container (like a "change this setting" picker that has to, because
+`docker run -e` only applies at creation) will eventually expose that gap
+in production even if nothing looked wrong for a long time beforehand.
+Fixed by adding a `${CONTAINER_NAME}_claude_home` named volume mounted at
+`/root/.claude` in both `nanoclaw-mnemon`'s and plain `nanoclaw`'s
+(container mode) `run.sh`, mirroring `claude-cli`'s own pattern — this
+doesn't recover history already lost to a prior recreation, only prevents
+the next one from doing the same thing. A regenerated-on-every-start
+`/root/CLAUDE.md` (Claude Code's own standard project-context file, read
+automatically from a session's launch directory) was added alongside it,
+giving even a genuinely fresh session basic self-awareness of its own
+environment independent of whether it has any history to draw on — worth
+doing regardless of the volume fix, since a model's own self-report about
+"do you know what container you're in" is otherwise entirely dependent on
+memory that a first-ever session, by definition, doesn't have yet.
+
+**Caught before merging, not after**: the first version of this fix only
+covered `~/.claude/` (the directory), missing `~/.claude.json` — a
+separate *file*, a sibling of `~/.claude/` rather than something inside
+it, which Claude Code writes via an atomic temp-file-then-rename. A
+directory-only volume does nothing to protect a file living outside that
+directory. This is the exact same gap `claude-cli` had already hit and
+fixed once before (its own `claude_cli_json` volume, distinct from
+`claude_cli_home`) — worth remembering as its own pattern, not just a
+one-off: "persist `~/.claude`" and "persist `~/.claude.json`" are two
+separate fixes, both needed, and finding one doesn't mean the other has
+been checked. A live `ls -al` of the actual container's `/root` (run by
+the user reporting the original bug) is what surfaced this — checking
+what's actually present beats reasoning from the fix already shipped for
+a similar-looking case.

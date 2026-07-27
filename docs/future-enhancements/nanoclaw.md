@@ -36,3 +36,14 @@ base session not falling through correctly on a cold start), this needs a
 follow-up fix, not just doc corrections. Same caveat applies to the
 identical mechanism in the `claude-cli` and `nanoclaw-mnemon` environments
 — see their own `docs/future-enhancements/` entries.
+
+**Update — the sibling `nanoclaw-mnemon` environment's first real deploy
+surfaced the same three bugs here (container mode is the identical
+mechanism):** `deploy.sh`'s own config form dropping `CLAUDE_MODEL` on
+redeploy, the admin session's history never actually being persisted, and
+an unconfirmed report of a chosen model not taking effect (see
+`docs/future-enhancements/nanoclaw-mnemon.md`'s own updated entry and
+`docs/lessons-learned/general.md` for the full account). The first two are
+fixed here too — `${CONTAINER_NAME}_claude_home` named volume and a
+regenerated `/root/CLAUDE.md` in container mode's `run.sh`/
+`scripts/entrypoint.sh` — still needing the same live confirmation.
