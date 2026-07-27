@@ -21,7 +21,38 @@ model_list:
   #   litellm_params:
   #     model: openai/gpt-4o
   #     api_key: os.environ/OPENAI_API_KEY
-  # - model_name: claude-sonnet
+
+  # Current Claude lineup — enabled by default (unlike the OpenAI example
+  # above) since a caller picking a Claude model here is the common case
+  # this repo's own environments (aider, and claude-cli's point-to-gateway.sh)
+  # actually use this for. Requesting any of these without ANTHROPIC_API_KEY
+  # set in .env fails at call time with an auth error — LiteLLM itself
+  # still starts fine either way, it's only these specific entries that
+  # don't work until the key is set. Model IDs verified against Claude
+  # Code's own model configuration docs
+  # (https://code.claude.com/docs/en/model-config), not guessed.
+  - model_name: claude-sonnet-5
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-opus-5
+    litellm_params:
+      model: anthropic/claude-opus-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-fable-5
+    litellm_params:
+      model: anthropic/claude-fable-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Older, still-real pinned version — not part of the current lineup above,
+  # but valid to keep around if you specifically want an older model rather
+  # than whatever "current" resolves to over time. Uncomment to add it
+  # alongside the four above; same ANTHROPIC_API_KEY requirement.
+  # - model_name: claude-sonnet-4-5
   #   litellm_params:
   #     model: anthropic/claude-sonnet-4-5
   #     api_key: os.environ/ANTHROPIC_API_KEY
