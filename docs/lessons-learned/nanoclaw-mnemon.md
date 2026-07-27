@@ -782,3 +782,70 @@ substitution is a no-op when `host.docker.internal` isn't present.
   `curl` call underneath is doomed regardless of whether Ollama is
   running, because the hostname in it was never resolvable from where the
   check actually executes.
+
+## `~/.claude.json` Volume Mount Failed Even After Confirming a Genuinely Fresh Volume
+
+**Status:** fixed (both `nanoclaw-mnemon` and `nanoclaw`).
+
+### Summary
+
+After adding the `${CONTAINER_NAME}_claude_home` / `${CONTAINER_NAME}_claude_json`
+named volumes (see the container-persistence entry in
+`docs/lessons-learned/general.md`), a real CLEAN deploy failed with:
+
+```
+docker: Error response from daemon: source .../merged/root/.claude.json is not directory
+```
+
+The first working theory — a stale volume created wrong before the
+Dockerfile's `touch /root/.claude.json` placeholder existed — turned out
+to be incomplete. The user removed the volume entirely
+(`docker volume rm nanoclaw-mnemon_claude_json`, confirmed via a second
+`rm` reporting "no such volume") and retried; the exact same error came
+back against a volume that had never existed before that moment.
+
+### Issue Found & Fixed
+
+**Symptom:** `docker run`'s `-v "${CONTAINER_NAME}_claude_json:/root/.claude.json"`
+failed with "is not directory," reproducibly, even immediately after
+confirming (via `docker volume rm` + a repeat `rm` reporting "no such
+volume") that the volume was being created completely fresh — ruling out
+the stale-volume, wrong-first-attachment explanation.
+
+**Root cause:** `/root/.claude` (the sibling volume mounted right before
+it) is a literal string prefix of `/root/.claude.json` — 13 identical
+characters before `.json` continues the second path. Docker/moby has a
+documented history of exactly this failure class: the legacy `-v
+name:path` shorthand's mount-setup logic can misorder or conflate two
+mount destinations when one is a string prefix of the other, even though
+they're unrelated sibling paths rather than a parent/child nesting (see
+moby#8055, "Fix #7792 - Order mounts"). Two `-v` flags back-to-back for
+`/root/.claude` and `/root/.claude.json` hit this ambiguity directly.
+
+**Fix:** switched both volumes, in both `environments/nanoclaw-mnemon/run.sh`
+and `environments/nanoclaw/run.sh`, from the legacy shorthand to Docker's
+fully-explicit `--mount` syntax:
+
+```bash
+--mount "type=volume,source=${CONTAINER_NAME}_claude_home,destination=/root/.claude"
+--mount "type=volume,source=${CONTAINER_NAME}_claude_json,destination=/root/.claude.json"
+```
+
+`--mount` takes an explicit `type=`/`source=`/`destination=` form with no
+path-string parsing heuristic to trip over, sidestepping whatever
+mechanism `-v`'s shorthand uses internally.
+
+### General Lessons
+
+- **Don't assume "I deleted and recreated the resource and the error was
+  identical" rules out the first theory — it can instead mean the bug is
+  one level up, in how the two resources relate to each other, not in
+  either resource's own state.** A fresh, correctly-typed volume can still
+  fail if the fix that mattered was never about the volume's contents at
+  all.
+- **Two sibling paths where one is a literal string prefix of the other
+  (`/root/.claude` / `/root/.claude.json`) are a known Docker footgun, not
+  just a theoretical concern** — worth defaulting to `--mount`'s explicit
+  form over `-v`'s shorthand whenever a new mount's destination could be a
+  prefix of an existing one, rather than discovering it via a failed
+  deploy.

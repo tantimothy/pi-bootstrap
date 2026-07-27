@@ -709,6 +709,21 @@ else
     # first time anything actually wrote through it). Requires the
     # Dockerfile's own `touch /root/.claude.json` placeholder so this
     # mounts as a FILE, not a directory — see that file's own comment.
+    #
+    # Both use `--mount`, not the legacy `-v name:path` shorthand, for
+    # these two specifically: `/root/.claude` is a literal string prefix
+    # of `/root/.claude.json` (13 identical characters before `.json`
+    # continues), and Docker/moby has a documented history of exactly this
+    # failure class — one mount's destination being a string prefix of
+    # another's confusing the daemon's own mount setup (see moby#8055,
+    # historically about mount-ordering, but the same "one path is a
+    # prefix of another" ambiguity). Confirmed directly against a real
+    # deploy: `-v` here failed with "source .../merged/root/.claude.json
+    # is not directory" on a freshly-created, correctly-file-typed volume
+    # — not a stale-volume issue, since it reproduced identically even
+    # after deleting and recreating the volume from scratch. `--mount`'s
+    # fully-explicit `type=volume,source=...,destination=...` form avoids
+    # whatever path-based heuristic `-v`'s shorthand parsing triggers.
     $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
         -e CONTAINER_NAME="$CONTAINER_NAME" \
@@ -718,8 +733,8 @@ else
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \
         -v /etc/localtime:/etc/localtime:ro \
-        -v "${CONTAINER_NAME}_claude_home:/root/.claude" \
-        -v "${CONTAINER_NAME}_claude_json:/root/.claude.json" \
+        --mount "type=volume,source=${CONTAINER_NAME}_claude_home,destination=/root/.claude" \
+        --mount "type=volume,source=${CONTAINER_NAME}_claude_json,destination=/root/.claude.json" \
         -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \
         "$IMAGE_TAG" >/dev/null
 fi
