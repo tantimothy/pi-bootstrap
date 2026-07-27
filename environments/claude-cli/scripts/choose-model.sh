@@ -6,13 +6,17 @@
 # itself triggers) — see bashrc-tmux-attach.sh's own comment for why an
 # already-running session isn't affected until then.
 #
-# The model list below is this repo's own understanding of Anthropic's
-# current lineup as of this writing — not fetched live from anywhere,
-# since there's no "list models" endpoint this script could query without
-# an API key already configured. Run `claude --help` inside the container
-# (or Anthropic's own docs) for the authoritative, current list if this
-# looks stale — model names change over time, and this file isn't kept
-# in sync with them automatically.
+# The model list below — verified against Claude Code's own model
+# configuration docs (https://code.claude.com/docs/en/model-config), not
+# guessed — mixes the current Anthropic-API lineup (options 1-4) with real,
+# still-current pinned versions other providers' `sonnet`/`opus` aliases
+# resolve to instead (options 5-7: Claude Platform on AWS resolves `sonnet`
+# to 4.6; Microsoft Foundry resolves `opus`/`sonnet` to 4.6/4.5) — not
+# fetched live from anywhere, since there's no "list models" endpoint this
+# script could query without an API key already configured. Run `claude
+# --help` inside the container (or Anthropic's own docs) for the
+# authoritative, current list if this looks stale — model names change
+# over time, and this file isn't kept in sync with them automatically.
 #
 # Usage:
 #   ./choose-model.sh              # interactive picker
@@ -29,20 +33,26 @@ CHOICE="${1:-}"
 
 if [ -z "$CHOICE" ]; then
     echo "Which model should claude launch with?"
-    echo "  1) claude-sonnet-5              (balanced)"
+    echo "  1) claude-sonnet-5              (balanced, current Anthropic-API default)"
     echo "  2) claude-opus-5                (most capable)"
     echo "  3) claude-haiku-4-5-20251001    (fastest/cheapest)"
     echo "  4) claude-fable-5"
-    echo "  5) Custom — type a model ID"
-    echo "  6) Clear override — let Claude Code pick its own default"
+    echo "  5) claude-sonnet-4-6            (what 'sonnet' resolves to on Claude Platform on AWS)"
+    echo "  6) claude-opus-4-6              (what 'opus' resolves to on Microsoft Foundry)"
+    echo "  7) claude-sonnet-4-5            (what 'sonnet' resolves to on Bedrock/Foundry)"
+    echo "  8) Custom — type a model ID"
+    echo "  9) Clear override — let Claude Code pick its own default"
     read -rp "Number: " NUM
     case "$NUM" in
         1) CHOICE="claude-sonnet-5" ;;
         2) CHOICE="claude-opus-5" ;;
         3) CHOICE="claude-haiku-4-5-20251001" ;;
         4) CHOICE="claude-fable-5" ;;
-        5) read -rp "Model ID: " CHOICE ;;
-        6) CHOICE="--clear" ;;
+        5) CHOICE="claude-sonnet-4-6" ;;
+        6) CHOICE="claude-opus-4-6" ;;
+        7) CHOICE="claude-sonnet-4-5" ;;
+        8) read -rp "Model ID: " CHOICE ;;
+        9) CHOICE="--clear" ;;
         *) echo "❌ Not a valid choice: $NUM" >&2; exit 1 ;;
     esac
 fi
