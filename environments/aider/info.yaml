@@ -1,0 +1,30 @@
+data_dirs: []
+install_dirs: []
+named_volumes:
+  - name: ${CONTAINER_NAME:-aider}_ssh_host_keys
+    description: "This container's own SSH host keys — deleting this changes its SSH fingerprint, you'll see a REMOTE HOST IDENTIFICATION HAS CHANGED warning on your next connection"
+delete_confirm_msg: "This container's SSH host key identity will be lost — your SSH client will warn about a changed host key on next connect. Your workspace repo at AIDER_WORKSPACE_PATH is NOT touched (it's your own pre-existing directory, not something this environment owns)."
+web_uis: []
+custom_actions:
+  - label: "SSH into Aider"
+    command: 'ssh -p ${SSH_PORT:-2223} aider@localhost'
+  - label: "Choose Model"
+    command: "bash ${ENV_DIR}/scripts/choose-model.sh"
+useful_commands: |2
+     ssh -p ${SSH_PORT:-2223} aider@localhost                       # attach to the live tmux "aider" base session (each SSH login gets its own window into it)
+     docker exec -it ${CONTAINER_NAME:-aider} tmux attach -t aider   # same thing, from the host directly (no SSH key needed)
+     docker logs -f ${CONTAINER_NAME:-aider}                    # sshd logs
+
+  📌 Notes:
+     🔑 Needs a real provider API key before first use — see README's
+        "Choosing a Provider". Unlike claude-cli, there's no browser
+        /login flow; Aider is not Claude Code.
+     💻 Multiple devices can SSH in at once, each landing in its own tmux
+        window grouped onto the same "aider" session (shared window
+        list/history, independent current-window per client) — closing
+        one terminal doesn't end Aider's run, it just detaches. Reconnect
+        from anywhere to pick it back up.
+     🔀 Route through this repo's own llm-gateways environment (Claude,
+        DeepSeek, local Ollama, all behind one endpoint) by setting
+        OPENAI_API_BASE/OPENAI_API_KEY in .env instead of ANTHROPIC_API_KEY
+        directly — see README's "Choosing a Provider".

@@ -236,6 +236,7 @@ _dockerfile_for_image() {
         nanoclaw-orchestrator:*)        echo "$REPO_DIR/environments/nanoclaw/Dockerfile" ;;
         *claude-cli*)       echo "$REPO_DIR/environments/claude-cli/Dockerfile" ;;
         *classic-mac-vnc*)  echo "$REPO_DIR/environments/classic-mac-vnc/Dockerfile" ;;
+        *aider*)            echo "$REPO_DIR/environments/aider/Dockerfile" ;;
         *) return 1 ;;
     esac
 }
@@ -244,14 +245,17 @@ _dockerfile_for_image() {
 # meaningful signal for a given locally-built image — true for
 # darkstat/ntopng/dragonos-sdr/kali-pentest, where the apt package named in
 # the image *is* the whole point of the image, so a newer version is worth
-# knowing about. False for nanoclaw/nanoclaw-mnemon, claude-cli, and
+# knowing about. False for nanoclaw/nanoclaw-mnemon, claude-cli, aider, and
 # classic-mac-vnc: their apt packages (nanoclaw: git, curl,
 # ca-certificates, procps, iproute2, jq, ffmpeg; claude-cli:
 # openssh-server, tmux, git, curl, ca-certificates, procps, less, vim, gh;
-# classic-mac-vnc: build-essential, autoconf/automake/libtool, libsdl2-dev,
-# xvfb, x11vnc, curl, ca-certificates) are incidental supporting infra
-# (build toolchain, headless display/VNC, etc.), not what these images
-# exist to run. Debian trickles security patches into at least one of
+# aider: openssh-server, tmux, git, curl, ca-certificates, procps, less,
+# vim — aider-chat itself is a pip package, not an apt one, so this check
+# wouldn't even see it either way; classic-mac-vnc: build-essential,
+# autoconf/automake/libtool, libsdl2-dev, xvfb, x11vnc, curl,
+# ca-certificates) are incidental supporting infra (build toolchain,
+# headless display/VNC, etc.), not what these images exist to run. Debian
+# trickles security patches into at least one of
 # curl/ca-certificates/git/openssh-server/gh often enough that, unfiltered,
 # this flagged "UPDATE AVAILABLE" on very nearly every scan — confirmed
 # directly, not a one-off — which isn't a useful signal to rebuild an
@@ -266,7 +270,7 @@ _apt_upgrade_relevant() {
         # the same reason — a bare *nanoclaw* substring would also match
         # NanoClaw's own dynamically-tagged agent-sandbox containers,
         # which this function was never meant to weigh in on either way.
-        nanoclaw-mnemon-orchestrator:*|nanoclaw-orchestrator:*|*claude-cli*|*classic-mac-vnc*) return 1 ;;
+        nanoclaw-mnemon-orchestrator:*|nanoclaw-orchestrator:*|*claude-cli*|*classic-mac-vnc*|*aider*) return 1 ;;
         *) return 0 ;;
     esac
 }

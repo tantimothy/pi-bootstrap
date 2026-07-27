@@ -1,0 +1,20 @@
+# Same ${CONTAINER_NAME}-expansion reasoning as claude-cli's own
+# desktop-entries.yaml — see that file's comment.
+menu:
+  id: ${CONTAINER_NAME:-aider}
+  name: "Aider"
+  icon: utilities-terminal
+deployed_check:
+  kind: container
+  from_compose_service: aider
+entries:
+  - id: pi-bootstrap-${CONTAINER_NAME:-aider}
+    name: "Aider (SSH)"
+    comment: "SSH into the standalone Aider container and attach to its live tmux session"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash -c "ssh -p ${SSH_PORT:-2223} aider@localhost"'
+    terminal: true
+info:
+  id: pi-bootstrap-${CONTAINER_NAME:-aider}-info
+  name: "Aider Info"
