@@ -409,8 +409,12 @@ without error.
 
 ## `~/.claude.json` Persistence, Round 3 — Named Volumes Don't Work Reliably on Every Docker Implementation
 
-**Status:** fixed, via a structural change (bind mount + a new shared
-"pre-deploy" hook) rather than another mount-syntax tweak.
+**Status:** fixed and confirmed live — a real MCP server registration
+(Home Assistant) survived a genuine `CLEAN` rebuild, verified directly
+against both the host file and the container's own view of it before the
+CLEAN, then reconfirmed present after. Fixed via a structural change
+(bind mount + a new shared "pre-deploy" hook) rather than another
+mount-syntax tweak.
 
 ### Summary
 
@@ -494,6 +498,77 @@ sandbox (no live Docker daemon here).
   the technical failure looks identical; check what's actually being
   asked for and used before choosing revert vs. fix-forward.
 
+## `CONTAINER_NAME='name'` (Quoted) Broke Docker Compose Volume Creation — a Repo-Wide Gap, Not Just `new-instance.sh`
+
+**Status:** fixed, not yet independently re-confirmed live (the MCP
+persistence fix above WAS re-confirmed via a real CLEAN, but this
+specific bug — hit via "Choose Claude Model" on a `new-instance.sh`-
+created instance — wasn't separately retested afterward).
+
+### Summary
+
+"Choose Claude Model" on a second instance (`claude-cli-home-assistant`,
+created via `new-instance.sh`) failed with `Error response from daemon:
+create 'claude-cli-home-assistant'_claude_json: "'claude-cli-home-
+assistant'_claude_json" includes invalid characters for a local volume
+name`. The quotes are literally part of the error — not a display
+artifact.
+
+### Issue Found & Fixed
+
+**Root cause:** `new-instance.sh` writes `.env` values as `KEY='value'`
+(single-quoted), matching `deploy.sh`'s own generic bulk config form
+convention — quoting exists there for a real reason (protecting `$`-
+bearing secrets like bcrypt hashes from bash variable expansion on
+`source`). But `CONTAINER_NAME` also feeds directly into `docker-
+compose.yml`'s own `${CONTAINER_NAME:-default}` interpolation for
+container/volume names, and at least one Docker Compose version doesn't
+strip those quotes the way bash `source`-ing does — the literal quote
+characters end up baked into the volume name Compose tries to create,
+which Docker then rejects outright.
+
+Confirmed directly with a local `docker compose config` reproduction
+(matching `claude-cli`'s actual compose structure) that this specific
+installed version (v5.1.1) handles quoted `.env` values correctly via
+direct `.env`-file parsing — so the bug is either version-dependent, or
+specific to how `choose-model.sh` invokes compose (it extracts
+`CONTAINER_NAME` via `grep`+`cut`, which does NOT strip quotes the way
+bash `source` does, only for its own echo message — but never exports
+that value, so the actual `docker compose up -d` call still falls back
+to Compose's own native `.env` parsing regardless). The live error is the
+decisive evidence either way: whatever the exact mechanism, the quotes
+demonstrably end up in the created volume's name on the user's real host.
+
+**Fix:** stopped quoting `CONTAINER_NAME` specifically, in both writers —
+`new-instance.sh` and `deploy.sh`'s own generic bulk form compiler — since
+a valid Docker container/volume name can never contain `$`, spaces, or
+anything else the quoting was ever protecting against in the first
+place. Every other var stays quoted (still needed for values that might
+have spaces or `$`-bearing secrets). `deploy.sh`'s own read-back logic
+(strips a leading/trailing `'` if present, for the dialog form's display)
+already tolerated an unquoted value fine, so this doesn't break
+round-tripping an existing value back into the form.
+
+### General Lessons
+
+- **`deploy.sh`'s own generic bulk config form quoting every value the
+  same way meant this bug was never actually specific to
+  `new-instance.sh`** — any docker-compose-based environment's
+  `CONTAINER_NAME`, if ever edited through that generic form (not just
+  the narrower multi-instance script), would hit the identical failure.
+  Fixing only the one call site that happened to surface the bug would
+  have left the same landmine everywhere else `CONTAINER_NAME` is a
+  managed `.env.example` key.
+- **A tool correctly handling most `.env` quoting cases (confirmed
+  directly, locally) doesn't mean every code path that touches that value
+  goes through the same handling.** `choose-model.sh`'s own `grep`+`cut`
+  extraction of `CONTAINER_NAME`, used only for a display message, was
+  easy to overlook as "just cosmetic" — but proved the actual smoking gun
+  for where an already-quoted `.env` line's literal quote characters were
+  visibly present, confirming the value's quoting was the right thing to
+  fix regardless of exactly which invocation path hit the daemon-side
+  error.
+
 ## Related PRs
 
 - [#128](https://github.com/tantimothy/pi-bootstrap/pull/128) — `gh` CLI
@@ -508,4 +583,4 @@ sandbox (no live Docker daemon here).
 - [#151](https://github.com/tantimothy/pi-bootstrap/pull/151) — `~/.claude.json` persistence fix above (the symlink version, later found incomplete)
 - (round 2 fix) — the `~/.claude.json` persistence fix, round 2, above
 - (placeholder fix) — the `~/.claude.json` placeholder build-failure fix above
-- (this fix) — the `~/.claude.json` persistence fix, round 3 (bind mount + shared pre-deploy hook), above
+- [#175](https://github.com/tantimothy/pi-bootstrap/pull/175) — `~/.claude.json` persistence fix, round 3 (bind mount + shared pre-deploy hook), and the `CONTAINER_NAME` quoting fix, both above
