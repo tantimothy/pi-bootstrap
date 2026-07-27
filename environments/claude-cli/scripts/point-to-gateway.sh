@@ -90,7 +90,15 @@ fi
 # strip-then-append pattern used elsewhere in this repo (e.g.
 # nanoclaw-mnemon's apply_mnemon_patch) rather than leaving duplicate
 # lines for docker compose to pick an unpredictable one of.
-sed -i '/^ANTHROPIC_BASE_URL=/d; /^ANTHROPIC_AUTH_TOKEN=/d' "$ENV_FILE"
+#
+# -i.bak, not bare -i: this script runs on the HOST (this repo's own
+# custom_actions run outside any container), which can be macOS — BSD
+# sed's -i requires an explicit backup-suffix argument attached with no
+# space, unlike GNU sed's bare -i. ".bak" attached works identically on
+# both, so this needs no GNU-vs-BSD detection at all; the backup file is
+# just removed right after.
+sed -i.bak '/^ANTHROPIC_BASE_URL=/d; /^ANTHROPIC_AUTH_TOKEN=/d' "$ENV_FILE"
+rm -f "$ENV_FILE.bak"
 {
     echo "ANTHROPIC_BASE_URL=$NEW_BASE_URL"
     echo "ANTHROPIC_AUTH_TOKEN=$NEW_AUTH_TOKEN"

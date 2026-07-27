@@ -19,22 +19,30 @@ custom_actions:
     command: "bash ${ENV_DIR}/scripts/point-to-gateway.sh"
   - label: "Revert Claude CLI to Anthropic (undo Gateway)"
     command: "bash ${ENV_DIR}/scripts/revert-to-claude.sh"
+  - label: "Choose Claude Model"
+    command: "bash ${ENV_DIR}/scripts/choose-model.sh"
   - label: "New Claude CLI Instance..."
     command: "bash ${ENV_DIR}/new-instance.sh"
 useful_commands: |2
-     ssh -p ${SSH_PORT:-2222} claude@localhost                       # attach to the live tmux "claude" session
+     ssh -p ${SSH_PORT:-2222} claude@localhost                       # attach to the live tmux "claude" base session (each SSH login gets its own window into it)
      docker exec -it ${CONTAINER_NAME:-claude-cli} tmux attach -t claude   # same thing, from the host directly (no SSH key needed)
      docker logs -f ${CONTAINER_NAME:-claude-cli}                    # sshd logs
      ./scripts/point-to-gateway.sh [litellm|portkey]                 # Redirect Claude CLI at a self-hosted gateway (see README)
      ./scripts/revert-to-claude.sh                                   # Undo — back to api.anthropic.com
+     ./scripts/choose-model.sh                                       # Pick which Claude model `claude` launches with
 
   📌 Notes:
      🔑 First connection: run `claude` interactively once (via either
         command above) and follow its own `/login` flow — this only needs
         doing once per ${CONTAINER_NAME:-claude-cli}_claude_home volume.
-     💻 Multiple devices can SSH in at once and land in the SAME tmux
-        session — closing one terminal doesn't end the conversation,
-        it just detaches. Reconnect from anywhere to pick it back up.
+     💻 Multiple devices can SSH in at once, each landing in its own tmux
+        window grouped onto the same "claude" session (shared window
+        list/history, independent current-window per client) — closing
+        one terminal doesn't end the conversation, it just detaches.
+        Reconnect from anywhere to pick it back up.
+     🧠 Which model `claude` launches with: unset (default) lets Claude
+        Code pick its own default, or pin one via "Choose Claude Model"
+        above / CLAUDE_MODEL in .env.
      🔀 Pointing Claude CLI at LiteLLM/Portkey (see "Pointing Claude CLI
         at a Gateway" in the README): fill in .env.gateway.litellm and/or
         .env.gateway.portkey first, then use the two menu actions above

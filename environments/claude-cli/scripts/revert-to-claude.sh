@@ -24,7 +24,10 @@ if ! grep -qE '^ANTHROPIC_BASE_URL=.' "$ENV_FILE" 2>/dev/null; then
     exit 0
 fi
 
-sed -i '/^ANTHROPIC_BASE_URL=/d; /^ANTHROPIC_AUTH_TOKEN=/d' "$ENV_FILE"
+# -i.bak, not bare -i: works identically on GNU sed (Linux) and BSD sed
+# (macOS) — see point-to-gateway.sh's own comment for why bare -i doesn't.
+sed -i.bak '/^ANTHROPIC_BASE_URL=/d; /^ANTHROPIC_AUTH_TOKEN=/d' "$ENV_FILE"
+rm -f "$ENV_FILE.bak"
 
 CONTAINER_NAME=$(grep -E '^CONTAINER_NAME=' "$ENV_FILE" | tail -1 | cut -d= -f2-)
 CONTAINER_NAME="${CONTAINER_NAME:-claude-cli}"

@@ -28,25 +28,34 @@ custom_actions:
     command: "bash ${ENV_DIR}/scripts/reload-mnemon.sh"
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
-  # Opens an interactive `claude` session directly inside THIS environment's
-  # own orchestrator container — a shortcut for `docker exec -it ... claude`.
-  # Deliberately lands in /root, NOT $NANOCLAW_INSTALL_PATH (unlike the
-  # useful_commands entry below) — confirmed directly against a real,
-  # already-in-use deploy: Claude Code's own conversation continuity is
-  # scoped to the exact launch directory, and the container's real,
-  # already-existing admin conversation history lives under /root (this
-  # container runs as root, with no explicit WORKDIR set, so a plain
-  # `docker exec -it ... bash` — how that conversation was originally
-  # started, before this menu action existed — lands there by default).
-  # Landing this action anywhere else would silently start a second,
-  # parallel conversation instead of resuming the real one, or fail with
-  # Claude Code's own "This conversation is from a different directory"
+  # Opens a persistent, detachable tmux "claude" session directly inside
+  # THIS environment's own orchestrator container (see scripts/claude-tmux.sh
+  # — same grouped-session pattern as the standalone claude-cli environment,
+  # so a second simultaneous `docker exec` connection gets its own window
+  # instead of hijacking this one's). Deliberately lands in /root, NOT
+  # $NANOCLAW_INSTALL_PATH (unlike the useful_commands entry below) —
+  # confirmed directly against a real, already-in-use deploy: Claude Code's
+  # own conversation continuity is scoped to the exact launch directory, and
+  # the container's real, already-existing admin conversation history lives
+  # under /root (this container runs as root, with no explicit WORKDIR set,
+  # so a plain `docker exec -it ... bash` — how that conversation was
+  # originally started, before this menu action existed — lands there by
+  # default). Landing this action anywhere else would silently start a
+  # second, parallel conversation instead of resuming the real one, or fail
+  # with Claude Code's own "This conversation is from a different directory"
   # error if you then tried `--continue`/`--resume` from here expecting it
   # to find that history. If you've never used this container's admin
   # `claude` session before (no /root history exists yet), this just
   # starts a fresh one there instead — same as it would anywhere else.
   - label: "Open a Claude Session"
-    command: 'docker exec -it ${CONTAINER_NAME:-nanoclaw-mnemon} bash -lc "cd /root && claude"'
+    command: 'docker exec -it ${CONTAINER_NAME:-nanoclaw-mnemon} bash -lc "cd /root && nanoclaw-claude-tmux.sh"'
+  # Which model that admin `claude` session launches with — see
+  # scripts/choose-model.sh and .env.example's own CLAUDE_MODEL comment.
+  # Does NOT affect per-conversation-group agent containers (NanoClaw's own
+  # separate concern — see the README's "Can NanoClaw Itself Talk to
+  # Ollama?" section).
+  - label: "Choose Claude Model"
+    command: "bash ${ENV_DIR}/scripts/choose-model.sh"
 # |2 pins the strip to exactly 2 spaces regardless of which line is
 # least-indented — "📌 Notes:" is intentionally at column 0 in the
 # rendered output; see ntopng/info.yaml for the full explanation. The
@@ -58,7 +67,8 @@ useful_commands: |2
      docker logs -f nanoclaw-mnemon                                  # Orchestrator live logs
      docker restart nanoclaw-mnemon                                  # Restart after a config change
      docker ps --filter name=nanoclaw-agent                          # List agent containers (both nanoclaw environments, if both deployed)
-     docker exec -it nanoclaw-mnemon bash -lc "cd /root && claude"                # Then: /add-telegram, /add-whatsapp, /add-discord, etc. (see README's "Adding Channels", and "Launching Claude CLI Directly" for why /root)
+     docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"   # Then: /add-telegram, /add-whatsapp, /add-discord, etc. (see README's "Adding Channels", and "Launching Claude CLI Directly" for why /root)
+     docker exec -it nanoclaw-mnemon tmux attach -t claude              # Reattach to the admin claude session directly, no relaunch wrapper
      docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"   # Update Anthropic API key
      ollama pull llama3.2                                              # Pull a chat-capable model for mnemon's optional embeddings (nomic-embed-text is embedding-only)
 
@@ -74,6 +84,11 @@ useful_commands: |2
         instead — this environment no longer bundles one of its own.
      🖥️ "Open a Claude Session" in this environment's own deploy.sh menu
         attaches directly to this environment's own orchestrator container
-        via `docker exec -it` — a plain terminal `claude` conversation
-        alongside NanoClaw's own chat-platform one, no separate SSH server
-        needed.
+        via `docker exec -it`, into a persistent tmux "claude" session —
+        alongside NanoClaw's own chat-platform conversation, no separate SSH
+        server needed. Multiple simultaneous connections each get their own
+        tmux window grouped onto that same session (see claude-tmux.sh).
+     🧠 Which model that admin session's `claude` launches with: unset
+        (default) lets Claude Code pick its own default, or pin one via
+        "Choose Claude Model" above / CLAUDE_MODEL in .env. Per-conversation-
+        group agent containers are unaffected — see the README.

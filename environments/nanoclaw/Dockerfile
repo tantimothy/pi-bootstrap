@@ -46,6 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         iproute2 \
         jq \
+        tmux \
     && rm -rf /var/lib/apt/lists/* \
     && corepack enable \
     && corepack prepare pnpm@latest --activate
@@ -82,5 +83,17 @@ RUN chmod +x /usr/local/bin/nanoclaw-entrypoint.sh
 # silently no-op'd here.
 COPY scripts/systemctl-shim.sh /usr/local/bin/systemctl
 RUN chmod +x /usr/local/bin/systemctl
+
+# Backs open-claude-session.sh's container-mode branch — a persistent,
+# detachable tmux "claude" session inside this container, same grouped-
+# session pattern as the standalone claude-cli environment's own
+# bashrc-tmux-attach.sh and the nanoclaw-mnemon environment's identical
+# claude-tmux.sh (see either's own comment for the full explanation of why
+# grouped, not `-A` attach-or-create). Invoked directly via `docker exec`
+# rather than sourced from a login-shell profile, since this container has
+# no SSH server of its own.
+COPY scripts/claude-tmux.sh /usr/local/bin/nanoclaw-claude-tmux.sh
+RUN chmod +x /usr/local/bin/nanoclaw-claude-tmux.sh
+COPY .tmux.conf /root/.tmux.conf
 
 ENTRYPOINT ["/usr/local/bin/nanoclaw-entrypoint.sh"]

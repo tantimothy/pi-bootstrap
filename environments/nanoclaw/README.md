@@ -102,14 +102,14 @@ The Anthropic API key is registered interactively by the wizard and stored by Na
 
 **Channels are no longer standalone `setup/add-*.sh` scripts** — a recent upstream NanoClaw change moved every channel (Telegram, WhatsApp, Discord, Slack, Signal, Teams, iMessage) out of trunk entirely ("NanoClaw doesn't ship channels in trunk", per the skills' own docs) and into Claude Code skills that pull the adapter code in on demand. If you've seen older instructions telling you to `bash setup/add-telegram.sh`, that script genuinely no longer exists.
 
-**Current procedure**: start an interactive Claude Code session against the orchestrator's own NanoClaw checkout — directly on the host in `host` mode, via `docker exec` in `container` mode:
+**Current procedure**: start an interactive Claude Code session against the orchestrator's own NanoClaw checkout — directly on the host in `host` mode, via `docker exec` in `container` mode. Easiest way in either mode: "Open a Claude Session" in this environment's own `deploy.sh` action menu (see "Notes" below for what it actually does — a persistent, detachable tmux session, not a one-shot command). Equivalent by hand:
 
 ```bash
 # host mode
-cd ~/nanoclaw && claude
+bash environments/nanoclaw/scripts/open-claude-session.sh   # tmux "claude" session (falls back to plain `claude` if tmux isn't installed)
 
 # container mode
-docker exec -it nanoclaw bash -lc "cd /root && claude"
+docker exec -it nanoclaw bash -lc "cd /root && nanoclaw-claude-tmux.sh"
 ```
 
 **Container mode lands in `/root`, not `$NANOCLAW_INSTALL_PATH`** — deliberately. The orchestrator container runs as root with no explicit `WORKDIR`, so a plain, unwrapped `docker exec -it nanoclaw bash` lands you at `/root` by default, and Claude Code's own conversation continuity is scoped to the *exact* directory a session was launched from, not the container as a whole. If your first admin session here started that way (the common case, before this exact command existed as documented instruction), your real conversation history lives at `/root` — running from `$NANOCLAW_INSTALL_PATH` instead would either start a second, parallel conversation or hit Claude Code's own "This conversation is from a different directory" error on `--continue`/`--resume`. Confirmed directly against a real deploy of the sibling `nanoclaw-mnemon` environment (identical Dockerfile shape — root user, no `WORKDIR`), not assumed.
@@ -188,7 +188,7 @@ sudo systemctl restart nanoclaw
 # Register or update Anthropic API key
 cd ~/nanoclaw && bash setup/register-claude-token.sh
 # Add channels (see "Adding Channels" above — /add-telegram, /add-whatsapp, etc., not scripts)
-cd ~/nanoclaw && claude
+bash environments/nanoclaw/scripts/open-claude-session.sh
 
 # --- container mode ---
 # Orchestrator status and live logs
@@ -201,7 +201,8 @@ docker restart nanoclaw
 # Register or update Anthropic API key
 docker exec -it nanoclaw bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"
 # Add channels (see "Adding Channels" above — /add-telegram, /add-whatsapp, etc., not scripts)
-docker exec -it nanoclaw bash -lc "cd /root && claude"
+docker exec -it nanoclaw bash -lc "cd /root && nanoclaw-claude-tmux.sh"
+docker exec -it nanoclaw tmux attach -t claude   # Reattach directly, no relaunch wrapper
 
 # --- both modes ---
 # List running agent containers
@@ -215,7 +216,8 @@ http://<pi-ip>:3080
 
 ## Notes
 
-- **"Open a Claude Session"** in this environment's own `deploy.sh` action menu (`info.yaml`'s `custom_actions`, `scripts/open-claude-session.sh`) attaches directly to *this* install — a plain terminal `claude` conversation alongside NanoClaw's own chat-platform one, without first having to know how to get a shell (see "Useful Commands" above). It follows the same host-vs-container deploy-mode detection as everything else in this environment: on the host directly in `host` mode, or via `docker exec -it` into the orchestrator container in `container` mode.
+- **"Open a Claude Session"** in this environment's own `deploy.sh` action menu (`info.yaml`'s `custom_actions`, `scripts/open-claude-session.sh`) attaches directly to *this* install — a persistent, detachable tmux `claude` conversation alongside NanoClaw's own chat-platform one, without first having to know how to get a shell (see "Useful Commands" above). It follows the same host-vs-container deploy-mode detection as everything else in this environment: on the host directly in `host` mode (falling back to a plain, non-tmux `claude` launch if tmux isn't installed — macOS doesn't ship it by default), or via `docker exec -it` into the orchestrator container in `container` mode (the Dockerfile always installs tmux there). Same grouped-session pattern as the standalone `claude-cli` environment's own login shell: the first connection ever (or since the last restart) creates the base session; every connection after that groups a new, independent window onto it, so simultaneous connections don't force each other to watch the same window. Detach with `Ctrl-b d` or just close the terminal — the conversation keeps running either way.
+- **"Choose Claude Model"** (`scripts/choose-model.sh`) picks which model that admin session's `claude` launches with — unset (the default) lets Claude Code pick its own default, or pin one (e.g. `claude-sonnet-5`). Writes `CLAUDE_MODEL` to `.env`; in `container` mode it also recreates the orchestrator container (`docker run -e` only takes effect at container creation, not a plain restart), in `host` mode no restart is needed since `open-claude-session.sh` reads `.env` fresh on every launch. Does **not** affect per-conversation-group agent containers — those pick their own model independently of this environment's admin session.
 - **Docker Manager** in the deploy menu will show dynamically-created NanoClaw group containers alongside your other containers — plus the `nanoclaw` orchestrator container itself in `container` mode.
 - NanoClaw containers never see raw API keys — a local HTTP proxy (OneCLI) injects credentials at request time. This is true in both deploy modes; `container` mode additionally limits what the *orchestrator itself* can reach on the host filesystem (see "Deployment Modes" above) — it doesn't change credential handling, which was already scoped away from the agent containers before `container` mode existed.
 - `container` mode still needs full Docker daemon access (via the bind-mounted socket) to spawn/manage agent containers — that's unavoidable in either mode, since spawning agent containers is the orchestrator's whole job. The security improvement is specifically about *filesystem* access, not Docker access.

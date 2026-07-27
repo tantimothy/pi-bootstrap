@@ -16,6 +16,10 @@ services:
       # default) is a no-op in entrypoint.sh, same as the three above.
       - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
       - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
+      # Optional — which model `claude` launches with. Empty/unset (the
+      # default) is a no-op; Claude Code picks its own default. See
+      # .env.example and the "Choose Claude Model" menu action.
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-}
     ports:
       - "${SSH_PORT:-2222}:22"
     volumes:
