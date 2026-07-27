@@ -67,7 +67,17 @@ else
         if tmux has-session -t claude 2>/dev/null; then
             exec tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on
         else
-            exec tmux new-session -s claude -c "$INSTALL_PATH" claude --continue $MODEL_ARGS
+            # `claude --continue` exits outright ("No conversation found to
+            # continue") rather than falling back to a fresh conversation
+            # itself, when there's genuinely nothing to resume yet (e.g.
+            # the very first time this admin session is ever opened) —
+            # confirmed directly against the container-mode equivalent (see
+            # nanoclaw-mnemon's scripts/claude-tmux.sh): the whole tmux
+            # window/session closed the instant that happened. `--continue`
+            # is still tried first, since host mode's `~/.claude` is a
+            # plain, persistent host directory — most launches after the
+            # first genuinely do have a conversation to resume.
+            exec tmux new-session -s claude -c "$INSTALL_PATH" sh -c "claude --continue $MODEL_ARGS || claude $MODEL_ARGS"
         fi
     elif [ -n "${CLAUDE_MODEL:-}" ]; then
         exec claude --model "$CLAUDE_MODEL"

@@ -67,7 +67,17 @@ case "$-" in
             if tmux has-session -t claude 2>/dev/null; then
                 exec tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on
             else
-                exec tmux new-session -s claude -c "$HOME/workspace" claude --continue $MODEL_ARGS
+                # `claude --continue` exits outright ("No conversation
+                # found to continue") rather than falling back to a fresh
+                # conversation itself, when there's genuinely nothing to
+                # resume yet (e.g. the very first SSH login ever) —
+                # confirmed directly against the sibling nanoclaw-mnemon
+                # environment's identical mechanism: the whole tmux
+                # window/session closed the instant that happened.
+                # `--continue` is still tried first, since claude_cli_home
+                # is a real persistent volume — most logins after the
+                # first genuinely do have a conversation to resume.
+                exec tmux new-session -s claude -c "$HOME/workspace" sh -c "claude --continue $MODEL_ARGS || claude $MODEL_ARGS"
             fi
         fi
         ;;
