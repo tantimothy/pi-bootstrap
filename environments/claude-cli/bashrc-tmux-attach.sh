@@ -18,16 +18,27 @@
 # form instead creates a new session, GROUPED with "claude" (sharing its
 # window list and history), giving this one connection its own independent
 # current-window pointer — so two SSH sessions in at once can each sit on
-# a different window of the same underlying conversation state. Falls
-# through to actually creating the base "claude" session (with `claude
-# --continue` as its first window) only the first time ever, or after
-# anything that kills the container's tmux server (a restart, STOP/FAST,
-# TEARDOWN/redeploy, CLEAN rebuild) — the base session's own first attempt
-# to group onto itself fails cleanly (2>/dev/null) and falls through to
-# creating it instead. Neither branch is `exec`'d directly (unlike the old
-# `-A` version) since the fallback needs a live shell to fall through to
-# on failure — `exit` at the end instead, so detaching still closes the
-# SSH connection either way rather than leaving a bare shell behind.
+# a different window of the same underlying conversation state. Creates
+# the base "claude" session (with `claude --continue` as its first window)
+# only the first time ever, or after anything that kills the container's
+# tmux server (a restart, STOP/FAST, TEARDOWN/redeploy, CLEAN rebuild);
+# every later connection groups onto it instead.
+#
+# Gated on an explicit `tmux has-session -t claude` check, NOT on whether
+# `tmux new-session -t claude -s ...` itself fails — confirmed directly,
+# against a real reproduction (in the sibling nanoclaw-mnemon/nanoclaw
+# environments, which copied this exact pattern), that it doesn't fail the
+# way this used to assume: tmux's `-t` group-session form silently CREATES
+# the named group if it doesn't already exist, rather than erroring, so
+# the old `... -t claude ... || tmux new-session -s claude ... claude ...`
+# pattern never actually fell through to the `claude`-launching branch on
+# a truly fresh tmux server — it always "succeeded" at the first command
+# instead, leaving a plain shell (no `claude` process at all) as that
+# first session's only window. This means every very-first SSH login ever
+# (or the first since anything killed the tmux server) would have dropped
+# into plain bash instead of `claude` — a real, previously-unverified bug
+# in this exact script, only caught once the sibling environments' copies
+# were debugged against a live reproduction.
 #
 # --continue (not bare `claude`) resumes the most recent conversation in
 # ~/workspace if one exists — see README's "How Login Works" for the
@@ -43,14 +54,21 @@
 # process inside it) already exists, later connections are grouping onto
 # it, not relaunching `claude` with different flags. Change CLAUDE_MODEL
 # and it takes effect on the next restart (FAST is enough — no rebuild).
+#
+# Each branch is `exec`'d directly (no need for a trailing `exit`, unlike
+# the old failure-fallback version): the `has-session` check up front
+# already decided which one to run, so there's no fallback path left that
+# would need a live shell to fall through to on failure.
 case "$-" in
     *i*)
         if [ -z "$TMUX" ] && [ -n "$SSH_TTY" ]; then
             MODEL_ARGS=""
             [ -n "$CLAUDE_MODEL" ] && MODEL_ARGS="--model $CLAUDE_MODEL"
-            tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on 2>/dev/null \
-            || tmux new-session -s claude -c "$HOME/workspace" claude --continue $MODEL_ARGS
-            exit
+            if tmux has-session -t claude 2>/dev/null; then
+                exec tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on
+            else
+                exec tmux new-session -s claude -c "$HOME/workspace" claude --continue $MODEL_ARGS
+            fi
         fi
         ;;
 esac

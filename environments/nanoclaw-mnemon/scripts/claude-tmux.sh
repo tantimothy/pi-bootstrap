@@ -12,12 +12,23 @@
 # from a terminal) can each sit on a different window instead of one
 # forcibly mirroring whichever window the other switches to.
 #
-# Falls through to actually creating the base "claude" session (with
-# `claude --continue` as its first window) only the first time ever, or
-# after anything that kills this container's tmux server (a restart,
-# STOP/FAST, TEARDOWN/redeploy, CLEAN rebuild) — the base session's own
-# first attempt to group onto itself fails cleanly (2>/dev/null) and falls
-# through to creating it instead.
+# Creates the base "claude" session (with `claude --continue` as its first
+# window) only the first time ever, or after anything that kills this
+# container's tmux server (a restart, STOP/FAST, TEARDOWN/redeploy, CLEAN
+# rebuild); every later connection groups onto it instead.
+#
+# Gated on an explicit `tmux has-session -t claude` check, NOT on whether
+# `tmux new-session -t claude -s ...` itself fails — confirmed directly,
+# against a real reproduction, that it doesn't fail the way this used to
+# assume: tmux's `-t` group-session form silently CREATES the named group
+# if it doesn't already exist, rather than erroring, so the old
+# `... -t claude ... || tmux new-session -s claude ... claude ...` pattern
+# never actually fell through to the `claude`-launching branch on a truly
+# fresh tmux server — it always "succeeded" at the first command instead,
+# leaving a plain shell (no `claude` process at all) as that first
+# session's only window. `has-session` checks for a session literally
+# named "claude" up front, which is the thing that actually needs to not
+# exist yet for this to be the real first-ever connection.
 #
 # CLAUDE_MODEL (see .env.example) — set via docker-compose/`docker run -e`
 # at container creation, so it's already in this exec'd process's own
@@ -31,5 +42,8 @@
 # recreation (see scripts/choose-model.sh).
 MODEL_ARGS=""
 [ -n "$CLAUDE_MODEL" ] && MODEL_ARGS="--model $CLAUDE_MODEL"
-tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on 2>/dev/null \
-|| tmux new-session -s claude -c /root claude --continue $MODEL_ARGS
+if tmux has-session -t claude 2>/dev/null; then
+    tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on
+else
+    tmux new-session -s claude -c /root claude --continue $MODEL_ARGS
+fi

@@ -58,8 +58,17 @@ else
     if command -v tmux >/dev/null 2>&1; then
         MODEL_ARGS=""
         [ -n "${CLAUDE_MODEL:-}" ] && MODEL_ARGS="--model $CLAUDE_MODEL"
-        tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on 2>/dev/null \
-        || exec tmux new-session -s claude -c "$INSTALL_PATH" claude --continue $MODEL_ARGS
+        # Gated on an explicit `has-session` check, not on whether the
+        # group-join attempt itself fails — see nanoclaw-mnemon's
+        # scripts/claude-tmux.sh for why: `-t claude` silently creates the
+        # group if it's missing rather than erroring, so relying on that
+        # command's own exit status never actually detected "first time
+        # ever" and left a plain shell (no `claude`) as the base session.
+        if tmux has-session -t claude 2>/dev/null; then
+            exec tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on
+        else
+            exec tmux new-session -s claude -c "$INSTALL_PATH" claude --continue $MODEL_ARGS
+        fi
     elif [ -n "${CLAUDE_MODEL:-}" ]; then
         exec claude --model "$CLAUDE_MODEL"
     else

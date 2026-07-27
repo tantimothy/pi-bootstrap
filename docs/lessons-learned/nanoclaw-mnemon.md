@@ -901,3 +901,99 @@ of this started.
   Docker CLI usage.** A Docker-compatible reimplementation can diverge from
   upstream `dockerd` in exactly the corners (volume type auto-detection)
   that are least likely to be covered by day-to-day testing.
+
+## "Open a Claude Session" Opened Plain Bash, and a Freshly-Picked Model Never Took Effect
+
+**Status:** fixed, in `nanoclaw-mnemon`, `nanoclaw` (both `scripts/claude-tmux.sh`
+and `open-claude-session.sh`'s host-mode branch), and `claude-cli`'s
+`bashrc-tmux-attach.sh` — all four copies of the same grouped-session tmux
+pattern.
+
+### Summary
+
+After the `claude_home`/`claude_json` revert (see the entry above), the
+user reported "Open a Claude Session" landing in a plain `bash` shell
+instead of `claude`, and separately that a freshly-picked `CLAUDE_MODEL`
+(`claude-sonnet-4-6`) never actually took effect — the session still
+reported itself as Sonnet 5.
+
+### Issue Found & Fixed
+
+**Symptom:** confirmed via live diagnostics that the container had
+genuinely been recreated recently, and `docker exec ... env | grep
+CLAUDE_MODEL` showed the correct new value baked into the running
+container — ruling out both "stale container" and "env var didn't get
+set" as explanations. `docker exec ... tmux list-sessions` then showed
+`no server running` — no tmux session existed at all yet. Opening a
+session and immediately checking `ps aux | grep claude` from a separate
+terminal showed only the wrapper script and two `tmux new-session -t
+claude -s client_NNNN ...` processes — no `claude` process anywhere —
+while `tmux list-windows -t claude` reported "can't find session: claude".
+
+**Root cause:** the grouped-session pattern (`tmux new-session -t claude
+-s "client_$$" ... 2>/dev/null || tmux new-session -s claude ... claude
+--continue $MODEL_ARGS`, copied across `claude-cli`, `nanoclaw`, and
+`nanoclaw-mnemon`) assumed the first command would *fail* when no session
+named "claude" existed yet, falling through to the `||` branch that
+actually launches `claude`. It doesn't fail. Confirmed directly with an
+isolated reproduction (no Docker needed — plain local `tmux`): `tmux
+new-session -t <group> -s <name>` silently *creates* the named group if
+it doesn't already exist, rather than erroring, when a real client is
+attached (this diverges from a `-d`/detached test, which can look like a
+failure due to `destroy-unattached` firing on a client-less session — a
+red herring the first pass at reproducing this hit). So the very first
+connection ever always "succeeded" at the first command, creating a
+session named `client_<pid>` (grouped under a freshly-created "claude"
+group) whose only window ran a plain shell — no `claude`, no `--continue`,
+no `--model`, ever, on a truly fresh tmux server. Every later connection
+correctly grouped onto that first (broken) session, so the bug was
+permanent for that container's lifetime once it happened once.
+
+**Fix:** stopped relying on the first command's exit status entirely.
+Gate explicitly on `tmux has-session -t claude 2>/dev/null` first, then
+branch:
+
+```sh
+if tmux has-session -t claude 2>/dev/null; then
+    tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on
+else
+    tmux new-session -s claude -c /root claude --continue $MODEL_ARGS
+fi
+```
+
+Verified end-to-end with an isolated local `tmux` reproduction (a
+stand-in command in place of the real `claude` binary, since this
+sandbox has no live Docker daemon): first connection against a fresh
+server correctly takes the `else` branch and invokes the real command
+with `CLAUDE_MODEL` passed through; a second, immediate connection
+correctly finds the now-existing "claude" session and groups onto it
+instead of relaunching.
+
+`pi-barebones/.bashrc.tmux` has the same structural pattern (`-t 0 ... ||
+new-session -s 0`) but wasn't touched — both of its branches just start a
+plain shell with no first-time-only special behavior (no model flag, no
+`--continue`), so the same "first command never actually fails" quirk has
+no observable effect there.
+
+### General Lessons
+
+- **A grouped-session tmux idiom copied across four files was never
+  actually exercised against a truly cold tmux server in this repo's own
+  testing before this bug surfaced.** Something can look like a well-
+  reasoned, thoroughly-commented pattern (it even correctly explains *why*
+  it uses grouped sessions instead of plain `-A` attach-or-create) while
+  still getting the one load-bearing assumption — "the first command fails
+  when the target doesn't exist" — wrong, because that assumption was
+  never actually tested, only reasoned about.
+- **Test the "cold start" path, not just steady-state reattachment.** Every
+  manual test after the first real connection would have looked fine
+  (grouping onto the already-existing, if broken, "claude" session works
+  correctly) — the bug is only visible on a genuinely fresh tmux server,
+  which is easy to stop hitting once a session already exists from earlier
+  testing.
+- **A local, Docker-free reproduction of a specific subsystem's behavior
+  (here, bare `tmux` on the sandbox host) can verify a hypothesis just as
+  decisively as a live container test, when the bug is in that subsystem
+  itself rather than anything Docker-specific.** This one didn't need the
+  user's host at all once the actual mechanism (tmux group-session
+  semantics) was identified as the suspect.
