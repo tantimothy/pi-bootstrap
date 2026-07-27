@@ -12,6 +12,8 @@ named_volumes:
   # filesystem with no container/volume involved at all.
   - name: ${CONTAINER_NAME:-nanoclaw}_claude_home
     description: "Container mode only — the admin \"claude\" session's own OAuth/session state and conversation history (/root/.claude), same as claude-cli's own claude_cli_home volume"
+  - name: ${CONTAINER_NAME:-nanoclaw}_claude_json
+    description: "Container mode only — ~/.claude.json (MCP server registrations, onboarding state), a separate file OUTSIDE ~/.claude/ needing its own volume, same as claude-cli's own claude_cli_json volume"
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
 install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
 delete_install_dirs: false

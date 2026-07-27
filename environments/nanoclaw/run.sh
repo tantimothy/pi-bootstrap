@@ -190,6 +190,15 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         # every container recreation (CLEAN, TEARDOWN+redeploy, "Choose
         # Claude Model"'s own stop+rm+relaunch — see
         # scripts/choose-model.sh) with no warning.
+        #
+        # ${CONTAINER_NAME}_claude_json (mounted below at
+        # /root/.claude.json) — a SEPARATE volume from claude_home above,
+        # not covered by it: ~/.claude.json is a real file Claude Code
+        # writes OUTSIDE ~/.claude/ itself via an atomic
+        # temp-file-then-rename, so a directory-only mount at ~/.claude
+        # never protects it. Same fix as claude-cli's own claude_cli_json
+        # volume. Requires the Dockerfile's own `touch /root/.claude.json`
+        # placeholder so this mounts as a FILE, not a directory.
         $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
             -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
             -e CONTAINER_NAME="$CONTAINER_NAME" \
@@ -198,6 +207,7 @@ if [ "$DEPLOY_MODE" = "container" ]; then
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v /tmp:/tmp \
             -v "${CONTAINER_NAME}_claude_home:/root/.claude" \
+            -v "${CONTAINER_NAME}_claude_json:/root/.claude.json" \
             -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \
             "$IMAGE_TAG" >/dev/null
     fi

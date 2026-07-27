@@ -680,6 +680,18 @@ else
     # <name>:<path>` auto-creates the named volume on first use — no
     # separate `docker volume create` needed, unlike docker-compose's own
     # explicit `volumes:` section.
+    #
+    # ${CONTAINER_NAME}_claude_json (mounted below at /root/.claude.json) —
+    # a SEPARATE volume from claude_home above, not covered by it:
+    # ~/.claude.json is a real file Claude Code writes OUTSIDE ~/.claude/
+    # itself via an atomic temp-file-then-rename, so a directory-only mount
+    # at ~/.claude never protects it. Same fix, same reasoning, as
+    # claude-cli's own claude_cli_json volume (see that environment's
+    # Dockerfile/entrypoint.sh for the fuller writeup, including why an
+    # earlier symlink-based attempt there looked equivalent but broke the
+    # first time anything actually wrote through it). Requires the
+    # Dockerfile's own `touch /root/.claude.json` placeholder so this
+    # mounts as a FILE, not a directory — see that file's own comment.
     $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
         -e CONTAINER_NAME="$CONTAINER_NAME" \
@@ -690,6 +702,7 @@ else
         -v /tmp:/tmp \
         -v /etc/localtime:/etc/localtime:ro \
         -v "${CONTAINER_NAME}_claude_home:/root/.claude" \
+        -v "${CONTAINER_NAME}_claude_json:/root/.claude.json" \
         -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \
         "$IMAGE_TAG" >/dev/null
 fi

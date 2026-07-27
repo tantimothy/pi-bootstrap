@@ -73,6 +73,15 @@ ENV PATH="/root/.local/bin:${PATH}"
 # on that fixed default — survives both login and non-login shells.
 RUN ln -sf /root/.local/bin/claude /usr/local/bin/claude
 
+# Placeholder so ${CONTAINER_NAME}_claude_json (see run.sh, container mode
+# only) mounts as a FILE at this exact path, not a directory — same fix,
+# same reasoning, as claude-cli's own identical placeholder and the
+# sibling nanoclaw-mnemon environment's identical addition: ~/.claude.json
+# is a separate file Claude Code writes OUTSIDE ~/.claude/ itself via an
+# atomic temp-file-then-rename, so it needs its own volume distinct from
+# the ${CONTAINER_NAME}_claude_home one covering ~/.claude/.
+RUN touch /root/.claude.json
+
 COPY scripts/entrypoint.sh /usr/local/bin/nanoclaw-entrypoint.sh
 RUN chmod +x /usr/local/bin/nanoclaw-entrypoint.sh
 

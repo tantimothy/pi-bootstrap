@@ -409,3 +409,18 @@ environment independent of whether it has any history to draw on — worth
 doing regardless of the volume fix, since a model's own self-report about
 "do you know what container you're in" is otherwise entirely dependent on
 memory that a first-ever session, by definition, doesn't have yet.
+
+**Caught before merging, not after**: the first version of this fix only
+covered `~/.claude/` (the directory), missing `~/.claude.json` — a
+separate *file*, a sibling of `~/.claude/` rather than something inside
+it, which Claude Code writes via an atomic temp-file-then-rename. A
+directory-only volume does nothing to protect a file living outside that
+directory. This is the exact same gap `claude-cli` had already hit and
+fixed once before (its own `claude_cli_json` volume, distinct from
+`claude_cli_home`) — worth remembering as its own pattern, not just a
+one-off: "persist `~/.claude`" and "persist `~/.claude.json`" are two
+separate fixes, both needed, and finding one doesn't mean the other has
+been checked. A live `ls -al` of the actual container's `/root` (run by
+the user reporting the original bug) is what surfaced this — checking
+what's actually present beats reasoning from the fix already shipped for
+a similar-looking case.
