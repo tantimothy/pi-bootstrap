@@ -1,0 +1,17 @@
+menu:
+  id: classic-mac-vnc
+  name: "Classic Mac VNC"
+  icon: utilities-terminal
+deployed_check:
+  kind: container
+  from_compose_service: classic-mac-vnc
+entries:
+  - id: pi-bootstrap-classic-mac-vnc
+    name: "Classic Mac VNC"
+    comment: "Basilisk II (Mac OS 7/8) / SheepShaver (Mac OS 9) reachable over VNC — connect any VNC client to ${HOST_IP}:${VNC_PORT:-5900}"
+    icon: utilities-terminal
+    kind: link
+    target: "vnc://localhost:${VNC_PORT:-5900}"
+info:
+  id: pi-bootstrap-classic-mac-vnc-info
+  name: "Classic Mac VNC Info"

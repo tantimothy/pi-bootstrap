@@ -18,9 +18,9 @@
 #
 # Images with no matching upstream registry entry (built locally, e.g.
 # darkstat/ntopng/dragonos-sdr/kali-pentest/nanoclaw/nanoclaw-mnemon/
-# infinite-mac/claude-cli's own Dockerfile builds) can't be checked that
-# way — there's no registry tag for the built image itself to compare
-# against. For those,
+# infinite-mac/claude-cli/classic-mac-vnc's own Dockerfile builds) can't be
+# checked that way — there's no registry tag for the built image itself to
+# compare against. For those,
 # see check_locally_built() below instead.
 #
 # Usage:
@@ -235,6 +235,7 @@ _dockerfile_for_image() {
         nanoclaw-mnemon-orchestrator:*) echo "$REPO_DIR/environments/nanoclaw-mnemon/Dockerfile" ;;
         nanoclaw-orchestrator:*)        echo "$REPO_DIR/environments/nanoclaw/Dockerfile" ;;
         *claude-cli*)       echo "$REPO_DIR/environments/claude-cli/Dockerfile" ;;
+        *classic-mac-vnc*)  echo "$REPO_DIR/environments/classic-mac-vnc/Dockerfile" ;;
         *) return 1 ;;
     esac
 }
@@ -243,26 +244,29 @@ _dockerfile_for_image() {
 # meaningful signal for a given locally-built image — true for
 # darkstat/ntopng/dragonos-sdr/kali-pentest, where the apt package named in
 # the image *is* the whole point of the image, so a newer version is worth
-# knowing about. False for nanoclaw/nanoclaw-mnemon and claude-cli: their
-# apt packages (nanoclaw: git, curl, ca-certificates, procps, iproute2, jq,
-# ffmpeg; claude-cli: openssh-server, tmux, git, curl, ca-certificates,
-# procps, less, vim, gh) are incidental supporting infra, not what these
-# images exist to run. Debian trickles security patches into at least one
-# of curl/ca-certificates/git/openssh-server/gh often enough that,
-# unfiltered, this flagged "UPDATE AVAILABLE" on very nearly every scan —
-# confirmed directly, not a one-off — which isn't a useful signal to
-# rebuild an image that takes several minutes (whisper.cpp is compiled
-# from source, in nanoclaw's case) over. The base-image-drift check below
-# still applies to all three regardless — a real base-image move is a much
-# rarer, more meaningful signal than "some apt package somewhere got a
-# patch."
+# knowing about. False for nanoclaw/nanoclaw-mnemon, claude-cli, and
+# classic-mac-vnc: their apt packages (nanoclaw: git, curl,
+# ca-certificates, procps, iproute2, jq, ffmpeg; claude-cli:
+# openssh-server, tmux, git, curl, ca-certificates, procps, less, vim, gh;
+# classic-mac-vnc: build-essential, autoconf/automake/libtool, libsdl2-dev,
+# xvfb, x11vnc, curl, ca-certificates) are incidental supporting infra
+# (build toolchain, headless display/VNC, etc.), not what these images
+# exist to run. Debian trickles security patches into at least one of
+# curl/ca-certificates/git/openssh-server/gh often enough that, unfiltered,
+# this flagged "UPDATE AVAILABLE" on very nearly every scan — confirmed
+# directly, not a one-off — which isn't a useful signal to rebuild an
+# image that takes real time (whisper.cpp compiled from source for
+# nanoclaw; Basilisk II/SheepShaver compiled from source for
+# classic-mac-vnc) over. The base-image-drift check below still applies to
+# all of them regardless — a real base-image move is a much rarer, more
+# meaningful signal than "some apt package somewhere got a patch."
 _apt_upgrade_relevant() {
     case "$1" in
         # Same exact-tag scoping as _dockerfile_for_image() above, and for
         # the same reason — a bare *nanoclaw* substring would also match
         # NanoClaw's own dynamically-tagged agent-sandbox containers,
         # which this function was never meant to weigh in on either way.
-        nanoclaw-mnemon-orchestrator:*|nanoclaw-orchestrator:*|*claude-cli*) return 1 ;;
+        nanoclaw-mnemon-orchestrator:*|nanoclaw-orchestrator:*|*claude-cli*|*classic-mac-vnc*) return 1 ;;
         *) return 0 ;;
     esac
 }
