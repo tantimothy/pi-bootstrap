@@ -683,47 +683,6 @@ else
     # path inside a spawned agent container was an empty directory, not the
     # PEM file, causing every API call through the OneCLI proxy to fail
     # self-signed-certificate verification.
-    # ${CONTAINER_NAME}_claude_home (mounted below at /root/.claude) — the
-    # admin "claude" session's own OAuth/session state and conversation
-    # history, same reasoning as claude-cli's own claude_cli_home volume.
-    # Without this, that state lived ONLY on the container's own ephemeral
-    # writable layer, which meant every container recreation (CLEAN,
-    # TEARDOWN+redeploy, or "Choose Claude Model"'s own stop+rm+relaunch —
-    # see scripts/choose-model.sh) silently destroyed the admin session's
-    # history with no warning, even though it had previously looked
-    # persistent simply because the container had never been recreated
-    # before. Confirmed directly: a real `--continue` session lost all
-    # prior context after a routine model change. `docker run -v
-    # <name>:<path>` auto-creates the named volume on first use — no
-    # separate `docker volume create` needed, unlike docker-compose's own
-    # explicit `volumes:` section.
-    #
-    # ${CONTAINER_NAME}_claude_json (mounted below at /root/.claude.json) —
-    # a SEPARATE volume from claude_home above, not covered by it:
-    # ~/.claude.json is a real file Claude Code writes OUTSIDE ~/.claude/
-    # itself via an atomic temp-file-then-rename, so a directory-only mount
-    # at ~/.claude never protects it. Same fix, same reasoning, as
-    # claude-cli's own claude_cli_json volume (see that environment's
-    # Dockerfile/entrypoint.sh for the fuller writeup, including why an
-    # earlier symlink-based attempt there looked equivalent but broke the
-    # first time anything actually wrote through it). Requires the
-    # Dockerfile's own `touch /root/.claude.json` placeholder so this
-    # mounts as a FILE, not a directory — see that file's own comment.
-    #
-    # Both use `--mount`, not the legacy `-v name:path` shorthand, for
-    # these two specifically: `/root/.claude` is a literal string prefix
-    # of `/root/.claude.json` (13 identical characters before `.json`
-    # continues), and Docker/moby has a documented history of exactly this
-    # failure class — one mount's destination being a string prefix of
-    # another's confusing the daemon's own mount setup (see moby#8055,
-    # historically about mount-ordering, but the same "one path is a
-    # prefix of another" ambiguity). Confirmed directly against a real
-    # deploy: `-v` here failed with "source .../merged/root/.claude.json
-    # is not directory" on a freshly-created, correctly-file-typed volume
-    # — not a stale-volume issue, since it reproduced identically even
-    # after deleting and recreating the volume from scratch. `--mount`'s
-    # fully-explicit `type=volume,source=...,destination=...` form avoids
-    # whatever path-based heuristic `-v`'s shorthand parsing triggers.
     $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
         -e CONTAINER_NAME="$CONTAINER_NAME" \
@@ -733,8 +692,6 @@ else
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \
         -v /etc/localtime:/etc/localtime:ro \
-        --mount "type=volume,source=${CONTAINER_NAME}_claude_home,destination=/root/.claude" \
-        --mount "type=volume,source=${CONTAINER_NAME}_claude_json,destination=/root/.claude.json" \
         -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \
         "$IMAGE_TAG" >/dev/null
 fi

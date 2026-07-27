@@ -783,69 +783,121 @@ substitution is a no-op when `host.docker.internal` isn't present.
   running, because the hostname in it was never resolvable from where the
   check actually executes.
 
-## `~/.claude.json` Volume Mount Failed Even After Confirming a Genuinely Fresh Volume
+## `~/.claude.json` Volume Mount Failure — Three Rounds of Debugging, Then Reverted Entirely
 
-**Status:** fixed (both `nanoclaw-mnemon` and `nanoclaw`).
+**Status:** reverted. `${CONTAINER_NAME}_claude_home`/`_claude_json` no
+longer exist in either environment — this whole persistence feature was
+removed, not fixed. Recorded in full because the wrong turns, and the
+final decision to walk away from it, are both the useful part.
 
 ### Summary
 
-After adding the `${CONTAINER_NAME}_claude_home` / `${CONTAINER_NAME}_claude_json`
-named volumes (see the container-persistence entry in
-`docs/lessons-learned/general.md`), a real CLEAN deploy failed with:
+A `${CONTAINER_NAME}_claude_home` / `${CONTAINER_NAME}_claude_json` named
+volume pair was added to persist the admin `claude` session's OAuth
+state/history and `~/.claude.json` (MCP registrations, onboarding state)
+across container recreation. A real CLEAN deploy then failed with:
 
 ```
 docker: Error response from daemon: source .../merged/root/.claude.json is not directory
 ```
 
-The first working theory — a stale volume created wrong before the
-Dockerfile's `touch /root/.claude.json` placeholder existed — turned out
-to be incomplete. The user removed the volume entirely
-(`docker volume rm nanoclaw-mnemon_claude_json`, confirmed via a second
-`rm` reporting "no such volume") and retried; the exact same error came
-back against a volume that had never existed before that moment.
+This took three rounds to diagnose, and was reverted outright once
+diagnosed rather than shipped — see "Why This Was Reverted" below.
 
-### Issue Found & Fixed
+### Investigation
 
-**Symptom:** `docker run`'s `-v "${CONTAINER_NAME}_claude_json:/root/.claude.json"`
-failed with "is not directory," reproducibly, even immediately after
-confirming (via `docker volume rm` + a repeat `rm` reporting "no such
-volume") that the volume was being created completely fresh — ruling out
-the stale-volume, wrong-first-attachment explanation.
+**Wrong theory #1 — stale volume, wrong type from an earlier attachment.**
+The user removed the volume entirely (`docker volume rm
+nanoclaw-mnemon_claude_json`, confirmed via a second `rm` reporting "no
+such volume") and retried; the exact same error came back against a
+volume that had never existed before that moment. Ruled out by direct
+retest.
 
-**Root cause:** `/root/.claude` (the sibling volume mounted right before
-it) is a literal string prefix of `/root/.claude.json` — 13 identical
-characters before `.json` continues the second path. Docker/moby has a
-documented history of exactly this failure class: the legacy `-v
-name:path` shorthand's mount-setup logic can misorder or conflate two
-mount destinations when one is a string prefix of the other, even though
-they're unrelated sibling paths rather than a parent/child nesting (see
-moby#8055, "Fix #7792 - Order mounts"). Two `-v` flags back-to-back for
-`/root/.claude` and `/root/.claude.json` hit this ambiguity directly.
+**Wrong theory #2 — moby's mount-ordering bug (moby#8055), triggered by
+`/root/.claude` being a literal string prefix of `/root/.claude.json`.**
+Converted both mounts from the legacy `-v name:path` shorthand to
+Docker's fully-explicit `--mount type=volume,source=...,destination=...`
+form, on the theory that `--mount` bypasses whatever path-string
+heuristic `-v` was hitting. Shipped, merged, retested live — **identical
+error, byte-for-byte.** That ruled this out too: `-v` and `--mount` hit
+the exact same failure, so it was never about CLI-flag parsing.
 
-**Fix:** switched both volumes, in both `environments/nanoclaw-mnemon/run.sh`
-and `environments/nanoclaw/run.sh`, from the legacy shorthand to Docker's
-fully-explicit `--mount` syntax:
+Two further isolated `docker run --mount type=volume,...` tests against a
+bare `busybox` image, with NO sibling `/root/.claude` mount present at
+all, reproduced the failure in complete isolation — killing the
+prefix/sibling-mount theory outright regardless of syntax. A follow-up
+pair of tests (empty placeholder file vs. `echo '{}' >` non-empty one,
+and `.claude.json` vs. no-leading-dot `claude.json`) also both failed
+identically, ruling out file emptiness and dotfile-naming as triggers too.
 
-```bash
---mount "type=volume,source=${CONTAINER_NAME}_claude_home,destination=/root/.claude"
---mount "type=volume,source=${CONTAINER_NAME}_claude_json,destination=/root/.claude.json"
-```
+**Actual root cause:** the user's Docker Engine is **OrbStack's own
+reimplementation**, not upstream `dockerd` (`docker build` output shows
+`docker:orbstack` as the builder). OrbStack has multiple open upstream
+issues describing exactly this failure class for single-file volume/bind
+mounts (orbstack/orbstack#1274, #1485) — its volume driver doesn't
+reliably auto-detect file-vs-directory destination type the way genuine
+dockerd's copy-up mechanism does. This is a real gap in OrbStack itself,
+not a bug in this repo's Docker usage.
 
-`--mount` takes an explicit `type=`/`source=`/`destination=` form with no
-path-string parsing heuristic to trip over, sidestepping whatever
-mechanism `-v`'s shorthand uses internally.
+A structural fix was designed and briefly shipped (a separate PR, later
+closed unmerged): switch `~/.claude.json` from a named volume to a host
+bind mount backed by a real file under `$NANOCLAW_INSTALL_PATH`, since a
+bind mount's source must already exist as a real file — no type to guess,
+so the bug class becomes structurally impossible rather than avoided.
+
+### Why This Was Reverted
+
+Before that bind-mount fix could even be tested live, the user pointed
+out the thing this whole investigation had missed: **the persistence
+feature was never actually requested.** The original ask was narrower —
+a fresh admin session should know it's running inside `nanoclaw`
+(self-identification) — and the user had explicitly said losing
+conversation history on recreation was fine ("I'm ok if history is lost,
+it's happened before and it's not an issue"). The self-identification
+part was already fixed, independently, by a regenerated-on-every-start
+`/root/CLAUDE.md` (`scripts/entrypoint.sh`) — no volume involved at all.
+
+Adding `claude_home`/`claude_json` on top was scope creep, and it made
+things *worse* than the original complaint: the original gap was "history
+doesn't survive recreation" (accepted as fine), but the volume feature's
+own bug made the container **fail to deploy at all** — a strictly worse
+failure mode, introduced by fixing something nobody asked for. Once the
+real root cause (an unfixable-from-this-side OrbStack bug) was confirmed,
+continuing to chase a workaround for an unrequested feature stopped
+making sense. The feature was removed entirely: both named volumes are
+gone from `run.sh`/`Dockerfile`/`info.yaml` in both environments, and
+`/root/.claude`/`/root/.claude.json` are back to living only on the
+container's own ephemeral writable layer, exactly as they did before any
+of this started.
 
 ### General Lessons
 
-- **Don't assume "I deleted and recreated the resource and the error was
-  identical" rules out the first theory — it can instead mean the bug is
-  one level up, in how the two resources relate to each other, not in
-  either resource's own state.** A fresh, correctly-typed volume can still
-  fail if the fix that mattered was never about the volume's contents at
-  all.
-- **Two sibling paths where one is a literal string prefix of the other
-  (`/root/.claude` / `/root/.claude.json`) are a known Docker footgun, not
-  just a theoretical concern** — worth defaulting to `--mount`'s explicit
-  form over `-v`'s shorthand whenever a new mount's destination could be a
-  prefix of an existing one, rather than discovering it via a failed
-  deploy.
+- **A fix that changes CLI syntax but not the underlying mechanism proves
+  nothing until it's retested live.** `--mount` vs `-v` felt like a real
+  fix (different code path, cited a real upstream issue) and shipped/
+  merged before the live retest came back — the retest is what actually
+  falsified it. Don't treat "plausible mechanism + real upstream bug
+  report" as confirmation; treat it as a hypothesis until the exact same
+  live repro comes back clean.
+- **When a fix doesn't work, isolate before guessing again.** Two rounds of
+  guessing (stale volume, then moby's mount-ordering bug) both got
+  falsified by user-run diagnostics, not by more reasoning from this end.
+  A minimal, from-scratch `busybox` reproduction with one variable changed
+  at a time (sibling mount present/absent, file empty/non-empty, dotfile/
+  non-dotfile) is what actually found the real cause, in far fewer
+  round-trips than continuing to guess whole-environment fixes.
+- **Before investing further rounds fixing a bug, check whether the
+  feature it's in was actually requested.** Three rounds of live
+  debugging went into a persistence mechanism nobody asked for, when the
+  user had already said the underlying gap (lost history) was acceptable.
+  "This would also be nice while I'm in here" is worth surfacing as a
+  question before building, not after three failed fix attempts —
+  especially when the failure mode of getting it wrong is "breaks
+  deployment entirely," strictly worse than the status quo it was meant
+  to improve.
+- **`docker version`/`docker info`/`docker build` output naming the actual
+  engine implementation (`docker:orbstack` here) is a real diagnostic
+  signal, easy to miss when every command otherwise looks like standard
+  Docker CLI usage.** A Docker-compatible reimplementation can diverge from
+  upstream `dockerd` in exactly the corners (volume type auto-detection)
+  that are least likely to be covered by day-to-day testing.

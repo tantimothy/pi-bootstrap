@@ -6,18 +6,10 @@ data_dirs:
 install_dirs:
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}"
     description: "NanoClaw repo + built binaries (groups/ and data/ live inside here)"
-named_volumes:
-  # Only exists in container mode — host mode's admin claude session is a
-  # native process, its own ~/.claude already lives directly on the host
-  # filesystem with no container/volume involved at all.
-  - name: ${CONTAINER_NAME:-nanoclaw}_claude_home
-    description: "Container mode only — the admin \"claude\" session's own OAuth/session state and conversation history (/root/.claude), same as claude-cli's own claude_cli_home volume"
-  - name: ${CONTAINER_NAME:-nanoclaw}_claude_json
-    description: "Container mode only — ~/.claude.json (MCP server registrations, onboarding state), a separate file OUTSIDE ~/.claude/ needing its own volume, same as claude-cli's own claude_cli_json volume"
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
 install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
 delete_install_dirs: false
-delete_confirm_msg: "All conversation history and memory will be lost. In container mode, the admin \"claude\" session's own history (${CONTAINER_NAME:-nanoclaw}_claude_home) is a separate named volume, not touched by WIPE — delete it yourself (docker volume rm) if you want that gone too."
+delete_confirm_msg: "All conversation history and memory will be lost."
 custom_actions:
   # Opens an interactive `claude` session against THIS environment's own
   # install — host mode: directly on the host (native process, no
