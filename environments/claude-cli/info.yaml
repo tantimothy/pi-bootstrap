@@ -1,4 +1,6 @@
-data_dirs: []
+data_dirs:
+  - path: "${ENV_DIR}/data/claude-json"
+    description: "~/.claude.json — MCP server registrations, onboarding state (see README's 'Connecting to Home Assistant') — bind-mounted from this host directory rather than a Docker named volume (see pre-deploy.sh); deleting this drops any registered MCP servers"
 install_dirs: []
 # Names are ${CONTAINER_NAME}-expanded — matching docker-compose.yml's own
 # volume `name:` fields — so a second instance's INFO/WIPE/backup.sh only
@@ -6,8 +8,6 @@ install_dirs: []
 named_volumes:
   - name: ${CONTAINER_NAME:-claude-cli}_claude_home
     description: "Claude CLI's own OAuth/session state (~/.claude) — deleting this signs you out, next login re-prompts /login"
-  - name: ${CONTAINER_NAME:-claude-cli}_claude_json
-    description: "~/.claude.json — MCP server registrations, onboarding state (see README's 'Connecting to Home Assistant') — deleting this drops any registered MCP servers"
   - name: ${CONTAINER_NAME:-claude-cli}_ssh_host_keys
     description: "This container's own SSH host keys — deleting this changes its SSH fingerprint, you'll see a REMOTE HOST IDENTIFICATION HAS CHANGED warning on your next connection"
 delete_confirm_msg: "Claude CLI's login session, any registered MCP servers, and this container's SSH host key identity will be lost — you'll need to /login (and re-register any MCP servers) again, and your SSH client will warn about a changed host key on next connect. Your workspace repo at CLAUDE_WORKSPACE_PATH is NOT touched (it's your own pre-existing directory, not something this environment owns)."
@@ -50,6 +50,5 @@ useful_commands: |2
         tmux session ends, but reconnecting resumes it (--continue).
      🔌 MCP servers registered via `claude mcp add` (see README's
         "Connecting to Home Assistant") survive a CLEAN redeploy —
-        ~/.claude.json has its own named volume
-        (${CONTAINER_NAME:-claude-cli}_claude_json), mounted directly at
-        that path rather than symlinked in.
+        ~/.claude.json is bind-mounted from data/claude-json/claude.json
+        (see pre-deploy.sh) rather than symlinked in.

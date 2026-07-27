@@ -1117,8 +1117,25 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
                 # remaining round-trip safe: the reader above strips these quotes before
                 # displaying in the dialog form, preventing escape characters accumulating.
                 # Any literal single quote in a value is escaped as '\''.
-                SAFE_VAL="${RAW_VAL//\'/\'\\\'\'}"
-                printf "%s='%s'\n" "${KEYS[$i]}" "$SAFE_VAL" >> .env
+                #
+                # CONTAINER_NAME is the one exception, left unquoted: it feeds directly
+                # into docker-compose.yml's own `${CONTAINER_NAME:-default}` interpolation
+                # for container/volume names in every compose-based environment, and
+                # confirmed directly against a real deploy that at least one docker
+                # compose version does NOT strip the surrounding quotes there the way
+                # `source`-ing this file in bash does — the quotes end up baked literally
+                # into the created volume's name ('name'_suffix), which Docker then
+                # rejects outright ("includes invalid characters for a local volume
+                # name"). Safe to leave bare: a valid Docker container/volume name can
+                # never contain `$`, spaces, or anything else quoting would protect
+                # against in the first place (Docker itself restricts it to
+                # [a-zA-Z0-9][a-zA-Z0-9_.-]*).
+                if [ "${KEYS[$i]}" = "CONTAINER_NAME" ]; then
+                    printf "%s=%s\n" "${KEYS[$i]}" "$RAW_VAL" >> .env
+                else
+                    SAFE_VAL="${RAW_VAL//\'/\'\\\'\'}"
+                    printf "%s='%s'\n" "${KEYS[$i]}" "$SAFE_VAL" >> .env
+                fi
             done
             # Re-append whatever this form doesn't manage, preserved above
             # — see that snapshot's own comment for why this is needed.

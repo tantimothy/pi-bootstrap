@@ -85,7 +85,8 @@ esac
 # .gitignore's own comments for why each of these is never tracked).
 cp -a "$ENV_DIR" "$NEW_DIR"
 rm -rf "$NEW_DIR/logs" "$NEW_DIR/post-deploy-info.html" \
-       "$NEW_DIR/.deployed" "$NEW_DIR/.container-config-hash"
+       "$NEW_DIR/.deployed" "$NEW_DIR/.container-config-hash" \
+       "$NEW_DIR/data"
 rm -f "$NEW_DIR/.env"
 
 # 5. Write the new instance's own .env — same single-quoted KEY='value'
@@ -94,6 +95,15 @@ rm -f "$NEW_DIR/.env"
 # its form defaults. SSH_AUTHORIZED_KEYS_PATH/PUID/PGID/GIT_USER_*/GH_TOKEN
 # are carried over from THIS instance's own .env when it has one, so
 # shared identity/key settings don't need re-entering per instance.
+#
+# CONTAINER_NAME is written unquoted, matching deploy.sh's own bulk form
+# compiler's identical exception for this one key — see that file's own
+# comment for why: it feeds directly into docker-compose.yml's
+# `${CONTAINER_NAME:-default}` interpolation for container/volume names,
+# and confirmed directly against a real deploy that at least one docker
+# compose version doesn't strip the surrounding quotes there the way
+# `source`-ing this file in bash does, leaving them baked literally into
+# the created volume's name — which Docker then rejects outright.
 _carried() {
     local key="$1" default="$2"
     [ -f "$ENV_DIR/.env" ] && grep -q "^${key}=" "$ENV_DIR/.env" \
@@ -101,7 +111,7 @@ _carried() {
         || printf '%s' "$default"
 }
 {
-    printf "CONTAINER_NAME='%s'\n" "$NEW_NAME"
+    printf "CONTAINER_NAME=%s\n" "$NEW_NAME"
     printf "SSH_PORT='%s'\n" "$SSH_PORT"
     printf "CLAUDE_WORKSPACE_PATH='%s'\n" "$CLAUDE_WORKSPACE_PATH"
     printf "SSH_AUTHORIZED_KEYS_PATH='%s'\n" "$(_carried SSH_AUTHORIZED_KEYS_PATH "$HOME/.ssh/authorized_keys")"

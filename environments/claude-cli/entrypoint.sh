@@ -23,8 +23,8 @@ if [ "$PGID" != "$CURRENT_GID" ]; then
 fi
 
 # ~/.claude.json holds Claude Code's MCP server registrations, onboarding
-# state, and trusted-project list — mounted as its own named volume
-# directly at this exact path (see docker-compose.yml's claude_cli_json)
+# state, and trusted-project list — bind-mounted directly at this exact
+# path from a real host file (see docker-compose.yml and pre-deploy.sh)
 # rather than symlinked into the claude_cli_home volume like an earlier
 # version of this file did. That symlink looked like it should work but
 # didn't survive real use: Claude Code writes this file via an atomic
@@ -36,16 +36,19 @@ fi
 # and re-fix it before the next rebuild threw that whole layer away.
 # Confirmed directly: a real deploy lost its MCP registration on a
 # routine CLEAN rebuild. A real mount point doesn't have this failure
-# mode — rename() onto it lands on the volume-backed storage regardless
-# of how the file underneath gets written.
+# mode — rename() onto it lands on the mounted storage regardless of how
+# the file underneath gets written. (An intermediate version used a named
+# Docker volume instead of a bind mount here — that hit a separate,
+# Docker-implementation-specific bug; see docs/lessons-learned/
+# claude-cli.md.)
 mkdir -p /home/claude/.claude
 
 # One-time migration for anyone upgrading from that old symlinked setup:
 # the claude_cli_home volume (unaffected by this fix) may still hold real
 # data at the old symlink's target path from before the rename() bug ever
-# bit — if so, and the new claude_cli_json-backed ~/.claude.json is still
-# empty (this container has never written under the new scheme yet),
-# carry it over once rather than silently starting fresh.
+# bit — if so, and the bind-mounted ~/.claude.json is still empty (this
+# container has never written under the new scheme yet), carry it over
+# once rather than silently starting fresh.
 if [ -s /home/claude/.claude/.claude.json ] && [ ! -s /home/claude/.claude.json ]; then
     cp /home/claude/.claude/.claude.json /home/claude/.claude.json
 fi
