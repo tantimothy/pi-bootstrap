@@ -343,6 +343,70 @@ before this fix could reach it.
   ever exercised — Claude Code's own write pattern — which only a real
   `claude mcp add` followed by a real rebuild would have caught.
 
+## The `~/.claude.json` Placeholder Broke the Build Itself, Not Just Runtime Persistence
+
+**Status:** fixed.
+
+### Summary
+
+A real `CLEAN` rebuild failed outright — `docker build` itself, not a
+runtime symptom — at the exact `RUN touch /home/claude/.claude.json &&
+chown ...` / installer step from the fix above (Round 2). The installer
+(`curl -fsSL https://claude.ai/install.sh | bash`) runs as the non-root
+`claude` user right after that placeholder is created, and its own setup
+step invokes `claude`, which reads and parses `~/.claude.json` — finding
+the zero-byte placeholder already sitting there from the `touch`, and
+failing to parse it as JSON.
+
+### Issue Found & Fixed
+
+**Symptom:** `docker build --progress=plain` showed the actual installer
+output BuildKit's default terse summary hides: "Claude configuration file
+at /home/claude/.claude.json is corrupted: JSON Parse error: Unexpected
+EOF" — followed by the same message a second time, then a hard exit,
+failing the whole `RUN` step (and the build).
+
+**Root cause:** the Round 2 fix above added `RUN touch
+/home/claude/.claude.json && chown claude:claude ...` specifically so a
+later `docker-compose.yml` volume mount at that exact path would attach
+as a file, not a directory — reasonable for the *mount-type-detection*
+problem it was solving. But it created that placeholder *before* the
+`USER claude` / `RUN curl ... install.sh | bash` step, and the installer
+itself runs `claude` as part of its own setup, which reads and parses any
+pre-existing `~/.claude.json` — a zero-byte file isn't valid JSON, so
+that read failed and aborted the entire build, not just a later runtime
+concern. This is the same underlying gap as the sibling `nanoclaw`/
+`nanoclaw-mnemon` environments' own placeholder (an empty file being
+treated as "exists but has no valid content"), just surfaced as a hard
+build failure here instead of a Docker volume-mount quirk there, because
+here something *else* (the installer) reads the file before Docker's own
+volume-mount copy-up ever gets a chance to matter.
+
+**Fix:** changed the placeholder from `touch` (empty) to `echo '{}' >`
+(a valid, empty JSON object) — still a real file at that exact path for
+the volume-mount-type reasoning to work, but now something any JSON
+parser (the installer's, or `claude` itself at any later point) accepts
+without error.
+
+### General Lessons
+
+- **A "just needs to exist as a file" placeholder isn't actually
+  content-agnostic once something downstream parses that file's
+  contents, not just its existence/type.** The original placeholder's own
+  job (make Docker's volume-mount type-detection see a file) had no
+  opinion on content — `touch` was sufficient for that alone. But the
+  same file path being independently meaningful to a *second* consumer
+  (the installer's own `claude` invocation, which reads real JSON there)
+  means "any file" and "any file this app can actually parse" are
+  different requirements, and only the narrower one (mount-type
+  detection) was ever checked.
+- **`docker build --progress=plain` is worth reaching for immediately
+  when a `RUN` step fails with only "did not complete successfully: exit
+  code: 1"** — BuildKit's default output had already collapsed the
+  actual, decisive error message (the installer's own stderr) into
+  nothing, and the real diagnosis was sitting right there once asked for
+  in plain mode, no guessing required.
+
 ## Related PRs
 
 - [#128](https://github.com/tantimothy/pi-bootstrap/pull/128) — `gh` CLI
@@ -355,4 +419,5 @@ before this fix could reach it.
   redirect feature (`point-to-gateway.sh`/`revert-to-claude.sh`,
   `.env.gateway.*`), shipped with the open API-shape assumption above
 - [#151](https://github.com/tantimothy/pi-bootstrap/pull/151) — `~/.claude.json` persistence fix above (the symlink version, later found incomplete)
-- (this fix) — the `~/.claude.json` persistence fix, round 2, above
+- (round 2 fix) — the `~/.claude.json` persistence fix, round 2, above
+- (this fix) — the `~/.claude.json` placeholder build-failure fix above
