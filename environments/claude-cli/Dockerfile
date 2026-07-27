@@ -54,12 +54,21 @@ RUN userdel -r node \
 # Placeholder so docker-compose.yml's claude_cli_json named volume mounts
 # as a FILE at this exact path, not a directory — Docker decides that by
 # looking at what's already at the target path in the image the first
-# time an empty volume gets attached there; a real (if empty) file here
-# is what makes it copy that in and treat the mount as file-level rather
-# than defaulting to a directory. See entrypoint.sh's own comment for why
-# this replaced an earlier symlink-based approach that looked equivalent
-# on paper but wasn't.
-RUN touch /home/claude/.claude.json && chown claude:claude /home/claude/.claude.json
+# time an empty volume gets attached there; a real file here is what makes
+# it copy that in and treat the mount as file-level rather than defaulting
+# to a directory. See entrypoint.sh's own comment for why this replaced an
+# earlier symlink-based approach that looked equivalent on paper but wasn't.
+#
+# `echo '{}' >`, NOT a zero-byte `touch` — confirmed directly against a
+# real build failure: the installer below (`claude.ai/install.sh`) runs
+# `claude` itself as part of its own setup, which reads and parses
+# `~/.claude.json` if the file already exists — a zero-byte file isn't
+# valid JSON, so that read failed with "Claude configuration file at
+# /home/claude/.claude.json is corrupted: JSON Parse error: Unexpected
+# EOF" and aborted the whole `RUN` step (build failure, not just a runtime
+# warning). `{}` is valid, parses as an empty object, and the installer
+# proceeds normally past it.
+RUN echo '{}' > /home/claude/.claude.json && chown claude:claude /home/claude/.claude.json
 
 # sshd proper (not just the client) needs its own runtime dir and host keys.
 RUN mkdir -p /run/sshd
