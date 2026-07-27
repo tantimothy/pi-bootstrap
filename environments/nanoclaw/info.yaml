@@ -3,6 +3,8 @@ data_dirs:
     description: "Per-group files: conversation history, memory wiki, transcripts, CLAUDE.md"
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/data"
     description: "Sessions, message DB, task scheduler DB, IPC streams"
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}/.orchestrator-claude-json"
+    description: "Container mode only — ~/.claude.json (MCP server registrations, onboarding state) for the admin \"claude\" session, bind-mounted from this host directory rather than a Docker named volume: OrbStack's volume driver doesn't reliably auto-detect file-vs-directory type for single-file volume mounts (confirmed via isolated reproduction — see docs/lessons-learned/nanoclaw-mnemon.md)"
 install_dirs:
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw}"
     description: "NanoClaw repo + built binaries (groups/ and data/ live inside here)"
@@ -12,12 +14,10 @@ named_volumes:
   # filesystem with no container/volume involved at all.
   - name: ${CONTAINER_NAME:-nanoclaw}_claude_home
     description: "Container mode only — the admin \"claude\" session's own OAuth/session state and conversation history (/root/.claude), same as claude-cli's own claude_cli_home volume"
-  - name: ${CONTAINER_NAME:-nanoclaw}_claude_json
-    description: "Container mode only — ~/.claude.json (MCP server registrations, onboarding state), a separate file OUTSIDE ~/.claude/ needing its own volume, same as claude-cli's own claude_cli_json volume"
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
 install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
 delete_install_dirs: false
-delete_confirm_msg: "All conversation history and memory will be lost. In container mode, the admin \"claude\" session's own history (${CONTAINER_NAME:-nanoclaw}_claude_home) is a separate named volume, not touched by WIPE — delete it yourself (docker volume rm) if you want that gone too."
+delete_confirm_msg: "All conversation history and memory will be lost. In container mode, the admin \"claude\" session's own state (${CONTAINER_NAME:-nanoclaw}_claude_home *and* the .orchestrator-claude-json data directory above) is wiped too — WIPE really does remove both, despite an earlier version of this message claiming claude_home survives it."
 custom_actions:
   # Opens an interactive `claude` session against THIS environment's own
   # install — host mode: directly on the host (native process, no

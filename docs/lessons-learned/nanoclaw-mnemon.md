@@ -783,9 +783,10 @@ substitution is a no-op when `host.docker.internal` isn't present.
   running, because the hostname in it was never resolvable from where the
   check actually executes.
 
-## `~/.claude.json` Volume Mount Failed Even After Confirming a Genuinely Fresh Volume
+## `~/.claude.json` Volume Mount Failed — Two Wrong Theories Before the Real One (OrbStack, Not Moby)
 
-**Status:** fixed (both `nanoclaw-mnemon` and `nanoclaw`).
+**Status:** fixed (both `nanoclaw-mnemon` and `nanoclaw`), via a structural
+change (bind mount instead of named volume) rather than a syntax tweak.
 
 ### Summary
 
@@ -797,55 +798,121 @@ named volumes (see the container-persistence entry in
 docker: Error response from daemon: source .../merged/root/.claude.json is not directory
 ```
 
-The first working theory — a stale volume created wrong before the
-Dockerfile's `touch /root/.claude.json` placeholder existed — turned out
-to be incomplete. The user removed the volume entirely
-(`docker volume rm nanoclaw-mnemon_claude_json`, confirmed via a second
-`rm` reporting "no such volume") and retried; the exact same error came
-back against a volume that had never existed before that moment.
+This took **three** rounds to actually fix. The first two theories were
+each plausible, each grounded in a real (but ultimately irrelevant) Docker
+mechanism, and each falsified only by an actual live retest — not by
+further reasoning. Recorded here in full because the wrong turns are the
+useful part.
 
 ### Issue Found & Fixed
 
-**Symptom:** `docker run`'s `-v "${CONTAINER_NAME}_claude_json:/root/.claude.json"`
-failed with "is not directory," reproducibly, even immediately after
-confirming (via `docker volume rm` + a repeat `rm` reporting "no such
-volume") that the volume was being created completely fresh — ruling out
-the stale-volume, wrong-first-attachment explanation.
+**Symptom:** mounting a fresh named volume onto `/root/.claude.json`
+reliably failed with "is not directory," regardless of what was tried
+next.
 
-**Root cause:** `/root/.claude` (the sibling volume mounted right before
-it) is a literal string prefix of `/root/.claude.json` — 13 identical
-characters before `.json` continues the second path. Docker/moby has a
-documented history of exactly this failure class: the legacy `-v
-name:path` shorthand's mount-setup logic can misorder or conflate two
-mount destinations when one is a string prefix of the other, even though
-they're unrelated sibling paths rather than a parent/child nesting (see
-moby#8055, "Fix #7792 - Order mounts"). Two `-v` flags back-to-back for
-`/root/.claude` and `/root/.claude.json` hit this ambiguity directly.
+**Wrong theory #1 — stale volume, wrong type from an earlier attachment.**
+The user removed the volume entirely (`docker volume rm
+nanoclaw-mnemon_claude_json`, confirmed via a second `rm` reporting "no
+such volume") and retried; the exact same error came back against a
+volume that had never existed before that moment. Ruled out by direct
+retest.
 
-**Fix:** switched both volumes, in both `environments/nanoclaw-mnemon/run.sh`
-and `environments/nanoclaw/run.sh`, from the legacy shorthand to Docker's
-fully-explicit `--mount` syntax:
+**Wrong theory #2 — moby's mount-ordering bug (moby#8055), triggered by
+`/root/.claude` being a literal string prefix of `/root/.claude.json`.**
+Converted both mounts from the legacy `-v name:path` shorthand to
+Docker's fully-explicit `--mount type=volume,source=...,destination=...`
+form, on the theory that `--mount` bypasses whatever path-string
+heuristic `-v` was hitting. Shipped, merged, retested live — **identical
+error, byte-for-byte.** That ruled this out too: `-v` and `--mount` hit
+the exact same failure, so it was never about CLI-flag parsing.
+
+Two further isolated `docker run --mount type=volume,...` tests against a
+bare `busybox` image, with NO sibling `/root/.claude` mount present at
+all, reproduced the failure in complete isolation — killing the
+prefix/sibling-mount theory outright regardless of syntax. A follow-up
+pair of tests (empty placeholder file vs. `echo '{}' >` non-empty one,
+and `.claude.json` vs. no-leading-dot `claude.json`) also both failed
+identically, ruling out file emptiness and dotfile-naming as triggers too.
+
+**Actual root cause:** the user's Docker Engine is **OrbStack's own
+reimplementation**, not upstream `dockerd` (`docker build` output shows
+`docker:orbstack` as the builder). OrbStack has multiple open upstream
+issues describing exactly this failure class for single-file volume/bind
+mounts (orbstack/orbstack#1274, #1485) — its volume driver doesn't
+reliably auto-detect file-vs-directory destination type the way genuine
+dockerd's copy-up mechanism does. This is a real gap in OrbStack itself,
+not a bug in this repo's Docker usage, and not something fixable by any
+combination of CLI flags, file content, or filename.
+
+**Fix:** stopped relying on Docker's (here, broken) volume-type
+auto-detection for this one file entirely. `${CONTAINER_NAME}_claude_json`
+is no longer a named volume — `/root/.claude.json` is now a **bind mount**
+backed by a real host file at
+`$NANOCLAW_INSTALL_PATH/.orchestrator-claude-json/claude.json`,
+created with `mkdir -p`/`touch` before `docker run`:
 
 ```bash
---mount "type=volume,source=${CONTAINER_NAME}_claude_home,destination=/root/.claude"
---mount "type=volume,source=${CONTAINER_NAME}_claude_json,destination=/root/.claude.json"
+CLAUDE_JSON_HOST_DIR="$INSTALL_PATH/.orchestrator-claude-json"
+mkdir -p "$CLAUDE_JSON_HOST_DIR"
+CLAUDE_JSON_HOST_FILE="$CLAUDE_JSON_HOST_DIR/claude.json"
+[ -f "$CLAUDE_JSON_HOST_FILE" ] || touch "$CLAUDE_JSON_HOST_FILE"
+...
+--mount "type=bind,source=$CLAUDE_JSON_HOST_FILE,destination=/root/.claude.json"
 ```
 
-`--mount` takes an explicit `type=`/`source=`/`destination=` form with no
-path-string parsing heuristic to trip over, sidestepping whatever
-mechanism `-v`'s shorthand uses internally.
+A bind mount's source must already exist as a real file, so there's no
+type to guess — the whole class of bug is structurally impossible, not
+just avoided. `${CONTAINER_NAME}_claude_home` stays a genuine named volume
+(a *directory* destination), since nothing in any of the isolated tests
+showed directory-type volume mounts misbehaving — only file-type ones.
+The Dockerfile's now-pointless `RUN touch /root/.claude.json` placeholder
+(load-bearing only for the old named-volume approach) was removed from
+both environments' Dockerfiles.
+
+An atomic `rename()` landing on a bind-mounted file is exactly as safe as
+landing on a named-volume-mounted file — both are VFS mount points the
+kernel redirects reads/writes/renames through, unlike a symlink (which
+really would get replaced outright — see claude-cli's own Dockerfile for
+that separately-confirmed failure mode). Switching mechanisms here didn't
+reopen that older, different problem.
+
+Since the host file now lives inside `$NANOCLAW_INSTALL_PATH`, it also
+needed a `data_dirs` entry in `info.yaml` (not a `named_volumes` one) to
+stay backed up and WIPE'd — which surfaced a second, unrelated stale-doc
+bug in the same file: `delete_confirm_msg` claimed `_claude_home` "is a
+separate named volume, not touched by WIPE," but `lib/info-lib.sh`'s
+`_info_delete` unconditionally `docker volume rm`s every entry listed
+under `named_volumes` — WIPE always did remove it; only the message was
+wrong. Corrected the wording rather than the code, since removing it on
+WIPE is the coherent behavior (nuke the whole admin session's state
+together, not leave a split-brain where the directory survives but the
+JSON file doesn't).
 
 ### General Lessons
 
-- **Don't assume "I deleted and recreated the resource and the error was
-  identical" rules out the first theory — it can instead mean the bug is
-  one level up, in how the two resources relate to each other, not in
-  either resource's own state.** A fresh, correctly-typed volume can still
-  fail if the fix that mattered was never about the volume's contents at
-  all.
-- **Two sibling paths where one is a literal string prefix of the other
-  (`/root/.claude` / `/root/.claude.json`) are a known Docker footgun, not
-  just a theoretical concern** — worth defaulting to `--mount`'s explicit
-  form over `-v`'s shorthand whenever a new mount's destination could be a
-  prefix of an existing one, rather than discovering it via a failed
-  deploy.
+- **A fix that changes CLI syntax but not the underlying mechanism proves
+  nothing until it's retested live.** `--mount` vs `-v` felt like a real
+  fix (different code path, cited a real upstream issue) and shipped/
+  merged before the live retest came back — the retest is what actually
+  falsified it. Don't treat "plausible mechanism + real upstream bug
+  report" as confirmation; treat it as a hypothesis until the exact same
+  live repro comes back clean.
+- **When a fix doesn't work, isolate before guessing again.** Two rounds of
+  guessing (stale volume, then moby's mount-ordering bug) both got
+  falsified by user-run diagnostics, not by more reasoning from this end.
+  The THIRD round used a minimal, from-scratch `busybox` reproduction with
+  one variable changed at a time (sibling mount present/absent, file
+  empty/non-empty, dotfile/non-dotfile) — that isolation is what actually
+  found the real cause, in far fewer round-trips than continuing to guess
+  whole-environment fixes and waiting for a full redeploy each time.
+- **`docker version`/`docker info`/`docker build` output naming the actual
+  engine implementation (`docker:orbstack` here) is a real diagnostic
+  signal, easy to miss when every command otherwise looks like standard
+  Docker CLI usage.** A Docker-compatible reimplementation can diverge from
+  upstream `dockerd` in exactly the corners (volume type auto-detection)
+  that are least likely to be covered by day-to-day testing.
+- **A structural fix (bind mount, no type-detection needed at all) beats a
+  syntax fix (different flag, same underlying detection path) for a bug
+  whose actual mechanism is unconfirmed.** Once OrbStack's volume driver was
+  the suspect, the right fix wasn't "find the right flag to please it" —
+  it was removing the dependency on that code path entirely.

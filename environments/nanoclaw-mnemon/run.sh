@@ -698,32 +698,56 @@ else
     # separate `docker volume create` needed, unlike docker-compose's own
     # explicit `volumes:` section.
     #
-    # ${CONTAINER_NAME}_claude_json (mounted below at /root/.claude.json) —
-    # a SEPARATE volume from claude_home above, not covered by it:
-    # ~/.claude.json is a real file Claude Code writes OUTSIDE ~/.claude/
-    # itself via an atomic temp-file-then-rename, so a directory-only mount
-    # at ~/.claude never protects it. Same fix, same reasoning, as
-    # claude-cli's own claude_cli_json volume (see that environment's
-    # Dockerfile/entrypoint.sh for the fuller writeup, including why an
-    # earlier symlink-based attempt there looked equivalent but broke the
-    # first time anything actually wrote through it). Requires the
-    # Dockerfile's own `touch /root/.claude.json` placeholder so this
-    # mounts as a FILE, not a directory — see that file's own comment.
+    # ~/.claude.json — a SEPARATE concern from claude_home above, not
+    # covered by it: ~/.claude.json is a real file Claude Code writes
+    # OUTSIDE ~/.claude/ itself via an atomic temp-file-then-rename, so a
+    # directory-only mount at ~/.claude never protects it.
     #
-    # Both use `--mount`, not the legacy `-v name:path` shorthand, for
-    # these two specifically: `/root/.claude` is a literal string prefix
-    # of `/root/.claude.json` (13 identical characters before `.json`
-    # continues), and Docker/moby has a documented history of exactly this
-    # failure class — one mount's destination being a string prefix of
-    # another's confusing the daemon's own mount setup (see moby#8055,
-    # historically about mount-ordering, but the same "one path is a
-    # prefix of another" ambiguity). Confirmed directly against a real
-    # deploy: `-v` here failed with "source .../merged/root/.claude.json
-    # is not directory" on a freshly-created, correctly-file-typed volume
-    # — not a stale-volume issue, since it reproduced identically even
-    # after deleting and recreating the volume from scratch. `--mount`'s
-    # fully-explicit `type=volume,source=...,destination=...` form avoids
-    # whatever path-based heuristic `-v`'s shorthand parsing triggers.
+    # This is NOT a named volume like claude_home, unlike an earlier version
+    # of this fix (and unlike claude-cli's own claude_cli_json volume).
+    # Confirmed directly against a real deploy, then isolated with a
+    # from-scratch `busybox` image and bare `docker run --mount
+    # type=volume,...` reproduction (no sibling mounts, no NanoClaw code
+    # involved at all): mounting a *named volume* directly onto a file
+    # destination reliably fails here with "source .../merged/root/
+    # .claude.json is not directory", regardless of `-v` vs `--mount`
+    # syntax, regardless of whether the placeholder file is empty or has
+    # real content, and regardless of the destination filename having a
+    # leading dot or not. That rules out this being about `-v`'s shorthand
+    # parsing, the file being zero-byte, or moby's historical mount-
+    # ordering/path-prefix bug (moby#8055) — earlier tempting theories that
+    # motivated a `-v`-to-`--mount` conversion which then failed identically
+    # under live retest. The actual, confirmed cause: this host's Docker
+    # implementation is OrbStack's own reimplementation, not upstream
+    # dockerd — `docker version`/`docker build` output shows `docker:orbstack`
+    # as the builder — and OrbStack has multiple open upstream reports of
+    # exactly this failure class for single-file volume/bind mounts (e.g.
+    # orbstack/orbstack#1274, #1485): its volume driver doesn't reliably
+    # auto-detect file-vs-directory type the way genuine dockerd's copy-up
+    # mechanism does.
+    #
+    # Fix: skip Docker's volume-type auto-detection entirely by using a
+    # plain host-path BIND mount instead — a bind mount's source must
+    # already exist as a real file, so there's no type to guess. The host
+    # file lives in its own directory under $INSTALL_PATH (not loose at the
+    # top level) so it rides along with this environment's own existing
+    # `data_dirs` entry in info.yaml, getting backed up / WIPE'd the same
+    # way `groups/`+`data/` already do, with no separate Docker-volume
+    # bookkeeping needed. An atomic rename() landing on a bind-mounted file
+    # is exactly as safe as landing on a named-volume-mounted file (both are
+    # VFS mount points the kernel redirects reads/writes/renames through;
+    # neither behaves like a symlink, which really would get replaced
+    # outright — see claude-cli's own Dockerfile for that specific,
+    # previously-confirmed failure mode).
+    CLAUDE_JSON_HOST_DIR="$INSTALL_PATH/.orchestrator-claude-json"
+    mkdir -p "$CLAUDE_JSON_HOST_DIR"
+    CLAUDE_JSON_HOST_FILE="$CLAUDE_JSON_HOST_DIR/claude.json"
+    [ -f "$CLAUDE_JSON_HOST_FILE" ] || touch "$CLAUDE_JSON_HOST_FILE"
+
+    # ${CONTAINER_NAME}_claude_home (mounted below at /root/.claude) — this
+    # one stays a genuine named volume: it's a *directory* destination, and
+    # nothing in the reproduction above showed directory-type volume mounts
+    # misbehaving here, only file-type ones.
     $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
         -e CONTAINER_NAME="$CONTAINER_NAME" \
@@ -734,7 +758,7 @@ else
         -v /tmp:/tmp \
         -v /etc/localtime:/etc/localtime:ro \
         --mount "type=volume,source=${CONTAINER_NAME}_claude_home,destination=/root/.claude" \
-        --mount "type=volume,source=${CONTAINER_NAME}_claude_json,destination=/root/.claude.json" \
+        --mount "type=bind,source=$CLAUDE_JSON_HOST_FILE,destination=/root/.claude.json" \
         -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \
         "$IMAGE_TAG" >/dev/null
 fi
