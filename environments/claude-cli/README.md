@@ -27,12 +27,28 @@ ssh -p ${SSH_PORT:-2222} claude@<host>
 ```
 
 That's `/etc/profile.d/claude-tmux-attach.sh` (see `bashrc-tmux-attach.sh`)
-running `tmux new-session -A -s claude -c ~/workspace claude --continue` on
-every interactive login — `-A` means *attach if it exists, create if it
-doesn't*. Close the terminal, lose your WiFi, SSH in from a different
-device entirely — reconnecting drops you back into the exact same live
-conversation, not a new one. Detach on purpose with the usual tmux prefix
-(`Ctrl-b d`) if you want to leave it running and step away deliberately.
+running, on every interactive login:
+
+```bash
+tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on \
+|| tmux new-session -s claude -c ~/workspace claude --continue $MODEL_ARGS
+```
+
+Each SSH login creates its **own grouped tmux session** (`client_<pid>`)
+attached to the shared `claude` base session — grouped sessions share the
+same window list and scrollback but each client keeps its **own current
+window**, so multiple simultaneous logins (from different terminals, or
+different devices) can each be looking at a different window without
+stealing focus from one another. `destroy-unattached on` cleans up that
+per-client grouped session the moment you detach or disconnect, so it
+never lingers. The very first connection has no `claude` base session to
+group onto yet, so the `tmux new-session -t claude ...` attempt fails and
+the `||` fallback creates it, launching `claude --continue` (optionally
+with `--model`, see below) in `~/workspace`. Close the terminal, lose your
+WiFi, SSH in from a different device entirely — reconnecting drops you
+back into the same live conversation, not a new one. Detach on purpose
+with the usual tmux prefix (`Ctrl-b d`) if you want to leave it running
+and step away deliberately.
 
 `ssh host some-command` (a non-interactive, non-login invocation) skips
 this entirely and just runs `some-command` — scripted SSH use is
@@ -43,13 +59,25 @@ unaffected.
 in-memory — it doesn't survive anything that kills the container's
 processes (`STOP`/`FAST`, `TEARDOWN`+redeploy, `CLEAN`, a plain
 `docker restart`), even though your actual conversation history does, since
-it's written under `~/.claude` — the `claude_cli_home` named volume. `-A`
-only skips re-running the launch command when a live tmux session already
-exists to attach to; after a restart there isn't one, so this command runs
-fresh and `--continue` is what resumes your most recent conversation
+it's written under `~/.claude` — the `claude_cli_home` named volume. The
+first branch above only succeeds when the `claude` base session already
+exists to group onto; after a restart there isn't one, so the fallback
+runs fresh and `--continue` is what resumes your most recent conversation
 instead of silently starting a blank one. Want a specific *older*
 conversation instead of just the latest? Get a plain shell (below) and run
 `claude --resume` for an interactive picker.
+
+### Choosing Which Model `claude` Launches With
+
+`$MODEL_ARGS` above expands to `--model $CLAUDE_MODEL` when `CLAUDE_MODEL`
+is set (empty/unset — the default — lets Claude Code pick its own
+default model). Set it via the "Choose Claude Model" action in `deploy.sh`
+(runs `scripts/choose-model.sh`, which writes `CLAUDE_MODEL` to `.env` and
+restarts the container), or by editing `CLAUDE_MODEL` in `.env` directly.
+Like any `.env` change, this only takes effect for the *next* `claude`
+base session — restarting the container (FAST is enough, no rebuild
+needed) ends the current one, and SSHing back in creates a fresh one with
+the new model.
 
 ### Getting a Plain Shell Instead of the `claude` Conversation
 

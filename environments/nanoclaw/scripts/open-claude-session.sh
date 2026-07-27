@@ -7,6 +7,16 @@
 # .env, else macOS -> container, Linux -> host) rather than guessing
 # independently — this needs to agree with whichever mode this install
 # was actually deployed in, not just the host's own OS.
+#
+# Both branches land you in a persistent, detachable tmux "claude" session
+# where possible — same grouped-session pattern as the standalone
+# claude-cli environment's own bashrc-tmux-attach.sh (see that file's own
+# comment for the full explanation of why grouped, not `-A` attach-or-
+# create): the first connection ever (or the first since the session's
+# host process/container last restarted) creates the base "claude" session
+# running `claude --continue`; every connection after that groups a new,
+# independent window onto it instead of forcing every simultaneous
+# connection to watch the same window.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,9 +38,31 @@ if [ "$DEPLOY_MODE" = "container" ]; then
     # before this menu action existed, its real history lives at /root —
     # landing anywhere else would start a second, parallel conversation
     # instead of resuming it.
-    exec docker exec -it "${CONTAINER_NAME:-nanoclaw}" bash -lc "cd /root && claude"
+    #
+    # nanoclaw-claude-tmux.sh (baked into the image — see this
+    # environment's own scripts/claude-tmux.sh, identical to
+    # nanoclaw-mnemon's copy) does the actual grouped-session tmux
+    # attach/create; CLAUDE_MODEL, if set in .env, is already in the
+    # container's own environment (set via `docker run -e` in run.sh) so
+    # `docker exec` inherits it with no extra passthrough needed here.
+    exec docker exec -it "${CONTAINER_NAME:-nanoclaw}" bash -lc "cd /root && nanoclaw-claude-tmux.sh"
 else
     INSTALL_PATH="${NANOCLAW_INSTALL_PATH:-$HOME/nanoclaw}"
     cd "$INSTALL_PATH"
-    exec claude
+    # host mode runs directly on the host OS, which may or may not have
+    # tmux installed (unlike container mode's own Dockerfile, which always
+    # installs it) — macOS in particular doesn't ship tmux by default.
+    # Fall back to a plain, non-tmux `claude` launch if it's missing rather
+    # than failing outright; the grouped-session/multi-window behavior
+    # just isn't available without it.
+    if command -v tmux >/dev/null 2>&1; then
+        MODEL_ARGS=""
+        [ -n "${CLAUDE_MODEL:-}" ] && MODEL_ARGS="--model $CLAUDE_MODEL"
+        tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on 2>/dev/null \
+        || exec tmux new-session -s claude -c "$INSTALL_PATH" claude --continue $MODEL_ARGS
+    elif [ -n "${CLAUDE_MODEL:-}" ]; then
+        exec claude --model "$CLAUDE_MODEL"
+    else
+        exec claude
+    fi
 fi

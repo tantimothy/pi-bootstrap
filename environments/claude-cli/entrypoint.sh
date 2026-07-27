@@ -119,4 +119,18 @@ if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
     echo "ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN}" >> /etc/environment
 fi
 
+# Optional CLAUDE_MODEL — which model bashrc-tmux-attach.sh passes as
+# `claude --model` when it creates the base tmux session (see that
+# file's own comment for why only that one moment matters). Written to
+# /etc/environment the same way ANTHROPIC_BASE_URL is above — a plain
+# docker-compose `environment:` var doesn't reach a NEW SSH login
+# session's own shell on its own, only PID 1's; /etc/environment is what
+# PAM actually applies to every login. Always stripped first, same
+# reasoning as ANTHROPIC_BASE_URL: clearing CLAUDE_MODEL in .env should
+# actually clear it here too, not leave a stale value behind.
+sed -i '/^CLAUDE_MODEL=/d' /etc/environment
+if [ -n "${CLAUDE_MODEL:-}" ]; then
+    echo "CLAUDE_MODEL=${CLAUDE_MODEL}" >> /etc/environment
+fi
+
 exec /usr/sbin/sshd -D -e

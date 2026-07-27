@@ -55,6 +55,20 @@ the tools it just patched in actually work. A one-line `docker run --rm
 lessons-learned doc immediately, at build time, instead of requiring a
 live agent to hit the failure days later.
 
+### 5. Live-verify the admin-session tmux wrapper and `CLAUDE_MODEL`
+
+`scripts/claude-tmux.sh` (grouped-session `docker exec` wrapper for "Open a
+Claude Session") and `CLAUDE_MODEL` passthrough via `docker run -e` were
+written and syntax-checked (`bash -n`/`sh -n`) but not exercised against a
+real deploy — no live confirmation that two simultaneous `docker exec -it
+... nanoclaw-claude-tmux.sh` invocations actually land on independent tmux
+windows sharing one `claude --continue` conversation, and no live
+confirmation that `scripts/choose-model.sh`'s container recreation actually
+carries the new `CLAUDE_MODEL` value through to the next session. Confirm
+both on the first real deploy after this change. Same caveat applies to the
+identical mechanism in the plain `nanoclaw` environment (see
+`docs/future-enhancements/nanoclaw.md`).
+
 ## Refactoring Opportunities
 
 See `docs/refactoring-opportunities.md`'s "yt-dlp's arch-detection

@@ -88,7 +88,11 @@ RUN ln -sf /home/claude/.local/bin/claude /usr/local/bin/claude
 # Auto-attach (or create) a detachable tmux session running `claude` on
 # every interactive SSH login — see README's "How Login Works" for why:
 # this is what makes the session survive a dropped connection and lets
-# multiple devices reconnect to the exact same live conversation.
+# multiple devices reconnect to the exact same live conversation, each
+# with its own current-window view (see bashrc-tmux-attach.sh's own
+# comment for the grouped-session mechanism behind that).
+COPY .tmux.conf /home/claude/.tmux.conf
+RUN chown claude:claude /home/claude/.tmux.conf
 COPY bashrc-tmux-attach.sh /etc/profile.d/claude-tmux-attach.sh
 RUN chmod +x /etc/profile.d/claude-tmux-attach.sh
 

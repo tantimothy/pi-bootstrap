@@ -61,6 +61,23 @@ could check `getent passwd "$PUID"` / `getent group "$PGID"` before
 attempting the rename and fail with a clear message naming the conflicting
 account, instead of usermod's own opaque error.
 
+### 6. Live-verify the grouped-session tmux rewrite and `CLAUDE_MODEL`
+
+`bashrc-tmux-attach.sh`'s replacement of the old `-A` attach-or-create with
+the grouped-session pattern (`tmux new-session -t claude -s "client_$$" ...
+|| tmux new-session -s claude ...`), and `CLAUDE_MODEL`'s `/etc/environment`
+plumbing through to `claude --model`, were both written and syntax-checked
+(`bash -n`/`sh -n`) but not exercised against a real deploy — no live SSH
+session confirming two simultaneous connections actually land on
+independent tmux windows sharing one conversation, and no live confirmation
+that `CLAUDE_MODEL` set via "Choose Claude Model" actually reaches `claude
+--model` inside a fresh login shell after a restart. Confirm both on the
+first real deploy after this change; if the grouped-session fallback
+doesn't behave as documented (e.g. `destroy-unattached on` not cleaning up
+a detached grouped session, or the base session not falling through
+correctly on a cold start), this needs a follow-up fix, not just doc
+corrections.
+
 ## Refactoring Opportunities
 
 ### 1. Make the Dockerfile's node-removal step more explicit

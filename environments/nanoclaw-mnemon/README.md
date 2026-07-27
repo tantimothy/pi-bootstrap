@@ -202,7 +202,7 @@ Yes — two separate, opt-in upstream NanoClaw skills do this, distinct from bot
 2. Remove the `"model"` key from that group's shared Claude settings file (`data/v2-sessions/<agent-group-id>/.claude-shared/settings.json`).
 3. Force that group's agent container to respawn so it re-reads both files — container.json/settings.json are only read at container spawn time, not live: `docker stop $(docker ps --filter "name=nanoclaw-v2-<FOLDER>" --format "{{.Names}}")`. The next message to that group spins up a fresh container with the reverted config; no orchestrator restart or image rebuild needed either way.
 
-No dedicated skill does this for you, but there's nothing stopping you from asking Claude to do it inside the same interactive session used for the skills above (`docker exec -it nanoclaw-mnemon bash -lc "cd /root && claude"`) — it's just two small JSON edits and a container restart, well within what to just describe and ask for directly rather than needing a formal skill.
+No dedicated skill does this for you, but there's nothing stopping you from asking Claude to do it inside the same interactive session used for the skills above (`docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"`) — it's just two small JSON edits and a container restart, well within what to just describe and ask for directly rather than needing a formal skill.
 
 ---
 
@@ -339,10 +339,14 @@ The gist's Obsidian-facing piece splits into two parts, only one of which is cus
 Beyond the setup wizard, you can start an interactive Claude Code session against the orchestrator's own NanoClaw checkout at any time — this is how you run skills like `/add-karpathy-llm-wiki` (above), re-run `/add-mnemon` (already applied automatically by this environment, but useful to know it's there), or just ask Claude something about the codebase directly:
 
 ```bash
-docker exec -it nanoclaw-mnemon bash -lc "cd /root && claude"
+docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"
 ```
 
 **`/root`, not `$NANOCLAW_INSTALL_PATH`** — deliberately. This container runs as root with no explicit `WORKDIR`, so a plain, unwrapped `docker exec -it nanoclaw-mnemon bash` lands you at `/root` by default — and Claude Code's own conversation continuity is scoped to the *exact* directory a session was launched from, not to the container as a whole. If your very first admin session here started that way (the common case, before this exact command existed as documented instruction), your real conversation history lives at `/root`; running this command from any other directory would either start a second, parallel conversation or hit Claude Code's own "This conversation is from a different directory" error on `--continue`/`--resume`. Confirmed directly against a real deploy, not assumed — a version of this command that instead cd'd to `$NANOCLAW_INSTALL_PATH` looked equally plausible on paper but pointed at the wrong directory in practice.
+
+**This lands you in a persistent, detachable tmux `claude` session**, not a fresh shell each time — `nanoclaw-claude-tmux.sh` (baked into the image, see `scripts/claude-tmux.sh`) runs the same grouped-session pattern as the standalone `claude-cli` environment's own login shell: the first connection ever (or the first since the container last restarted) creates the base `claude` session running `claude --continue`; every connection after that groups a new, independent window onto it instead of forcing every simultaneous `docker exec` to watch the same window. Detach with the usual tmux prefix (`Ctrl-b d`), or just close the terminal — either way the conversation keeps running, and the next connection resumes it. Reattach directly without going through the wrapper: `docker exec -it nanoclaw-mnemon tmux attach -t claude`.
+
+**Which model that session's `claude` launches with**: unset (the default) lets Claude Code pick its own default model. Pin one via "Choose Claude Model" in `deploy.sh`'s menu (`scripts/choose-model.sh` — writes `CLAUDE_MODEL` to `.env` and recreates the container, since `docker run -e` only takes effect at container creation) or by editing `CLAUDE_MODEL` in `.env` directly. Only affects this admin session — NanoClaw's own per-conversation-group agent containers are a separate concern (see "Can NanoClaw Itself Talk to Ollama?" above for how a group's own model gets set).
 
 **Discovering what's available**: NanoClaw ships its own skills under `.claude/skills/` in its checkout — list them directly from outside the session:
 
@@ -361,7 +365,7 @@ Or, once inside an interactive `claude` session, type `/` on its own — Claude 
 **Current procedure** — same interactive session as above:
 
 ```bash
-docker exec -it nanoclaw-mnemon bash -lc "cd /root && claude"
+docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"
 ```
 
 Then, inside that session, run the skill for whichever channel you want: `/add-telegram`, `/add-whatsapp`, `/add-discord`, `/add-slack`, `/add-signal`, `/add-teams`. (iMessage isn't offered in container mode regardless — see "Deployment Modes" above.) Each one walks you through it interactively:
@@ -397,7 +401,7 @@ A few things worth knowing:
 
 Yes, this works — it's just Docker underneath, so the normal remote-Docker approach applies once you can reach the host machine at all:
 
-**SSH to the host, then `docker exec` from there**: `ssh you@<host>` followed by the exact same command from "Launching Claude CLI Directly" above (`docker exec -it nanoclaw-mnemon bash -lc "cd /root && claude"`) — no different from running it locally, since you're now just a normal shell session on the host itself.
+**SSH to the host, then `docker exec` from there**: `ssh you@<host>` followed by the exact same command from "Launching Claude CLI Directly" above (`docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"`) — no different from running it locally, since you're now just a normal shell session on the host itself.
 
 **Would Claude then be able to open a browser back on your own Mac (the one you SSH'd *from*)?** No. Even a Claude session running natively on the host (not in a container) can only open a browser on a display *that host* can reach, and a plain SSH session has no display at all by default — no `DISPLAY`, no GUI forwarding, unless you specifically set it up. X11 forwarding (`ssh -Y`) can pipe a *Linux* GUI app's window back to your Mac via XQuartz, but that solves the wrong problem here: Safari is a native macOS app, not something X11 forwards, and Claude's own copy-paste-the-URL flow (see "First-Time Setup" above, and "Why Can Claude Open a Browser on My Mac, But Not Inside Docker?" further up) is exactly the same mechanism whether you're local or remote — it prints a URL, you paste it into whichever browser is actually in front of you on the machine you're physically sitting at.
 
@@ -480,7 +484,7 @@ docker logs -f nanoclaw-mnemon
 docker restart nanoclaw-mnemon
 
 # Add messaging channels / update the Anthropic API key
-docker exec -it nanoclaw-mnemon bash -lc "cd /root && claude"
+docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"
 # then, inside that session: /add-whatsapp, /add-telegram, /add-discord, etc.
 # (channels aren't shipped as setup/add-*.sh scripts anymore — see "Adding Channels" below)
 docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"
@@ -528,7 +532,7 @@ whisper-cli -m "$NANOCLAW_INSTALL_PATH/models/ggml-base.bin" -f audio-16k.wav -o
 # Launch an interactive Claude Code session against the orchestrator's own
 # checkout — run skills (/add-karpathy-llm-wiki, /add-mnemon), or just ask
 # Claude something directly (see "Launching Claude CLI Directly" above)
-docker exec -it nanoclaw-mnemon bash -lc "cd /root && claude"
+docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"
 
 # List every skill NanoClaw ships (or type `/` inside an interactive claude
 # session for the same list with descriptions and autocomplete)

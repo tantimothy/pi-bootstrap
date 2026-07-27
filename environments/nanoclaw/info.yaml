@@ -21,6 +21,11 @@ custom_actions:
   # rather than here.
   - label: "Open a Claude Session"
     command: "bash ${ENV_DIR}/scripts/open-claude-session.sh"
+  # Which model that admin `claude` session launches with — see
+  # scripts/choose-model.sh and .env.example's own CLAUDE_MODEL comment.
+  # Does NOT affect per-conversation-group agent containers.
+  - label: "Choose Claude Model"
+    command: "bash ${ENV_DIR}/scripts/choose-model.sh"
 # No web_uis entry: NanoClaw has no default web interface at all — its own
 # README says so directly ("Beyond setup there's no monitoring dashboard or
 # debugging UI either: describe the problem in chat"). NANOCLAW_PORT exists
@@ -51,11 +56,12 @@ useful_commands: |2
      docker ps --filter name=nanoclaw                                # List agent containers
 
      # host mode
-     cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && claude                                    # Then: /add-telegram, /add-whatsapp, etc. (see README's "Adding Channels")
+     bash ${ENV_DIR}/scripts/open-claude-session.sh                  # tmux "claude" session (falls back to plain `claude` if tmux isn't installed)
      cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/register-claude-token.sh       # Update Anthropic API key
 
      # container mode
-     docker exec -it nanoclaw bash -lc "cd /root && claude"                                      # Same, but see README's "Adding Channels" for why /root
+     docker exec -it nanoclaw bash -lc "cd /root && nanoclaw-claude-tmux.sh"                     # tmux "claude" session — see README's "Adding Channels" for why /root
+     docker exec -it nanoclaw tmux attach -t claude                                              # Reattach directly, no relaunch wrapper
      docker exec -it nanoclaw bash -lc "cd ${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw} && bash setup/register-claude-token.sh"
 
   📌 Notes:
@@ -67,7 +73,12 @@ useful_commands: |2
         by default (not listed under Web UIs above since it's a separate,
         optional environment, not part of this one).
      🖥️ "Open a Claude Session" in this environment's own deploy.sh menu
-        attaches directly to this environment's own install — a plain
-        terminal `claude` conversation alongside NanoClaw's own
-        chat-platform one, on the host in host mode or via `docker exec
-        -it` in container mode.
+        attaches directly to this environment's own install — a persistent,
+        detachable tmux "claude" conversation (grouped sessions, so
+        multiple simultaneous connections each get their own window)
+        alongside NanoClaw's own chat-platform one, on the host in host
+        mode or via `docker exec -it` in container mode.
+     🧠 Which model that admin session's `claude` launches with: unset
+        (default) lets Claude Code pick its own default, or pin one via
+        "Choose Claude Model" above / CLAUDE_MODEL in .env.
+        Per-conversation-group agent containers are unaffected.

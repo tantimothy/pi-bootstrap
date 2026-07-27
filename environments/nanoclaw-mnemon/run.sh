@@ -670,6 +670,7 @@ else
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
         -e CONTAINER_NAME="$CONTAINER_NAME" \
         -e TZ="$HOST_TZ" \
+        -e CLAUDE_MODEL="${CLAUDE_MODEL:-}" \
         -v "$INSTALL_PATH:$INSTALL_PATH" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \
