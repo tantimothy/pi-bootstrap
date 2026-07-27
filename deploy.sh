@@ -6,7 +6,20 @@
 # dialog's own "Text has extra characters" complaint). Computed with
 # BASH_SOURCE rather than $PROJECT_DIR since that isn't determined until
 # much further down, and dialog is invoked before then too.
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/locale-lib.sh" || true
+#
+# Guarded with -f rather than a bare `|| true`: on the documented
+# `curl ... | bash` bootstrap path, this file is running from stdin, not
+# a real path on disk — ${BASH_SOURCE[0]} resolves to nothing meaningful,
+# so the computed path lands on the invoking shell's own $PWD instead
+# (confirmed directly: a real run printed "/home/pi/lib/locale-lib.sh: No
+# such file or directory" — $PWD was /home/pi, not this repo at all,
+# since nothing has been cloned yet at this exact point). `|| true`
+# already made that non-fatal, but it still printed a confusing error
+# before the bootstrap logic below even explains what's happening. The
+# second invocation (exec'd with --updated once the real clone exists)
+# runs from an actual file and resolves this correctly.
+LOCALE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/lib/locale-lib.sh"
+[ -f "$LOCALE_LIB" ] && source "$LOCALE_LIB"
 
 FALLBACK_PROJECT_DIR="$HOME/projects/bootstrap"
 REPO_URL="https://github.com/tantimothy/pi-bootstrap.git"
@@ -147,17 +160,49 @@ if [ "$1" != "--updated" ]; then
     else
         echo "📂 Preparing project directory at $PROJECT_DIR..."
 
-        if [ ! -d "$PROJECT_DIR" ]; then
+        # -d/.git, not bare -d: a directory can exist without being a
+        # valid clone of this repo — e.g. a previous curl-bootstrap
+        # attempt that got interrupted partway (network blip, dropped
+        # SSH session) between `mkdir -p` and a successful `git clone`.
+        # Checking mere directory existence sent that case down the
+        # "already cloned, just fetch/reset" branch below, which failed
+        # both git commands outright ("fatal: not a git repository")
+        # since there was no .git there at all — silently continuing
+        # past both failures (no error-checking on either) straight to
+        # `exec bash "$PROJECT_DIR/deploy.sh"`, which then failed with a
+        # confusing "No such file or directory" for a file that was never
+        # actually written. Confirmed directly against a real bootstrap
+        # run hitting exactly this sequence.
+        if [ ! -d "$PROJECT_DIR/.git" ]; then
             echo "📁 Creating missing fallback directories..."
             mkdir -p "$(dirname "$PROJECT_DIR")"
 
+            if [ -d "$PROJECT_DIR" ] && [ -n "$(ls -A "$PROJECT_DIR" 2>/dev/null)" ]; then
+                echo "❌ $PROJECT_DIR already exists and isn't a git clone of this" >&2
+                echo "   repo (no .git found), but it isn't empty either — refusing to" >&2
+                echo "   overwrite it automatically. If it's safe to discard (e.g. a" >&2
+                echo "   previous interrupted bootstrap attempt), remove it yourself and" >&2
+                echo "   re-run this command:" >&2
+                echo "     rm -rf \"$PROJECT_DIR\"" >&2
+                exit 1
+            fi
+            # Safe: either doesn't exist yet, or exists-and-empty per the
+            # check above — `git clone` itself refuses a non-empty target.
+            rm -rf "$PROJECT_DIR"
+
             echo "📦 Repository not found locally. Cloning cleanly..."
-            "${GIT_CMD[@]}" clone "$REPO_URL" "$PROJECT_DIR"
+            if ! "${GIT_CMD[@]}" clone "$REPO_URL" "$PROJECT_DIR"; then
+                echo "❌ git clone failed — see the error above." >&2
+                exit 1
+            fi
             cd "$PROJECT_DIR" || exit 1
         else
             cd "$PROJECT_DIR" || exit 1
             echo "📥 Fetching and applying latest code from GitHub..."
-            "${GIT_CMD[@]}" fetch --all --prune
+            if ! "${GIT_CMD[@]}" fetch --all --prune; then
+                echo "❌ git fetch failed — see the error above." >&2
+                exit 1
+            fi
             "${GIT_CMD[@]}" reset --hard origin/master
         fi
     fi
