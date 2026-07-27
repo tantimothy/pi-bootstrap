@@ -997,3 +997,72 @@ no observable effect there.
   itself rather than anything Docker-specific.** This one didn't need the
   user's host at all once the actual mechanism (tmux group-session
   semantics) was identified as the suspect.
+
+## `claude --continue` With Nothing To Continue Exits Instead Of Starting Fresh — Closing the Whole Session
+
+**Status:** fixed, in the same four files as the `has-session` fix above.
+
+### Summary
+
+Immediately after the `has-session` fix (which correctly got `claude`
+launching on first connection), the user reported "Open a Claude Session"
+now exits straight back to `deploy.sh`'s menu right after logging in,
+with `No conversation found to continue` flashing and disappearing first.
+
+### Issue Found & Fixed
+
+**Symptom:** the base tmux session's only window ran `claude --continue`;
+when no conversation existed yet for `/root` (true on every single launch
+after this environment's own `claude_home`/`claude_json` persistence
+revert — see the entry above), `--continue` printed "No conversation
+found to continue" and exited, rather than falling back to starting a
+fresh conversation itself. Since that was the window's only command, the
+window closed, then the session (it was the only window), then the
+`docker exec -it` connection along with it — landing back at `deploy.sh`'s
+menu with `[exited]` and no usable session ever having actually opened.
+
+**Root cause:** the fix for the previous bug correctly identified *that*
+`claude` needed to launch on first connection, but the exact invocation
+(`claude --continue $MODEL_ARGS`) still assumed `--continue` degrades
+gracefully when there's nothing to continue. It doesn't, at least not in
+the interactive TUI (confirmed directly against a real deploy — a
+non-interactive `-p` invocation with `--continue` and no history *does*
+degrade gracefully and starts fresh, which is a different code path and
+not what "Open a Claude Session" launches).
+
+**Fix:** wrapped the launch in a shell fallback — `sh -c "claude
+--continue $MODEL_ARGS || claude $MODEL_ARGS"` — so a failed `--continue`
+falls through to a plain fresh launch instead of exiting the whole
+session. Verified with an isolated local `tmux` reproduction using a
+stand-in `claude` script that mimics the exact observed behavior (exits
+1 with the same message on `--continue`, succeeds otherwise): the session
+survived the failed `--continue` attempt and correctly relaunched with
+`--model` intact.
+
+Since `nanoclaw`/`nanoclaw-mnemon` have no persisted `~/.claude` state
+across recreation by design (the revert above), this isn't a rare edge
+case for them — it's the case on *every* first launch after every
+recreation. For `claude-cli` (which still has `claude_cli_home`) and
+`nanoclaw`'s host-mode branch (a real host directory), it's a rarer
+first-ever-login case, but the same fix applies there too for the same
+reason.
+
+### General Lessons
+
+- **Fixing "the command that should run doesn't run" doesn't guarantee
+  the command itself handles its own edge cases once it does.** The
+  previous fix (this file's own entry above) was necessary but not
+  sufficient — it got `claude` invoked at all, but the flag combination
+  being invoked with (`--continue` against empty history) had its own,
+  separate failure mode that only became visible once the first bug was
+  out of the way.
+- **A CLI tool's non-interactive and interactive behavior for the "same"
+  flag can genuinely differ** — `claude --continue` with nothing to
+  resume degrades gracefully under `-p`, but not interactively. Don't
+  assume a flag's behavior transfers across invocation modes without
+  checking the specific mode actually in use.
+- **When a command is the sole process in a tmux window, that command
+  exiting for *any* reason tears down the window, and if it's the last
+  window, the whole session** — a `|| fallback` at the shell level is the
+  simplest way to keep a single bad exit from closing everything above it
+  in a grouped-session design like this one.

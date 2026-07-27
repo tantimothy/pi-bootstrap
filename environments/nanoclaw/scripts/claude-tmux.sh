@@ -47,5 +47,22 @@ MODEL_ARGS=""
 if tmux has-session -t claude 2>/dev/null; then
     tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on
 else
-    tmux new-session -s claude -c /root claude --continue $MODEL_ARGS
+    # `claude --continue` exits outright ("No conversation found to
+    # continue") rather than falling back to a fresh conversation itself,
+    # when there's genuinely nothing to resume — confirmed directly
+    # against a real deploy of the sibling nanoclaw-mnemon environment
+    # (identical mechanism): the whole tmux window (and, since it's the
+    # only one, the session and the `docker exec -it` connection along
+    # with it) closed the instant that happened, dropping straight back to
+    # deploy.sh's menu with no usable session at all. Since this
+    # environment has no persisted `~/.claude` state across container
+    # recreation by design (see docs/lessons-learned/nanoclaw-mnemon.md's
+    # "Ultimately reverted, not shipped" entry), that's the case on every
+    # single first launch after a recreation, not a rare edge case — so
+    # `|| claude $MODEL_ARGS` isn't a defensive nicety here, it's required
+    # for this to ever work at all post-recreation. `--continue` is still
+    # tried first, since a conversation CAN exist within the same
+    # container's lifetime if `claude` was exited and this session
+    # relaunched without the container itself being recreated.
+    tmux new-session -s claude -c /root sh -c "claude --continue $MODEL_ARGS || claude $MODEL_ARGS"
 fi
