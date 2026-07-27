@@ -666,6 +666,20 @@ else
     # path inside a spawned agent container was an empty directory, not the
     # PEM file, causing every API call through the OneCLI proxy to fail
     # self-signed-certificate verification.
+    # ${CONTAINER_NAME}_claude_home (mounted below at /root/.claude) — the
+    # admin "claude" session's own OAuth/session state and conversation
+    # history, same reasoning as claude-cli's own claude_cli_home volume.
+    # Without this, that state lived ONLY on the container's own ephemeral
+    # writable layer, which meant every container recreation (CLEAN,
+    # TEARDOWN+redeploy, or "Choose Claude Model"'s own stop+rm+relaunch —
+    # see scripts/choose-model.sh) silently destroyed the admin session's
+    # history with no warning, even though it had previously looked
+    # persistent simply because the container had never been recreated
+    # before. Confirmed directly: a real `--continue` session lost all
+    # prior context after a routine model change. `docker run -v
+    # <name>:<path>` auto-creates the named volume on first use — no
+    # separate `docker volume create` needed, unlike docker-compose's own
+    # explicit `volumes:` section.
     $DOCKER run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -e NANOCLAW_INSTALL_PATH="$INSTALL_PATH" \
         -e CONTAINER_NAME="$CONTAINER_NAME" \
@@ -675,6 +689,7 @@ else
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \
         -v /etc/localtime:/etc/localtime:ro \
+        -v "${CONTAINER_NAME}_claude_home:/root/.claude" \
         -p "$NANOCLAW_PORT:$NANOCLAW_PORT" \
         "$IMAGE_TAG" >/dev/null
 fi

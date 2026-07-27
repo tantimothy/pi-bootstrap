@@ -13,6 +13,48 @@ INSTALL_DIR="${NANOCLAW_INSTALL_PATH:?NANOCLAW_INSTALL_PATH must be set}"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
+# Written fresh on every container start (regenerated, not just created
+# once) so it's always accurate even if CONTAINER_NAME/NANOCLAW_INSTALL_PATH
+# change across a redeploy. Claude Code auto-reads CLAUDE.md from a
+# session's own launch directory — "Open a Claude Session" (info.yaml's
+# custom_actions) lands in /root specifically (see that action's own
+# comment for why: conversation continuity is scoped to the exact launch
+# directory, and /root is where the real, already-in-use admin history
+# lives) — so this gives a BRAND NEW admin session basic self-awareness
+# immediately, independent of whether it has any prior conversation
+# history to draw on. Without this, a fresh session (no history — e.g.
+# right after a CLEAN, or the first time this admin session is ever used)
+# has no way to know it's running inside this container at all, and will
+# say so plainly if asked. Conversation history itself is NOT recreated by
+# this file — that's a separate, genuinely unresolvable loss if the
+# admin session's own named volume (${CONTAINER_NAME:-nanoclaw-mnemon}_claude_home,
+# mounted at /root/.claude) didn't exist yet on a prior deploy.
+cat > /root/CLAUDE.md <<CLAUDEMD
+# Context for the admin \`claude\` session inside this container
+
+You are running inside the **${CONTAINER_NAME:-nanoclaw-mnemon}** orchestrator
+container — the \`nanoclaw-mnemon\` environment from the \`pi-bootstrap\` repo
+(https://github.com/tantimothy/pi-bootstrap). This container runs
+[NanoClaw](https://github.com/nanocoai/nanoclaw) itself (its Telegram/
+Discord/etc. channel bot orchestrator, spawning per-conversation-group
+agent sandbox containers via the host's Docker socket) with
+[mnemon](https://github.com/mnemon-dev/mnemon) patched into those agent
+sandboxes for persistent, cross-session graph memory.
+
+- NanoClaw's own source/install path: \`${NANOCLAW_INSTALL_PATH}\` (this
+  container's env var \`NANOCLAW_INSTALL_PATH\`) — \`groups/\` holds
+  per-conversation-group data, \`data/\` holds sessions/message DB/task
+  scheduler state, \`container/\` is the per-group agent sandbox's own
+  Dockerfile/entrypoint (where the mnemon patch lands).
+- This \`claude\` session itself (the one reading this file) is a separate,
+  independent conversation from NanoClaw's own chat-platform one — you are
+  not NanoClaw, you're an admin/maintenance session running alongside it in
+  the same container, for things like adding channels (\`/add-telegram\`
+  etc.), inspecting logs, or debugging.
+- \`docker logs -f ${CONTAINER_NAME:-nanoclaw-mnemon}\` (from the HOST, not
+  from inside here) shows NanoClaw's own live application log.
+CLAUDEMD
+
 # NanoClaw's own OneCLI (its agent-key vault) can't auto-detect a bind
 # address from inside this container: it's a Docker-outside-of-Docker
 # sibling container — only eth0/lo exist in its own network namespace, no

@@ -69,6 +69,39 @@ both on the first real deploy after this change. Same caveat applies to the
 identical mechanism in the plain `nanoclaw` environment (see
 `docs/future-enhancements/nanoclaw.md`).
 
+**Update — first real deploy already surfaced three real bugs, two now
+fixed, one still open:**
+
+- **`deploy.sh`'s own config form was silently dropping `CLAUDE_MODEL`**
+  on the next menu-driven redeploy after "Choose Claude Model" set it —
+  see `docs/lessons-learned/general.md`'s "`deploy.sh`'s own config form
+  silently drops any `.env` var it doesn't manage" for the full account.
+  Fixed in `deploy.sh` itself (repo-wide, not specific to this
+  environment) — still needs a live confirmation that a real "Choose
+  Claude Model" → later menu-driven `FAST`/`CLEAN` sequence now actually
+  preserves the value.
+- **The admin session's own history/OAuth state was never actually
+  persisted** — see `docs/lessons-learned/general.md`'s "A container's
+  writable layer looking 'persistent' can just mean it was never
+  recreated yet." Fixed by adding a `${CONTAINER_NAME}_claude_home` named
+  volume (`run.sh`) and a regenerated-on-every-start `/root/CLAUDE.md`
+  (`scripts/entrypoint.sh`) — needs a live confirmation that a
+  `CLEAN`/recreate now actually survives with the volume in place, and
+  that a brand-new session (no history) correctly reports basic
+  environment facts from the generated `CLAUDE.md`.
+- **Still open, not yet root-caused**: a live report that a freshly-picked
+  `CLAUDE_MODEL` (e.g. `claude-sonnet-4-6`) didn't take effect — the
+  session still self-reported as Sonnet 5. Leading hypothesis: the base
+  tmux `claude` session was already running from before the model change
+  (grouping onto an existing session doesn't relaunch `claude` with new
+  flags — see `claude-tmux.sh`'s own comment), not a bug in the
+  `CLAUDE_MODEL` plumbing itself, but this hasn't been confirmed against
+  `docker exec ... env | grep CLAUDE_MODEL` / `docker exec ... tmux
+  list-sessions` output yet. Also worth remembering generally: a model's
+  own free-text answer to "which model are you" is not a reliable way to
+  check this — `/status` inside the session, or the two `docker exec`
+  checks above from the host, are.
+
 ## Refactoring Opportunities
 
 See `docs/refactoring-opportunities.md`'s "yt-dlp's arch-detection

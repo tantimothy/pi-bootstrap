@@ -6,11 +6,13 @@ data_dirs:
 install_dirs:
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}"
     description: "NanoClaw + mnemon repo/binaries (groups/ and data/ live inside here)"
-named_volumes: []
+named_volumes:
+  - name: ${CONTAINER_NAME:-nanoclaw-mnemon}_claude_home
+    description: "The admin \"claude\" session's own OAuth/session state and conversation history (/root/.claude) — deleting this signs it out and loses its history, same as claude-cli's own claude_cli_home volume"
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
 install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
 delete_install_dirs: false
-delete_confirm_msg: "All conversation history and mnemon's persistent memory graph will be lost."
+delete_confirm_msg: "All conversation history and mnemon's persistent memory graph will be lost. The admin \"claude\" session's own history (${CONTAINER_NAME:-nanoclaw-mnemon}_claude_home) is a separate named volume, not touched by WIPE — delete it yourself (docker volume rm) if you want that gone too."
 # NanoClaw itself still has no default web interface of its own — its own
 # README says so directly ("Beyond setup there's no monitoring dashboard or
 # debugging UI either: describe the problem in chat"). NANOCLAW_PORT exists
