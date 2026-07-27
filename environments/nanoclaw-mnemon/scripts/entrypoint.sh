@@ -26,9 +26,10 @@ cd "$INSTALL_DIR"
 # right after a CLEAN, or the first time this admin session is ever used)
 # has no way to know it's running inside this container at all, and will
 # say so plainly if asked. Conversation history itself is NOT recreated by
-# this file — that's a separate, genuinely unresolvable loss if the
-# admin session's own named volume (${CONTAINER_NAME:-nanoclaw-mnemon}_claude_home,
-# mounted at /root/.claude) didn't exist yet on a prior deploy.
+# this file — /root/.claude lives only on the container's own ephemeral
+# writable layer (no dedicated named volume), so it doesn't survive CLEAN,
+# TEARDOWN+redeploy, or "Choose Claude Model"'s own stop+rm+relaunch. This
+# file gives a brand-new session basic self-awareness regardless.
 cat > /root/CLAUDE.md <<CLAUDEMD
 # Context for the admin \`claude\` session inside this container
 

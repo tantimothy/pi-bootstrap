@@ -80,15 +80,21 @@ fixed, one still open:**
   environment) — still needs a live confirmation that a real "Choose
   Claude Model" → later menu-driven `FAST`/`CLEAN` sequence now actually
   preserves the value.
-- **The admin session's own history/OAuth state was never actually
-  persisted** — see `docs/lessons-learned/general.md`'s "A container's
-  writable layer looking 'persistent' can just mean it was never
-  recreated yet." Fixed by adding a `${CONTAINER_NAME}_claude_home` named
-  volume (`run.sh`) and a regenerated-on-every-start `/root/CLAUDE.md`
-  (`scripts/entrypoint.sh`) — needs a live confirmation that a
-  `CLEAN`/recreate now actually survives with the volume in place, and
-  that a brand-new session (no history) correctly reports basic
-  environment facts from the generated `CLAUDE.md`.
+- **A fresh admin session had no self-awareness of its own environment**
+  — see `docs/lessons-learned/general.md`'s "A container's writable layer
+  looking 'persistent' can just mean it was never recreated yet." Fixed
+  with a regenerated-on-every-start `/root/CLAUDE.md`
+  (`scripts/entrypoint.sh`) — needs a live confirmation that a brand-new
+  session (no history) correctly reports basic environment facts from the
+  generated file. A separate attempt at also persisting this session's
+  conversation *history* across recreation (a `${CONTAINER_NAME}_claude_home`
+  named volume) was tried and then reverted — never actually requested
+  (losing history was explicitly said to be acceptable), and it ran into
+  a genuine OrbStack Docker-implementation bug that made deployment fail
+  outright rather than just losing history gracefully. See
+  `docs/lessons-learned/nanoclaw-mnemon.md`'s own entry for the full
+  three-round investigation, and `docs/lessons-learned/general.md`'s
+  "Ultimately reverted, not shipped" addendum.
 - **Still open, not yet root-caused**: a live report that a freshly-picked
   `CLAUDE_MODEL` (e.g. `claude-sonnet-4-6`) didn't take effect — the
   session still self-reported as Sonnet 5. Leading hypothesis: the base

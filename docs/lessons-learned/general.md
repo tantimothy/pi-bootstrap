@@ -424,3 +424,22 @@ been checked. A live `ls -al` of the actual container's `/root` (run by
 the user reporting the original bug) is what surfaced this — checking
 what's actually present beats reasoning from the fix already shipped for
 a similar-looking case.
+
+**Ultimately reverted, not shipped**: the `claude_home`/`claude_json`
+volume pair was never actually requested — the reported bug was that a
+*fresh* admin session had no self-awareness of its own environment (fixed
+by the `CLAUDE.md` regeneration alone, no volume needed), and the user
+had explicitly said losing conversation history on recreation was
+acceptable. Adding persistent history on top was scope creep on this
+session's part, and it's what led to a multi-round Docker volume-mount
+failure investigation (see `docs/lessons-learned/nanoclaw-mnemon.md`'s
+own entry) that ultimately traced to a genuine bug in OrbStack's Docker
+reimplementation — not something fixable from this repo's side at all.
+Once that became clear, the right call was to drop the unrequested
+feature entirely rather than keep working around a third party's bug for
+something nobody asked for. **Lesson**: "this would also be nice to fix
+while I'm in here" is worth flagging to the user as a question, not
+shipping unasked — especially for a persistence mechanism, where the
+failure mode if it doesn't pan out is "breaks deployment entirely," a
+strictly worse outcome than the (accepted) status quo it was meant to
+improve on.
