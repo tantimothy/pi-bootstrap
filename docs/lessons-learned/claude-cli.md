@@ -407,6 +407,93 @@ without error.
   nothing, and the real diagnosis was sitting right there once asked for
   in plain mode, no guessing required.
 
+## `~/.claude.json` Persistence, Round 3 — Named Volumes Don't Work Reliably on Every Docker Implementation
+
+**Status:** fixed, via a structural change (bind mount + a new shared
+"pre-deploy" hook) rather than another mount-syntax tweak.
+
+### Summary
+
+The Round 2 fix above (a named `claude_cli_json` volume mounted directly
+onto `/home/claude/.claude.json`) built successfully after the placeholder
+fix immediately above this entry, but then failed at `docker compose up`
+with `Error response from daemon: source .../merged/home/claude/
+.claude.json is not directory` — the exact same failure class already
+root-caused and fixed (by reverting the feature) in the sibling
+`nanoclaw`/`nanoclaw-mnemon` environments: see
+`docs/lessons-learned/nanoclaw-mnemon.md`'s own entry for the full
+investigation. That investigation already established the real cause —
+the user's Docker Engine is OrbStack's own reimplementation, which doesn't
+reliably auto-detect file-vs-directory type for a fresh named volume
+attached to a single-file destination (orbstack/orbstack#1274, #1485) —
+so this entry only covers what's specific to fixing it *here*, where
+(unlike the sibling environments) the feature is genuinely wanted and
+already in real use (MCP server registrations, e.g. Home Assistant).
+
+### Issue Found & Fixed
+
+**The obstacle bind mounts introduce:** a bind mount's source doesn't
+need Docker to guess its type — it just needs to already exist, correctly.
+But Docker Compose is purely declarative: there's no way to specify "run
+this before `up`" in `docker-compose.yml` itself, and Compose's own
+fallback for a missing bind-mount source is to auto-create a *directory*
+— the exact wrong-type problem this was meant to avoid, just moved from
+Docker's volume driver to Compose's own bind-mount handling.
+
+**Fix:** added a new, generic, optional hook to `lib/deploy-lib.sh`'s
+shared compose dispatch (used by every `docker-compose.yml`-based
+environment in this repo, not just this one): an executable
+`pre-deploy.sh` in an environment's own directory now runs once before
+`docker compose build`/`up`, on FAST/CLEAN only — the same lifecycle
+point the existing "pre-create `data_dirs`" step already runs at. This
+environment's own `pre-deploy.sh` creates `data/claude-json/claude.json`
+with valid JSON content (`{}`) if it doesn't already exist. `docker-
+compose.yml`'s `claude_cli_json` volume mount was replaced with a bind
+mount to that exact host file; the top-level `claude_cli_json:` volume
+entry, and its `named_volumes` entry in `info.yaml`, were removed, and a
+`data_dirs` entry added instead (so it's still backed up / WIPE'd).
+`data/claude-json/` is gitignored (it holds real, live MCP registration
+data after first use) and excluded from `new-instance.sh`'s directory
+copy (a new instance always starts with none of its own).
+
+Verified against a real `docker compose config` resolution that the bind
+mount resolves to the correct absolute host path; the actual container
+startup with a live registration wasn't re-verified end-to-end in this
+sandbox (no live Docker daemon here).
+
+### General Lessons
+
+- **A structural fix (bind mount, no type-detection needed at all) is the
+  right response to a bug whose mechanism is a third-party Docker
+  implementation's own volume driver, not something in this repo's
+  control.** Trying another combination of mount syntax/flags for the
+  *same* named-volume mechanism (as the `nanoclaw`/`nanoclaw-mnemon`
+  investigation already tried and had fail identically) wasn't worth
+  repeating here once the sibling investigation had already established
+  the real cause.
+- **Solving "the declarative file can't guarantee this" sometimes means
+  extending the *shared* dispatcher, not hacking around it per-
+  environment.** A one-off script wrapping `docker compose up` just for
+  this one environment would have worked too, but would have meant either
+  reimplementing `deploy_environment()`'s whole FAST/CLEAN/STOP/TEARDOWN/
+  INFO/WIPE policy handling from scratch (a `run.sh` completely replaces
+  the generic compose dispatch, it doesn't extend it) or forking the
+  policy logic. Adding one small, generic, optional hook to the existing
+  shared dispatcher — mirroring the already-precedented `data_dirs`
+  pre-creation step right next to it — solves this environment's need
+  and is immediately reusable by any future environment that hits the
+  same class of problem.
+- **A feature actually being requested and used changes the right
+  response to the same underlying bug.** The sibling `nanoclaw`/
+  `nanoclaw-mnemon` environments hit the identical OrbStack bug for an
+  *unrequested* feature and the right call there was to drop it entirely.
+  Here, the same bug hit a feature the user is actually using (MCP
+  registrations) — dropping it would have been a real, noticeable
+  regression, so the right call was to invest in the structural fix
+  instead. Don't apply the same resolution to two situations just because
+  the technical failure looks identical; check what's actually being
+  asked for and used before choosing revert vs. fix-forward.
+
 ## Related PRs
 
 - [#128](https://github.com/tantimothy/pi-bootstrap/pull/128) — `gh` CLI
@@ -420,4 +507,5 @@ without error.
   `.env.gateway.*`), shipped with the open API-shape assumption above
 - [#151](https://github.com/tantimothy/pi-bootstrap/pull/151) — `~/.claude.json` persistence fix above (the symlink version, later found incomplete)
 - (round 2 fix) — the `~/.claude.json` persistence fix, round 2, above
-- (this fix) — the `~/.claude.json` placeholder build-failure fix above
+- (placeholder fix) — the `~/.claude.json` placeholder build-failure fix above
+- (this fix) — the `~/.claude.json` persistence fix, round 3 (bind mount + shared pre-deploy hook), above

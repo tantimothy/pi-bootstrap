@@ -39,19 +39,31 @@ services:
       # `claude /login` only has to happen once, surviving CLEAN rebuilds.
       - "claude_cli_home:/home/claude/.claude"
       # ~/.claude.json (MCP server registrations, onboarding state — a real
-      # file Claude Code writes OUTSIDE ~/.claude/ itself) gets its OWN
-      # volume, mounted directly at that exact file path — not a symlink
-      # into claude_cli_home above. An earlier version of this file did
-      # that via a symlink, which looked equivalent but wasn't: Claude Code
-      # writes this file via an atomic temp-file-then-rename, and POSIX
-      # rename() onto a path that's currently a symlink replaces the
-      # symlink itself rather than following it — so the very first `claude
-      # mcp add` silently broke the symlink and started writing to this
-      # container's own ephemeral layer again, with nothing to notice or
-      # re-fix it before the next rebuild threw that layer away. A real
+      # file Claude Code writes OUTSIDE ~/.claude/ itself) gets its own
+      # persistence too, mounted directly at that exact file path — not a
+      # symlink into claude_cli_home above. An earlier version of this
+      # file did that via a symlink, which looked equivalent but wasn't:
+      # Claude Code writes this file via an atomic temp-file-then-rename,
+      # and POSIX rename() onto a path that's currently a symlink replaces
+      # the symlink itself rather than following it — so the very first
+      # `claude mcp add` silently broke the symlink and started writing to
+      # this container's own ephemeral layer again, with nothing to notice
+      # or re-fix it before the next rebuild threw that layer away. A real
       # mount point doesn't have this problem — rename() onto it lands on
-      # the volume-backed storage regardless of how the file gets written.
-      - "claude_cli_json:/home/claude/.claude.json"
+      # the mounted storage regardless of how the file gets written.
+      #
+      # A BIND mount to a host file, NOT a named Docker volume like
+      # claude_cli_home above — a named volume mounted directly onto a
+      # single-file destination hit a separate, confirmed bug on at least
+      # one Docker implementation (OrbStack): it doesn't reliably
+      # auto-detect file-vs-directory type for a fresh volume there,
+      # failing with "source .../merged/home/claude/.claude.json is not
+      # directory" on every deploy regardless of file content or naming.
+      # A bind mount sidesteps that type-detection entirely, but needs its
+      # host source to already exist as a real, valid-JSON file — see
+      # pre-deploy.sh, which lib/deploy-lib.sh's shared compose dispatch
+      # runs before this mount is ever attempted.
+      - "./data/claude-json/claude.json:/home/claude/.claude.json"
       # SSH host keys — named volume so the container's SSH fingerprint
       # stays stable across recreation (no "REMOTE HOST IDENTIFICATION HAS
       # CHANGED" warning on your next connection after a redeploy).
@@ -64,7 +76,5 @@ volumes:
   # key instead of silently sharing this one's.
   claude_cli_home:
     name: ${CONTAINER_NAME:-claude-cli}_claude_home
-  claude_cli_json:
-    name: ${CONTAINER_NAME:-claude-cli}_claude_json
   claude_cli_ssh_host_keys:
     name: ${CONTAINER_NAME:-claude-cli}_ssh_host_keys

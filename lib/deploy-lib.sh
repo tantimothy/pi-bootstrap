@@ -121,6 +121,26 @@ _deploy_environment_body() {
         done < <(bash "$repo_dir/lib/run-info.sh" "$env_dir" list-dirs 2>/dev/null)
     fi
 
+    # Optional per-environment host-prep hook — generic fallback only (no
+    # run.sh, which would just do whatever this needs itself), for
+    # compose/Dockerfile environments that need something prepared on the
+    # HOST before Docker ever touches it, beyond the plain `mkdir -p`
+    # above. Exists specifically for claude-cli's own pre-deploy.sh: a
+    # bind-mount source that must already exist as a file with *specific*
+    # content (valid JSON, not empty), not just as a directory — Docker's
+    # own "auto-create if missing" behavior for a bind-mount source always
+    # creates a directory, never a file, so a bind mount alone can't
+    # guarantee this; something has to run beforehand to put the real file
+    # there first. This is also why it's not solved with a named volume
+    # instead: at least one Docker implementation (OrbStack, confirmed
+    # directly) doesn't reliably auto-detect file-vs-directory type for a
+    # *named volume* attached to a single-file destination either. Same
+    # FAST/CLEAN-only gating as the data-dirs pre-creation above.
+    if [ ! -f "run.sh" ] && [ -f "pre-deploy.sh" ] && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ]; }; then
+        chmod +x pre-deploy.sh
+        ./pre-deploy.sh
+    fi
+
     if [ -f "run.sh" ]; then
         echo "⚡ Custom run script detected! Executing run.sh..."
         chmod +x run.sh

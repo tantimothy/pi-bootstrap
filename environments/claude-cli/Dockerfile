@@ -51,23 +51,25 @@ RUN userdel -r node \
     && (groupdel node || true) \
     && useradd --uid 1000 --create-home --shell /bin/bash claude
 
-# Placeholder so docker-compose.yml's claude_cli_json named volume mounts
-# as a FILE at this exact path, not a directory — Docker decides that by
-# looking at what's already at the target path in the image the first
-# time an empty volume gets attached there; a real file here is what makes
-# it copy that in and treat the mount as file-level rather than defaulting
-# to a directory. See entrypoint.sh's own comment for why this replaced an
-# earlier symlink-based approach that looked equivalent on paper but wasn't.
-#
-# `echo '{}' >`, NOT a zero-byte `touch` — confirmed directly against a
-# real build failure: the installer below (`claude.ai/install.sh`) runs
-# `claude` itself as part of its own setup, which reads and parses
-# `~/.claude.json` if the file already exists — a zero-byte file isn't
-# valid JSON, so that read failed with "Claude configuration file at
+# Placeholder purely so the installer below (`claude.ai/install.sh`)
+# doesn't choke during THIS build — it runs `claude` itself as part of its
+# own setup, which reads and parses `~/.claude.json` if the file already
+# exists. `echo '{}' >`, NOT a zero-byte `touch`: confirmed directly
+# against a real build failure that a zero-byte file isn't valid JSON, so
+# that read failed with "Claude configuration file at
 # /home/claude/.claude.json is corrupted: JSON Parse error: Unexpected
-# EOF" and aborted the whole `RUN` step (build failure, not just a runtime
-# warning). `{}` is valid, parses as an empty object, and the installer
-# proceeds normally past it.
+# EOF" and aborted the whole `RUN` step. `{}` is valid, parses as an empty
+# object, and the installer proceeds normally past it.
+#
+# This placeholder has NO bearing on runtime persistence — docker-
+# compose.yml bind-mounts a real host file directly onto this exact path
+# (see pre-deploy.sh), which entirely replaces whatever's here the moment
+# the container starts. An earlier version relied on this placeholder for
+# a *named volume*'s own file-vs-directory type detection instead; that
+# was dropped after hitting a Docker-implementation-specific bug (see
+# docs/lessons-learned/claude-cli.md) — bind mounts need no such
+# detection at all, so this file's only remaining job is keeping this
+# build step from failing.
 RUN echo '{}' > /home/claude/.claude.json && chown claude:claude /home/claude/.claude.json
 
 # sshd proper (not just the client) needs its own runtime dir and host keys.
