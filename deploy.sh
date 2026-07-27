@@ -958,7 +958,32 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
 
     while IFS= read -r line || [ -n "$line" ]; do
         line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-        
+
+        # A commented-out OPTIONAL variable line (this repo's own
+        # convention: "#KEY=" or "#KEY=default", no space between # and
+        # KEY, or KEY and =) that's currently SET (uncommented) in .env —
+        # meaning something (a dedicated picker script like
+        # nanoclaw-mnemon's "Choose Claude Model", a manual edit) has
+        # actually opted into it — is promoted to a real, visible,
+        # editable field here too, not left as documentation-only. Without
+        # this, a variable like CLAUDE_MODEL never appeared in this form
+        # at all even once set, which — combined with the truncate-and-
+        # rewrite below — meant there was no way to SEE, from this
+        # "review the runtime variables" screen, that it was actually
+        # affecting the deploy; it was only silently preserved behind the
+        # scenes (see the PRESERVED_LINES snapshot further down, which
+        # still exists as a backstop for anything this check doesn't
+        # catch). Left alone (still unset in .env), the line stays pure
+        # documentation, same as always — this only promotes a
+        # commented-out line once something has actually turned it on.
+        if [[ "$line" =~ ^#[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            _optional_key="${line#\#}"
+            _optional_key="${_optional_key%%=*}"
+            if [ -f ".env" ] && grep -q "^${_optional_key}=" .env; then
+                line="${line#\#}"
+            fi
+        fi
+
         if [[ "$line" =~ ^# ]]; then
             CLEAN_COMMENT=$(echo "$line" | sed 's/^#[[:space:]]*//')
             if [ -z "$CURRENT_COMMENT" ]; then
