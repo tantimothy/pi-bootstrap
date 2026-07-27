@@ -15,6 +15,22 @@ entries:
     kind: exec
     target: 'bash -c "ssh -p ${SSH_PORT:-2223} aider@localhost"'
     terminal: true
+  # Both below get created regardless of whether you've actually launched
+  # them (Aider GUI) or enabled the "ide" profile (OpenVSCode Server) — same
+  # convention as chat-frontends' own opt-in entries; they just won't
+  # resolve until you do. See README's "Frontend Options".
+  - id: pi-bootstrap-${CONTAINER_NAME:-aider}-gui
+    name: "Aider Browser GUI"
+    comment: "Aider's own built-in browser interface (opt-in launch, EXPERIMENTAL — see README)"
+    icon: utilities-terminal
+    kind: link
+    target: "http://localhost:${AIDER_GUI_PORT:-8501}"
+  - id: pi-bootstrap-${CONTAINER_NAME:-aider}-ide
+    name: "Aider (OpenVSCode Server)"
+    comment: "Full browser-based IDE with Aider pre-installed (opt-in — needs \"ide\" in COMPOSE_PROFILES)"
+    icon: utilities-terminal
+    kind: link
+    target: "http://localhost:${AIDER_IDE_PORT:-8443}"
 info:
   id: pi-bootstrap-${CONTAINER_NAME:-aider}-info
   name: "Aider Info"

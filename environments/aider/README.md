@@ -4,6 +4,8 @@ A standalone [Aider](https://aider.chat) container reachable directly over its o
 
 No custom `run.sh` — this is a plain `docker-compose.yml` with `build: .`, using `deploy.sh`'s generic fallback directly, same as `claude-cli` and `llm-gateways`.
 
+**New to this stack? See [`docs/aider-provider-stack.md`](../../docs/aider-provider-stack.md) first** — a single walkthrough covering this environment plus `llm-gateways` and (optionally) `chat-frontends` together, in deploy order. Everything below is this environment's own detailed reference.
+
 ---
 
 ## 📝 Why This Exists, and What It Deliberately Doesn't Rebuild
@@ -18,7 +20,7 @@ That matters because an earlier exploration of this idea (an AI-assisted brainst
 
 (An earlier version of this note also claimed the session's model names — `claude-sonnet-4-6` specifically — were invented. That was itself a mistake, caught and corrected: `claude-sonnet-4-6` and `claude-opus-4-6` are real, current model IDs — see [Claude Code's own model configuration docs](https://code.claude.com/docs/en/model-config), which list them as what the `sonnet`/`opus` aliases currently resolve to on Claude Platform on AWS and Microsoft Foundry respectively, and both are directly nameable on the Anthropic API too. Only the session's own LiteLLM alias name for it, `claude-legacy-46`, was arbitrary — that's just a user-chosen `model_name` label in LiteLLM, not a real Anthropic model ID, and picking your own label there is completely normal LiteLLM usage. `scripts/choose-model.sh` and `llm-gateways`' own `litellm-config.yaml` now include `claude-sonnet-4-6`/`claude-opus-4-6`/`claude-sonnet-4-5` alongside the current `-5` lineup.)
 
-Also **not** carried forward from that brainstorming session, as out of scope for this round: pointing NanoClaw itself at a gateway (NanoClaw's own remote-control/tool-execution loop needs a native Anthropic-format backend and doesn't benefit from an OpenAI-translation layer — see that session's own conclusion, which agreed), and a bundled web frontend (Open WebUI) — `llm-gateways`' own README already points at this repo's separate `chat-frontends` environment for that, and Aider itself has zero use for a passive chat UI it can't execute shell commands through anyway.
+Also **not** carried forward from that brainstorming session: pointing NanoClaw itself at a gateway (NanoClaw's own remote-control/tool-execution loop needs a native Anthropic-format backend and doesn't benefit from an OpenAI-translation layer — see that session's own conclusion, which agreed). The brainstorming session's three Aider frontend options (its own browser GUI, OpenVSCode Server, Open WebUI) *are* built — see "Frontend Options" below — except Open WebUI specifically stays in the separate `chat-frontends` environment rather than getting duplicated here, since Aider itself has zero use for a passive chat UI it can't execute shell commands through anyway.
 
 ---
 
@@ -82,6 +84,41 @@ Leave both `OPENAI_API_BASE`/`OPENAI_API_KEY` empty to skip the gateway and use 
 ## 🧠 Choosing a Model
 
 "Choose Model" in this environment's own `deploy.sh` action menu (`scripts/choose-model.sh`) writes `AIDER_MODEL` to `.env` and restarts the container (`FAST` — no rebuild needed). Its quick picks are direct-Anthropic Claude models only (Mode A above) — for a gateway-routed alias, DeepSeek, or a local Ollama model, use its "Custom" option and type the exact model string (see "Choosing a Provider" above for the `openai/` prefix requirement under Mode B).
+
+---
+
+## 🖥️ Frontend Options
+
+The SSH/tmux terminal above is the default, always-on way to run `aider` here. Two more ways to reach the same workspace and provider config exist, both opt-in; a third some setups add (Open WebUI) is deliberately not built here at all.
+
+### Option A: Aider's Own Built-In Browser GUI — `EXPERIMENTAL`
+
+Same container as the SSH/tmux service, not a separate one — this is the same `aider` process launched with a different flag (`--gui`), not different software. Launch it via **"Launch Aider (Browser GUI, EXPERIMENTAL)"** in `deploy.sh`'s menu (`scripts/aider-gui.sh`), then browse to `http://<host>:${AIDER_GUI_PORT:-8501}`. It runs in its own detached tmux session (`aider-gui`, separate from the SSH login session's own `aider` session), so it keeps running in the background — you don't need to keep the launching connection open.
+
+**Flagged experimental deliberately, not just as a formality**: Aider's own documentation ([aider.chat/docs/usage/browser.html](https://aider.chat/docs/usage/browser.html)) calls this an experimental feature, and this wiring hasn't been independently confirmed against a live deploy in this repo (see `docs/future-enhancements/aider.md`). If it doesn't work, `docker logs ${CONTAINER_NAME:-aider}` and Aider's own GitHub issues are the first places to check — that's Aider's own feature behaving unexpectedly, not necessarily a bug in how this environment invokes it.
+
+Stop it: `docker exec ${CONTAINER_NAME:-aider} tmux kill-session -t aider-gui`.
+
+### Option B: OpenVSCode Server — a Full Browser-Based IDE
+
+A genuinely separate container ([`lscr.io/linuxserver/openvscode-server`](https://github.com/linuxserver/docker-openvscode-server), `Dockerfile.ide`), with `aider` pre-installed so its integrated terminal can run it immediately — unlike Option A, this is different software, not just a different flag, so it gets its own image rather than reusing the SSH service's. Shares the same `AIDER_WORKSPACE_PATH` bind mount, and the same provider env vars (`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`OPENAI_API_BASE`), so `aider` run from its terminal works with no separate setup.
+
+Opt-in via `COMPOSE_PROFILES` (see `.env.example`) — off by default so a plain `docker compose up -d` doesn't pull/build a second, heavier image nobody asked for:
+
+```bash
+# in .env:
+COMPOSE_PROFILES=ide
+# then:
+docker compose up -d
+```
+
+Browse to `http://<host>:${AIDER_IDE_PORT:-8443}` once it's up, open the integrated terminal, and run `aider` directly.
+
+### Option C: Open WebUI — Deliberately Not Built Here
+
+This repo already has Open WebUI, in the separate `chat-frontends` environment — building a second one here would duplicate it for no benefit, the same reasoning that kept this environment from rebuilding `llm-gateways`' own LiteLLM+Postgres stack (see "Why This Exists" above). `chat-frontends`' own README now has a "Connecting Open WebUI to `llm-gateways`" section covering exactly this.
+
+**Worth being precise about what that actually gets you**: pointing Open WebUI at `llm-gateways` gives you a browser chat window against the *same models* Aider can use, through the *same gateway* — genuinely useful for quick questions or brainstorming without opening a terminal. It does **not** let Open WebUI drive Aider's own file-editing session. Open WebUI is a passive chat interface with no shell or file-system access of its own; it can't intercept and execute the edit commands Aider's own agent loop produces, even when both are pointed at the identical model. If you want a *browser-based way to run Aider itself* — not just chat with the same model Aider happens to use — that's what Options A and B above are for. A real "Aider Pipeline" plugin that lets Open WebUI drive Aider directly may exist in the wider ecosystem, but nothing confirming one actually works was verified before writing this — not built here on that basis.
 
 ---
 

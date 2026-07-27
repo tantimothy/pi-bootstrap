@@ -17,6 +17,12 @@ services:
     environment:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      # Optional — see .env.example. Open WebUI supports OLLAMA_BASE_URL
+      # and OPENAI_API_BASE_URL simultaneously, merging both into one model
+      # dropdown; empty/unset here is a no-op, same as every other optional
+      # var in this repo.
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     # Docker Desktop/OrbStack already resolve host.docker.internal inside
     # containers automatically; extra_hosts here is what makes the exact
     # same hostname work on a plain Linux Docker host too, where it isn't

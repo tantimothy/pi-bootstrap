@@ -4,6 +4,8 @@ A small hub of self-hosted LLM gateways — an OpenAI-compatible HTTP layer in f
 
 This environment is deliberately thin: prebuilt upstream Docker images only, no custom `run.sh`, no Ollama of its own.
 
+**Setting this up alongside the `aider` environment (Claude/DeepSeek/Ollama, switchable per coding session)?** See [`docs/aider-provider-stack.md`](../../docs/aider-provider-stack.md) for the full walkthrough across both, plus optional `chat-frontends` integration.
+
 Two gateways are available, toggled independently via `COMPOSE_PROFILES` in `.env` — no rebuild needed, just `docker compose up -d` again (or redeploy via `deploy.sh`) after changing it:
 
 ## 📂 Services & Ports

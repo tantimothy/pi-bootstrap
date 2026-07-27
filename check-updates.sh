@@ -236,6 +236,16 @@ _dockerfile_for_image() {
         nanoclaw-orchestrator:*)        echo "$REPO_DIR/environments/nanoclaw/Dockerfile" ;;
         *claude-cli*)       echo "$REPO_DIR/environments/claude-cli/Dockerfile" ;;
         *classic-mac-vnc*)  echo "$REPO_DIR/environments/classic-mac-vnc/Dockerfile" ;;
+        # *aider*ide* checked BEFORE the bare *aider* pattern below — the
+        # opt-in OpenVSCode Server sidecar (docker-compose.yml's "ide"
+        # profile) is built from a completely different Dockerfile
+        # (Dockerfile.ide, a linuxserver/openvscode-server base) than the
+        # plain SSH/tmux service, but Compose's own default image-naming
+        # (<project>-<service>, i.e. "aider-aider-ide") still contains the
+        # substring "aider" too — same class of ordering bug the
+        # nanoclaw-mnemon-orchestrator/nanoclaw-orchestrator exact-prefix
+        # matches above already exist to avoid.
+        *aider*ide*)        echo "$REPO_DIR/environments/aider/Dockerfile.ide" ;;
         *aider*)            echo "$REPO_DIR/environments/aider/Dockerfile" ;;
         *) return 1 ;;
     esac

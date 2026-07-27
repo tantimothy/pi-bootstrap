@@ -49,6 +49,13 @@ RUN chown aider:aider /home/aider/.tmux.conf
 COPY bashrc-tmux-attach.sh /etc/profile.d/aider-tmux-attach.sh
 RUN chmod +x /etc/profile.d/aider-tmux-attach.sh
 
+# Frontend Option A (Aider's own built-in --gui) — see this script's own
+# header comment. Invoked via `docker exec -u aider`, not from a login
+# shell, so it's a plain PATH-installed script rather than another
+# profile.d hook.
+COPY scripts/aider-gui.sh /usr/local/bin/aider-gui.sh
+RUN chmod +x /usr/local/bin/aider-gui.sh
+
 # sshd config: key-based auth only. No password login, no root login — the
 # authorized_keys file is bind-mounted read-only from the host at runtime
 # (see docker-compose.yml), so access is controlled entirely by whoever's
