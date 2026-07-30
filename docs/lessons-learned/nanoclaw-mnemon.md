@@ -904,8 +904,10 @@ of this started.
 
 ## "Open a Claude Session" Opened Plain Bash, and a Freshly-Picked Model Never Took Effect
 
-**Status:** fixed, in `nanoclaw-mnemon`, `nanoclaw` (both `scripts/claude-tmux.sh`
-and `open-claude-session.sh`'s host-mode branch), and `claude-cli`'s
+**Status:** fixed and confirmed live on `nanoclaw-mnemon` (user confirmed
+"Open a Claude Session" launches `claude` correctly on a fresh container).
+Fixed in `nanoclaw-mnemon`, `nanoclaw` (both `scripts/claude-tmux.sh` and
+`open-claude-session.sh`'s host-mode branch), and `claude-cli`'s
 `bashrc-tmux-attach.sh` — all four copies of the same grouped-session tmux
 pattern.
 
@@ -1000,7 +1002,10 @@ no observable effect there.
 
 ## `claude --continue` With Nothing To Continue Exits Instead Of Starting Fresh — Closing the Whole Session
 
-**Status:** fixed, in the same four files as the `has-session` fix above.
+**Status:** fixed and confirmed live on `nanoclaw-mnemon` (a fresh "Open a
+Claude Session" after a real container recreation now stays open with a
+usable conversation, model flag intact). Fixed in the same four files as
+the `has-session` fix above.
 
 ### Summary
 
@@ -1066,3 +1071,81 @@ reason.
   window, the whole session** — a `|| fallback` at the shell level is the
   simplest way to keep a single bad exit from closing everything above it
   in a grouped-session design like this one.
+
+## `CLAUDE_MODEL`/"Choose Claude Model" Only Affects the Admin Session — Telegram Groups Need NanoClaw's Own `ncl` CLI
+
+**Status:** not a bug — documented behavior, confirmed working as designed.
+
+### Summary
+
+After picking a new model via "Choose Claude Model" and restarting, the
+Telegram bot (a per-conversation-group agent, NanoClaw's own concern, not
+this repo's admin session) was still visibly running the old model. This
+isn't something `CLAUDE_MODEL` was ever supposed to control — it's a
+real, working distinction that just wasn't obvious enough from where the
+user went looking.
+
+### The Actual Mechanism
+
+`CLAUDE_MODEL` (`.env`, "Choose Claude Model") only ever sets which model
+the **admin** `claude` session launches with — the one you reach via
+"Open a Claude Session". It has never applied to NanoClaw's own
+per-conversation-group agent containers (Telegram, Discord, etc.) — this
+is already noted in both `README.md` files ("Can NanoClaw Itself Talk to
+Ollama?") and `info.yaml`'s own comment on that menu action, but nothing
+surfaces the distinction at the point someone's actually trying to change
+a *group's* model, which is where this bit.
+
+**To change a specific group's model**, NanoClaw has its own CLI for
+exactly this, entirely separate from this repo's `.env`:
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups list"
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups config update --id <group-id> --model claude-sonnet-4-6"
+docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups restart --id <group-id>"
+```
+
+Stored per-group in NanoClaw's own database, takes effect on that group's
+own restart (not the orchestrator container's), and covers every
+Telegram/Discord group wired to that same agent group at once.
+
+**`ncl` is not a global binary inside the container** — it only exists as
+a `pnpm` script alias (`package.json`'s `"ncl": "tsx src/cli/client.ts"`)
+inside NanoClaw's own source tree. Running bare `ncl ...` from a plain
+`bash` shell fails with "command not found" regardless of correctness —
+it needs both `cd $NANOCLAW_INSTALL_PATH` *and* the `pnpm` prefix, whether
+run from inside an admin `claude` session (which already has a shell and
+the right `cd`) or a fresh `docker exec` shell that doesn't.
+
+### Verifying It Actually Took Effect
+
+After the update+restart, the bot's own self-report ("what model are
+you?") still said Sonnet 5. Checking the real source of truth —
+`ncl groups config get` — showed `claude-sonnet-4-6`, confirming the
+change genuinely took effect and the self-report was just stale/
+unreliable metadata. This is the same principle already documented
+elsewhere in this repo (`claude-cli`'s and `nanoclaw`'s own READMEs:
+"don't trust asking `claude` itself 'which model are you'... use
+`/status` instead, or check the actual config/env directly") — this is
+simply the NanoClaw-group-specific version of the same check
+(`ncl groups config get` instead of `/status` or `docker exec ... env`).
+
+### General Lessons
+
+- **A correctly-documented distinction can still cause real confusion if
+  it isn't surfaced at the exact point someone's acting on the wrong
+  assumption.** The admin-session-vs-per-group-model split was already
+  written down in two places before this happened — the gap wasn't
+  missing documentation, it was documentation not being in front of the
+  user at the moment they needed it.
+- **"Which model are you?" is not a reliable check for ANY Claude Code
+  surface** — not the admin session (established earlier this session),
+  and not a NanoClaw group agent either. Always check the actual
+  governing state directly (`ncl groups config get`, `docker exec ... env
+  | grep CLAUDE_MODEL`, `/status`) rather than trusting a self-report.
+- **A CLI tool's own `bin` entry only works where it's actually
+  installed/linked** — a `package.json` `bin` field doesn't put anything
+  on a plain shell's `PATH` unless the package was installed globally;
+  inside a project's own checkout, its `pnpm <script-name>`/`npm run
+  <script-name>` alias is usually the reliable way to invoke it
+  regardless of global-link state.

@@ -55,58 +55,72 @@ the tools it just patched in actually work. A one-line `docker run --rm
 lessons-learned doc immediately, at build time, instead of requiring a
 live agent to hit the failure days later.
 
-### 5. Live-verify the admin-session tmux wrapper and `CLAUDE_MODEL`
+### 5. Live-verify the admin-session tmux wrapper and `CLAUDE_MODEL` — done, see "Update" below
 
 `scripts/claude-tmux.sh` (grouped-session `docker exec` wrapper for "Open a
 Claude Session") and `CLAUDE_MODEL` passthrough via `docker run -e` were
-written and syntax-checked (`bash -n`/`sh -n`) but not exercised against a
-real deploy — no live confirmation that two simultaneous `docker exec -it
-... nanoclaw-claude-tmux.sh` invocations actually land on independent tmux
-windows sharing one `claude --continue` conversation, and no live
-confirmation that `scripts/choose-model.sh`'s container recreation actually
-carries the new `CLAUDE_MODEL` value through to the next session. Confirm
-both on the first real deploy after this change. Same caveat applies to the
-identical mechanism in the plain `nanoclaw` environment (see
+originally written and syntax-checked (`bash -n`/`sh -n`) but not
+exercised against a real deploy. The first real deploy surfaced two real
+bugs in this exact mechanism (see "Update" below) — both now fixed, and
+the single-connection path (open a session, get a working `claude` on
+the right model) is confirmed live. Still not live-confirmed: two
+*simultaneous* `docker exec -it ... nanoclaw-claude-tmux.sh` connections
+actually landing on independent tmux windows sharing one conversation,
+as the grouped-session design intends. Same mechanism, same fixes, in
+the plain `nanoclaw` environment too (see
 `docs/future-enhancements/nanoclaw.md`).
 
-**Update — first real deploy already surfaced three real bugs, two now
-fixed, one still open:**
+**Update — resolved.** The first real deploy surfaced several real bugs
+across multiple rounds; all are now fixed and confirmed live on a real
+deploy:
 
 - **`deploy.sh`'s own config form was silently dropping `CLAUDE_MODEL`**
   on the next menu-driven redeploy after "Choose Claude Model" set it —
   see `docs/lessons-learned/general.md`'s "`deploy.sh`'s own config form
   silently drops any `.env` var it doesn't manage" for the full account.
   Fixed in `deploy.sh` itself (repo-wide, not specific to this
-  environment) — still needs a live confirmation that a real "Choose
-  Claude Model" → later menu-driven `FAST`/`CLEAN` sequence now actually
-  preserves the value.
+  environment).
 - **A fresh admin session had no self-awareness of its own environment**
   — see `docs/lessons-learned/general.md`'s "A container's writable layer
   looking 'persistent' can just mean it was never recreated yet." Fixed
   with a regenerated-on-every-start `/root/CLAUDE.md`
-  (`scripts/entrypoint.sh`) — needs a live confirmation that a brand-new
-  session (no history) correctly reports basic environment facts from the
-  generated file. A separate attempt at also persisting this session's
-  conversation *history* across recreation (a `${CONTAINER_NAME}_claude_home`
-  named volume) was tried and then reverted — never actually requested
-  (losing history was explicitly said to be acceptable), and it ran into
-  a genuine OrbStack Docker-implementation bug that made deployment fail
-  outright rather than just losing history gracefully. See
-  `docs/lessons-learned/nanoclaw-mnemon.md`'s own entry for the full
-  three-round investigation, and `docs/lessons-learned/general.md`'s
-  "Ultimately reverted, not shipped" addendum.
-- **Still open, not yet root-caused**: a live report that a freshly-picked
-  `CLAUDE_MODEL` (e.g. `claude-sonnet-4-6`) didn't take effect — the
-  session still self-reported as Sonnet 5. Leading hypothesis: the base
-  tmux `claude` session was already running from before the model change
-  (grouping onto an existing session doesn't relaunch `claude` with new
-  flags — see `claude-tmux.sh`'s own comment), not a bug in the
-  `CLAUDE_MODEL` plumbing itself, but this hasn't been confirmed against
-  `docker exec ... env | grep CLAUDE_MODEL` / `docker exec ... tmux
-  list-sessions` output yet. Also worth remembering generally: a model's
-  own free-text answer to "which model are you" is not a reliable way to
-  check this — `/status` inside the session, or the two `docker exec`
-  checks above from the host, are.
+  (`scripts/entrypoint.sh`). A separate attempt at also persisting this
+  session's conversation *history* across recreation (a
+  `${CONTAINER_NAME}_claude_home` named volume) was tried and then
+  reverted — never actually requested (losing history was explicitly
+  said to be acceptable), and it ran into a genuine OrbStack Docker-
+  implementation bug that made deployment fail outright rather than just
+  losing history gracefully. See `docs/lessons-learned/nanoclaw-mnemon.md`'s
+  own entry for the full three-round investigation, and
+  `docs/lessons-learned/general.md`'s "Ultimately reverted, not shipped"
+  addendum.
+- **Root-caused and fixed: a freshly-picked `CLAUDE_MODEL` didn't take
+  effect, and "Open a Claude Session" opened plain `bash` instead of
+  `claude`.** Both traced to the same bug: the grouped-session tmux
+  pattern's own "is this the first connection ever" check never actually
+  fired the way it assumed (`tmux new-session -t claude -s ...` silently
+  creates the group instead of failing when it doesn't exist yet), so
+  `claude`/`--continue`/`--model` never ran at all on a truly fresh tmux
+  server — a plain shell was left running instead, which is what the
+  free-text "which model are you" self-report was actually talking to. A
+  second bug (`claude --continue` exiting outright when there's nothing
+  to resume, rather than degrading to a fresh conversation) surfaced
+  immediately after the first fix and was fixed the same way. See
+  `docs/lessons-learned/nanoclaw-mnemon.md`'s own two entries for the full
+  investigation — both confirmed live: a real "Open a Claude Session"
+  now launches `claude` with the currently-configured model on a fresh
+  container, and stays open.
+- **Changing a *Telegram/Discord group's* own model is a separate
+  concern from any of the above** — `CLAUDE_MODEL`/"Choose Claude Model"
+  only ever controls the admin session; NanoClaw's own per-group model is
+  set via `ncl groups config update --id <group-id> --model <model>` +
+  `ncl groups restart --id <group-id>` (run from inside the container,
+  `cd`'d into `$NANOCLAW_INSTALL_PATH`, via `pnpm ncl ...` since it's not
+  a global binary there). See `docs/lessons-learned/nanoclaw-mnemon.md`'s
+  own entry for the full writeup — confirmed live, including that the
+  group's own self-report of its model can be just as stale/unreliable as
+  the admin session's, so check `ncl groups config get` directly rather
+  than trusting it.
 
 ## Refactoring Opportunities
 

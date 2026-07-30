@@ -227,3 +227,35 @@ each field in `desktop-entries.yaml`/`info.yaml`'s documented schema,
 assert a `${VAR}` marker in that field actually resolves after loading.
 Cheap to write once a runner exists, and would have caught both gaps this
 session found immediately instead of by inspection.
+
+---
+
+## Four independent copies of the grouped-session tmux pattern
+
+`environments/claude-cli/bashrc-tmux-attach.sh`,
+`environments/nanoclaw-mnemon/scripts/claude-tmux.sh`,
+`environments/nanoclaw/scripts/claude-tmux.sh`, and
+`environments/nanoclaw/scripts/open-claude-session.sh`'s host-mode branch
+all independently implement the identical `tmux has-session -t claude` /
+group-onto-existing-or-create-fresh-with-`claude --continue`/`--model`
+logic — including the identical `claude --continue $MODEL_ARGS || claude
+$MODEL_ARGS` fallback, fixed in all four at once (in the same commit)
+after the same underlying bug surfaced in all four simultaneously.
+
+**Why not extracted now:** each copy needs a genuinely different launch
+directory (`$HOME/workspace`, `/root`, `$INSTALL_PATH`) and a slightly
+different invocation context (`docker exec -it ... bash -lc "..."` vs.
+sourced from `/etc/profile.d/` vs. `exec`'d directly from a login shell),
+so a shared function would still need per-call-site parameters for
+nearly everything — the actual duplicated logic (the two tmux commands
+and the `has-session` gate) is only a handful of lines, and a shared
+script would add an extra file/sourcing indirection for four call sites
+that rarely change at the same time except when a bug like this one
+happens to touch all of them.
+
+**Revisit when:** a fifth copy of this pattern is needed (a new
+Claude-CLI-like environment), or the *next* bug in this logic also needs
+fixing in more than one place at once — at that point, extract the launch
+directory and the invocation wrapper as parameters to a single shared
+`lib/claude-tmux-lib.sh` function, sourced by all copies instead of
+pasted into each.

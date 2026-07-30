@@ -38,19 +38,36 @@ identical mechanism in the `claude-cli` and `nanoclaw-mnemon` environments
 — see their own `docs/future-enhancements/` entries.
 
 **Update — the sibling `nanoclaw-mnemon` environment's first real deploy
-surfaced the same three bugs here (container mode is the identical
-mechanism):** `deploy.sh`'s own config form dropping `CLAUDE_MODEL` on
-redeploy, a fresh admin session having no self-awareness of its own
-environment, and an unconfirmed report of a chosen model not taking
-effect (see `docs/future-enhancements/nanoclaw-mnemon.md`'s own updated
-entry and `docs/lessons-learned/general.md` for the full account). The
-first two are fixed here too — a regenerated `/root/CLAUDE.md` in
-container mode's `scripts/entrypoint.sh` gives a fresh session basic
-self-awareness — still needing the same live confirmation. A separate
-attempt at also persisting this session's conversation *history* across
-container recreation (a `${CONTAINER_NAME}_claude_home` named volume) was
-tried and then reverted: it was never actually requested (the user
-explicitly said losing history was acceptable), and it ran into a
-genuine OrbStack Docker-implementation bug that made deployment fail
-outright — see `docs/lessons-learned/general.md`'s own "Ultimately
-reverted, not shipped" addendum.
+surfaced the same bugs here (container mode is the identical mechanism),
+all now fixed and confirmed live *on `nanoclaw-mnemon`* — this
+environment's own copies got the identical code changes but haven't
+independently been exercised on a real deploy yet:**
+
+- **`deploy.sh`'s own config form was silently dropping `CLAUDE_MODEL`**
+  on the next menu-driven redeploy — fixed in `deploy.sh` itself
+  (repo-wide, not specific to either NanoClaw environment).
+- **A fresh admin session had no self-awareness of its own environment**
+  — fixed with a regenerated `/root/CLAUDE.md` in container mode's
+  `scripts/entrypoint.sh` (host mode has no equivalent container to
+  regenerate one for). A separate attempt at also persisting this
+  session's conversation *history* across container recreation (a
+  `${CONTAINER_NAME}_claude_home` named volume) was tried and then
+  reverted: never actually requested (losing history was explicitly said
+  to be acceptable), and it ran into a genuine OrbStack Docker-
+  implementation bug that made deployment fail outright — see
+  `docs/lessons-learned/general.md`'s own "Ultimately reverted, not
+  shipped" addendum.
+- **Root-caused and fixed: "Open a Claude Session" opened plain `bash`
+  instead of `claude`, and a freshly-picked `CLAUDE_MODEL` never took
+  effect.** Both traced to the grouped-session tmux pattern's own "is
+  this the first connection ever" check never actually firing the way it
+  assumed — see `docs/lessons-learned/nanoclaw-mnemon.md`'s two entries
+  on this for the full investigation and fix (`tmux has-session` gate,
+  plus a `claude --continue || claude` fallback for when there's nothing
+  to resume yet). Fixed identically in this environment's own
+  `scripts/claude-tmux.sh` and `scripts/open-claude-session.sh`'s
+  host-mode branch — **not yet independently live-confirmed on `nanoclaw`
+  itself**, only on the sibling `nanoclaw-mnemon` environment, since
+  container mode is genuinely the same mechanism but host mode's
+  non-tmux fallback and the multi-instance/two-simultaneous-connections
+  behavior remain entirely untested either way.
