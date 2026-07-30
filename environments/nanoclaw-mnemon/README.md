@@ -20,7 +20,7 @@ Mnemon's `remember`/`link`/`recall` primitives are invoked automatically via Cla
 
 ### Cost and knowledge-fidelity policy
 
-Every `FAST` or `CLEAN` deployment idempotently installs pi-bootstrap's managed policy into each existing group's `CLAUDE.local.md`. It directs the agent to conserve the shared monthly token budget, use mnemon selectively, and preserve raw sources, URLs, diagrams, provenance, and uncertainty. The marker-delimited block is replaced on later deploys without touching the group's own instructions. `scaffold-wiki.sh` applies it immediately to a newly scaffolded group. This is guidance, not a hard spend cap; configure gateway/API limits separately if you need enforcement.
+Every `FAST` or `CLEAN` deployment idempotently installs pi-bootstrap's managed policy into each existing group's `CLAUDE.local.md`. It directs the agent to conserve the shared monthly token budget, use mnemon selectively, and preserve raw sources, URLs, diagrams, provenance, and uncertainty. The marker-delimited block is replaced on later deploys without touching the group's own instructions. `scaffold-wiki.sh` applies it immediately to a newly scaffolded group. This is guidance, not a hard spend cap; configure gateway/API limits separately if you need enforcement. See the [operator guide](../../docs/nanoclaw-group-policy.md) for the exact rules and customization boundaries.
 
 ---
 

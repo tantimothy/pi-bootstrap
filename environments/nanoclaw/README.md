@@ -18,7 +18,7 @@ Default persistent memory is per-group: conversation history in the session data
 
 ### Cost and knowledge-fidelity policy
 
-Every `FAST` or `CLEAN` deployment idempotently installs pi-bootstrap's managed policy into each existing group's `CLAUDE.local.md`. It asks the agent to conserve the shared monthly token budget while preserving raw sources, URLs, diagrams, provenance, and uncertainty. The marker-delimited block is replaced on later deploys without touching the group's other instructions. New wiki groups receive it when they are scaffolded; other newly-created groups receive it on their next deployment. The policy is guidance, not a hard spend cap — use gateway/API limits separately if you need enforcement.
+Every `FAST` or `CLEAN` deployment idempotently installs pi-bootstrap's managed policy into each existing group's `CLAUDE.local.md`. It asks the agent to conserve the shared monthly token budget while preserving raw sources, URLs, diagrams, provenance, and uncertainty. The marker-delimited block is replaced on later deploys without touching the group's other instructions. New wiki groups receive it when they are scaffolded; other newly-created groups receive it on their next deployment. The policy is guidance, not a hard spend cap — use gateway/API limits separately if you need enforcement. See the [operator guide](../../docs/nanoclaw-group-policy.md) for the exact rules and customization boundaries.
 
 ---
 
