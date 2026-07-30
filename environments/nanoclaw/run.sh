@@ -340,6 +340,10 @@ if [ "$DEPLOY_MODE" = "container" ]; then
         $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-nohup-autostart.cjs" || true
     fi
 
+    # CLAUDE.local.md is durable per-group context; apply the managed policy
+    # after source sync but before agents can be recreated below.
+    bash "$REPO_DIR/lib/apply-nanoclaw-group-policy.sh" "$INSTALL_PATH"
+
     # If this sync updated an install that was already built, rebuild from
     # the fresh source and restart in place — otherwise the newly-synced
     # code just sits there unused. The wizard block below only ever
@@ -630,6 +634,10 @@ else
     echo "📦 Install path exists. Pulling latest changes..."
     git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
 fi
+
+# Same durable group policy as container mode. This is intentionally outside
+# the CLEAN-only branch so FAST also repairs a missing or older policy block.
+bash "$REPO_DIR/lib/apply-nanoclaw-group-policy.sh" "$INSTALL_PATH"
 
 # requestApproval() (src/modules/approvals/primitive.ts) silently drops an
 # approval card — logging apparent success — whenever getDeliveryAdapter()
