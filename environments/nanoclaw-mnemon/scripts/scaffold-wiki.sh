@@ -45,6 +45,11 @@ SOURCES_DIR="${GROUP_DIR}/sources"
 
 mkdir -p "$WIKI_DIR" "$SOURCES_DIR"
 
+# New groups can be scaffolded between CLEAN runs. Apply the same durable
+# group policy immediately rather than leaving the group ungoverned until a
+# later deployment cycle.
+bash "$SCRIPT_DIR/../../../lib/apply-nanoclaw-group-policy.sh" "$INSTALL_PATH" "$GROUP"
+
 if [ ! -f "${WIKI_DIR}/index.md" ]; then
     cat > "${WIKI_DIR}/index.md" <<'EOF'
 # Wiki Index

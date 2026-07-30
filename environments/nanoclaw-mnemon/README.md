@@ -18,6 +18,10 @@ Messaging apps → orchestrator (router) → agent container (Claude Agent SDK +
 
 Mnemon's `remember`/`link`/`recall` primitives are invoked automatically via Claude Code hooks (`SessionStart`, `UserPromptSubmit`, `Stop`) that `mnemon setup` registers inside each agent container — the agent doesn't need to be told to use it.
 
+### Cost and knowledge-fidelity policy
+
+Every `FAST` or `CLEAN` deployment idempotently installs pi-bootstrap's managed policy into each existing group's `CLAUDE.local.md`. It directs the agent to conserve the shared monthly token budget, use mnemon selectively, and preserve raw sources, URLs, diagrams, provenance, and uncertainty. The marker-delimited block is replaced on later deploys without touching the group's own instructions. `scaffold-wiki.sh` applies it immediately to a newly scaffolded group. This is guidance, not a hard spend cap; configure gateway/API limits separately if you need enforcement.
+
 ---
 
 ## 🧩 What Runs Where

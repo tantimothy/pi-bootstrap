@@ -16,6 +16,10 @@ Messaging apps → orchestrator (router) → container (Claude Agent SDK) → or
 
 Default persistent memory is per-group: conversation history in the session database, plus `CLAUDE.local.md` (the agent's own notes-to-self, read on every spawn but never overwritten by the host). Structured graph memory (mnemon) and a markdown wiki are both optional, added via NanoClaw's own skills (`/add-mnemon`, `/add-karpathy-llm-wiki`) rather than installed by default — see the separate `nanoclaw-mnemon` environment in this repo if you want mnemon baked in automatically.
 
+### Cost and knowledge-fidelity policy
+
+Every `FAST` or `CLEAN` deployment idempotently installs pi-bootstrap's managed policy into each existing group's `CLAUDE.local.md`. It asks the agent to conserve the shared monthly token budget while preserving raw sources, URLs, diagrams, provenance, and uncertainty. The marker-delimited block is replaced on later deploys without touching the group's other instructions. New wiki groups receive it when they are scaffolded; other newly-created groups receive it on their next deployment. The policy is guidance, not a hard spend cap — use gateway/API limits separately if you need enforcement.
+
 ---
 
 ## 🔒 Deployment Modes
