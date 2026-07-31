@@ -39,8 +39,16 @@ or API account if enforcement is required.
   plans, or duplicate information.
 - Before unusually large ingest, reprocessing, or maintenance work, state the
   expected scope and ask for approval.
-- Use mnemon recall only when it is likely to improve the result. Do not store
-  routine ingest bookkeeping or duplicate source text in mnemon.
+- For work involving an existing topic, project, person, decision, preference,
+  prior source, or cross-session question, run one focused mnemon recall first
+  using the task's named entities and key terms.
+- For a wholly new, self-contained source ingest, begin from the source
+  manifest and wiki. Recall mnemon if the source refers to an existing
+  entity/topic or the task requires reconciliation with prior knowledge.
+- Reuse that recall for the current task; do not perform broad or repeated
+  exploratory recalls unless the task scope materially changes.
+- Store durable relationships, decisions, and preferences in mnemon. Do not
+  store routine ingest bookkeeping or duplicate source text there.
 - Never reduce source fidelity merely to save tokens: preserve originals,
   URLs, diagrams, provenance, and uncertainty.
 
