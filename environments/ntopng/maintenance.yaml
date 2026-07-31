@@ -1,0 +1,8 @@
+deployment:
+  kind: container
+  value: ntopng
+updates:
+  local_images:
+    - image_pattern: "*ntopng*"
+      dockerfile: Dockerfile
+      apt_updates: true

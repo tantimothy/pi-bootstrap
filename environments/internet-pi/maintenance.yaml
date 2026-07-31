@@ -1,0 +1,3 @@
+deployment:
+  kind: directory
+  value: "${INTERNET_PI_INSTALL_PATH:-/home/pi/internet-pi}"

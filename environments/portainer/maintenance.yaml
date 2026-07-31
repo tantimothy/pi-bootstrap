@@ -1,0 +1,3 @@
+deployment:
+  kind: container
+  value: portainer

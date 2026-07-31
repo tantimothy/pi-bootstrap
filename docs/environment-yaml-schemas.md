@@ -370,6 +370,40 @@ sourced).
 
 ---
 
+## `maintenance.yaml` — backup and update metadata
+
+An optional `environments/<name>/maintenance.yaml` keeps maintenance facts
+beside the environment that owns them. `backup.sh` uses `deployment` to decide
+whether the environment is actually deployed; `check-updates.sh` uses
+`updates.local_images` to map a locally-built image back to its Dockerfile.
+This avoids root-level environment-name case statements.
+
+```yaml
+deployment:                    # optional; absent preserves backup.sh's generic fallback
+  kind: container              # container | marker | directory | systemd-service
+  value: example-service       # name/path; ${VAR:-default} expansion is supported
+
+updates:                       # optional
+  local_images:
+    - image_pattern: "example:*"  # shell glob, first matching entry wins
+      dockerfile: Dockerfile       # path relative to this environment folder
+      apt_updates: false           # whether apt package changes are meaningful
+```
+
+Use `marker` for a durable file such as `${ENV_DIR}/.deployed`, `directory`
+for an install path, and `systemd-service` for a unit name. A deployment mode
+that cannot be expressed by these static kinds may provide an executable
+`scripts/is-deployed.sh`; it takes precedence over the YAML declaration. This
+is intentionally environment-local because it is lifecycle behavior, not a
+generic framework concern.
+
+`updates.local_images` is only for images built by this repository. Registry
+images still use Docker's normal pull-and-compare path and need no entry.
+Declare the more-specific pattern before a broader one—for example an IDE
+sidecar before the environment's general image pattern.
+
+---
+
 ## Adding a new environment's entries
 
 1. Write `environments/<name>/desktop-entries.yaml` and/or `info.yaml`

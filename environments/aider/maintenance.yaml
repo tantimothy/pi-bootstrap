@@ -1,0 +1,8 @@
+updates:
+  local_images:
+    - image_pattern: "*aider*ide*"
+      dockerfile: Dockerfile.ide
+      apt_updates: false
+    - image_pattern: "*aider*"
+      dockerfile: Dockerfile
+      apt_updates: false

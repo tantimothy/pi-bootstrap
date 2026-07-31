@@ -1,0 +1,5 @@
+updates:
+  local_images:
+    - image_pattern: "nanoclaw-orchestrator:*"
+      dockerfile: Dockerfile
+      apt_updates: false

@@ -1,0 +1,8 @@
+deployment:
+  kind: container
+  value: infinite-mac
+updates:
+  local_images:
+    - image_pattern: "*infinite-mac*"
+      dockerfile: Dockerfile
+      apt_updates: true

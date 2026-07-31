@@ -1,0 +1,8 @@
+deployment:
+  kind: container
+  value: pihole
+updates:
+  local_images:
+    - image_pattern: "*darkstat*"
+      dockerfile: darkstat/Dockerfile
+      apt_updates: true

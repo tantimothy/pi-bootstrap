@@ -1,0 +1,8 @@
+deployment:
+  kind: marker
+  value: "${ENV_DIR}/.deployed"
+updates:
+  local_images:
+    - image_pattern: dragonos-pi
+      dockerfile: Dockerfile
+      apt_updates: true
