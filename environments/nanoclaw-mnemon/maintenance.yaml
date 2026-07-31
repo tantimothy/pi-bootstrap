@@ -1,0 +1,8 @@
+deployment:
+  kind: container
+  value: "${CONTAINER_NAME:-nanoclaw-mnemon}"
+updates:
+  local_images:
+    - image_pattern: "nanoclaw-mnemon-orchestrator:*"
+      dockerfile: Dockerfile
+      apt_updates: false

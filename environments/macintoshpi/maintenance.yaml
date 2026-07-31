@@ -1,0 +1,3 @@
+deployment:
+  kind: marker
+  value: "${ENV_DIR}/.deployed"

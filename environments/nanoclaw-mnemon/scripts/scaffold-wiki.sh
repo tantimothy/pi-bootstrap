@@ -22,7 +22,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-[ -f "$SCRIPT_DIR/.env" ] && { set -a; source "$SCRIPT_DIR/.env"; set +a; }
+ENV_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+[ -f "$ENV_DIR/.env" ] && { set -a; source "$ENV_DIR/.env"; set +a; }
 INSTALL_PATH="${NANOCLAW_INSTALL_PATH:-$HOME/nanoclaw-mnemon}"
 
 GROUP="${1:-}"
@@ -48,7 +49,10 @@ mkdir -p "$WIKI_DIR" "$SOURCES_DIR"
 # New groups can be scaffolded between CLEAN runs. Apply the same durable
 # group policy immediately rather than leaving the group ungoverned until a
 # later deployment cycle.
-bash "$SCRIPT_DIR/../../../lib/apply-nanoclaw-group-policy.sh" "$INSTALL_PATH" "$GROUP"
+bash "$SCRIPT_DIR/apply-group-policy.sh" "$INSTALL_PATH" "$GROUP"
+if [ "${NANOCLAW_SETUP:-mnemon}" = "mnemon" ]; then
+    bash "$SCRIPT_DIR/apply-mnemon-recall-policy.sh" "$INSTALL_PATH" "$GROUP"
+fi
 
 if [ ! -f "${WIKI_DIR}/index.md" ]; then
     cat > "${WIKI_DIR}/index.md" <<'EOF'

@@ -9,7 +9,7 @@ own constraints; this doc only claims the mechanism isn't inherently
 
 Several environments in this repo could plausibly want more than one
 independently-running copy — `dragonos-sdr` for two different attached SDR
-devices, `nanoclaw`/`nanoclaw-mnemon` for separate conversation-group
+devices, `nanoclaw-mnemon` for separate conversation-group
 deployments, `llm-gateways` for more than one gateway configuration. But
 the `${CONTAINER_NAME}`-templating trick that makes two `claude-cli`
 instances not collide (named volumes, desktop-entry IDs, `custom_actions`

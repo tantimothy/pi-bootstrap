@@ -8,8 +8,8 @@ any device with no port exposure at all (see "Using This as Your Remote
 Runner" below). No NanoClaw, no channel bots (Telegram/Discord/etc.), no
 Docker-outside-of-Docker orchestrator spawning sibling containers. If you
 want Claude to have a chat presence on Telegram/WhatsApp/etc. and its own
-conversation-group model, use the `nanoclaw` or `nanoclaw-mnemon`
-environments instead — this one is for the simpler case: you, a terminal,
+conversation-group model, use the `nanoclaw-mnemon` environment instead —
+this one is for the simpler case: you, a terminal,
 and a repo, from wherever you happen to be.
 
 No custom `run.sh` — this is a plain `docker-compose.yml` with `build: .`,

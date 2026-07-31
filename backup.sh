@@ -20,6 +20,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # a failed/missing-locale outcome there returns non-zero, which `set -e`
 # above would otherwise treat as this whole script failing.
 source "$REPO_DIR/lib/locale-lib.sh" || true
+source "$REPO_DIR/lib/maintenance-lib.sh"
 
 DOCKER="${DOCKER_CMD:-docker}"
 if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
@@ -160,60 +161,6 @@ append_to_archive() {
 # install-desktop.sh uses to decide whether to show a desktop shortcut) —
 # a leftover .env from configuring-but-not-deploying an environment in the
 # TUI wizard shouldn't make backup.sh treat it as having real data.
-is_deployed() {
-    local env_name="$1" env_path="$2"
-    case "$env_name" in
-        pihole-wireguard)
-            $DOCKER ps -a --filter "name=^/pihole$" -q 2>/dev/null | grep -q .
-            ;;
-        ntopng)
-            $DOCKER ps -a --filter "name=^/ntopng$" -q 2>/dev/null | grep -q .
-            ;;
-        portainer)
-            $DOCKER ps -a --filter "name=^/portainer$" -q 2>/dev/null | grep -q .
-            ;;
-        infinite-mac)
-            $DOCKER ps -a --filter "name=^/infinite-mac$" -q 2>/dev/null | grep -q .
-            ;;
-        classic-mac-vnc)
-            $DOCKER ps -a --filter "name=^/classic-mac-vnc$" -q 2>/dev/null | grep -q .
-            ;;
-        dragonos-sdr|kali-pentest|macintoshpi)
-            [ -f "${env_path}.deployed" ]
-            ;;
-        nanoclaw)
-            # Mirrors run.sh's own OS-based default + .env override — there's
-            # no systemd unit at all in container mode, and no "nanoclaw"
-            # container in host mode either.
-            local nanoclaw_mode
-            nanoclaw_mode=$(grep -E '^NANOCLAW_DEPLOY_MODE=' "${env_path}.env" 2>/dev/null | cut -d= -f2-)
-            if [ -z "$nanoclaw_mode" ]; then
-                [[ "$(uname)" == "Darwin" ]] && nanoclaw_mode="container" || nanoclaw_mode="host"
-            fi
-            if [ "$nanoclaw_mode" = "container" ]; then
-                $DOCKER ps -a --filter "name=^/nanoclaw$" -q 2>/dev/null | grep -q .
-            else
-                systemctl list-unit-files "nanoclaw.service" --no-legend 2>/dev/null | grep -q nanoclaw
-            fi
-            ;;
-        internet-pi)
-            local install_path
-            install_path=$(grep -E '^INTERNET_PI_INSTALL_PATH=' "${env_path}.env" 2>/dev/null | cut -d= -f2-)
-            [ -d "${install_path:-/home/pi/internet-pi}" ]
-            ;;
-        nanoclaw-mnemon)
-            # Container mode only — no host/systemd mode to detect here,
-            # unlike the plain nanoclaw environment.
-            $DOCKER ps -a --filter "name=^/nanoclaw-mnemon$" -q 2>/dev/null | grep -q .
-            ;;
-        *)
-            # Unknown/future environment type — don't block it, just let
-            # its actual manifest content (or lack of it) decide.
-            true
-            ;;
-    esac
-}
-
 echo "🗄️  Building backup archive..."
 echo ""
 
@@ -221,7 +168,7 @@ for ENV_PATH in "$REPO_DIR"/environments/*/; do
     ENV_NAME="$(basename "$ENV_PATH")"
     { [ -f "$ENV_PATH/info.sh" ] || [ -f "$ENV_PATH/info.yaml" ]; } || continue
 
-    if ! is_deployed "$ENV_NAME" "$ENV_PATH"; then
+    if ! DOCKER_CMD="$DOCKER" is_environment_deployed "$ENV_PATH"; then
         echo "   ⏭️  $ENV_NAME (not deployed — skipping, even though a .env may exist from configuring it in the TUI)"
         continue
     fi

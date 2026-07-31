@@ -1,15 +1,15 @@
 data_dirs:
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}/groups"
-    description: "Per-group files: conversation history, mnemon's persistent memory graph (nested under each group's .claude/mnemon/), transcripts, CLAUDE.md"
+    description: "Per-group files: conversation history, transcripts, and CLAUDE.md; Mnemon memory graphs are also here when NANOCLAW_SETUP=mnemon"
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}/data"
     description: "Sessions, message DB, task scheduler DB, IPC streams"
 install_dirs:
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}"
-    description: "NanoClaw + mnemon repo/binaries (groups/ and data/ live inside here)"
+    description: "NanoClaw repo/binaries (groups/ and data/ live inside here)"
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
 install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
 delete_install_dirs: false
-delete_confirm_msg: "All conversation history and mnemon's persistent memory graph will be lost."
+delete_confirm_msg: "All conversation history and any Mnemon persistent memory graph will be lost."
 # NanoClaw itself still has no default web interface of its own — its own
 # README says so directly ("Beyond setup there's no monitoring dashboard or
 # debugging UI either: describe the problem in chat"). NANOCLAW_PORT exists
@@ -21,9 +21,9 @@ delete_confirm_msg: "All conversation history and mnemon's persistent memory gra
 # `chat-frontends` environment instead) — so there's genuinely no web UI here.
 web_uis: []
 custom_actions:
-  - label: "Scaffold a Wiki for a Group"
+  - label: "Scaffold a Wiki for a Group (Mnemon profile)"
     command: 'read -rp "Group folder name (under groups/): " GROUP; bash ${ENV_DIR}/scripts/scaffold-wiki.sh "$GROUP"'
-  - label: "Reload Mnemon for a Group"
+  - label: "Reload Mnemon for a Group (Mnemon profile)"
     command: "bash ${ENV_DIR}/scripts/reload-mnemon.sh"
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
@@ -65,16 +65,15 @@ useful_commands: |2
      docker ps --filter name=nanoclaw-mnemon                         # Orchestrator status
      docker logs -f nanoclaw-mnemon                                  # Orchestrator live logs
      docker restart nanoclaw-mnemon                                  # Restart after a config change
-     docker ps --filter name=nanoclaw-agent                          # List agent containers (both nanoclaw environments, if both deployed)
+     docker ps --filter name=nanoclaw-agent                          # List this install's agent containers
      docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"   # Then: /add-telegram, /add-whatsapp, /add-discord, etc. (see README's "Adding Channels", and "Launching Claude CLI Directly" for why /root)
      docker exec -it nanoclaw-mnemon tmux attach -t claude              # Reattach to the admin claude session directly, no relaunch wrapper
      docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"   # Update Anthropic API key
-     ollama pull llama3.2                                              # Pull a chat-capable model for mnemon's optional embeddings (nomic-embed-text is embedding-only)
+     ollama pull llama3.2                                              # Optional: pull a chat model; Mnemon embeddings use nomic-embed-text
 
   📌 Notes:
-     🧠 mnemon (github.com/mnemon-dev/mnemon) is patched into NanoClaw's own agent
-        sandbox image — persistent, cross-session graph memory per conversation
-        group. Patched idempotently on every deploy; see run.sh's apply_mnemon_patch.
+     🧠 Mnemon-specific actions and memory apply only when NANOCLAW_SETUP=mnemon
+        (the default). Set NANOCLAW_SETUP=plain for an unpatched NanoClaw agent image.
      🐳 NanoClaw manages its own Docker containers per conversation group.
         Use the Docker Manager in the deploy menu to view or delete them.
      ❌ iMessage isn't offered — this environment is container-mode only (see

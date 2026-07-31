@@ -1,0 +1,8 @@
+deployment:
+  kind: container
+  value: classic-mac-vnc
+updates:
+  local_images:
+    - image_pattern: "*classic-mac-vnc*"
+      dockerfile: Dockerfile
+      apt_updates: false

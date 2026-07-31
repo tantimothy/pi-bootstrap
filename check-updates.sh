@@ -17,7 +17,7 @@
 # mismatch means an update is available but not yet applied.
 #
 # Images with no matching upstream registry entry (built locally, e.g.
-# darkstat/ntopng/dragonos-sdr/kali-pentest/nanoclaw/nanoclaw-mnemon/
+# darkstat/ntopng/dragonos-sdr/kali-pentest/nanoclaw-mnemon/
 # infinite-mac/claude-cli/classic-mac-vnc's own Dockerfile builds) can't be
 # checked that way — there's no registry tag for the built image itself to
 # compare against. For those,
@@ -39,6 +39,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$REPO_DIR/lib/locale-lib.sh" || true
 
 source "$REPO_DIR/lib/deploy-lib.sh"
+source "$REPO_DIR/lib/maintenance-lib.sh"
 DOCKER="${DOCKER_CMD:-docker}"
 if ! $DOCKER ps &>/dev/null; then DOCKER="sudo $DOCKER"; fi
 
@@ -201,88 +202,23 @@ apply_update() {
     )
 }
 
-# Maps a locally-built image reference back to the Dockerfile that built it
-# — needed only to find its FROM line for the base-image-drift check below.
-# Keyed on the image reference itself, not container name: dragonos-sdr and
-# kali-pentest let CONTAINER_NAME be renamed via .env, but the image tags/
-# build contexts here are fixed by each environment's own docker-compose.yml
-# or run.sh, not user-configurable, so they're a stable match target.
-_dockerfile_for_image() {
-    case "$1" in
-        *darkstat*)         echo "$REPO_DIR/environments/pihole-wireguard/darkstat/Dockerfile" ;;
-        *ntopng*)           echo "$REPO_DIR/environments/ntopng/Dockerfile" ;;
-        dragonos-pi)        echo "$REPO_DIR/environments/dragonos-sdr/Dockerfile" ;;
-        pi-pentest*)        echo "$REPO_DIR/environments/kali-pentest/Dockerfile" ;;
-        *infinite-mac*)     echo "$REPO_DIR/environments/infinite-mac/Dockerfile" ;;
-        # Exact tag prefixes, not a bare *nanoclaw* substring match: both
-        # environments' own run.sh set IMAGE_TAG to exactly these two
-        # values, but NanoClaw itself ALSO spawns per-conversation-group
-        # agent-sandbox containers with dynamically generated image tags
-        # that happen to contain "nanoclaw" too (e.g.
-        # "nanoclaw-agent-v2-91b144eb:ag-<timestamp>-<random>") — built
-        # from a completely different Dockerfile (NanoClaw's own
-        # container/Dockerfile, inside the git-cloned, per-deployment
-        # install path — not a static file this repo owns or can point
-        # at). A bare *nanoclaw* match here caught those too and compared
-        # them against this repo's own orchestrator Dockerfile, which just
-        # happens to share the same node:20-slim base — coincidentally
-        # right about the string, but comparing the wrong image against
-        # the wrong file, and wrong the moment either Dockerfile's FROM
-        # line diverges. Confirmed directly: an agent container reported
-        # "base image node:20-slim has moved" on every scan, unrelated to
-        # whether the ORCHESTRATOR container (correctly matched) had
-        # actually moved or not.
-        nanoclaw-mnemon-orchestrator:*) echo "$REPO_DIR/environments/nanoclaw-mnemon/Dockerfile" ;;
-        nanoclaw-orchestrator:*)        echo "$REPO_DIR/environments/nanoclaw/Dockerfile" ;;
-        *claude-cli*)       echo "$REPO_DIR/environments/claude-cli/Dockerfile" ;;
-        *classic-mac-vnc*)  echo "$REPO_DIR/environments/classic-mac-vnc/Dockerfile" ;;
-        # *aider*ide* checked BEFORE the bare *aider* pattern below — the
-        # opt-in OpenVSCode Server sidecar (docker-compose.yml's "ide"
-        # profile) is built from a completely different Dockerfile
-        # (Dockerfile.ide, a linuxserver/openvscode-server base) than the
-        # plain SSH/tmux service, but Compose's own default image-naming
-        # (<project>-<service>, i.e. "aider-aider-ide") still contains the
-        # substring "aider" too — same class of ordering bug the
-        # nanoclaw-mnemon-orchestrator/nanoclaw-orchestrator exact-prefix
-        # matches above already exist to avoid.
-        *aider*ide*)        echo "$REPO_DIR/environments/aider/Dockerfile.ide" ;;
-        *aider*)            echo "$REPO_DIR/environments/aider/Dockerfile" ;;
-        *) return 1 ;;
-    esac
+_local_image_config() {
+    local metadata env_dir dockerfile apt_updates
+    metadata=$(local_image_metadata "$1") || return 1
+    IFS='|' read -r env_dir dockerfile apt_updates <<< "$metadata"
+    printf '%s|%s\n' "${env_dir}/${dockerfile}" "$apt_updates"
 }
 
-# Whether "an apt package has a newer version" (the check below) is even a
-# meaningful signal for a given locally-built image — true for
-# darkstat/ntopng/dragonos-sdr/kali-pentest, where the apt package named in
-# the image *is* the whole point of the image, so a newer version is worth
-# knowing about. False for nanoclaw/nanoclaw-mnemon, claude-cli, aider, and
-# classic-mac-vnc: their apt packages (nanoclaw: git, curl,
-# ca-certificates, procps, iproute2, jq, ffmpeg; claude-cli:
-# openssh-server, tmux, git, curl, ca-certificates, procps, less, vim, gh;
-# aider: openssh-server, tmux, git, curl, ca-certificates, procps, less,
-# vim — aider-chat itself is a pip package, not an apt one, so this check
-# wouldn't even see it either way; classic-mac-vnc: build-essential,
-# autoconf/automake/libtool, libsdl2-dev, xvfb, x11vnc, curl,
-# ca-certificates) are incidental supporting infra (build toolchain,
-# headless display/VNC, etc.), not what these images exist to run. Debian
-# trickles security patches into at least one of
-# curl/ca-certificates/git/openssh-server/gh often enough that, unfiltered,
-# this flagged "UPDATE AVAILABLE" on very nearly every scan — confirmed
-# directly, not a one-off — which isn't a useful signal to rebuild an
-# image that takes real time (whisper.cpp compiled from source for
-# nanoclaw; Basilisk II/SheepShaver compiled from source for
-# classic-mac-vnc) over. The base-image-drift check below still applies to
-# all of them regardless — a real base-image move is a much rarer, more
-# meaningful signal than "some apt package somewhere got a patch."
+_dockerfile_for_image() {
+    local config
+    config=$(_local_image_config "$1") || return 1
+    printf '%s\n' "${config%%|*}"
+}
+
 _apt_upgrade_relevant() {
-    case "$1" in
-        # Same exact-tag scoping as _dockerfile_for_image() above, and for
-        # the same reason — a bare *nanoclaw* substring would also match
-        # NanoClaw's own dynamically-tagged agent-sandbox containers,
-        # which this function was never meant to weigh in on either way.
-        nanoclaw-mnemon-orchestrator:*|nanoclaw-orchestrator:*|*claude-cli*|*classic-mac-vnc*|*aider*) return 1 ;;
-        *) return 0 ;;
-    esac
+    local config
+    config=$(_local_image_config "$1") || return 1
+    [ "${config##*|}" = "true" ]
 }
 
 # For an image with no matching upstream registry entry, "an update" means
@@ -339,7 +275,7 @@ check_locally_built() {
     dockerfile=$(_dockerfile_for_image "$image_ref") || true
     if [ -n "$dockerfile" ] && [ -f "$dockerfile" ]; then
         # The LAST `FROM` line, not the first (`grep -m1` — what this used
-        # to do): nanoclaw/nanoclaw-mnemon's Dockerfiles are multi-stage
+        # to do): NanoClaw's Dockerfile is multi-stage
         # (`FROM docker:27-cli AS docker-cli` first, just to grab the
         # `docker` CLI binary via `COPY --from=`; `FROM node:20-slim`
         # second, the actual base the final image builds on). `grep -m1`

@@ -26,9 +26,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-[ -f "$SCRIPT_DIR/.env" ] && { set -a; source "$SCRIPT_DIR/.env"; set +a; }
+ENV_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+[ -f "$ENV_DIR/.env" ] && { set -a; source "$ENV_DIR/.env"; set +a; }
 INSTALL_PATH="${NANOCLAW_INSTALL_PATH:-$HOME/nanoclaw-mnemon}"
 DOCKER="${DOCKER_CMD:-docker}"
+
+if [ "${NANOCLAW_SETUP:-mnemon}" != "mnemon" ]; then
+    echo "❌ Mnemon is disabled (NANOCLAW_SETUP=plain); there is nothing to reload." >&2
+    exit 1
+fi
 
 GROUP="${1:-}"
 if [ -z "$GROUP" ]; then

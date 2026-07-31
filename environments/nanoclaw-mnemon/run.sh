@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
 
 # =======================================================================================
-# NANOCLAW + MNEMON ENVIRONMENT ORCHESTRATOR (run.sh)
-# Same NanoClaw orchestrator as the plain `nanoclaw` environment, but with
-# github.com/mnemon-dev/mnemon patched into NanoClaw's own per-conversation-
-# group agent sandbox for persistent, cross-session graph memory — following
-# the exact steps in NanoClaw's own .claude/skills/add-mnemon/SKILL.md, not
-# a reimplementation of it. This is a fully independent environment (own
-# install path, own container name) — it does not share files, containers,
-# or state with the plain `nanoclaw` environment, so both can coexist on the
-# same machine without colliding.
-#
-# Container deploy mode only (see the plain `nanoclaw` environment for the
-# host/systemd/launchd mode and the reasoning behind the split) — this
-# environment exists specifically for the Mac-first, filesystem-sandboxed
-# use case, so there's no host-mode branch here to keep in sync.
+# NANOCLAW ENVIRONMENT ORCHESTRATOR (run.sh)
+# This repository's single NanoClaw environment. NANOCLAW_SETUP=mnemon (the
+# default) patches github.com/mnemon-dev/mnemon into NanoClaw's per-group
+# agent sandbox, following NanoClaw's own add-mnemon skill; plain leaves the
+# upstream agent image unpatched. Both profiles use the same install path and
+# container-only deployment.
 #
 # What mnemon adds: a four-graph (temporal/entity/causal/semantic) memory
 # store per conversation group, written to that group's own `.claude/`
@@ -88,9 +80,13 @@ if [[ "$(uname)" == "Darwin" ]] && [ "$INSTALL_PATH" = "/home/pi/nanoclaw-mnemon
 fi
 NANOCLAW_PORT="${NANOCLAW_PORT:-3081}"
 MNEMON_VERSION="${MNEMON_VERSION:-0.1.17}"
+NANOCLAW_SETUP="${NANOCLAW_SETUP:-mnemon}"
+case "$NANOCLAW_SETUP" in
+    mnemon|plain) ;;
+    *) echo "❌ NANOCLAW_SETUP must be 'mnemon' or 'plain' (got: $NANOCLAW_SETUP)." >&2; exit 1 ;;
+esac
 # Opt-in — mnemon's own optional hybrid graph+vector recall (unset by
-# default, matching the plain nanoclaw environment's own OLLAMA_HOST stub
-# in .env.example: commented out until you actually have Ollama running
+# default: commented out until you actually have Ollama running
 # somewhere reachable). Left blank, mnemon runs graph-only, which is its
 # own documented default behavior, not a degraded mode.
 MNEMON_EMBED_ENDPOINT="${MNEMON_EMBED_ENDPOINT:-}"
@@ -108,8 +104,7 @@ HOST_TZ="${HOST_TZ:-UTC}"
 # ---------------------------------------------------------------------------------------
 # Agent containers spawned by NanoClaw are all named/imaged nanoclaw-agent-v2-*
 # regardless of which install produced them — matching just that prefix
-# would sweep up the plain `nanoclaw` environment's own agent containers
-# too, if both are ever deployed on the same machine. Scope the sweep to
+# can collide with another NanoClaw installation. Scope the sweep to
 # containers whose bind mounts actually trace back to THIS install path.
 # ---------------------------------------------------------------------------------------
 sweep_agent_container_ids() {
@@ -530,8 +525,8 @@ fi
 # filesystem/git operation, no container runtime needed for this part, and
 # $INSTALL_PATH is a normal host directory regardless of deploy mode.
 # nanocoai/nanoclaw is the current canonical location (GitHub redirects the
-# older qwibitai/nanoclaw URL the plain `nanoclaw` environment still uses,
-# but this environment clones the canonical one directly).
+# older qwibitai/nanoclaw URL, but this environment clones the canonical one
+# directly).
 #
 # CLEAN used to `rm -rf "$INSTALL_PATH"` here and re-clone from scratch —
 # which also destroyed groups/, data/, store/, and .env (conversation
@@ -639,25 +634,25 @@ else
     git -C "$INSTALL_PATH" pull --ff-only || echo "⚠️  Git pull skipped (local changes or detached HEAD)."
 fi
 
-# Best-effort — only does anything if MNEMON_EMBED_ENDPOINT is set in .env.
-# Runs before the patch below so any warnings surface before the build
-# proceeds, though the patch itself doesn't depend on the outcome here —
-# the ENV lines get baked in regardless, this just tries to make sure
-# there's something actually listening on the other end.
-ensure_ollama_ready
-
-# Patch mnemon in BEFORE the orchestrator container ever builds NanoClaw's
-# own agent-sandbox image, so the very first build already includes it —
-# no separate rebuild step needed afterward, unlike applying this skill to
-# an already-running install.
-apply_mnemon_patch
-apply_media_tools_patch
+if [ "$NANOCLAW_SETUP" = "mnemon" ]; then
+    ensure_ollama_ready
+    apply_mnemon_patch
+    apply_media_tools_patch
+else
+    if [ "$POLICY" != "CLEAN" ] && [ -f "${INSTALL_PATH}/container/Dockerfile" ] && grep -q 'MNEMON_VERSION' "${INSTALL_PATH}/container/Dockerfile"; then
+        echo "⚠️  NANOCLAW_SETUP=plain needs a CLEAN deploy to remove the existing Mnemon agent-image patch." >&2
+    fi
+    echo "ℹ️  Plain NanoClaw setup selected — skipping Mnemon, embeddings, and agent media-tool patches."
+fi
 
 # Group-local CLAUDE.local.md survives CLEAN and is read on every agent
 # spawn; install/update the managed policy after source sync and before any
 # agent image is rebuilt or resumed. A first deploy has no groups yet, which
 # the helper treats as a harmless no-op.
-bash "$REPO_DIR/lib/apply-nanoclaw-group-policy.sh" "$INSTALL_PATH"
+bash "$SCRIPT_DIR/scripts/apply-group-policy.sh" "$INSTALL_PATH"
+if [ "$NANOCLAW_SETUP" = "mnemon" ]; then
+    bash "$SCRIPT_DIR/scripts/apply-mnemon-recall-policy.sh" "$INSTALL_PATH"
+fi
 
 # ---------------------------------------------------------------------------------------
 # Build the orchestrator image if missing, then start/create the container.
@@ -811,7 +806,7 @@ if [ ! -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🧙 Handing off to the NanoClaw interactive setup wizard (inside the container)..."
     echo "   The wizard will ask for your Anthropic API key, channel setup, and more."
     echo "   Its first build already includes mnemon, patched in above."
-    echo "   iMessage isn't offered in container mode — see the plain nanoclaw environment's README."
+    echo "   iMessage isn't offered in this container-only NanoClaw setup."
     echo ""
     exec 0< /dev/tty
     exec 1> /dev/tty

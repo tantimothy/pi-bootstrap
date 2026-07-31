@@ -70,11 +70,10 @@ the fix). Not yet done:
   `/workspace/agent`, the next routine container respawn (which happens
   on its own, unprompted) will wipe them again.
 
-## nanoclaw / nanoclaw-mnemon: approval-delivery patch not yet verified against a live deploy
+## nanoclaw-mnemon: approval-delivery patch not yet verified against a live deploy
 
 Full account in `docs/lessons-learned/nanoclaw-mnemon.md`'s "Approval-Card
-Silent Delivery Failure" section and `docs/lessons-learned/nanoclaw.md`'s
-porting section. The underlying bug and fix were confirmed against a real,
+Silent Delivery Failure" section. The underlying bug and fix were confirmed against a real,
 live NanoClaw install (see that section for the investigation) — what's
 **not** yet confirmed is that `scripts/patch-approval-delivery.cjs`'s own
 text-splice actually applies cleanly against a fresh `git clone` of
@@ -85,8 +84,8 @@ pattern, but this repo doesn't vendor NanoClaw's source, so there's no
 local copy to run the patch against and confirm the anchor still matches
 upstream today. Not yet done:
 
-- **Run a real `CLEAN` deploy of `nanoclaw-mnemon`** (or `nanoclaw`,
-  either deploy mode) against a fresh clone and confirm the patch's own
+- **Run a real `CLEAN` deploy of `nanoclaw-mnemon`** against a fresh clone
+  and confirm the patch's own
   console output says "Patched src/modules/approvals/primitive.ts..."
   rather than the "expected body ... has changed upstream — skipping"
   warning path.

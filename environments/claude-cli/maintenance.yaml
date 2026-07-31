@@ -1,0 +1,5 @@
+updates:
+  local_images:
+    - image_pattern: "*claude-cli*"
+      dockerfile: Dockerfile
+      apt_updates: false
