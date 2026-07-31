@@ -232,11 +232,9 @@ session found immediately instead of by inspection.
 
 ## Four independent copies of the grouped-session tmux pattern
 
-`environments/claude-cli/bashrc-tmux-attach.sh`,
-`environments/nanoclaw-mnemon/scripts/claude-tmux.sh`,
-`environments/nanoclaw/scripts/claude-tmux.sh`, and
-`environments/nanoclaw/scripts/open-claude-session.sh`'s host-mode branch
-all independently implement the identical `tmux has-session -t claude` /
+`environments/claude-cli/bashrc-tmux-attach.sh` and
+`environments/nanoclaw-mnemon/scripts/claude-tmux.sh` independently
+implement the same `tmux has-session -t claude` /
 group-onto-existing-or-create-fresh-with-`claude --continue`/`--model`
 logic — including the identical `claude --continue $MODEL_ARGS || claude
 $MODEL_ARGS` fallback, fixed in all four at once (in the same commit)

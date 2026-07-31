@@ -17,7 +17,7 @@
 # mismatch means an update is available but not yet applied.
 #
 # Images with no matching upstream registry entry (built locally, e.g.
-# darkstat/ntopng/dragonos-sdr/kali-pentest/nanoclaw/nanoclaw-mnemon/
+# darkstat/ntopng/dragonos-sdr/kali-pentest/nanoclaw-mnemon/
 # infinite-mac/claude-cli/classic-mac-vnc's own Dockerfile builds) can't be
 # checked that way — there's no registry tag for the built image itself to
 # compare against. For those,
@@ -275,7 +275,7 @@ check_locally_built() {
     dockerfile=$(_dockerfile_for_image "$image_ref") || true
     if [ -n "$dockerfile" ] && [ -f "$dockerfile" ]; then
         # The LAST `FROM` line, not the first (`grep -m1` — what this used
-        # to do): nanoclaw/nanoclaw-mnemon's Dockerfiles are multi-stage
+        # to do): NanoClaw's Dockerfile is multi-stage
         # (`FROM docker:27-cli AS docker-cli` first, just to grab the
         # `docker` CLI binary via `COPY --from=`; `FROM node:20-slim`
         # second, the actual base the final image builds on). `grep -m1`

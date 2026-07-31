@@ -1,16 +1,25 @@
-# NanoClaw + Mnemon — Persistent Memory AI Assistant
+# NanoClaw — Optional Mnemon Persistent Memory
 
-The same self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) AI assistant as the plain `nanoclaw` environment, with [mnemon](https://github.com/mnemon-dev/mnemon) — a real, independent, third-party persistent-memory tool — patched into NanoClaw's own per-conversation-group agent sandbox for cross-session graph memory. Three extras layer on top of that core: mnemon's own built-in optional Ollama embeddings for hybrid graph+vector recall (opt-in via `.env`, off by default), a scaffolding script for NanoClaw's own Karpathy-pattern wiki skill (`scaffold-wiki.sh`, run manually per group), and bundled `yt-dlp`/`whisper.cpp` for turning a video into a plain-text transcript you can feed into a group's wiki (see "🎙️ Transcribing Audio/Video" below). Want a chat UI for Ollama too? See the standalone `chat-frontends` environment — this one no longer bundles its own.
+This is the repository's single self-hosted [NanoClaw](https://github.com/nanocoai/nanoclaw) environment. It defaults to [mnemon](https://github.com/mnemon-dev/mnemon), which adds persistent cross-session graph memory in each agent sandbox. Set `NANOCLAW_SETUP=plain` in `.env` for a plain NanoClaw agent image instead. The Mnemon profile also provides optional Ollama embeddings, wiki scaffolding, and agent-side media transcription tools; plain mode omits those Mnemon-specific additions. Want a chat UI for Ollama? See the standalone `chat-frontends` environment.
 
-**Fully independent of the plain `nanoclaw` environment**: its own install path, its own container name, its own port. Both can be deployed on the same machine without colliding. The plain `nanoclaw` environment is intentionally left untouched by this one — see "Coexistence" below.
+**Credit**: the Mnemon profile follows the architecture described in a public gist by GitHub user [VivianBalakrishnan](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322). **See [`GIST-PARITY.md`](./GIST-PARITY.md)** for its implementation analysis and **[`MANUAL-STEPS.md`](./MANUAL-STEPS.md)** for the supported manual equivalent.
 
-**Credit**: this environment follows the architecture described in a public gist by GitHub user [VivianBalakrishnan](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322), which describes NanoClaw combined with mnemon, local embeddings, a wiki layer, and a personal Obsidian sync into a "second brain." **Worth reading with some skepticism**: the gist claims wiki pages are synthesized *from* mnemon's extracted facts (raw sources → mnemon → wiki), but that specific pipeline has no corroborating implementation anywhere — not in the gist author's own public GitHub work (their only repo is an untouched, zero-commits-ahead fork of mnemon), and not in any of the five independently-built "Karpathy pattern" wiki tools surveyed in `GIST-PARITY.md`, all of which compile wikis directly from raw sources with no memory-tool intermediary. This environment implements each piece the gist names against real upstream sources — NanoClaw's own [`.claude/skills/add-mnemon/SKILL.md`](https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-mnemon/SKILL.md), mnemon's own genuinely-real optional embeddings feature (`MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL`, opt-in via `.env`, defaulting to `nomic-embed-text`), and [`/add-karpathy-llm-wiki`](https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-karpathy-llm-wiki/SKILL.md) for the wiki layer — but mnemon and the wiki run as independent systems here, which the evidence above suggests is the architecture matching real-world practice, not a shortfall relative to the gist's specific claim. **See [`GIST-PARITY.md`](./GIST-PARITY.md) for the full analysis** — what's built and verified, what's still missing, and the credibility caveat in full. **See [`MANUAL-STEPS.md`](./MANUAL-STEPS.md)** if you'd rather not use this environment's automation — it's the exact same result (starting from a plain `nanoclaw` deploy), spelled out by hand.
+---
+
+## Setup profiles and migration
+
+| `.env` setting | Result |
+|---|---|
+| `NANOCLAW_SETUP=mnemon` (or unset) | NanoClaw with Mnemon persistent memory, optional Ollama embeddings, wiki scaffolding, and agent media tools. |
+| `NANOCLAW_SETUP=plain` | Plain NanoClaw container deployment. The shared cost-and-fidelity group policy remains installed, but Mnemon, its recall policy, embeddings, wiki scaffolding, and agent media-tool patches are not applied. |
+
+This replaces the former separate `nanoclaw` environment. Set the profile in `.env` before deployment. If changing a previously deployed installation between profiles, run `CLEAN`: it resets the checked-out upstream source and rebuilds the agent image, preventing patches from the previous profile from being retained. Existing `groups/`, `data/`, and `.env` remain intact; direct edits inside the NanoClaw checkout are overwritten by `CLEAN`.
 
 ---
 
 ## How It Works
 
-Identical to the plain `nanoclaw` environment's architecture — a host-level orchestrator (containerized here) spawns an isolated Docker container per conversation group. The only difference: each group's agent container also runs `mnemon`, a single Go binary providing persistent, cross-session graph memory (temporal/entity/causal/semantic graphs), supervised by the agent's own Claude Code session rather than embedding its own LLM.
+NanoClaw's containerized orchestrator spawns an isolated Docker container per conversation group. In the default `mnemon` profile, each agent container also runs Mnemon, a single Go binary providing persistent cross-session graph memory (temporal/entity/causal/semantic graphs). In `plain` mode it runs NanoClaw without that patch.
 
 ```
 Messaging apps → orchestrator (router) → agent container (Claude Agent SDK + mnemon) → orchestrator (delivery) → messaging apps
@@ -20,7 +29,9 @@ Mnemon's `remember`/`link`/`recall` primitives are invoked automatically via Cla
 
 ### Cost and knowledge-fidelity policy
 
-Every `FAST` or `CLEAN` deployment idempotently installs pi-bootstrap's managed policy into each existing group's `CLAUDE.local.md`. It directs the agent to conserve the shared monthly token budget and preserve raw sources, URLs, diagrams, provenance, and uncertainty. The marker-delimited block is replaced on later deploys without touching the group's own instructions. `scaffold-wiki.sh` applies it immediately to a newly scaffolded group. This is guidance, not a hard spend cap; configure gateway/API limits separately if you need enforcement. See the shared [operator guide](../../docs/nanoclaw-group-policy.md) and the environment-specific [Mnemon recall policy](./MNEMON-RECALL-POLICY.md).
+Every `FAST` or `CLEAN` deployment idempotently installs the managed [group policy](./GROUP-POLICY.md) into each existing group's `CLAUDE.local.md`. In the default profile it also installs the [Mnemon recall policy](./MNEMON-RECALL-POLICY.md). Both marker-delimited blocks preserve the group's other instructions. This is guidance, not a hard spend cap; configure gateway/API limits separately if you need enforcement.
+
+For a group with a standing low-usage window (for example, overnight), large ingest and maintenance work is deferred to that window and may proceed there without a separate approval request. Put the window and timezone in the group's user-authored part of `CLAUDE.local.md`; the managed policy recognizes and honors that instruction.
 
 ---
 
@@ -60,13 +71,13 @@ Claude CLI running natively on your Mac can shell out to open a URL because it's
 
 ## 🔒 Deployment Modes
 
-**Container mode only.** Unlike the plain `nanoclaw` environment, there's no host/systemd/launchd mode here — this environment exists specifically for the Mac-first, filesystem-sandboxed use case, so there's no second mode to keep in sync with the mnemon patch. See the plain `nanoclaw` environment's README for the full host-vs-container tradeoff (iMessage support, filesystem access scope) if you want that instead.
+**Container mode only.** Both setup profiles use the same containerized orchestrator; host/systemd/launchd deployment is not supported.
 
 ---
 
 ## ⚙️ Why This Needs a Custom `run.sh`
 
-Same reasons as the plain `nanoclaw` environment (`deploy.sh`'s generic fallback has no concept of Docker-outside-of-Docker, interactive setup wizards, or dynamically-spawned per-group containers — see that environment's README for the full breakdown), plus one more specific to this environment:
+`deploy.sh`'s generic fallback has no concept of Docker-outside-of-Docker, interactive setup wizards, or dynamically-spawned per-group containers. The Mnemon profile additionally needs:
 
 - **Idempotent source patching** — `run.sh` patches `mnemon` into NanoClaw's own `container/Dockerfile` and `container/entrypoint.sh` on every deploy, checking first whether it's already applied (matching the upstream skill's own idempotency contract exactly). No generic archetype has any notion of "patch a freshly-cloned third-party repo's own build files before building them."
 
@@ -303,21 +314,18 @@ Copy `transcript.txt` into whichever group's `sources/` you want it in (`$NANOCL
 
 ## Security Notes
 
-Worth being precise about what this environment does and doesn't change, relative to the plain `nanoclaw` environment's own security model (see its README's "Deployment Modes" section, and the point that Docker socket access is inherently root-equivalent on the host — that discussion applies identically here). That includes the first-run wizard's "you are running as root" warning: this environment's orchestrator image has no `USER` directive either, and the same reasoning applies — see the plain `nanoclaw` README's "Notes" section for why answering "continue as root" is fine here too.
+The orchestrator image has no `USER` directive, so NanoClaw's first-run "you are running as root" warning is expected in this container deployment. Docker socket access is already root-equivalent on the host.
 
 - **This does not expand the orchestrator's own trust boundary.** Mnemon runs inside the per-conversation-group agent containers, which — verified directly against NanoClaw's own `src/container-runner.ts` — never hold the Docker socket, never run `--privileged`, and have tightly group-scoped bind mounts to begin with. Adding mnemon inside that same sandbox doesn't give it any access the agent container didn't already have.
 - **It does add a new third-party dependency.** `mnemon-dev/mnemon` is a real, independent, Apache-2.0-licensed project (377 stars at last check) — a separate trust relationship from `nanocoai/nanoclaw` itself, running as a single Go binary with filesystem access scoped to whatever the agent container already has (its own group's mounts).
 - **The patch mechanism itself is text-editing NanoClaw's own build files** (`container/Dockerfile`, `container/entrypoint.sh`) inside your local clone — verify the patch output yourself after first deploy if you want to confirm exactly what changed, or diff against upstream's own `/add-mnemon` skill output.
-- **Credential handling is unchanged from plain NanoClaw** — this environment doesn't touch it at all. `setup/register-claude-token.sh` (verified directly) hard-requires the `onecli` binary with no fallback; your Anthropic token is registered into OneCLI's own vault by the wizard and never lands in `.env` or gets held directly by an agent container. `/add-ollama-provider`'s `NO_PROXY`/`no_proxy` env vars exist specifically to bypass OneCLI's proxy for Ollama traffic, which is a good pointer to what OneCLI actually does day to day — it's a local HTTP proxy sitting in front of outbound API calls, injecting credentials at request time rather than handing them to the container outright. Same mechanism, same trust model, as the plain `nanoclaw` environment's own README documents.
+- **Credential handling is unchanged by profile selection.** `setup/register-claude-token.sh` registers the Anthropic token into OneCLI's own vault; it does not put it in this environment's `.env` or directly in an agent container.
 
 ---
 
-## Coexistence with the Plain `nanoclaw` Environment
+## Agent-container cleanup scope
 
-Both environments can run on the same machine. Two things were specifically handled for this:
-
-- **Separate install paths, container names, and ports** (`nanoclaw-mnemon` vs `nanoclaw`, `$HOME/nanoclaw-mnemon` vs `$HOME/nanoclaw`, port `3081` vs `3080`) — set via this environment's own `.env.example` defaults.
-- **Agent-container sweeps are scoped by bind-mount path, not by name pattern.** NanoClaw names every conversation group's agent container/image `nanoclaw-agent-v2-*` regardless of which install spawned it — a plain name-prefix filter (which is what the plain `nanoclaw` environment's `run.sh` uses, since it never needed to worry about a second coexisting install) would sweep up the *other* environment's agent containers too during `TEARDOWN`/`CLEAN`. This environment's `run.sh` instead inspects each candidate container's actual bind mounts via `docker inspect` and only touches ones that trace back to `$NANOCLAW_INSTALL_PATH` — verified against synthetic mount data covering exactly this cross-environment collision case before being considered correct.
+NanoClaw names conversation-group agent containers and images `nanoclaw-agent-v2-*`. `run.sh` scopes `TEARDOWN` and `CLEAN` to containers whose bind mounts trace back to this installation's `$NANOCLAW_INSTALL_PATH`, rather than deleting every container matching that name. This protects another independently installed NanoClaw instance, if one exists outside this repository.
 
 ---
 
@@ -451,10 +459,10 @@ The install directory's own NanoClaw source is safe to treat as disposable (`CLE
 
 | Policy | Action |
 |--------|--------|
-| `FAST` | Start the orchestrator container if stopped; skip if already active. Clones NanoClaw and applies the mnemon patch on first deploy only |
+| `FAST` | Start the orchestrator container if stopped; skip if already active. On first deployment, clones NanoClaw and applies the selected setup profile. |
 | `STOP` | Stop the orchestrator container (agent containers keep running) |
-| `TEARDOWN` | Stop the orchestrator + remove this install's agent containers (scoped by mount path — see "Coexistence" above); data and install path untouched |
-| `CLEAN` | Rebuild the orchestrator image, remove this install's agent containers, hard-sync the install path's NanoClaw source to latest upstream (git-tracked files only — `.env`/`groups/`/`data/`/`store/`/`dist/` untouched, see "Data Directories" above), reapply the mnemon patch, rebuild and restart if this was an existing install (skips the wizard entirely — it only ever runs when `dist/index.js` doesn't exist yet) |
+| `TEARDOWN` | Stop the orchestrator + remove this install's agent containers (scoped by mount path); data and install path untouched. |
+| `CLEAN` | Rebuild the orchestrator image, remove this install's agent containers, hard-sync the source to latest upstream (git-tracked files only), apply the selected profile, rebuild and restart an existing installation. Use this when switching profile. |
 | `INFO` | List data directories with sizes and useful commands (scrollable via `less` in an interactive terminal) |
 | `WIPE` | Delete `groups/` and `data/` only (install dir preserved) |
 
@@ -489,7 +497,7 @@ On a Pi with a desktop environment, run once from the repo root:
 bash lib/run-install-desktop.sh environments/nanoclaw-mnemon
 ```
 
-This installs a **NanoClaw + Mnemon AI** entry, in its own submenu, separate from the plain `nanoclaw` environment's entry. Skipped entirely on macOS (Linux-only, like every environment's desktop entries in this repo — see the main README's "Desktop Menu Integration" section).
+This installs a **NanoClaw AI** entry. Skipped entirely on macOS (Linux-only, like every environment's desktop entries in this repo — see the main README's "Desktop Menu Integration" section).
 
 ---
 
@@ -509,7 +517,7 @@ docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"
 # (channels aren't shipped as setup/add-*.sh scripts anymore — see "Adding Channels" below)
 docker exec -it nanoclaw-mnemon bash -lc "cd \$NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"
 
-# List this install's agent containers (and the plain nanoclaw environment's, if also deployed — both share the nanoclaw-agent-v2-* name pattern)
+# List this install's agent containers
 docker ps --filter name=nanoclaw-agent
 
 # Find a specific group's own live agent container (needed for the mnemon commands below)
@@ -559,7 +567,7 @@ docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"
 docker exec nanoclaw-mnemon ls "$NANOCLAW_INSTALL_PATH/.claude/skills/"
 ```
 
-NanoClaw itself still has no web UI of its own (see the plain `nanoclaw` environment's README) — there's no `http://<host-ip>:3081` to visit unless you've separately added its optional `/add-dashboard` skill. Want a browser chat UI for Ollama? See the standalone `chat-frontends` environment instead — this one doesn't bundle one.
+NanoClaw itself has no default web UI — there's no `http://<host-ip>:3081` to visit unless you've separately added its optional `/add-dashboard` skill. Want a browser chat UI for Ollama? See the standalone `chat-frontends` environment instead.
 
 ---
 

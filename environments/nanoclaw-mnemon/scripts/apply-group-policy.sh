@@ -3,7 +3,7 @@
 # NanoClaw group's durable CLAUDE.local.md.  NanoClaw composes CLAUDE.md on
 # every agent spawn, so this is deliberately a group-local file instead.
 #
-# Usage: apply-nanoclaw-group-policy.sh <install-path> [group-folder]
+# Usage: apply-group-policy.sh <install-path> [group-folder]
 # With no group-folder, every immediate directory under <install-path>/groups
 # is updated.  The marker-delimited block is replaced atomically and all
 # other user-authored group instructions are left untouched.
@@ -27,7 +27,8 @@ policy_block() {
 - Work incrementally from the source manifest, index, and changed inputs. Do not re-read, re-summarize, or rewrite unchanged material.
 - Read only the source sections needed for the task; batch related work; avoid speculative research and broad maintenance sweeps.
 - Keep responses and logs concise. Do not narrate routine progress, repeat plans, or duplicate information.
-- Before unusually large ingest, reprocessing, or maintenance work, state the expected scope and ask for approval.
+- When group instructions define a standing low-usage window for unusually large ingest, reprocessing, or maintenance work, defer that work to the window and proceed there without asking for permission solely because of its size. Record the scope and outcome concisely. Outside that window, defer unless the operator explicitly requests immediate execution.
+- When no standing low-usage window exists, state the expected scope and ask for approval before unusually large ingest, reprocessing, or maintenance work.
 - Never reduce source fidelity merely to save tokens: preserve originals, URLs, diagrams, provenance, and uncertainty.
 
 ### Source-of-truth and no-loss rule

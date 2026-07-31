@@ -1,8 +1,10 @@
 # Mnemon Recall Policy
 
-This document applies only to the `nanoclaw-mnemon` environment, where Mnemon
-is installed in each group agent container. It extends the shared NanoClaw
-cost-and-fidelity policy with targeted cross-session recall rules.
+This document applies only when this environment uses its default
+`NANOCLAW_SETUP=mnemon` profile, where Mnemon is installed in each group agent
+container. It is not installed for `NANOCLAW_SETUP=plain`. It extends the
+shared NanoClaw cost-and-fidelity policy with targeted cross-session recall
+rules.
 
 ## Lifecycle
 

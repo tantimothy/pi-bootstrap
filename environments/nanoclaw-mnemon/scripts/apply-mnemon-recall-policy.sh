@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Adds the Mnemon-only recall extension to a group's durable CLAUDE.local.md.
-# The generic cost-and-fidelity policy is maintained separately in lib/ because
-# it applies to both NanoClaw environments.
+# The generic cost-and-fidelity policy is maintained separately in this
+# environment because it applies to both supported setup profiles.
 #
 # Usage: apply-mnemon-recall-policy.sh <install-path> [group-folder]
 

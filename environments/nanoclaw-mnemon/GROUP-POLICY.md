@@ -1,8 +1,8 @@
 # NanoClaw Group Cost and Knowledge-Fidelity Policy
 
-Both `nanoclaw` and `nanoclaw-mnemon` install a managed policy in every
-existing group's `CLAUDE.local.md`. It gives the agent a standing instruction
-to conserve shared monthly LLM capacity without trading away source fidelity.
+This environment installs a managed policy in every existing group's
+`CLAUDE.local.md`. It gives the agent a standing instruction to conserve shared
+monthly LLM capacity without trading away source fidelity.
 
 ## Lifecycle
 
@@ -35,18 +35,14 @@ or API account if enforcement is required.
   speculative research and broad maintenance sweeps.
 - Keep responses and logs concise. Do not narrate routine progress, repeat
   plans, or duplicate information.
-- Before unusually large ingest, reprocessing, or maintenance work, state the
-  expected scope and ask for approval.
-- For work involving an existing topic, project, person, decision, preference,
-  prior source, or cross-session question, run one focused mnemon recall first
-  using the task's named entities and key terms.
-- For a wholly new, self-contained source ingest, begin from the source
-  manifest and wiki. Recall mnemon if the source refers to an existing
-  entity/topic or the task requires reconciliation with prior knowledge.
-- Reuse that recall for the current task; do not perform broad or repeated
-  exploratory recalls unless the task scope materially changes.
-- Store durable relationships, decisions, and preferences in mnemon. Do not
-  store routine ingest bookkeeping or duplicate source text there.
+- When group instructions define a standing low-usage window for unusually
+  large ingest, reprocessing, or maintenance work, defer that work to the
+  window and proceed there without asking for permission solely because of its
+  size. Record scope and outcome concisely. Outside that window, defer unless
+  the operator explicitly requests immediate execution.
+- When no standing low-usage window exists, state the expected scope and ask
+  for approval before unusually large ingest, reprocessing, or maintenance
+  work.
 - Never reduce source fidelity merely to save tokens: preserve originals,
   URLs, diagrams, provenance, and uncertainty.
 
@@ -85,10 +81,8 @@ conflict, preserve both claims with provenance and describe the conflict.
 
 ## Mnemon extension
 
-Mnemon is an optional `nanoclaw-mnemon` capability, not a dependency of plain
-`nanoclaw`. Its focused-recall policy and instructions live with that
-environment in
-[`environments/nanoclaw-mnemon/MNEMON-RECALL-POLICY.md`](../environments/nanoclaw-mnemon/MNEMON-RECALL-POLICY.md).
+When `NANOCLAW_SETUP=mnemon` (the default), the focused-recall extension is
+installed too; see [MNEMON-RECALL-POLICY.md](./MNEMON-RECALL-POLICY.md).
 
 ## Operator customization
 
@@ -97,10 +91,10 @@ Add group-specific rules outside the managed markers in that group's
 that block deliberately so all groups receive future policy improvements.
 
 To change the baseline for all groups, update
-[`lib/apply-nanoclaw-group-policy.sh`](../lib/apply-nanoclaw-group-policy.sh)
+[`scripts/apply-group-policy.sh`](./scripts/apply-group-policy.sh)
 and redeploy. A direct manual invocation is also available:
 
 ```bash
-bash lib/apply-nanoclaw-group-policy.sh "$NANOCLAW_INSTALL_PATH"
-bash lib/apply-nanoclaw-group-policy.sh "$NANOCLAW_INSTALL_PATH" <group-folder>
+bash environments/nanoclaw-mnemon/scripts/apply-group-policy.sh "$NANOCLAW_INSTALL_PATH"
+bash environments/nanoclaw-mnemon/scripts/apply-group-policy.sh "$NANOCLAW_INSTALL_PATH" <group-folder>
 ```

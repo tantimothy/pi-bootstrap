@@ -45,7 +45,7 @@ Two YAML files exist per environment for data that's needed regardless of which 
 - `info.yaml` → `lib/run-info.sh <env_dir> <action>` → environment's own `info.sh` override if present, else `lib/info-lib.sh`'s `run_info_yaml`. Drives the post-deploy summary, `INFO`/`WIPE` policies, and `backup.sh`'s manifest (which dirs/volumes to archive).
 - `desktop-entries.yaml` → `lib/run-install-desktop.sh <env_dir> [--uninstall]` → environment's own `install-desktop.sh` override if present, else `lib/desktop-lib.sh`'s `run_desktop_install_yaml`. Registers XDG desktop entries (Linux only — no-ops cleanly on macOS).
 
-An `info.sh`/`install-desktop.sh` override only exists where real branching can't be expressed as static YAML (OS-dependent values, feature-flag-gated fields) — it calls the `_load_*_yaml` loader for everything static, overrides just the one dynamic piece, then calls the shared `run_info`/`run_desktop_install` function directly. Only `nanoclaw` and `internet-pi` currently need one.
+An `info.sh`/`install-desktop.sh` override only exists where real branching can't be expressed as static YAML (OS-dependent values, feature-flag-gated fields) — it calls the `_load_*_yaml` loader for everything static, overrides just the one dynamic piece, then calls the shared `run_info`/`run_desktop_install` function directly. Only `internet-pi` currently needs one.
 
 Both YAML files share a `${VAR}`/`${VAR:-default}` substitution mechanism (resolved against `.env` if present, plus synthetic `SCRIPT_DIR`/`HOST_IP`/`ENV_DIR` — **`.env.example` itself is never sourced**, so every marker needs its own explicit default). Full field-by-field schema for both files: `docs/environment-yaml-schemas.md`. `info.yaml`'s `custom_actions` is the extension point for adding new items to an environment's `deploy.sh` action menu beyond FAST/STOP/CLEAN/etc. — `deploy.sh` reads this field directly, independent of `lib/info-lib.sh`.
 
@@ -61,7 +61,7 @@ Every script in this repo must run under **bash 3.2** (macOS's shipped default �
 
 ### Cross-cutting root scripts
 
-`backup.sh`/`restore.sh` (data + `.env` archival — see the manually-maintained `is_deployed()` case statement that must be extended per environment), `check-updates.sh` (compares running image IDs against a fresh pull; locally-built apt-based images are checked via live `apt-get update` + Dockerfile `FROM` diff instead), `ollama-watchdog.sh` (health-checks/restarts the host's native Ollama process — not containerized, shared across `nanoclaw-mnemon`/`chat-frontends`/`llm-gateways`).
+`backup.sh`/`restore.sh` (data + `.env` archival — environment maintenance metadata declares deployment checks and backup paths), `check-updates.sh` (compares running image IDs against a fresh pull; locally-built apt-based images are checked via live `apt-get update` + Dockerfile `FROM` diff instead), `ollama-watchdog.sh` (health-checks/restarts the host's native Ollama process — not containerized, shared across `nanoclaw-mnemon`/`chat-frontends`/`llm-gateways`).
 
 ## Repo-specific documentation conventions
 

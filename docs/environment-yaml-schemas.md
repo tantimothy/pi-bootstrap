@@ -21,17 +21,10 @@ guard if one of these files is read some other way.
 
 ## Environments with real branching: override scripts
 
-Two environments have logic that can't be expressed as static YAML data,
+One environment has logic that can't be expressed as static YAML data,
 so they keep a thin override script instead of relying purely on the
 generic driver:
 
-- **`nanoclaw`**: `install-desktop.sh` detects host-vs-container deploy
-  mode (OS-dependent) and sets `DEPLOYED_CHECK_KIND`/`DEPLOYED_CHECK_VALUE`
-  itself, calling `_load_desktop_entries_yaml` for everything else and
-  `run_desktop_install` directly (never `run_desktop_install_yaml`).
-  `info.sh` picks an OS-dependent command block
-  (`useful_commands_host`/`useful_commands_macos` — see below) and
-  prepends it to the YAML-sourced `useful_commands`.
 - **`internet-pi`**: `info.sh` builds `WEB_UI_NAMES`/`WEB_UI_URLS`
   conditionally on the `PIHOLE_ENABLE`/`MONITORING_ENABLE` flags from its
   Ansible-driven `.env`, so `web_uis` is omitted from its `info.yaml`
@@ -190,8 +183,8 @@ desktop entries actually check — e.g. `pihole-wireguard` has 13 services
 but only checks `pihole` (the stack's own DNS resolver and de facto
 "is this stack up" signal). Use `value: "${CONTAINER_NAME:-<default>}"`
 instead of `from_compose_service:` for `run.sh`-based environments that
-call `docker run` directly rather than `docker compose` (`nanoclaw`,
-`nanoclaw-mnemon`) — there's no `docker-compose.yml` to read the name
+call `docker run` directly rather than `docker compose` (`nanoclaw-mnemon`)
+— there's no `docker-compose.yml` to read the name
 from, so the default has to be typed here to match `run.sh`'s own
 `CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"` fallback.
 
@@ -348,28 +341,6 @@ reason — do the same for any new one, even if it looks uniform today (a
 future edit adding a `📌 Notes:` section would otherwise silently break the
 existing lines' indentation along with it).
 
-### `nanoclaw`'s extra keys
-
-`nanoclaw/info.yaml` has two keys the shared schema doesn't otherwise use,
-read directly by `nanoclaw/info.sh` (not by `_load_info_yaml`) and
-prepended to the YAML-sourced `useful_commands`:
-
-```yaml
-useful_commands_host: |2
-     ...    # shown on Linux (systemd) deploy mode
-useful_commands_macos: |2
-     ...    # shown on macOS (container-only) deploy mode
-```
-
-This is the pattern to follow for any future environment that needs an
-OS- or mode-dependent *prefix* to its command list: give it its own
-override script (see `nanoclaw/info.sh`), keep the OS-independent tail in
-the shared `useful_commands` key, and read the extra key(s) directly with
-`_yq`/`_yaml_expand` (both already in scope once `lib/info-lib.sh` is
-sourced).
-
----
-
 ## `maintenance.yaml` — backup and update metadata
 
 An optional `environments/<name>/maintenance.yaml` keeps maintenance facts
@@ -414,8 +385,8 @@ sidecar before the environment's general image pattern.
    generic YAML-driven driver automatically.
 3. If there genuinely is branching (OS detection, feature flags, a
    deployed-check that can't be expressed as `value`/`from_compose_service`),
-   write a short override script — see `nanoclaw/install-desktop.sh` or
-   `internet-pi/info.sh` as templates. Call `_load_desktop_entries_yaml`/
+   write a short override script — see `internet-pi/info.sh` as a template.
+   Call `_load_desktop_entries_yaml`/
    `_load_info_yaml` first for everything that *is* static, then only
    override what genuinely varies, then call `run_desktop_install`/
    `run_info` directly.
