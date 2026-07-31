@@ -658,6 +658,7 @@ apply_media_tools_patch
 # agent image is rebuilt or resumed. A first deploy has no groups yet, which
 # the helper treats as a harmless no-op.
 bash "$REPO_DIR/lib/apply-nanoclaw-group-policy.sh" "$INSTALL_PATH"
+bash "$SCRIPT_DIR/scripts/apply-mnemon-recall-policy.sh" "$INSTALL_PATH"
 
 # ---------------------------------------------------------------------------------------
 # Build the orchestrator image if missing, then start/create the container.

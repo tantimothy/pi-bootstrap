@@ -8,8 +8,6 @@ to conserve shared monthly LLM capacity without trading away source fidelity.
 
 - `FAST` and `CLEAN` deployments update every existing immediate subdirectory
   of `$NANOCLAW_INSTALL_PATH/groups/`.
-- `nanoclaw-mnemon`'s `scaffold-wiki.sh <group>` applies it immediately to a
-  newly scaffolded group.
 - The installer owns only the text between
   `PI_BOOTSTRAP_COST_AND_FIDELITY_POLICY_START` and
   `PI_BOOTSTRAP_COST_AND_FIDELITY_POLICY_END`. Group-specific instructions
@@ -56,7 +54,7 @@ or API account if enforcement is required.
 
 - `sources/` is the immutable source archive. Never delete, overwrite,
   truncate, or replace original files.
-- The wiki is derived knowledge, not a replacement for sources or mnemon.
+- The wiki is derived knowledge, not a replacement for the source archive.
 - Every ingested source needs a stable source ID, original filename, SHA-256
   hash, source URL if applicable, retrieval date, and ingest status.
 - Every factual wiki claim must cite its source ID and a precise locator:
@@ -84,6 +82,13 @@ or explicitly requested scope. Never silently remove information; mark it as
 superseded or deprecated and link to its replacement. Do not perform broad
 rewrites, consolidation, or deletion without explicit approval. When sources
 conflict, preserve both claims with provenance and describe the conflict.
+
+## Mnemon extension
+
+Mnemon is an optional `nanoclaw-mnemon` capability, not a dependency of plain
+`nanoclaw`. Its focused-recall policy and instructions live with that
+environment in
+[`environments/nanoclaw-mnemon/MNEMON-RECALL-POLICY.md`](../environments/nanoclaw-mnemon/MNEMON-RECALL-POLICY.md).
 
 ## Operator customization
 

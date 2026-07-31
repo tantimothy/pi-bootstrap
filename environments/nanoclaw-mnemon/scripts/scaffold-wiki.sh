@@ -49,6 +49,7 @@ mkdir -p "$WIKI_DIR" "$SOURCES_DIR"
 # group policy immediately rather than leaving the group ungoverned until a
 # later deployment cycle.
 bash "$SCRIPT_DIR/../../../lib/apply-nanoclaw-group-policy.sh" "$INSTALL_PATH" "$GROUP"
+bash "$SCRIPT_DIR/apply-mnemon-recall-policy.sh" "$INSTALL_PATH" "$GROUP"
 
 if [ ! -f "${WIKI_DIR}/index.md" ]; then
     cat > "${WIKI_DIR}/index.md" <<'EOF'
