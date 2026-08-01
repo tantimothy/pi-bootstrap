@@ -340,7 +340,12 @@ check_locally_built() {
 echo "🔍 Checking for image updates on all running containers..."
 echo ""
 
-while IFS=$'\t' read -r NAME CONTAINER_ID; do
+# Keep the container list on its own descriptor instead of stdin. Commands
+# below (notably Docker pulls on some runtimes) may read from stdin even
+# though they never prompt; when this loop also used stdin, the first
+# container could consume every remaining `docker ps` row and silently make
+# the scan stop after one result.
+while IFS=$'\t' read -r NAME CONTAINER_ID <&3; do
     [ -z "$NAME" ] && continue
 
     RUNNING_IMAGE_ID=$($DOCKER inspect "$CONTAINER_ID" --format '{{.Image}}' 2>/dev/null)
@@ -378,7 +383,7 @@ while IFS=$'\t' read -r NAME CONTAINER_ID; do
         UPDATES_AVAILABLE+=("$NAME")
         UPDATE_KINDS+=("pullable")
     fi
-done < <($DOCKER ps --format '{{.Names}}\t{{.ID}}')
+done 3< <($DOCKER ps --format '{{.Names}}\t{{.ID}}')
 
 echo ""
 echo "=========================================================="
