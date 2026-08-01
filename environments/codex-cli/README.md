@@ -180,11 +180,12 @@ Three named volumes are scoped by `CONTAINER_NAME`:
 - `${CONTAINER_NAME}_user_home` stores the rest of `/home/codex`, including
   runtime changes to shell/tmux dotfiles, `~/.gitconfig`, `~/.config`,
   SSH configuration and `known_hosts`, personal guidance and skills under
-  `~/.agents`, and other user-created settings.
+  `~/.agents`, the npm/npx cache under `~/.npm`, and other user-created
+  settings.
 - `${CONTAINER_NAME}_codex_home` is nested at `~/.codex` and stores the
   complete `$CODEX_HOME` runtime state: authentication, `config.toml`, rules,
-  plugins, MCP registrations and OAuth state, memories, automations,
-  attachments, caches, and saved sessions.
+  plugins, MCP registrations and credentials, Codex state used by remote
+  control, memories, automations, attachments, caches, and saved sessions.
 - `${CONTAINER_NAME}_ssh_host_keys` preserves the SSH server fingerprint.
 
 The workspace is a host bind mount and is never removed by this environment's
@@ -219,8 +220,8 @@ rebuild; add those reproducibly to the Dockerfile instead.
 
 | State | Location | Survives CLEAN rebuild? | Removed by WIPE? |
 |---|---|---:|---:|
-| Codex authentication, `config.toml`, rules, plugins, MCP registrations and sessions | `${CONTAINER_NAME}_codex_home` | Yes | Yes |
-| Shell/tmux settings, Git configuration, SSH client state, `~/.config`, and `~/.agents` | `${CONTAINER_NAME}_user_home` | Yes | Yes |
+| Codex authentication, `config.toml`, rules, plugins, MCP registrations and credentials, remote-control state, and sessions | `${CONTAINER_NAME}_codex_home` | Yes | Yes |
+| Shell/tmux settings, npm/npx cache, Git configuration, SSH client state, `~/.config`, and `~/.agents` | `${CONTAINER_NAME}_user_home` | Yes | Yes |
 | SSH server identity | `${CONTAINER_NAME}_ssh_host_keys` | Yes | Yes |
 | Repository and repository-scoped Codex configuration | `CODEX_WORKSPACE_PATH` bind mount | Yes | No |
 | Codex executable, Node.js/npm, and Debian packages | Container image | Reinstalled | Reinstalled |
@@ -228,7 +229,9 @@ rebuild; add those reproducibly to the Dockerfile instead.
 
 Changing `CONTAINER_NAME` selects a new set of named volumes; it does not
 rename or migrate the old ones. Treat a container-name change as creating a
-new instance unless you explicitly migrate the volumes.
+new instance unless you explicitly migrate the volumes. The new instance
+therefore needs its own Codex login, MCP registrations, and remote-control
+pairing.
 
 ## GitHub access
 
@@ -324,10 +327,31 @@ Stop it with:
 codex remote-control stop
 ```
 
-The environment makes the command available but does not automatically start
-or supervise the experimental daemon. Run `start` again after a container
-restart or recreation. SSH remains the stable, supported access path if
-remote control is unavailable for the installed Codex release or account.
+There are three separate pieces of remote-control lifecycle state:
+
+- A **completed device pairing** is expected to survive CLEAN when
+  `CONTAINER_NAME` and its named volumes remain unchanged, because the
+  persistent Codex home is preserved. OpenAI also documents that signing out
+  turns off Remote Control without removing existing device pairings. This
+  container-specific CLEAN behavior still needs acceptance testing on the
+  target Raspberry Pi or Mac.
+- A **pairing code** never persists. `codex remote-control pair` creates a
+  short-lived code with an expiration time; create another if the code expires
+  before setup is completed.
+- The **running daemon** is a process, not persistent data. It stops with the
+  container and is not automatically started or supervised by this
+  environment. Choose **Start Codex Remote Control** again after STOP followed
+  by FAST, a container restart or recreation, or CLEAN. Pair again only if the
+  previously completed connection is no longer available.
+
+The official behavior is documented in the
+[Codex CLI remote-control reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli#cli-codex-remote-control)
+and [Remote connection troubleshooting](https://learn.chatgpt.com/docs/remote-connections#remote-control-is-off-after-you-sign-back-in).
+WIPE, manual deletion of the named volumes, or changing `CONTAINER_NAME`
+removes or selects a different local Codex state set; treat that as a new
+instance that requires login and pairing again. SSH remains the stable,
+supported access path if remote control is unavailable for the installed
+Codex release or account.
 
 ## MCP and Home Assistant
 
@@ -345,11 +369,15 @@ npm --version
 npx --version
 ```
 
-MCP definitions created with `codex mcp add` persist under `$CODEX_HOME`.
-Packages fetched by `npx` are cached under the persistent user home. A manual
-system-wide `npm install --global` modifies the container layer and does not
-survive CLEAN; prefer an `npx`-based MCP command, a project dependency in the
-bind-mounted workspace, or a user-local npm prefix under `/home/codex`.
+MCP definitions and credentials created with `codex mcp add` persist under
+`$CODEX_HOME`, and packages fetched by `npx` are cached under the persistent
+user home. They therefore survive CLEAN when `CONTAINER_NAME` is unchanged.
+The running MCP subprocess does not survive container recreation; Codex
+launches a fresh process from the saved registration when it loads the server
+again. A manual system-wide `npm install --global` modifies the container
+layer and does not survive CLEAN; prefer an `npx`-based MCP command, a project
+dependency in the bind-mounted workspace, or a user-local npm prefix under
+`/home/codex`.
 
 To register the Node-based Home Assistant MCP server, first resolve `npx` to
 an absolute path and then add the server:
@@ -378,6 +406,12 @@ codex mcp list
 
 The container must be able to reach `HA_AGENT_URL`. Do not copy Claude's
 `claude mcp` syntax; the command above is the Codex CLI registration.
+
+WIPE, manual deletion of `${CONTAINER_NAME}_codex_home`, or changing
+`CONTAINER_NAME` loses or selects a different MCP registration and requires
+the Home Assistant command to be run again. Deleting only the user-home
+volume removes the npm cache but not the saved MCP registration; `npx` can
+download the package again when the server next starts.
 
 ## Sandbox and approval policy
 

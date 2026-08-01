@@ -2,12 +2,12 @@ data_dirs: []
 install_dirs: []
 named_volumes:
   - name: ${CONTAINER_NAME:-codex-cli}_user_home
-    description: "Runtime-created settings outside CODEX_HOME, including personal ~/.agents guidance/skills, shell/tmux dotfiles, Git/gh configuration, and SSH config/known_hosts"
+    description: "Runtime-created settings outside CODEX_HOME, including the npm/npx cache, personal ~/.agents guidance/skills, shell/tmux dotfiles, Git/gh configuration, and SSH config/known_hosts"
   - name: ${CONTAINER_NAME:-codex-cli}_codex_home
-    description: "Complete CODEX_HOME runtime state: auth, config, rules, plugin/MCP registrations, memories, automations, attachments, and saved sessions (~/.codex)"
+    description: "Complete CODEX_HOME runtime state: auth, config, rules, plugin/MCP registrations and credentials, remote-control state, memories, automations, attachments, and saved sessions (~/.codex)"
   - name: ${CONTAINER_NAME:-codex-cli}_ssh_host_keys
     description: "SSH server host keys; deleting this changes the container's SSH fingerprint"
-delete_confirm_msg: "Codex login, configuration, skills/plugins, saved sessions, runtime-created home settings, and this container's SSH host identity will be lost. The workspace at CODEX_WORKSPACE_PATH is not touched."
+delete_confirm_msg: "Codex login, configuration, skills/plugins, MCP registrations and credentials, local remote-control state, saved sessions, runtime-created home settings, and this container's SSH host identity will be lost. The workspace at CODEX_WORKSPACE_PATH is not touched."
 web_uis: []
 custom_actions:
   - label: "SSH into Codex CLI"
@@ -37,8 +37,16 @@ useful_commands: |2
      📱 To set up remote control, authenticate Codex first, choose
         "Start Codex Remote Control", then choose "Pair Codex Remote Control"
         and use the displayed short-lived pairing code in a supported client.
-        Remote control is experimental and is not automatically supervised;
-        run the start action again after a container restart or recreation.
+        A completed pairing is expected to survive CLEAN when CONTAINER_NAME
+        and its named volumes stay unchanged, but the code itself expires and
+        the daemon is not preserved. Run the start action again after STOP,
+        a container restart, recreation, or CLEAN. Pair again only if the
+        existing connection is no longer available.
+     🔌 MCP registrations and credentials survive CLEAN in codex_home, and
+        the npm/npx cache survives in user_home. A running MCP subprocess does
+        not survive recreation; Codex launches a new one from the registration.
+        WIPE, manual volume deletion, or changing CONTAINER_NAME selects or
+        removes that state and requires MCP setup and remote pairing again.
      💻 Multiple SSH clients share the same tmux window list and Codex
         process, but each has an independent current-window view.
      🧠 CODEX_MODEL is optional. Leave it unset for Codex's default.
