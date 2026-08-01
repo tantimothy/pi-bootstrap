@@ -15,7 +15,9 @@ The same environment runs on:
 
 OpenAI's standalone Codex installer currently publishes Linux binaries for
 ARM64 and x86-64, so a 32-bit ARM Raspberry Pi OS installation is not
-supported. Use the 64-bit Raspberry Pi OS image.
+supported. Use the 64-bit Raspberry Pi OS image. The container is based on
+the official Node.js 24 LTS Bookworm image, which also publishes ARM64 and
+x86-64 variants.
 
 Nothing in this folder is tied to the Mac where the repository was edited.
 Run deployment commands on the Raspberry Pi or Mac that will host the
@@ -33,7 +35,7 @@ On the Raspberry Pi or Mac that will run the environment:
 - A host directory to mount as the Codex workspace.
 - A real `authorized_keys` file containing the public keys allowed to log in.
 - Network access during the image build so the official Codex installer and
-  Debian packages can be downloaded.
+  Node.js image, and Debian packages can be downloaded.
 - A supported Codex authentication method: ChatGPT sign-in through the
   device-code flow, an OpenAI API key, or an access token.
 
@@ -221,7 +223,7 @@ rebuild; add those reproducibly to the Dockerfile instead.
 | Shell/tmux settings, Git configuration, SSH client state, `~/.config`, and `~/.agents` | `${CONTAINER_NAME}_user_home` | Yes | Yes |
 | SSH server identity | `${CONTAINER_NAME}_ssh_host_keys` | Yes | Yes |
 | Repository and repository-scoped Codex configuration | `CODEX_WORKSPACE_PATH` bind mount | Yes | No |
-| Codex executable and Debian packages | Container image | Reinstalled | Reinstalled |
+| Codex executable, Node.js/npm, and Debian packages | Container image | Reinstalled | Reinstalled |
 | Manual edits under `/etc` or ad hoc `apt` installs | Container writable layer | No | Not applicable |
 
 Changing `CONTAINER_NAME` selects a new set of named volumes; it does not
@@ -332,6 +334,22 @@ remote control is unavailable for the installed Codex release or account.
 Codex MCP registrations are stored under the persistent `$CODEX_HOME`, so a
 registration made at runtime survives container recreation and CLEAN
 rebuilds.
+
+The image includes Node.js 24 LTS together with `npm` and `npx`, allowing
+Codex to launch Node-based stdio MCP servers. Confirm the installed runtime
+from a plain shell:
+
+```bash
+node --version
+npm --version
+npx --version
+```
+
+MCP definitions created with `codex mcp add` persist under `$CODEX_HOME`.
+Packages fetched by `npx` are cached under the persistent user home. A manual
+system-wide `npm install --global` modifies the container layer and does not
+survive CLEAN; prefer an `npx`-based MCP command, a project dependency in the
+bind-mounted workspace, or a user-local npm prefix under `/home/codex`.
 
 Home Assistant's current Model Context Protocol Server integration exposes a
 Streamable HTTP endpoint at `/api/mcp`. Codex can register Streamable HTTP MCP
@@ -610,6 +628,7 @@ workflow, but product-specific details cannot be copied literally.
 | Resume after container restart and select older sessions | Implemented |
 | Model override | Implemented |
 | Plain shell access | Implemented and documented above |
+| Node.js runtime for Node-based MCP servers | Implemented with Node.js 24 LTS, npm, and npx |
 | Runtime authentication, settings, skills, MCP, and session persistence | Implemented |
 | GitHub access through SSH forwarding or `GH_TOKEN` | Implemented |
 | Multiple isolated instances | Implemented |

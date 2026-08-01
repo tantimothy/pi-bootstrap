@@ -1,6 +1,8 @@
-# Standalone Codex CLI container with its own SSH server and a persistent
-# tmux session. The user's repository is bind-mounted at runtime.
-FROM debian:bookworm-slim
+# Standalone Codex CLI container with its own SSH server, Node.js for MCP
+# servers, and a persistent tmux session. The user's repository is
+# bind-mounted at runtime. The official Node image supports both amd64 and
+# arm64 and supplies node, npm, and npx.
+FROM node:24-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         openssh-server \
@@ -22,12 +24,18 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --uid 1000 --create-home --shell /bin/bash codex \
+# Official Node images reserve uid/gid 1000 for their "node" user. Remove it
+# before creating the runtime account so PUID/PGID defaults and remapping keep
+# the same behavior as the other CLI environment.
+RUN userdel -r node \
+    && (groupdel node || true) \
+    && useradd --uid 1000 --create-home --shell /bin/bash codex \
     && mkdir -p /run/sshd /opt/codex \
     && chown codex:codex /opt/codex
 
-# OpenAI's supported standalone installer avoids requiring Node/npm in the
-# runtime image and selects the correct binary for amd64 or arm64.
+# OpenAI's supported standalone installer selects the correct Codex binary for
+# amd64 or arm64. Node/npm above are included for MCP servers, not for Codex's
+# own installation.
 #
 # The installer normally stores release packages under $CODEX_HOME. Keep the
 # image's installed program in /opt/codex, outside the persistent runtime-state
