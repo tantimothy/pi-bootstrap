@@ -2,18 +2,22 @@ data_dirs: []
 install_dirs: []
 named_volumes:
   - name: ${CONTAINER_NAME:-codex-cli}_user_home
-    description: "Runtime-created settings outside CODEX_HOME, including personal ~/.agents guidance/skills, shell/tmux dotfiles, Git/gh configuration, and SSH config/known_hosts"
+    description: "Runtime-created settings outside CODEX_HOME, including the npm/npx cache, personal ~/.agents guidance/skills, shell/tmux dotfiles, Git/gh configuration, and SSH config/known_hosts"
   - name: ${CONTAINER_NAME:-codex-cli}_codex_home
-    description: "Complete CODEX_HOME runtime state: auth, config, rules, plugin/MCP registrations, memories, automations, attachments, and saved sessions (~/.codex)"
+    description: "Complete CODEX_HOME runtime state: auth, config, rules, plugin/MCP registrations and credentials, remote-control state, memories, automations, attachments, and saved sessions (~/.codex)"
   - name: ${CONTAINER_NAME:-codex-cli}_ssh_host_keys
     description: "SSH server host keys; deleting this changes the container's SSH fingerprint"
-delete_confirm_msg: "Codex login, configuration, skills/plugins, saved sessions, runtime-created home settings, and this container's SSH host identity will be lost. The workspace at CODEX_WORKSPACE_PATH is not touched."
+delete_confirm_msg: "Codex login, configuration, skills/plugins, MCP registrations and credentials, local remote-control state, saved sessions, runtime-created home settings, and this container's SSH host identity will be lost. The workspace at CODEX_WORKSPACE_PATH is not touched."
 web_uis: []
 custom_actions:
   - label: "SSH into Codex CLI"
     command: 'ssh -p ${SSH_PORT:-2224} codex@localhost'
   - label: "Codex Device-Code Login"
     command: 'ssh -t -p ${SSH_PORT:-2224} codex@localhost "codex login --device-auth"'
+  - label: "Start Codex Remote Control"
+    command: 'ssh -t -p ${SSH_PORT:-2224} codex@localhost "codex remote-control start"'
+  - label: "Pair Codex Remote Control"
+    command: 'ssh -t -p ${SSH_PORT:-2224} codex@localhost "codex remote-control pair"'
   - label: "Choose Codex Model"
     command: "bash ${ENV_DIR}/scripts/choose-model.sh"
   - label: "New Codex CLI Instance..."
@@ -23,11 +27,26 @@ useful_commands: |2
      docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} tmux attach -t codex
      docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} codex login --device-auth
      docker exec -u codex ${CONTAINER_NAME:-codex-cli} codex login status
+     docker exec -u codex ${CONTAINER_NAME:-codex-cli} codex remote-control start
+     docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} codex remote-control pair
      docker logs -f ${CONTAINER_NAME:-codex-cli}
 
   📌 Notes:
      🔑 On first use, run the device-code login action and finish sign-in
         in a browser. All CODEX_HOME state persists in the codex_home volume.
+     📱 To set up remote control, authenticate Codex first, choose
+        "Start Codex Remote Control", then choose "Pair Codex Remote Control"
+        and use the displayed short-lived pairing code in a supported client.
+        A completed pairing is expected to survive CLEAN when CONTAINER_NAME
+        and its named volumes stay unchanged, but the code itself expires and
+        the daemon is not preserved. Run the start action again after STOP,
+        a container restart, recreation, or CLEAN. Pair again only if the
+        existing connection is no longer available.
+     🔌 MCP registrations and credentials survive CLEAN in codex_home, and
+        the npm/npx cache survives in user_home. A running MCP subprocess does
+        not survive recreation; Codex launches a new one from the registration.
+        WIPE, manual volume deletion, or changing CONTAINER_NAME selects or
+        removes that state and requires MCP setup and remote pairing again.
      💻 Multiple SSH clients share the same tmux window list and Codex
         process, but each has an independent current-window view.
      🧠 CODEX_MODEL is optional. Leave it unset for Codex's default.
