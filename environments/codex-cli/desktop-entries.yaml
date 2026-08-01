@@ -11,7 +11,7 @@ entries:
     comment: "SSH into the standalone Codex CLI container and attach to its persistent tmux session"
     icon: utilities-terminal
     kind: exec
-    target: 'bash -c "ssh -p ${SSH_PORT:-2223} codex@localhost"'
+    target: 'bash -c "ssh -p ${SSH_PORT:-2224} codex@localhost"'
     terminal: true
 info:
   id: pi-bootstrap-${CONTAINER_NAME:-codex-cli}-info
