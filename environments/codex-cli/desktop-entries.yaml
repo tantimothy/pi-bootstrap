@@ -1,0 +1,18 @@
+menu:
+  id: ${CONTAINER_NAME:-codex-cli}
+  name: "Codex CLI"
+  icon: utilities-terminal
+deployed_check:
+  kind: container
+  from_compose_service: codex-cli
+entries:
+  - id: pi-bootstrap-${CONTAINER_NAME:-codex-cli}
+    name: "Codex CLI (SSH)"
+    comment: "SSH into the standalone Codex CLI container and attach to its persistent tmux session"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash -c "ssh -p ${SSH_PORT:-2223} codex@localhost"'
+    terminal: true
+info:
+  id: pi-bootstrap-${CONTAINER_NAME:-codex-cli}-info
+  name: "Codex CLI Info"

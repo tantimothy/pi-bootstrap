@@ -1,0 +1,36 @@
+data_dirs: []
+install_dirs: []
+named_volumes:
+  - name: ${CONTAINER_NAME:-codex-cli}_user_home
+    description: "Runtime-created settings outside CODEX_HOME, including personal ~/.agents guidance/skills, shell/tmux dotfiles, Git/gh configuration, and SSH config/known_hosts"
+  - name: ${CONTAINER_NAME:-codex-cli}_codex_home
+    description: "Complete CODEX_HOME runtime state: auth, config, rules, plugin/MCP registrations, memories, automations, attachments, and saved sessions (~/.codex)"
+  - name: ${CONTAINER_NAME:-codex-cli}_ssh_host_keys
+    description: "SSH server host keys; deleting this changes the container's SSH fingerprint"
+delete_confirm_msg: "Codex login, configuration, skills/plugins, saved sessions, runtime-created home settings, and this container's SSH host identity will be lost. The workspace at CODEX_WORKSPACE_PATH is not touched."
+web_uis: []
+custom_actions:
+  - label: "SSH into Codex CLI"
+    command: 'ssh -p ${SSH_PORT:-2223} codex@localhost'
+  - label: "Codex Device-Code Login"
+    command: 'ssh -t -p ${SSH_PORT:-2223} codex@localhost "codex login --device-auth"'
+  - label: "Choose Codex Model"
+    command: "bash ${ENV_DIR}/scripts/choose-model.sh"
+  - label: "New Codex CLI Instance..."
+    command: "bash ${ENV_DIR}/new-instance.sh"
+useful_commands: |2
+     ssh -p ${SSH_PORT:-2223} codex@localhost
+     docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} tmux attach -t codex
+     docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} codex login --device-auth
+     docker exec -u codex ${CONTAINER_NAME:-codex-cli} codex login status
+     docker logs -f ${CONTAINER_NAME:-codex-cli}
+
+  📌 Notes:
+     🔑 On first use, run the device-code login action and finish sign-in
+        in a browser. All CODEX_HOME state persists in the codex_home volume.
+     💻 Multiple SSH clients share the same tmux window list and Codex
+        process, but each has an independent current-window view.
+     🧠 CODEX_MODEL is optional. Leave it unset for Codex's default.
+     📁 The host workspace is bind-mounted and never removed by WIPE.
+     💾 Runtime shell, Git/gh, and SSH customizations outside ~/.codex
+        persist separately in the user_home volume.

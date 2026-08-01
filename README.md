@@ -40,6 +40,7 @@ garbled commands instead of failing cleanly.
 | [chat-frontends](environments/chat-frontends/) | A small hub of browser-based chat UIs for your host's Ollama — [Open WebUI](https://github.com/open-webui/open-webui) and [SillyTavern](https://github.com/SillyTavern/SillyTavern) (both on by default), plus [LobeHub](https://github.com/lobehub/lobe-chat) (needs its own Postgres), [NextChat](https://github.com/ChatGPTNextWeb/NextChat), and [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm) (RAG-focused) as opt-ins. Toggle which ones run via `COMPOSE_PROFILES` in `.env`, no rebuild needed |
 | [llm-gateways](environments/llm-gateways/) | An OpenAI-compatible proxy layer in front of your host's Ollama (and, optionally, hosted providers) — [LiteLLM](https://github.com/BerriAI/litellm) (on by default, config-only, no database needed) and [Portkey Gateway](https://github.com/Portkey-AI/gateway) (opt-in, a lighter no-config alternative). LiteLLM's Postgres (Virtual Keys/spend tracking/Admin UI) is a separate opt-in on top of that. Toggle which ones run via `COMPOSE_PROFILES` in `.env`, no rebuild needed |
 | [claude-cli](environments/claude-cli/) | Standalone Claude CLI in a container with its own SSH server — no channel bots, no orchestrator. SSH in from any machine and land in a persistent `tmux` session running `claude` against a bind-mounted repo. For when you just want remote terminal access to Claude, not a chat-platform presence |
+| [codex-cli](environments/codex-cli/) | Standalone Codex CLI in a container with its own SSH server. SSH in from any machine and land in a persistent `tmux` session running `codex` against a bind-mounted repo, with auth, configuration, and conversations preserved across rebuilds |
 | [pi-barebones](environments/pi-barebones/) | Minimal Pi setup — tmux, fastfetch system info, TigerVNC remote desktop, custom package installs and `.bashrc` tweaks |
 | [ntopng](environments/ntopng/) | Deep per-flow traffic analysis — DPI (nDPI), historical/timeseries trends via Redis. Split out as its own environment since it's heavyweight; pairs well alongside pihole-wireguard on a Pi with headroom to spare |
 | [portainer](environments/portainer/) | Container visualization & management — full container/network/volume/image management UI with a live topology view. General-purpose Docker tooling, useful alongside any other environment on this Pi |
@@ -83,6 +84,7 @@ Only environments that are actually deployed get entries. Re-running the install
 | chat-frontends | The `open-webui` container exists (its own flagship service — see that environment's `docker-compose.yml`) |
 | llm-gateways | The `litellm` container exists (its own flagship service — see that environment's `docker-compose.yml`) |
 | claude-cli | The `claude-cli` container exists |
+| codex-cli | The `codex-cli` container exists |
 | dragonos-sdr, kali-pentest | A local `.deployed` marker that `run.sh` creates the moment it launches the container (these run with `--rm`, so a cached image alone doesn't prove the environment was actually used) |
 
 New entries appear in the menu automatically on Raspberry Pi OS; no manual refresh is needed.

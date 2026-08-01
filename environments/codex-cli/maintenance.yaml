@@ -1,0 +1,9 @@
+deployment:
+  kind: container
+  value: ${CONTAINER_NAME:-codex-cli}
+
+updates:
+  local_images:
+    - image_pattern: "*codex-cli*"
+      dockerfile: Dockerfile
+      apt_updates: false
