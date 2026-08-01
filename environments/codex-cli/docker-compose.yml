@@ -12,8 +12,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - CODEX_ACCESS_TOKEN=${CODEX_ACCESS_TOKEN:-}
       - CODEX_MODEL=${CODEX_MODEL:-}
-      # Pin the runtime state root explicitly; the image uses a different
-      # CODEX_HOME only while installing the immutable CLI under /opt/codex.
+      # Pin the persistent runtime state root explicitly; the image uses a
+      # different CODEX_HOME while installing the managed CLI under /opt/codex.
       - CODEX_HOME=/home/codex/.codex
     ports:
       - "${SSH_PORT:-2224}:22"
