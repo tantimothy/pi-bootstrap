@@ -21,6 +21,7 @@ categories:
       - chat-frontends
       - llm-gateways
       - claude-cli
+      - codex-cli
       - aider
   - id: network-security
     name: "Networking & Security"

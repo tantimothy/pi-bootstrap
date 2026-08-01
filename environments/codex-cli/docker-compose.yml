@@ -1,0 +1,41 @@
+services:
+  codex-cli:
+    container_name: ${CONTAINER_NAME:-codex-cli}
+    build: .
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - CODEX_ACCESS_TOKEN=${CODEX_ACCESS_TOKEN:-}
+      - CODEX_MODEL=${CODEX_MODEL:-}
+      # Pin the runtime state root explicitly; the image uses a different
+      # CODEX_HOME only while installing the immutable CLI under /opt/codex.
+      - CODEX_HOME=/home/codex/.codex
+    ports:
+      - "${SSH_PORT:-2223}:22"
+    volumes:
+      - "${CODEX_WORKSPACE_PATH}:/home/codex/workspace"
+      - "${SSH_AUTHORIZED_KEYS_PATH}:/run/host-authorized_keys:ro"
+      # Preserve all runtime-created user settings: shell/tmux customization,
+      # personal ~/.agents guidance/skills, Git/gh configuration, SSH
+      # known_hosts/config, and other dotfiles.
+      # The workspace and CODEX_HOME below are nested mounts with independent
+      # backup/WIPE semantics.
+      - "codex_cli_user_home:/home/codex"
+      # Includes auth.json, config.toml, rules, plugin/MCP state, memories,
+      # automations, caches, attachments, and saved session state.
+      - "codex_cli_home:/home/codex/.codex"
+      # Preserve the server fingerprint across container recreation.
+      - "codex_cli_ssh_host_keys:/etc/ssh"
+
+volumes:
+  codex_cli_user_home:
+    name: ${CONTAINER_NAME:-codex-cli}_user_home
+  codex_cli_home:
+    name: ${CONTAINER_NAME:-codex-cli}_codex_home
+  codex_cli_ssh_host_keys:
+    name: ${CONTAINER_NAME:-codex-cli}_ssh_host_keys
