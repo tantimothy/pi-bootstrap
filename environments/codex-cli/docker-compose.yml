@@ -16,7 +16,7 @@ services:
       # CODEX_HOME only while installing the immutable CLI under /opt/codex.
       - CODEX_HOME=/home/codex/.codex
     ports:
-      - "${SSH_PORT:-2223}:22"
+      - "${SSH_PORT:-2224}:22"
     volumes:
       - "${CODEX_WORKSPACE_PATH}:/home/codex/workspace"
       - "${SSH_AUTHORIZED_KEYS_PATH}:/run/host-authorized_keys:ro"

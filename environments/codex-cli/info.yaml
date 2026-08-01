@@ -11,15 +11,15 @@ delete_confirm_msg: "Codex login, configuration, skills/plugins, saved sessions,
 web_uis: []
 custom_actions:
   - label: "SSH into Codex CLI"
-    command: 'ssh -p ${SSH_PORT:-2223} codex@localhost'
+    command: 'ssh -p ${SSH_PORT:-2224} codex@localhost'
   - label: "Codex Device-Code Login"
-    command: 'ssh -t -p ${SSH_PORT:-2223} codex@localhost "codex login --device-auth"'
+    command: 'ssh -t -p ${SSH_PORT:-2224} codex@localhost "codex login --device-auth"'
   - label: "Choose Codex Model"
     command: "bash ${ENV_DIR}/scripts/choose-model.sh"
   - label: "New Codex CLI Instance..."
     command: "bash ${ENV_DIR}/new-instance.sh"
 useful_commands: |2
-     ssh -p ${SSH_PORT:-2223} codex@localhost
+     ssh -p ${SSH_PORT:-2224} codex@localhost
      docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} tmux attach -t codex
      docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} codex login --device-auth
      docker exec -u codex ${CONTAINER_NAME:-codex-cli} codex login status

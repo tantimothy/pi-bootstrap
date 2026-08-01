@@ -21,7 +21,7 @@ while true; do
 done
 
 _suggest_port() {
-    local port=2223 used
+    local port=2224 used
     used=$(grep -h "^SSH_PORT=" "$ENVIRONMENTS_DIR"/codex-cli*/.env 2>/dev/null \
         | sed -e "s/^SSH_PORT=//" -e "s/[\"']//g" || true)
     while printf '%s\n' "$used" | grep -qx "$port"; do port=$((port + 1)); done

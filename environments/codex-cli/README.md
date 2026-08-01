@@ -54,7 +54,7 @@ mkdir -p ~/codex-cli-workspace
 docker compose up -d --build
 ```
 
-The defaults expose the container's SSH server on host port `2223` and mount
+The defaults expose the container's SSH server on host port `2224` and mount
 `~/codex-cli-workspace` at `/home/codex/workspace`.
 
 Set `PUID` and `PGID` from the target host:
@@ -103,14 +103,14 @@ credits.
 Then connect:
 
 ```bash
-ssh -p 2223 codex@localhost
+ssh -p 2224 codex@localhost
 ```
 
 From another computer, replace `localhost` with the Raspberry Pi or target
 Mac's hostname or LAN IP:
 
 ```bash
-ssh -p 2223 codex@target-host.local
+ssh -p 2224 codex@target-host.local
 ```
 
 The first interactive connection starts Codex in `~/workspace`. Later
@@ -143,7 +143,7 @@ session. Use any of these methods when you need a regular shell:
 - Run a noninteractive SSH command:
 
   ```bash
-  ssh -p 2223 codex@target-host.local 'command'
+  ssh -p 2224 codex@target-host.local 'command'
   ```
 
 - Start a shell directly from the Docker host:
@@ -224,7 +224,7 @@ new instance unless you explicitly migrate the volumes.
 SSH agent forwarding keeps private keys on the client:
 
 ```bash
-ssh -A -p 2223 codex@your-pi
+ssh -A -p 2224 codex@your-pi
 ```
 
 Alternatively set `GH_TOKEN` in `.env`. The entrypoint configures `gh` as
@@ -279,7 +279,7 @@ state remain isolated from sibling instances.
 Connect from another machine using the target host's LAN or VPN address:
 
 ```bash
-ssh -A -p 2223 codex@target-host.local
+ssh -A -p 2224 codex@target-host.local
 ```
 
 A mesh VPN such as Tailscale or a conventional private VPN is preferable when
@@ -423,10 +423,10 @@ not affect deployment or SSH access.
 
 ```bash
 # Connect to the persistent session
-ssh -p 2223 codex@localhost
+ssh -p 2224 codex@localhost
 
 # Connect with SSH-agent forwarding
-ssh -A -p 2223 codex@target-host.local
+ssh -A -p 2224 codex@target-host.local
 
 # Open a plain shell from the Docker host
 docker exec -u codex -it codex-cli bash
@@ -489,7 +489,7 @@ WIPE deletes the persisted SSH server identity, and a renamed
 expected, then remove only the affected host-and-port entry:
 
 ```bash
-ssh-keygen -R '[target-host.local]:2223'
+ssh-keygen -R '[target-host.local]:2224'
 ```
 
 Do not ignore an unexpected host-key change.
