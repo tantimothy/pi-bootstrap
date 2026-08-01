@@ -30,13 +30,15 @@ RUN useradd --uid 1000 --create-home --shell /bin/bash codex \
 # runtime image and selects the correct binary for amd64 or arm64.
 #
 # The installer normally stores release packages under $CODEX_HOME. Keep the
-# installed program in /opt/codex, outside the persistent runtime-state mount,
-# so a CLEAN image rebuild really picks up the newly built CLI version instead
-# of an older package preserved in the named volume. Runtime CODEX_HOME is
+# image's installed program in /opt/codex, outside the persistent runtime-state
+# mount, so a CLEAN image rebuild really picks up the newly built CLI version
+# instead of an older package preserved in the named volume. At startup the
+# entrypoint exposes this managed standalone tree at the fixed path beneath the
+# runtime CODEX_HOME that `codex remote-control` requires. Runtime CODEX_HOME is
 # switched back to ~/.codex immediately afterwards.
 USER codex
 ENV CODEX_HOME="/opt/codex"
-RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh
+RUN curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh
 USER root
 ENV CODEX_HOME="/home/codex/.codex"
 

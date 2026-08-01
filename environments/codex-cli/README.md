@@ -191,9 +191,18 @@ skills, and `AGENTS.md` live in that workspace and therefore persist with it.
 
 The Codex executable itself is deliberately installed under `/opt/codex`,
 outside all persistent volumes. OpenAI's standalone installer normally keeps
-release packages under `$CODEX_HOME`; separating the program from
-`~/.codex` ensures a CLEAN rebuild installs the new image's Codex release
-without discarding or accidentally pinning the persistent runtime settings.
+release packages under `$CODEX_HOME/packages/standalone`. At container
+startup, the entrypoint exposes the image-managed standalone tree at that
+required runtime path with a symbolic link. This makes commands such as
+`codex remote-control` see a valid installer-managed release while a CLEAN
+rebuild still installs the image's new Codex release without discarding or
+accidentally pinning persistent runtime settings.
+
+The standalone tree under `/opt/codex` is writable by the runtime `codex` user
+so Codex can update its managed app-server files. Those program files belong
+to the container image and are reinstalled by a CLEAN rebuild. Authentication,
+configuration, plugins, MCP state, and saved sessions remain in the persistent
+`~/.codex` volume.
 
 FAST, STOP, container recreation, and CLEAN rebuilds preserve all three named
 volumes. Only the explicit WIPE action (or manual Docker volume deletion)
@@ -298,12 +307,25 @@ command with `start`, `stop`, and `pair` operations. It is not the same
 feature or protocol as Claude Code's `/remote-control`, and the Claude
 subscription and `claude.ai/code` instructions do not transfer.
 
-This environment does **not** currently start, supervise, pair, expose, or
-document a production lifecycle for the Codex remote-control daemon. Use SSH
-as the supported remote-access path. If remote control is added later, its
-authentication, network exposure, persistence, restart behavior, and target
-Codex version must be designed and tested before it is presented as a
-supported environment feature.
+The official standalone installation is included at the fixed path beneath
+`$CODEX_HOME` required by remote control. After authenticating Codex, start
+and pair it from a plain container shell:
+
+```bash
+codex remote-control start
+codex remote-control pair
+```
+
+Stop it with:
+
+```bash
+codex remote-control stop
+```
+
+The environment makes the command available but does not automatically start
+or supervise the experimental daemon. Run `start` again after a container
+restart or recreation. SSH remains the stable, supported access path if
+remote control is unavailable for the installed Codex release or account.
 
 ## MCP and Home Assistant
 
@@ -529,6 +551,20 @@ Confirm that all three expected named volumes are mounted and that
 `CONTAINER_NAME` has not changed. Put operating-system customizations in the
 Dockerfile rather than applying them interactively.
 
+### Remote control reports that the managed standalone install was not found
+
+Rebuild and recreate the container with CLEAN so the image includes the
+standalone-path integration, then verify the fixed runtime path:
+
+```bash
+test -x ~/.codex/packages/standalone/current/codex
+codex remote-control start
+```
+
+The runtime path normally resolves into `/opt/codex`. Do not replace
+`~/.codex/packages/standalone` with a stale copied release; CLEAN rebuilds
+update the image-managed release while preserving the rest of `~/.codex`.
+
 ### The container cannot reach a LAN service
 
 Test DNS and routing from a plain container shell. On Docker Desktop or
@@ -579,7 +615,7 @@ workflow, but product-specific details cannot be copied literally.
 | Multiple isolated instances | Implemented |
 | Deployment policies, backup metadata, INFO, WIPE, and desktop metadata | Implemented |
 | Remote access over SSH/LAN/VPN | Implemented; internet exposure remains an operator decision |
-| Codex remote-control workflow | Not implemented; current CLI feature is experimental |
+| Codex remote-control workflow | Installed and manually startable; the current CLI feature is experimental and is not auto-started or supervised |
 | Gateway/provider picker and revert action | Not implemented; Codex provider profiles are the appropriate design |
 | Home Assistant MCP deployment workflow | Not implemented; manual integration requirements are documented above |
 | Troubleshooting and security guidance | Documented above |
@@ -588,7 +624,8 @@ workflow, but product-specific details cannot be copied literally.
 Claude-specific items that do not make sense as Codex requirements are:
 
 - Claude's `/remote-control` command, Claude subscription requirements, and
-  `claude.ai/code` endpoint. Codex exposes a different experimental command.
+  `claude.ai/code` endpoint. Codex exposes a different experimental command;
+  the environment installs what that Codex command requires instead.
 - `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and an
   Anthropic-Messages-API gateway. Codex uses model-provider configuration.
 - Claude's separately persisted `~/.claude.json`. Codex state is already

@@ -22,7 +22,25 @@ if [ "$PGID" != "$CURRENT_GID" ]; then
     fi
 fi
 
-mkdir -p /home/codex/.codex /home/codex/workspace /home/codex/.ssh
+mkdir -p /home/codex/.codex/packages /home/codex/workspace /home/codex/.ssh
+
+# `codex remote-control` deliberately launches app-server from the standalone
+# installer's fixed path under $CODEX_HOME. The image keeps that installer-
+# managed tree under /opt so CLEAN rebuilds update the CLI without replacing
+# persistent auth and settings. Expose the image-owned tree at the required
+# runtime path. The target remains writable by the remapped codex user because
+# remote control may update its managed app-server files there.
+MANAGED_STANDALONE_DIR="/opt/codex/packages/standalone"
+RUNTIME_STANDALONE_DIR="/home/codex/.codex/packages/standalone"
+chown -R "$PUID:$PGID" /opt/codex
+if [ ! -e "$RUNTIME_STANDALONE_DIR" ] && [ ! -L "$RUNTIME_STANDALONE_DIR" ]; then
+    ln -s "$MANAGED_STANDALONE_DIR" "$RUNTIME_STANDALONE_DIR"
+fi
+if [ ! -x "$RUNTIME_STANDALONE_DIR/current/codex" ]; then
+    echo "ERROR: managed standalone Codex install is unavailable at $RUNTIME_STANDALONE_DIR/current/codex" >&2
+    exit 1
+fi
+
 # The whole user home is persistent, so fix ownership for settings created
 # under the image's original 1000:1000 identity. Explicitly prune the nested
 # bind-mounted workspace: recursively changing a possibly large host repo is
