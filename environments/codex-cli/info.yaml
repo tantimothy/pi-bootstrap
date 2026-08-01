@@ -14,6 +14,10 @@ custom_actions:
     command: 'ssh -p ${SSH_PORT:-2224} codex@localhost'
   - label: "Codex Device-Code Login"
     command: 'ssh -t -p ${SSH_PORT:-2224} codex@localhost "codex login --device-auth"'
+  - label: "Start Codex Remote Control"
+    command: 'ssh -t -p ${SSH_PORT:-2224} codex@localhost "codex remote-control start"'
+  - label: "Pair Codex Remote Control"
+    command: 'ssh -t -p ${SSH_PORT:-2224} codex@localhost "codex remote-control pair"'
   - label: "Choose Codex Model"
     command: "bash ${ENV_DIR}/scripts/choose-model.sh"
   - label: "New Codex CLI Instance..."
@@ -23,11 +27,18 @@ useful_commands: |2
      docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} tmux attach -t codex
      docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} codex login --device-auth
      docker exec -u codex ${CONTAINER_NAME:-codex-cli} codex login status
+     docker exec -u codex ${CONTAINER_NAME:-codex-cli} codex remote-control start
+     docker exec -u codex -it ${CONTAINER_NAME:-codex-cli} codex remote-control pair
      docker logs -f ${CONTAINER_NAME:-codex-cli}
 
   📌 Notes:
      🔑 On first use, run the device-code login action and finish sign-in
         in a browser. All CODEX_HOME state persists in the codex_home volume.
+     📱 To set up remote control, authenticate Codex first, choose
+        "Start Codex Remote Control", then choose "Pair Codex Remote Control"
+        and use the displayed short-lived pairing code in a supported client.
+        Remote control is experimental and is not automatically supervised;
+        run the start action again after a container restart or recreation.
      💻 Multiple SSH clients share the same tmux window list and Codex
         process, but each has an independent current-window view.
      🧠 CODEX_MODEL is optional. Leave it unset for Codex's default.

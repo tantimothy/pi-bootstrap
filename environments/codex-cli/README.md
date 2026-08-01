@@ -351,39 +351,33 @@ system-wide `npm install --global` modifies the container layer and does not
 survive CLEAN; prefer an `npx`-based MCP command, a project dependency in the
 bind-mounted workspace, or a user-local npm prefix under `/home/codex`.
 
-Home Assistant's current Model Context Protocol Server integration exposes a
-Streamable HTTP endpoint at `/api/mcp`. Codex can register Streamable HTTP MCP
-servers with `codex mcp add --url` and can read a bearer token from a named
-environment variable. Conceptually, the registration is:
+To register the Node-based Home Assistant MCP server, first resolve `npx` to
+an absolute path and then add the server:
 
 ```bash
+MCP_NPX_PATH="$(command -v npx)"
 codex mcp add home-assistant \
-  --url http://home-assistant.local:8123/api/mcp \
-  --bearer-token-env-var HOME_ASSISTANT_TOKEN
+  --env HA_AGENT_URL=http://192.168.1.80:8099 \
+  --env HA_AGENT_KEY='your-real-agent-key' \
+  -- "$MCP_NPX_PATH" -y @coolver/home-assistant-mcp@latest
 ```
 
-Before using it:
+Replace the example URL with the reachable Home Assistant Agent endpoint and
+replace the placeholder key with its real agent key. Resolving `npx` first
+stores a stable absolute executable path in the MCP registration, including
+when Codex is launched by SSH, tmux, or remote control with a different shell
+`PATH`.
 
-1. Enable Home Assistant's **Model Context Protocol Server** integration.
-2. Expose only the entities that Codex should access through Home Assistant's
-   Assist exposure settings.
-3. Create the appropriate OAuth credential or long-lived access token.
-4. Confirm the container can resolve and reach the Home Assistant address.
-5. Make `HOME_ASSISTANT_TOKEN` available to every Codex process without
-   committing it to the repository.
+The registration and its `HA_AGENT_KEY` are stored in the persistent Codex
+home. Treat the `${CONTAINER_NAME}_codex_home` volume and its backups as
+sensitive. Confirm the registration with:
 
-This environment does **not** yet provide a Compose variable, secret store, or
-deployment action for `HOME_ASSISTANT_TOKEN`; therefore the command above is
-an integration reference, not a fully automated environment workflow. Adding
-the registration without arranging persistent, secure token delivery leaves
-it configured but unable to authenticate after a new login or container
-restart.
+```bash
+codex mcp list
+```
 
-Do not copy the Claude README's older SSE URL or `claude mcp` command. Those
-are not the current Home Assistant Streamable HTTP endpoint or Codex CLI
-syntax. Consult the
-[Home Assistant MCP Server documentation](https://www.home-assistant.io/integrations/mcp_server/)
-and run `codex mcp add --help` on the deployed CLI before registering it.
+The container must be able to reach `HA_AGENT_URL`. Do not copy Claude's
+`claude mcp` syntax; the command above is the Codex CLI registration.
 
 ## Sandbox and approval policy
 
