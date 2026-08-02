@@ -129,6 +129,29 @@ remove_agent_containers() {
 }
 
 # ---------------------------------------------------------------------------------------
+# NanoClaw's own startup tripwire (data/upgrade-state.json vs the running
+# code's version) refuses to start whenever they disagree — by design, to
+# catch an install whose source was updated outside the sanctioned upgrade
+# flow. Every source-sync branch above (fresh clone, CLEAN's hard reset, and
+# the plain FAST `git pull`) changes the running code's version, so each one
+# needs this run afterward, once the rebuilt dist/index.js is actually what
+# gets (re)started — otherwise this script itself becomes exactly the
+# "unsanctioned update" the tripwire exists to catch, and NanoClaw crash-
+# loops on its own next restart. Confirmed the hard way: a v2.1.53 -> v2.1.54
+# source sync with no matching stamp landed NanoClaw in a boot-time circuit-
+# breaker loop until `pnpm exec tsx scripts/upgrade-state.ts set` was run by
+# hand. No-ops harmlessly on any install predating this script's own
+# addition (older NanoClaw versions with no upgrade-state.ts at all).
+# ---------------------------------------------------------------------------------------
+stamp_upgrade_state() {
+    if [ -f "${INSTALL_PATH}/scripts/upgrade-state.ts" ]; then
+        echo "🔏 Stamping upgrade-state.json to the freshly-synced code version (sanctioned upgrade flow)..."
+        $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm exec tsx scripts/upgrade-state.ts set" \
+            || echo "⚠️  Failed to stamp upgrade-state.json — NanoClaw's own startup tripwire may refuse to start until 'pnpm exec tsx scripts/upgrade-state.ts set' is run manually inside the container." >&2
+    fi
+}
+
+# ---------------------------------------------------------------------------------------
 # mnemon patch — adds github.com/mnemon-dev/mnemon persistent memory to
 # NanoClaw's own container/Dockerfile and container/entrypoint.sh, following
 # the exact steps documented in NanoClaw's own
@@ -743,6 +766,7 @@ fi
 if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway and/or approval-delivery fix)..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
+    stamp_upgrade_state
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
 fi
 
@@ -755,6 +779,7 @@ fi
 if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
+    stamp_upgrade_state
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
 
     # The rebuild above only covers NanoClaw's own orchestrator (`pnpm run

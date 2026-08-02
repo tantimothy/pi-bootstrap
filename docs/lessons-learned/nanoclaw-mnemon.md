@@ -1149,3 +1149,60 @@ simply the NanoClaw-group-specific version of the same check
   inside a project's own checkout, its `pnpm <script-name>`/`npm run
   <script-name>` alias is usually the reliable way to invoke it
   regardless of global-link state.
+
+## Upgrade Tripwire Crash Loop
+
+**Status:** fixed, confirmed against a real incident.
+
+**Summary:** NanoClaw's own startup tripwire compares the running code's
+version against the version recorded in `data/upgrade-state.json`, and
+refuses to start (crash-looping under the circuit breaker) whenever they
+disagree — by design, to catch an install whose source was updated outside
+NanoClaw's own sanctioned upgrade flow.
+
+**Symptom:** the container crash-looped from boot, stuck on circuit-breaker
+attempt 14 by the time it was investigated, logging:
+
+```
+ERROR  Upgrade tripwire: install not on the sanctioned path  code=2.1.54  recorded=2.1.53
+```
+
+**Root cause:** `run.sh`'s own source-sync steps — the plain `git pull
+--ff-only` on a FAST redeploy, and CLEAN's `git fetch` + `git reset --hard
+'@{u}'` — update NanoClaw's code and then rebuild+restart it (`pnpm run
+build` + `start-nanoclaw.sh`) without ever running NanoClaw's sanctioned
+`pnpm exec tsx scripts/upgrade-state.ts set` afterward. That makes this
+script itself exactly the kind of "unsanctioned update" the tripwire exists
+to catch: the running code's version moves forward but the recorded
+version in `data/upgrade-state.json` doesn't, so the very next boot trips
+the tripwire.
+
+**Immediate recovery (for a live install already stuck like this):** run
+`pnpm exec tsx scripts/upgrade-state.ts set` inside the install path (host-
+native) or via `docker exec <container> bash -lc "cd \$NANOCLAW_INSTALL_PATH
+&& pnpm exec tsx scripts/upgrade-state.ts set"` (this environment) to stamp
+the current code version as sanctioned, then let the circuit breaker's next
+retry restart NanoClaw normally.
+
+**Fix:** `run.sh` now has a `stamp_upgrade_state()` helper (a no-op on any
+install predating `scripts/upgrade-state.ts`) called right after both
+rebuild+restart sequences that follow a source sync — the patch-triggered
+rebuild (host-gateway/approval-delivery patches signaling exit code 2) and
+CLEAN's own post-sync rebuild — so the recorded version in
+`upgrade-state.json` is always stamped to match the code that's actually
+about to run, before that code's next restart.
+
+### General Lessons
+
+- **A "sanctioned upgrade path" tripwire needs every code path that updates
+  the source to also be the sanctioned path** — not just the one entry
+  point (e.g. an `/update-nanoclaw` command) it was designed around. Any
+  other mechanism that mutates the tracked source (a deploy script's own
+  `git pull`/`git reset --hard`, a manual `git pull` on the host) is
+  "unsanctioned" from the tripwire's point of view unless it also performs
+  the same stamping step.
+  - **Reference:** NanoClaw's own upgrade-recovery documentation lives at
+    `docs/upgrade-recovery.md` inside a NanoClaw install itself (not in this
+    repo) — check there first for anything upgrade-tripwire-related in a
+    future NanoClaw version, since the sanctioned command/flow is owned and
+    versioned by NanoClaw upstream, not by this environment.
