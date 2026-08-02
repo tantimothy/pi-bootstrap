@@ -223,19 +223,31 @@ if [ ! -d "environments" ]; then
     exit 1
 fi
 
-# Fixed display order, grouped by what each environment actually does — see
-# config/environments.yaml for the category breakdown (host setup, AI
-# assistants, networking/security, management last since it's cross-cutting
-# Docker tooling for managing whatever else got deployed). That file is
-# also the seed for a future hierarchical/submenu Environments UI, not just
-# a flat order. `find` alone returns filesystem/inode order, which is
-# arbitrary and varies between clones — flattening the YAML's categories in
-# order gives something a user can actually predict. Anything not listed
-# there (a newly added environment folder) is appended alphabetically
-# afterward, so it's never silently hidden just because the YAML wasn't
-# updated.
+# Fixed display order and submenu grouping come from config/environments.yaml.
+# `find` alone returns filesystem/inode order, which is arbitrary and varies
+# between clones. Anything not listed there (a newly added environment folder)
+# is appended alphabetically and placed in an "Other" submenu, so it is never
+# silently hidden just because the YAML was not updated.
 _read_lines < <(yq eval '.categories[].environments[]' "$PROJECT_DIR/config/environments.yaml")
 ENV_ORDER_PRIORITY=("${_LINES[@]}")
+
+# Category metadata and the configured environment-to-category mapping are
+# stored in parallel arrays for bash 3.2 compatibility (no associative arrays).
+_read_lines < <(yq eval '.categories[].id' "$PROJECT_DIR/config/environments.yaml")
+ENV_CONFIG_CATEGORY_IDS=("${_LINES[@]}")
+_read_lines < <(yq eval '.categories[].name' "$PROJECT_DIR/config/environments.yaml")
+ENV_CONFIG_CATEGORY_NAMES=("${_LINES[@]}")
+
+ENV_CONFIG_NAMES=()
+ENV_CONFIG_CATEGORIES=()
+for _category_index in "${!ENV_CONFIG_CATEGORY_IDS[@]}"; do
+    _read_lines < <(yq eval ".categories[$_category_index].environments[]" "$PROJECT_DIR/config/environments.yaml")
+    for _configured_name in "${_LINES[@]}"; do
+        ENV_CONFIG_NAMES+=("$_configured_name")
+        ENV_CONFIG_CATEGORIES+=("${ENV_CONFIG_CATEGORY_IDS[$_category_index]}")
+    done
+done
+unset _category_index _configured_name
 
 # Membership check below is a linear scan against ALL_SUBDIRS itself,
 # comparing basenames, rather than an associative-array set — declare -A is
@@ -291,13 +303,9 @@ if [ ${#ENV_DIRS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# Build the Environments submenu — short tags so users can jump with a
-# keypress. Kept separate from the top-level MENU_OPTIONS below so the main
-# menu itself stays a short, fixed list of action categories instead of
-# growing by one row per environment.
-ENV_OPTIONS=()
+# Build the environment metadata used by each category submenu.
 ENV_PATHS=()    # parallel array: index → actual directory path
-ENV_TAGS=()     # parallel array: index → the dialog tag assigned below
+ENV_CATEGORIES=()
 
 # First pass: collect name/type/compat-tag per environment, and the
 # longest folder name, so the type column below can be padded to line up
@@ -354,32 +362,46 @@ for dir in "${ENV_DIRS[@]}"; do
     ENV_NAMES+=("$folder_name")
     ENV_TYPES+=("$TYPE")
     ENV_COMPATS+=("$COMPAT_TAG")
+    ENV_CATEGORY_ID="other"
+    for _configured_index in "${!ENV_CONFIG_NAMES[@]}"; do
+        if [ "${ENV_CONFIG_NAMES[$_configured_index]}" = "$folder_name" ]; then
+            ENV_CATEGORY_ID="${ENV_CONFIG_CATEGORIES[$_configured_index]}"
+            break
+        fi
+    done
+    ENV_CATEGORIES+=("$ENV_CATEGORY_ID")
     [ "${#folder_name}" -gt "$MAX_NAME_LEN" ] && MAX_NAME_LEN=${#folder_name}
 done
+unset ENV_CATEGORY_ID _configured_index
 
-# Second pass: name first, then the type column padded to line up.
-#
-# Tags are 1-9 for the first nine environments (unchanged single-keypress
-# behavior for the common case), then A-Z for the 10th through 35th — past
-# nine, dialog's typeahead no longer maps a single digit to a single row
-# (e.g. "1" is now ambiguous between tag "1" and every tag starting with
-# "1", like a literal "10" would be), so letters are the only way to keep
-# one keypress = one environment once there are more than nine. Beyond 35
-# (9 + 26 letters) this falls back to a plain multi-digit number — dialog
-# still accepts typing it out, just without single-keypress access; not
-# worth two-letter tags for a case this repo is unlikely to ever hit.
+# Build the category chooser, omitting configured categories that currently
+# contain no valid environment. "Other" only appears when it is needed.
+ENV_CATEGORY_OPTIONS=()
+ENV_CATEGORY_TAGS=()
+ENV_CATEGORY_IDS=()
 ENV_TAG_LETTERS="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-for i in "${!ENV_NAMES[@]}"; do
-    if [ "$i" -lt 9 ]; then
-        TAG="$((i + 1))"
-    elif [ "$((i - 9))" -lt "${#ENV_TAG_LETTERS}" ]; then
-        TAG="${ENV_TAG_LETTERS:$((i - 9)):1}"
-    else
-        TAG="$((i + 1))"
+for _category_index in "${!ENV_CONFIG_CATEGORY_IDS[@]}"; do
+    ENV_COUNT=0
+    for ENV_CATEGORY_ID in "${ENV_CATEGORIES[@]}"; do
+        [ "$ENV_CATEGORY_ID" = "${ENV_CONFIG_CATEGORY_IDS[$_category_index]}" ] && ENV_COUNT=$((ENV_COUNT + 1))
+    done
+    if [ "$ENV_COUNT" -gt 0 ]; then
+        ENV_CATEGORY_IDS+=("${ENV_CONFIG_CATEGORY_IDS[$_category_index]}")
+        ENV_CATEGORY_OPTIONS+=( "${#ENV_CATEGORY_IDS[@]}" "${ENV_CONFIG_CATEGORY_NAMES[$_category_index]}  ($ENV_COUNT)" )
     fi
-    ENV_TAGS+=("$TAG")
-    ENV_OPTIONS+=( "$TAG" "$(printf '%-*s' "$MAX_NAME_LEN" "${ENV_NAMES[$i]}")  ${ENV_TYPES[$i]}${ENV_COMPATS[$i]}" )
 done
+ENV_COUNT=0
+for ENV_CATEGORY_ID in "${ENV_CATEGORIES[@]}"; do
+    [ "$ENV_CATEGORY_ID" = "other" ] && ENV_COUNT=$((ENV_COUNT + 1))
+done
+if [ "$ENV_COUNT" -gt 0 ]; then
+    ENV_CATEGORY_IDS+=("other")
+    ENV_CATEGORY_OPTIONS+=( "${#ENV_CATEGORY_IDS[@]}" "Other  ($ENV_COUNT)" )
+fi
+for _category_index in "${!ENV_CATEGORY_IDS[@]}"; do
+    ENV_CATEGORY_TAGS+=("$((_category_index + 1))")
+done
+unset _category_index ENV_CATEGORY_ID ENV_COUNT
 
 # Top-level menu — a fixed set of action categories, not one row per
 # environment or per sub-action. Environments live behind "Environments";
@@ -393,83 +415,165 @@ MENU_OPTIONS+=( "U" "[Desktop] Uninstall Desktop Entries" )
 MENU_OPTIONS+=( "B" "[Backup] Create Backup Archive" )
 MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
 
+# Remember the menu level that launched an action. A bare `continue` still
+# restarts this one outer loop, but MENU_CONTEXT makes it reopen that same
+# submenu instead of unconditionally rebuilding the top-level menu. Cancelling
+# a submenu explicitly changes the context to its parent first.
+MENU_CONTEXT="_top"
+CURRENT_ENV_CATEGORY=""
+CURRENT_ENV_CATEGORY_NAME=""
+CURRENT_ENV_PATH=""
+
 # Everything from here down repeats until the user explicitly cancels the
-# top-level menu below (the one true "quit" gesture) — every OTHER action's
-# completion or cancellation loops back here instead of exiting to the
-# shell, via `continue` at the end of each branch.
+# top-level menu (the one true "quit" gesture).
 while true; do
 
-# Present the Menu
-TEMP_FILE=$(mktemp)
-dialog --clear \
-    --title " Raspberry Pi Deployment Center " \
-    --menu "Choose an action:" 15 60 6 \
-    "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
+# Resolve the saved context first. Only the top-level context displays the
+# main menu; submenu contexts dispatch directly back to their own screen.
+case "$MENU_CONTEXT" in
+    "_environments")
+        SELECTED_PATH="_environments"
+        ;;
+    "_environment_category")
+        SELECTED_PATH="_environment_category"
+        ;;
+    "_environment_actions")
+        SELECTED_PATH="$CURRENT_ENV_PATH"
+        ;;
+    "_manage"|"_manage_containers"|"_manage_images")
+        SELECTED_PATH="_manage"
+        ;;
+    "_restore")
+        SELECTED_PATH="_restore"
+        ;;
+    *)
+        MENU_CONTEXT="_top"
+        TEMP_FILE=$(mktemp)
+        dialog --clear \
+            --title " Raspberry Pi Deployment Center " \
+            --menu "Choose an action:" 15 60 6 \
+            "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
-EXIT_STATUS=$?
-SELECTED_NUM=$(cat "$TEMP_FILE")
-rm -f "$TEMP_FILE"
+        EXIT_STATUS=$?
+        SELECTED_NUM=$(cat "$TEMP_FILE")
+        rm -f "$TEMP_FILE"
 
-if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_NUM" ]; then
-    clear
-    echo "❌ Deployment cancelled."
-    exit 0
-fi
+        if [ $EXIT_STATUS -ne 0 ] || [ -z "$SELECTED_NUM" ]; then
+            clear
+            echo "❌ Deployment cancelled."
+            exit 0
+        fi
 
-# Resolve the selection to a dispatch target
-if [ "$SELECTED_NUM" = "E" ]; then
-    SELECTED_PATH="_environments"
-elif [ "$SELECTED_NUM" = "M" ]; then
-    SELECTED_PATH="_manage"
-elif [ "$SELECTED_NUM" = "D" ]; then
-    SELECTED_PATH="_desktop"
-elif [ "$SELECTED_NUM" = "U" ]; then
-    SELECTED_PATH="_desktop_uninstall"
-elif [ "$SELECTED_NUM" = "B" ]; then
-    SELECTED_PATH="_backup"
-elif [ "$SELECTED_NUM" = "R" ]; then
-    SELECTED_PATH="_restore"
-fi
+        case "$SELECTED_NUM" in
+            E) SELECTED_PATH="_environments"; MENU_CONTEXT="_environments" ;;
+            M) SELECTED_PATH="_manage"; MENU_CONTEXT="_manage" ;;
+            D) SELECTED_PATH="_desktop" ;;
+            U) SELECTED_PATH="_desktop_uninstall" ;;
+            B) SELECTED_PATH="_backup" ;;
+            R) SELECTED_PATH="_restore"; MENU_CONTEXT="_restore" ;;
+        esac
+        ;;
+esac
 
 # ==========================================
 # ENVIRONMENTS SUBMENU
 # ==========================================
 if [ "$SELECTED_PATH" = "_environments" ]; then
-    if [ ${#ENV_OPTIONS[@]} -eq 0 ]; then
+    if [ ${#ENV_CATEGORY_OPTIONS[@]} -eq 0 ]; then
         clear
         echo "ℹ️  No environments found under environments/."
         read -rp "Press Enter to return to the menu..."
+        MENU_CONTEXT="_top"
         continue
     fi
 
     TEMP_ENV_FILE=$(mktemp)
     dialog --clear \
         --title " Environments " \
-        --menu "Choose a configuration workspace to deploy:" 20 70 12 \
-        "${ENV_OPTIONS[@]}" 2> "$TEMP_ENV_FILE"
+        --menu "Choose a category:" 16 60 8 \
+        "${ENV_CATEGORY_OPTIONS[@]}" 2> "$TEMP_ENV_FILE"
     ENV_EXIT=$?
-    SELECTED_ENV_NUM=$(cat "$TEMP_ENV_FILE")
+    SELECTED_CATEGORY_TAG=$(cat "$TEMP_ENV_FILE")
     rm -f "$TEMP_ENV_FILE"
 
-    if [ $ENV_EXIT -ne 0 ] || [ -z "$SELECTED_ENV_NUM" ]; then
+    if [ $ENV_EXIT -ne 0 ] || [ -z "$SELECTED_CATEGORY_TAG" ]; then
         clear
+        MENU_CONTEXT="_top"
         continue
     fi
 
-    # Tags aren't a plain 1-based index once letters are in play (see the
-    # ENV_TAGS comment above) — look the chosen tag up in ENV_TAGS instead
-    # of computing an offset.
-    SELECTED_PATH=""
-    for i in "${!ENV_TAGS[@]}"; do
-        if [ "${ENV_TAGS[$i]}" = "$SELECTED_ENV_NUM" ]; then
-            SELECTED_PATH="${ENV_PATHS[$i]}"
+    CURRENT_ENV_CATEGORY=""
+    CURRENT_ENV_CATEGORY_NAME=""
+    for i in "${!ENV_CATEGORY_TAGS[@]}"; do
+        if [ "${ENV_CATEGORY_TAGS[$i]}" = "$SELECTED_CATEGORY_TAG" ]; then
+            CURRENT_ENV_CATEGORY="${ENV_CATEGORY_IDS[$i]}"
+            if [ "$CURRENT_ENV_CATEGORY" = "other" ]; then
+                CURRENT_ENV_CATEGORY_NAME="Other"
+            else
+                for _category_index in "${!ENV_CONFIG_CATEGORY_IDS[@]}"; do
+                    if [ "${ENV_CONFIG_CATEGORY_IDS[$_category_index]}" = "$CURRENT_ENV_CATEGORY" ]; then
+                        CURRENT_ENV_CATEGORY_NAME="${ENV_CONFIG_CATEGORY_NAMES[$_category_index]}"
+                        break
+                    fi
+                done
+            fi
             break
         fi
     done
-    # Falls through intentionally, not `continue` — SELECTED_PATH is now a
-    # real environment directory, so the rest of the script (the deployment
-    # policy selector onward) picks it up exactly as if it had been chosen
-    # directly from the main menu, same as before this submenu existed.
+    MENU_CONTEXT="_environment_category"
+    continue
+fi
+
+# ==========================================
+# ENVIRONMENT CATEGORY SUBMENU
+# ==========================================
+if [ "$SELECTED_PATH" = "_environment_category" ]; then
+    CATEGORY_ENV_OPTIONS=()
+    CATEGORY_ENV_TAGS=()
+    CATEGORY_ENV_PATHS=()
+    CATEGORY_ENV_INDEX=0
+
+    for i in "${!ENV_PATHS[@]}"; do
+        [ "${ENV_CATEGORIES[$i]}" = "$CURRENT_ENV_CATEGORY" ] || continue
+        if [ "$CATEGORY_ENV_INDEX" -lt 9 ]; then
+            TAG="$((CATEGORY_ENV_INDEX + 1))"
+        elif [ "$((CATEGORY_ENV_INDEX - 9))" -lt "${#ENV_TAG_LETTERS}" ]; then
+            TAG="${ENV_TAG_LETTERS:$((CATEGORY_ENV_INDEX - 9)):1}"
+        else
+            TAG="$((CATEGORY_ENV_INDEX + 1))"
+        fi
+        CATEGORY_ENV_TAGS+=("$TAG")
+        CATEGORY_ENV_PATHS+=("${ENV_PATHS[$i]}")
+        CATEGORY_ENV_OPTIONS+=( "$TAG" "$(printf '%-*s' "$MAX_NAME_LEN" "${ENV_NAMES[$i]}")  ${ENV_TYPES[$i]}${ENV_COMPATS[$i]}" )
+        CATEGORY_ENV_INDEX=$((CATEGORY_ENV_INDEX + 1))
+    done
+
+    TEMP_ENV_FILE=$(mktemp)
+    dialog --clear \
+        --title " Environments — $CURRENT_ENV_CATEGORY_NAME " \
+        --menu "Choose a configuration workspace to deploy:" 18 74 10 \
+        "${CATEGORY_ENV_OPTIONS[@]}" 2> "$TEMP_ENV_FILE"
+    ENV_EXIT=$?
+    SELECTED_ENV_TAG=$(cat "$TEMP_ENV_FILE")
+    rm -f "$TEMP_ENV_FILE"
+
+    if [ $ENV_EXIT -ne 0 ] || [ -z "$SELECTED_ENV_TAG" ]; then
+        clear
+        MENU_CONTEXT="_environments"
+        continue
+    fi
+
+    SELECTED_PATH=""
+    for i in "${!CATEGORY_ENV_TAGS[@]}"; do
+        if [ "${CATEGORY_ENV_TAGS[$i]}" = "$SELECTED_ENV_TAG" ]; then
+            SELECTED_PATH="${CATEGORY_ENV_PATHS[$i]}"
+            CURRENT_ENV_PATH="$SELECTED_PATH"
+            MENU_CONTEXT="_environment_actions"
+            break
+        fi
+    done
+    # Falls through intentionally: SELECTED_PATH is now a real environment
+    # directory, so the deployment policy selector below handles it.
 fi
 
 # ==========================================
@@ -479,20 +583,35 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
     clear
 
     # Sub-menu: choose what to manage
-    TEMP_MGMT_TYPE=$(mktemp)
-    dialog --clear \
-        --title " Docker Manager " \
-        --menu "What would you like to manage?" 12 64 3 \
-        "C" "Containers    (list & delete running/stopped)" \
-        "I" "Images        (list & delete local images)" \
-        "U" "Check Updates (scan, then optionally apply what's flagged)" \
-        2> "$TEMP_MGMT_TYPE"
-    MGMT_TYPE_EXIT=$?
-    MGMT_TYPE=$(cat "$TEMP_MGMT_TYPE")
-    rm -f "$TEMP_MGMT_TYPE"
+    if [ "$MENU_CONTEXT" = "_manage_containers" ]; then
+        MGMT_TYPE="C"
+    elif [ "$MENU_CONTEXT" = "_manage_images" ]; then
+        MGMT_TYPE="I"
+    else
+        TEMP_MGMT_TYPE=$(mktemp)
+        dialog --clear \
+            --title " Docker Manager " \
+            --menu "What would you like to manage?" 12 64 3 \
+            "C" "Containers    (list & delete running/stopped)" \
+            "I" "Images        (list & delete local images)" \
+            "U" "Check Updates (scan, then optionally apply what's flagged)" \
+            2> "$TEMP_MGMT_TYPE"
+        MGMT_TYPE_EXIT=$?
+        MGMT_TYPE=$(cat "$TEMP_MGMT_TYPE")
+        rm -f "$TEMP_MGMT_TYPE"
 
-    if [ $MGMT_TYPE_EXIT -ne 0 ] || [ -z "$MGMT_TYPE" ]; then
-        clear; echo "ℹ️  Cancelled."; continue
+        if [ $MGMT_TYPE_EXIT -ne 0 ] || [ -z "$MGMT_TYPE" ]; then
+            clear
+            echo "ℹ️  Cancelled."
+            MENU_CONTEXT="_top"
+            continue
+        fi
+
+        case "$MGMT_TYPE" in
+            C) MENU_CONTEXT="_manage_containers" ;;
+            I) MENU_CONTEXT="_manage_images" ;;
+            U) MENU_CONTEXT="_manage" ;;
+        esac
     fi
 
     # ------------------------------------------
@@ -510,7 +629,9 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         if [ ${#CONTAINER_LIST[@]} -eq 0 ]; then
             dialog --clear --title " Container Manager " \
                 --msgbox "\nNo Docker containers found on this system." 8 50
-            clear; continue
+            clear
+            MENU_CONTEXT="_manage"
+            continue
         fi
 
         TEMP_MANAGE=$(mktemp)
@@ -525,7 +646,10 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         rm -f "$TEMP_MANAGE"
 
         if [ $MANAGE_EXIT -ne 0 ] || [ -z "$SELECTED_CONTAINERS" ]; then
-            clear; echo "ℹ️  No containers selected."; continue
+            clear
+            echo "ℹ️  No containers selected."
+            MENU_CONTEXT="_manage"
+            continue
         fi
 
         CONFIRM_MSG="The following containers will be STOPPED and REMOVED:\n\n"
@@ -536,7 +660,9 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
 
         dialog --clear --title " Confirm Deletion " --defaultno --yesno "$CONFIRM_MSG" 16 60
         if [ $? -ne 0 ]; then
-            clear; echo "ℹ️  Deletion cancelled."; continue
+            clear
+            echo "ℹ️  Deletion cancelled."
+            continue
         fi
 
         clear
@@ -570,7 +696,9 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         if [ ${#IMAGE_LIST[@]} -eq 0 ]; then
             dialog --clear --title " Image Manager " \
                 --msgbox "\nNo Docker images found on this system." 8 50
-            clear; continue
+            clear
+            MENU_CONTEXT="_manage"
+            continue
         fi
 
         TEMP_IMG=$(mktemp)
@@ -585,7 +713,10 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
         rm -f "$TEMP_IMG"
 
         if [ $IMG_EXIT -ne 0 ] || [ -z "$SELECTED_IMAGES" ]; then
-            clear; echo "ℹ️  No images selected."; continue
+            clear
+            echo "ℹ️  No images selected."
+            MENU_CONTEXT="_manage"
+            continue
         fi
 
         CONFIRM_MSG="The following images will be REMOVED:\n\n"
@@ -596,7 +727,9 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
 
         dialog --clear --title " Confirm Deletion " --defaultno --yesno "$CONFIRM_MSG" 16 60
         if [ $? -ne 0 ]; then
-            clear; echo "ℹ️  Deletion cancelled."; continue
+            clear
+            echo "ℹ️  Deletion cancelled."
+            continue
         fi
 
         clear
@@ -698,6 +831,7 @@ if [ "$SELECTED_PATH" = "_restore" ]; then
     if [ ! -f "$RESTORE_SCRIPT" ]; then
         echo "❌ restore.sh not found at $PROJECT_DIR"
         read -rp "Press Enter to return to the menu..."
+        MENU_CONTEXT="_top"
         continue
     fi
 
@@ -730,7 +864,10 @@ if [ "$SELECTED_PATH" = "_restore" ]; then
     rm -f "$TEMP_ARCHIVE_CHOICE"
 
     if [ $CHOICE_EXIT -ne 0 ] || [ -z "$ARCHIVE_CHOICE" ]; then
-        clear; echo "❌ Restore cancelled."; continue
+        clear
+        echo "❌ Restore cancelled."
+        MENU_CONTEXT="_top"
+        continue
     fi
 
     if [ "$ARCHIVE_CHOICE" = "E" ]; then
@@ -743,7 +880,9 @@ if [ "$SELECTED_PATH" = "_restore" ]; then
         rm -f "$TEMP_ARCHIVE_PATH"
 
         if [ $ARCHIVE_EXIT -ne 0 ] || [ -z "$ARCHIVE_PATH" ]; then
-            clear; echo "❌ Restore cancelled."; continue
+            clear
+            echo "❌ Restore cancelled."
+            continue
         fi
     else
         ARCHIVE_PATH="${ARCHIVE_MENU_PATHS[$((ARCHIVE_CHOICE - 1))]}"
@@ -872,6 +1011,7 @@ rm -f "$TEMP_POLICY_FILE"  # Clean up temporary allocation file pointer
 if [ $POLICY_EXIT -ne 0 ] || [ -z "$REBUILD_POLICY" ]; then
     clear
     echo "❌ Deployment cancelled."
+    MENU_CONTEXT="_environment_category"
     continue
 fi
 

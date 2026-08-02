@@ -38,10 +38,6 @@ against a real Docker host yet, only simulated/verified in isolation:
   actually appears in `deploy.sh`'s real policy menu for `claude-cli`
   (alongside FAST/STOP/CLEAN/etc.), not just in the `custom_actions`
   YAML/parsing logic that was checked directly.
-- **A-Z menu tags** — confirm `deploy.sh`'s Environments submenu actually
-  renders `A`-`Z` tags past the 9th environment through a real `dialog`
-  render, not just the tag-generation/lookup logic checked in isolation.
-
 ## nanoclaw-mnemon: yt-dlp/python3 fix shipped and confirmed, follow-ups still open
 
 Full account in `docs/lessons-learned/nanoclaw-mnemon.md`'s "yt-dlp /
