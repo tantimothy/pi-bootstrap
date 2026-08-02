@@ -85,6 +85,11 @@ case "$NANOCLAW_SETUP" in
     mnemon|plain) ;;
     *) echo "❌ NANOCLAW_SETUP must be 'mnemon' or 'plain' (got: $NANOCLAW_SETUP)." >&2; exit 1 ;;
 esac
+NANOCLAW_INSTALL_CODEX="${NANOCLAW_INSTALL_CODEX:-false}"
+case "$NANOCLAW_INSTALL_CODEX" in
+    true|false) ;;
+    *) echo "❌ NANOCLAW_INSTALL_CODEX must be 'true' or 'false' (got: $NANOCLAW_INSTALL_CODEX)." >&2; exit 1 ;;
+esac
 # Opt-in — mnemon's own optional hybrid graph+vector recall (unset by
 # default: commented out until you actually have Ollama running
 # somewhere reachable). Left blank, mnemon runs graph-only, which is its
@@ -763,6 +768,18 @@ else
     approval_patch_rc=$?
 fi
 
+# Optional Codex provider preparation. The upstream provider-auth entry point
+# deliberately combines install + OAuth; CLEAN must remain headless, so apply
+# the same upstream skill through its directive engine and stop before auth.
+# Do this before either CLEAN rebuild path below so the refreshed host source
+# and agent CLI manifest are compiled into the artifacts those paths produce.
+# A brand-new install has no dist/index.js yet; its normal setup wizard later
+# performs the first build from this already-prepared source.
+if [ "$NANOCLAW_INSTALL_CODEX" = "true" ] && { [ "$POLICY" = "CLEAN" ] || [ ! -f "${INSTALL_PATH}/dist/index.js" ]; }; then
+    echo "🤖 Preparing the NanoClaw Codex provider headlessly (OAuth deferred)..."
+    $DOCKER exec -i "$CONTAINER_NAME" bash -s -- "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/install-codex-provider.sh"
+fi
+
 if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway and/or approval-delivery fix)..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
@@ -781,35 +798,32 @@ if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -n
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
     stamp_upgrade_state
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
+fi
 
-    # The rebuild above only covers NanoClaw's own orchestrator (`pnpm run
-    # build` — a plain `tsc` compile of the host-side TS). It does NOT
-    # rebuild the agent-sandbox Docker image that apply_mnemon_patch/
-    # apply_media_tools_patch just edited — that's a completely separate
-    # artifact (`nanoclaw-agent-v2-<slug>:latest`, built from
-    # container/Dockerfile), and this existing-install branch is the one
-    # case where nothing else rebuilds it: a fresh install's own
-    # nanoclaw.sh wizard builds it once as part of first-time setup (see
-    # the comment above apply_mnemon_patch's own call site), but re-syncing
-    # an EXISTING install's source, on its own, just leaves the newly-
-    # patched Dockerfile text sitting unused — the agent containers every
-    # group actually spawns from keep running whatever was built the last
-    # time this rebuild happened (or never, if it never has). Confirmed the
-    # hard way: an agent reported no yt-dlp/ffmpeg/whisper-cli available at
-    # all, weeks after apply_media_tools_patch was added, because CLEAN had
-    # only ever re-synced+re-patched the Dockerfile text, never actually
-    # rebuilt the image. container/build.sh is NanoClaw's own sanctioned
-    # entry point for this — its own provider-switch step in setup/auto.ts
-    # calls it the same way when it needs to rebuild post-container-step.
+# The host rebuild paths above do NOT rebuild the agent-sandbox Docker image
+# that apply_mnemon_patch/apply_media_tools_patch and the optional Codex
+# provider CLI manifest affect. Keep this independent from which host rebuild
+# path ran: a newly-applied runtime patch used to skip this image rebuild
+# because patch_rc=2 bypassed the older combined branch.
+if [ "$POLICY" = "CLEAN" ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     if [ -f "${INSTALL_PATH}/container/build.sh" ]; then
-        echo "🛠️  Rebuilding the NanoClaw agent-sandbox image (mnemon + media-tools patches)..."
+        echo "🛠️  Rebuilding the NanoClaw agent-sandbox image (profile patches + optional providers)..."
         # BuildKit cache mounts in container/Dockerfile need DOCKER_BUILDKIT=1
         # — docker exec never forwards the host's env on its own (same
         # reasoning as the nanoclaw.sh wizard call further below).
-        $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'" \
-            || echo "⚠️  Agent-sandbox image rebuild failed — mnemon/media-tools patches won't take effect until this succeeds. See the build output above." >&2
+        if ! $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'"; then
+            if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
+                echo "❌ Agent-sandbox image rebuild failed — refusing to report a successful CLEAN because Codex would not survive in the replacement image." >&2
+                exit 1
+            fi
+            echo "⚠️  Agent-sandbox image rebuild failed — profile changes won't take effect until this succeeds. See the build output above." >&2
+        fi
     else
-        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild. mnemon/media-tools patches won't take effect on this install until the image is rebuilt some other way." >&2
+        if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
+            echo "❌ ${INSTALL_PATH}/container/build.sh not found — refusing to report a successful CLEAN because the replacement Codex agent image cannot be built." >&2
+            exit 1
+        fi
+        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild. Profile changes won't take effect until the image is rebuilt some other way." >&2
     fi
 fi
 
