@@ -79,6 +79,9 @@ useful_commands: |2
         (the default). Set NANOCLAW_SETUP=plain for an unpatched NanoClaw agent image.
      🤖 NANOCLAW_INSTALL_CODEX=true prepares Codex during CLEAN without OAuth
         or switching groups. Finish setup later through "Manage Codex Provider".
+        Provider wiring/CLIs are restored on each CLEAN; OAuth stays in OneCLI's
+        external vault, and group/default/task/session state stays under the
+        preserved NanoClaw install path.
      🐳 NanoClaw manages its own Docker containers per conversation group.
         Use the Docker Manager in the deploy menu to view or delete them.
      ❌ iMessage isn't offered — this environment is container-mode only (see

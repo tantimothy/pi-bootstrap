@@ -786,10 +786,19 @@ if [ "$POLICY" = "CLEAN" ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
         # BuildKit cache mounts in container/Dockerfile need DOCKER_BUILDKIT=1
         # — docker exec never forwards the host's env on its own (same
         # reasoning as the nanoclaw.sh wizard call further below).
-        $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'" \
-            || echo "⚠️  Agent-sandbox image rebuild failed — profile/provider changes won't take effect until this succeeds. See the build output above." >&2
+        if ! $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'"; then
+            if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
+                echo "❌ Agent-sandbox image rebuild failed — refusing to report a successful CLEAN because Codex would not survive in the replacement image." >&2
+                exit 1
+            fi
+            echo "⚠️  Agent-sandbox image rebuild failed — profile changes won't take effect until this succeeds. See the build output above." >&2
+        fi
     else
-        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild. Profile/provider changes won't take effect until the image is rebuilt some other way." >&2
+        if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
+            echo "❌ ${INSTALL_PATH}/container/build.sh not found — refusing to report a successful CLEAN because the replacement Codex agent image cannot be built." >&2
+            exit 1
+        fi
+        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild. Profile changes won't take effect until the image is rebuilt some other way." >&2
     fi
 fi
 

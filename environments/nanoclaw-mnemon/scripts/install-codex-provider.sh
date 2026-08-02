@@ -34,6 +34,30 @@ cd "$INSTALL_PATH"
 # the later NanoClaw setup/build reuses the installed dependency tree.
 pnpm install
 
+# NanoClaw installs the OneCLI CLI into the machine running setup. In this
+# environment that "machine" is the disposable orchestrator container, so
+# CLEAN removes the CLI even though the separate OneCLI gateway and its
+# encrypted data volume correctly survive. Restore the upstream-pinned CLI
+# through NanoClaw's own install-only remote-gateway path when a persistent
+# ONECLI_URL already exists. A completely fresh install has no URL yet; its
+# normal first-run wizard owns initial OneCLI setup.
+if ! command -v onecli >/dev/null 2>&1; then
+    ONECLI_URL=""
+    if [ -f .env ]; then
+        ONECLI_URL=$(sed -n 's/^ONECLI_URL=//p' .env | tail -1)
+        ONECLI_URL="${ONECLI_URL#\'}"
+        ONECLI_URL="${ONECLI_URL%\'}"
+        ONECLI_URL="${ONECLI_URL#\"}"
+        ONECLI_URL="${ONECLI_URL%\"}"
+    fi
+    if [ -n "$ONECLI_URL" ]; then
+        echo "🔐 Restoring NanoClaw's pinned OneCLI CLI for the persistent vault..."
+        pnpm exec tsx setup/index.ts --step onecli --remote-url "$ONECLI_URL"
+    else
+        echo "ℹ️  OneCLI is not initialized yet; the first-run wizard will install it."
+    fi
+fi
+
 echo "🤖 Installing/refreshing NanoClaw's Codex provider payload (authentication deferred)..."
 pnpm exec tsx -e '
 void (async () => {
@@ -85,4 +109,18 @@ if ! grep -Fq '"@openai/codex"' container/cli-tools.json; then
     exit 1
 fi
 
-echo "✅ Codex provider source and CLI manifest are ready; OAuth remains unconfigured."
+# The manifest above installs Codex in spawned agent images. OAuth itself is
+# performed by NanoClaw's host-side setup step, which means the disposable
+# orchestrator needs the same pinned CLI as well. Derive the version from
+# upstream's manifest rather than carrying a second pin in pi-bootstrap.
+CODEX_CLI_VERSION=$(node -e '
+const tools = JSON.parse(require("fs").readFileSync("container/cli-tools.json", "utf8"));
+const codex = tools.find((tool) => tool && tool.name === "@openai/codex");
+if (!codex || !codex.version) process.exit(1);
+process.stdout.write(String(codex.version));
+')
+echo "📦 Installing host-side @openai/codex@$CODEX_CLI_VERSION for the later OAuth action..."
+npm install -g "@openai/codex@$CODEX_CLI_VERSION"
+codex --version
+
+echo "✅ Codex provider source and both CLI surfaces are ready; OAuth remains unconfigured."

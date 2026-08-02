@@ -142,6 +142,40 @@ credential in OneCLI's vault; this environment never copies
 `~/.codex/auth.json` into an agent container. Re-run the same authentication
 action if that credential is later revoked or expires.
 
+Every submenu action that installs, authenticates, or activates Codex also
+persists `NANOCLAW_INSTALL_CODEX=true` in this environment's `.env`. That
+ensures a later CLEAN re-applies the provider even if Codex was first added
+through the submenu rather than the deploy form.
+
+#### What survives CLEAN
+
+| State | Persistent location / recovery |
+|---|---|
+| Codex provider payload and registry wiring | Re-applied from NanoClaw's current upstream `/add-codex` skill whenever `NANOCLAW_INSTALL_CODEX=true`; git-tracked source can therefore be safely hard-reset. |
+| Codex CLI in agent containers | Upstream's pinned version remains in `container/cli-tools.json` and is baked into the rebuilt agent image. |
+| Codex CLI used by the OAuth submenu | Reinstalled at that same upstream pin inside every replacement orchestrator; no mutable CLI home is treated as state. |
+| OpenAI OAuth/API credential | OneCLI's encrypted external vault volume. CLEAN removes neither the OneCLI gateway nor its volume. The temporary Codex login directory is deliberately deleted after vaulting. |
+| OneCLI CLI used by the submenu | Restored at NanoClaw's own current pin after orchestrator recreation and pointed back at the persistent `ONECLI_URL`. |
+| Default provider for new groups | `$NANOCLAW_INSTALL_PATH/.env`, which is gitignored and preserved by CLEAN. |
+| Per-group provider/model assignments, scheduled tasks, sessions, and thread continuation IDs | `$NANOCLAW_INSTALL_PATH/data/`, preserved by CLEAN. |
+| Group files, provider-neutral memory, exchange archives, and Mnemon data for Claude groups | `$NANOCLAW_INSTALL_PATH/groups/`, preserved by CLEAN. |
+| Channel sessions and pairings | `$NANOCLAW_INSTALL_PATH/store/`, preserved by CLEAN. |
+| Running processes and agent containers | Intentionally recreated; the persistent records above are used to resume them. |
+
+This covers NanoClaw agent activity, including conversations, tasks, group
+workspaces, provider choices, and channel state. The separate administrator
+Claude maintenance shell described under **Managing NanoClaw** remains
+deliberately disposable: its interactive tmux/Claude history is not an agent
+conversation and is not restored after container recreation.
+
+When Codex persistence is enabled, a failed replacement agent-image build
+makes CLEAN fail rather than printing a successful deployment with a source
+configuration the running image does not contain.
+
+OneCLI is deliberately not declared as this environment's own `named_volume`
+in `info.yaml`: the gateway can be shared by other agents/environments, and
+this environment's WIPE must never delete that shared credential vault.
+
 Codex groups still have NanoClaw's provider-neutral memory, but the extra
 Mnemon integration in this profile is implemented as Claude Code hooks and
 does not run for Codex groups. Switch a group back to Claude if it specifically

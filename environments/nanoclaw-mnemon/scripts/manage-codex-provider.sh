@@ -8,6 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 [ -f "$ENV_DIR/.env" ] && { set -a; source "$ENV_DIR/.env"; set +a; }
+ENV_FILE="$ENV_DIR/.env"
 
 INSTALL_PATH="${NANOCLAW_INSTALL_PATH:-$HOME/nanoclaw-mnemon}"
 CONTAINER_NAME="${CONTAINER_NAME:-nanoclaw-mnemon}"
@@ -45,6 +46,23 @@ codex_installed() {
         grep -Fq '"@openai/codex"' "$INSTALL_PATH/container/cli-tools.json" 2>/dev/null
 }
 
+persist_clean_reinstall() {
+    if [ ! -f "$ENV_FILE" ]; then
+        echo "❌ No .env in $ENV_DIR — deploy this environment first." >&2
+        return 1
+    fi
+    if grep -q '^NANOCLAW_INSTALL_CODEX=true$' "$ENV_FILE"; then
+        return 0
+    fi
+    # -i.bak works on both GNU and BSD/macOS sed.
+    sed -i.bak '/^NANOCLAW_INSTALL_CODEX=/d' "$ENV_FILE"
+    rm -f "$ENV_FILE.bak"
+    echo "NANOCLAW_INSTALL_CODEX=true" >> "$ENV_FILE"
+    NANOCLAW_INSTALL_CODEX=true
+    export NANOCLAW_INSTALL_CODEX
+    echo "✅ Future CLEAN runs will reinstall/refresh Codex automatically."
+}
+
 show_status() {
     echo "Codex provider status"
     echo "====================="
@@ -58,6 +76,21 @@ show_status() {
         echo "CLI manifest:    installed"
     else
         echo "CLI manifest:    not installed"
+    fi
+    echo "CLEAN reinstall: ${NANOCLAW_INSTALL_CODEX:-false}"
+
+    if "$DOCKER" exec "$CONTAINER_NAME" bash -lc \
+        "onecli version >/dev/null 2>&1 && onecli secrets list | jq -e \
+        '(.data // []) | any(.[]; \
+          ((.name // \"\" | ascii_downcase) == \"codex\") or \
+          ((.name // \"\" | ascii_downcase) == \"openai\") or \
+          ((.type // \"\" | ascii_downcase) == \"openai\") or \
+          ((.hostPattern // \"\" | ascii_downcase) | contains(\"api.openai.com\")) or \
+          ((.hostPattern // \"\" | ascii_downcase) | contains(\"chatgpt.com\")))' \
+        >/dev/null" >/dev/null 2>&1; then
+        echo "Vault credential: connected"
+    else
+        echo "Vault credential: not connected or OneCLI is unavailable"
     fi
 
     IMAGE_TAG=$("$DOCKER" images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -m1 '^nanoclaw-agent-v2-' || true)
@@ -81,6 +114,7 @@ show_status() {
 }
 
 refresh_provider() {
+    persist_clean_reinstall
     echo "🔄 Refreshing the Codex provider without entering OAuth..."
     "$DOCKER" exec -i "$CONTAINER_NAME" bash -s -- "$INSTALL_PATH" < "$SCRIPT_DIR/install-codex-provider.sh"
     inside "pnpm run build"
@@ -91,6 +125,7 @@ refresh_provider() {
 }
 
 authenticate() {
+    persist_clean_reinstall
     echo "🔐 Starting NanoClaw's vault-backed Codex authentication walkthrough..."
     echo "   Choose ChatGPT subscription and complete browser/device pairing when prompted."
     inside "pnpm exec tsx setup/index.ts --step provider-auth codex"
@@ -111,6 +146,9 @@ choose_group_provider() {
         echo "❌ Codex is not installed. Run CLEAN with NANOCLAW_INSTALL_CODEX=true or choose Refresh first." >&2
         return 1
     fi
+    if [ "$PROVIDER" = "codex" ]; then
+        persist_clean_reinstall
+    fi
     inside "pnpm ncl groups config update --id '$GROUP_ID' --provider '$PROVIDER'"
     inside "pnpm ncl groups restart --id '$GROUP_ID'"
     echo "✅ $GROUP_ID now uses $PROVIDER."
@@ -129,6 +167,9 @@ set_default_provider() {
     if [ "$PROVIDER" = "codex" ] && ! codex_installed; then
         echo "❌ Codex is not installed. Run CLEAN with NANOCLAW_INSTALL_CODEX=true or choose Refresh first." >&2
         return 1
+    fi
+    if [ "$PROVIDER" = "codex" ]; then
+        persist_clean_reinstall
     fi
     inside "pnpm exec tsx setup/index.ts --step set-env -- --key DEFAULT_AGENT_PROVIDER --value '$PROVIDER'"
     inside "bash start-nanoclaw.sh"
