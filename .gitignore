@@ -23,3 +23,9 @@ environments/*/logs/
 # is missing, so a fresh clone never needs it tracked, and tracking it
 # would risk committing whatever real data ends up here after first use.
 environments/claude-cli/data/
+
+# openclaw's generated gateway token and Claude CLI's live single-file
+# settings bind mount. Both are created locally during deployment and can
+# contain credentials or MCP registrations.
+environments/openclaw/.env
+environments/openclaw/data/

@@ -1,0 +1,101 @@
+services:
+  openclaw-gateway:
+    container_name: ${CONTAINER_NAME:-openclaw}
+    image: ${OPENCLAW_LOCAL_IMAGE:-openclaw-with-clis:latest}
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      TZ: ${OPENCLAW_TZ:-UTC}
+      CODEX_HOME: /home/node/.codex
+      OPENCLAW_HOME: /home/node
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_DISABLE_BONJOUR: "1"
+    volumes:
+      - "openclaw_user_home:/home/node"
+      - "openclaw_state:/home/node/.openclaw"
+      - "openclaw_workspace:/home/node/.openclaw/workspace"
+      - "openclaw_auth_profiles:/home/node/.config/openclaw"
+      - "openclaw_claude_home:/home/node/.claude"
+      - "./data/claude-json/claude.json:/home/node/.claude.json"
+      - "openclaw_codex_home:/home/node/.codex"
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+      - "${OPENCLAW_MSTEAMS_PORT:-3978}:3978"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - node
+      - dist/index.js
+      - gateway
+      - --bind
+      - ${OPENCLAW_GATEWAY_BIND:-lan}
+      - --port
+      - "18789"
+    healthcheck:
+      test: ["CMD", "node", "dist/docker-healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # One-off administrative commands use the same image and persistent state.
+  # run.sh starts only openclaw-gateway, so this service never stays running.
+  openclaw-cli:
+    image: ${OPENCLAW_LOCAL_IMAGE:-openclaw-with-clis:latest}
+    network_mode: "service:openclaw-gateway"
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      TZ: ${OPENCLAW_TZ:-UTC}
+      CODEX_HOME: /home/node/.codex
+      OPENCLAW_HOME: /home/node
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      BROWSER: echo
+    volumes:
+      - "openclaw_user_home:/home/node"
+      - "openclaw_state:/home/node/.openclaw"
+      - "openclaw_workspace:/home/node/.openclaw/workspace"
+      - "openclaw_auth_profiles:/home/node/.config/openclaw"
+      - "openclaw_claude_home:/home/node/.claude"
+      - "./data/claude-json/claude.json:/home/node/.claude.json"
+      - "openclaw_codex_home:/home/node/.codex"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  openclaw_user_home:
+    name: ${CONTAINER_NAME:-openclaw}_user_home
+  openclaw_state:
+    name: ${CONTAINER_NAME:-openclaw}_state
+  openclaw_workspace:
+    name: ${CONTAINER_NAME:-openclaw}_workspace
+  openclaw_auth_profiles:
+    name: ${CONTAINER_NAME:-openclaw}_auth_profiles
+  openclaw_claude_home:
+    name: ${CONTAINER_NAME:-openclaw}_claude_home
+  openclaw_codex_home:
+    name: ${CONTAINER_NAME:-openclaw}_codex_home

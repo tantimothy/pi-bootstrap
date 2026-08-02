@@ -17,6 +17,7 @@ categories:
   - id: ai
     name: "AI Assistants"
     environments:
+      - openclaw
       - nanoclaw-mnemon
       - chat-frontends
       - llm-gateways

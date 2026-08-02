@@ -1,0 +1,58 @@
+data_dirs:
+  - path: "${SCRIPT_DIR}/data/claude-json"
+    description: "Claude CLI's ~/.claude.json settings, including MCP registrations and onboarding state"
+install_dirs: []
+named_volumes:
+  - name: ${CONTAINER_NAME:-openclaw}_user_home
+    description: "Complete runtime user home outside the nested stores below: post-setup tools, npm/npx and browser caches, shell configuration, user plugins, and other files created under /home/node"
+  - name: ${CONTAINER_NAME:-openclaw}_state
+    description: "OpenClaw configuration, sessions, credentials, logs, and gateway state"
+  - name: ${CONTAINER_NAME:-openclaw}_workspace
+    description: "OpenClaw agent workspace, memory files, skills, and files shared with both admin CLIs"
+  - name: ${CONTAINER_NAME:-openclaw}_auth_profiles
+    description: "OpenClaw auth-profile encryption secrets"
+  - name: ${CONTAINER_NAME:-openclaw}_claude_home
+    description: "Claude CLI login and session state (~/.claude)"
+  - name: ${CONTAINER_NAME:-openclaw}_codex_home
+    description: "Codex CLI login, configuration, MCP/plugin state, and sessions (~/.codex)"
+delete_confirm_msg: "OpenClaw configuration, messages/sessions, workspace memory and skills, provider credentials, both CLI login/session stores, and all other post-setup files created under /home/node will be lost."
+web_uis:
+  - name: "OpenClaw Control UI"
+    url: "http://${HOST_IP}:${OPENCLAW_GATEWAY_PORT:-18789}"
+custom_actions:
+  - label: "Run OpenClaw Onboarding"
+    command: "bash ${ENV_DIR}/scripts/onboard.sh"
+  - label: "Open Claude CLI"
+    command: 'docker exec -u node -it ${CONTAINER_NAME:-openclaw} openclaw-cli-tmux claude'
+  - label: "Open Codex CLI"
+    command: 'docker exec -u node -it ${CONTAINER_NAME:-openclaw} openclaw-cli-tmux codex'
+  - label: "Codex Device-Code Login"
+    command: 'docker exec -u node -it ${CONTAINER_NAME:-openclaw} codex login --device-auth'
+  - label: "Run OpenClaw Doctor"
+    command: 'docker exec -u node -it ${CONTAINER_NAME:-openclaw} node dist/index.js doctor'
+useful_commands: |2
+     docker logs -f ${CONTAINER_NAME:-openclaw}
+     docker exec -u node -it ${CONTAINER_NAME:-openclaw} openclaw-cli-tmux claude
+     docker exec -u node -it ${CONTAINER_NAME:-openclaw} openclaw-cli-tmux codex
+     docker exec -u node -it ${CONTAINER_NAME:-openclaw} claude --version
+     docker exec -u node -it ${CONTAINER_NAME:-openclaw} codex --version
+     docker compose run --rm openclaw-cli dashboard --no-open
+     docker compose run --rm openclaw-cli channels login
+
+  📌 Notes:
+     🦞 First FAST/CLEAN deploy runs OpenClaw's official interactive onboarding
+        before starting the gateway. Re-run it from the action menu at any time.
+     🔐 The generated gateway token is stored in this environment's .env.
+        Paste it into the Control UI when prompted.
+     🤖 Claude CLI and Codex CLI run as the same non-root user as OpenClaw and
+        share its workspace, while keeping independent persistent login/session
+        volumes. Authenticate each CLI once on first use.
+     💾 The complete /home/node runtime home is also persistent, so post-setup
+        skills, plugins, caches, shell configuration, browser downloads, and
+        user-installed tools survive CLEAN. System packages installed as root
+        outside /home/node must still be added to the Dockerfile to persist.
+     💻 The two CLI menu actions use detachable tmux sessions. Reopening an
+        action reconnects to the live session until the gateway is recreated.
+     🛡️ The gateway listens on the container LAN interface so Docker port
+        publishing works, but token authentication and an explicit Control UI
+        origin allowlist remain enabled.
