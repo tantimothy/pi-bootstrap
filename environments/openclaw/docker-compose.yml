@@ -18,6 +18,7 @@ services:
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       OPENCLAW_DISABLE_BONJOUR: "1"
     volumes:
+      - "openclaw_user_home:/home/node"
       - "openclaw_state:/home/node/.openclaw"
       - "openclaw_workspace:/home/node/.openclaw/workspace"
       - "openclaw_auth_profiles:/home/node/.config/openclaw"
@@ -72,6 +73,7 @@ services:
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       BROWSER: echo
     volumes:
+      - "openclaw_user_home:/home/node"
       - "openclaw_state:/home/node/.openclaw"
       - "openclaw_workspace:/home/node/.openclaw/workspace"
       - "openclaw_auth_profiles:/home/node/.config/openclaw"
@@ -85,6 +87,8 @@ services:
       - no-new-privileges:true
 
 volumes:
+  openclaw_user_home:
+    name: ${CONTAINER_NAME:-openclaw}_user_home
   openclaw_state:
     name: ${CONTAINER_NAME:-openclaw}_state
   openclaw_workspace:

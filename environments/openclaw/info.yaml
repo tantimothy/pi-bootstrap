@@ -3,6 +3,8 @@ data_dirs:
     description: "Claude CLI's ~/.claude.json settings, including MCP registrations and onboarding state"
 install_dirs: []
 named_volumes:
+  - name: ${CONTAINER_NAME:-openclaw}_user_home
+    description: "Complete runtime user home outside the nested stores below: post-setup tools, npm/npx and browser caches, shell configuration, user plugins, and other files created under /home/node"
   - name: ${CONTAINER_NAME:-openclaw}_state
     description: "OpenClaw configuration, sessions, credentials, logs, and gateway state"
   - name: ${CONTAINER_NAME:-openclaw}_workspace
@@ -13,7 +15,7 @@ named_volumes:
     description: "Claude CLI login and session state (~/.claude)"
   - name: ${CONTAINER_NAME:-openclaw}_codex_home
     description: "Codex CLI login, configuration, MCP/plugin state, and sessions (~/.codex)"
-delete_confirm_msg: "OpenClaw configuration, messages/sessions, workspace memory and skills, provider credentials, and both CLI login/session stores will be lost."
+delete_confirm_msg: "OpenClaw configuration, messages/sessions, workspace memory and skills, provider credentials, both CLI login/session stores, and all other post-setup files created under /home/node will be lost."
 web_uis:
   - name: "OpenClaw Control UI"
     url: "http://${HOST_IP}:${OPENCLAW_GATEWAY_PORT:-18789}"
@@ -45,6 +47,10 @@ useful_commands: |2
      🤖 Claude CLI and Codex CLI run as the same non-root user as OpenClaw and
         share its workspace, while keeping independent persistent login/session
         volumes. Authenticate each CLI once on first use.
+     💾 The complete /home/node runtime home is also persistent, so post-setup
+        skills, plugins, caches, shell configuration, browser downloads, and
+        user-installed tools survive CLEAN. System packages installed as root
+        outside /home/node must still be added to the Dockerfile to persist.
      💻 The two CLI menu actions use detachable tmux sessions. Reopening an
         action reconnects to the live session until the gateway is recreated.
      🛡️ The gateway listens on the container LAN interface so Docker port

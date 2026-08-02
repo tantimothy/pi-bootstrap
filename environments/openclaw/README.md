@@ -40,9 +40,18 @@ docker exec -u node -it openclaw codex login --device-auth
 ```
 
 Claude's `~/.claude` and `~/.claude.json`, Codex's `~/.codex`, OpenClaw state,
-auth-profile secrets, and the shared workspace all persist independently.
-A CLEAN rebuild updates the gateway and both CLI binaries without deleting any
-of those stores.
+auth-profile secrets, and the shared workspace all persist independently. The
+complete `/home/node` runtime home is persistent as well, covering post-setup
+skills and plugins, npm/npx and browser caches, shell configuration, downloads,
+and user-installed tools. A CLEAN rebuild updates the gateway and both CLI
+binaries without deleting any of those stores; the image-owned CLI releases
+live under `/opt`, outside the persistent home, so old binaries cannot shadow
+the rebuilt versions.
+
+Changes made as root outside `/home/node` are container-image changes and
+cannot survive recreation by Docker design. Add required system packages or
+global binaries to this environment's Dockerfile instead of installing them
+manually after deployment.
 
 ## Lifecycle
 
