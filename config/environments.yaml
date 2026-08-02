@@ -1,13 +1,11 @@
 # Display order for deploy.sh's Environments submenu, grouped by what each
 # environment actually does rather than filesystem/inode order (which is
-# arbitrary and varies between clones). Categories exist so a future
-# hierarchical/submenu Environments UI is a non-event — deploy.sh today
-# only reads the flattened environment order (`yq '.categories[].environments[]'`),
-# but the grouping is already here for when it's needed.
+# arbitrary and varies between clones). Each category becomes a submenu in
+# deploy.sh's Environments menu.
 #
 # An environment folder not listed under any category here is appended
-# alphabetically at the end by deploy.sh's own fallback pass — it's never
-# silently hidden from the menu just because this file wasn't updated.
+# alphabetically under an "Other" submenu by deploy.sh's fallback pass — it
+# is never silently hidden from the menu just because this file was not updated.
 categories:
   - id: setup
     name: "Host Setup"
