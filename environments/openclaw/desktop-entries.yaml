@@ -1,0 +1,31 @@
+menu:
+  id: openclaw
+  name: "OpenClaw"
+  icon: utilities-terminal
+deployed_check:
+  kind: container
+  value: "${CONTAINER_NAME:-openclaw}"
+entries:
+  - id: pi-bootstrap-openclaw-ui
+    name: "OpenClaw Control UI"
+    comment: "Open the OpenClaw gateway dashboard"
+    icon: applications-internet
+    kind: link
+    target: "http://localhost:${OPENCLAW_GATEWAY_PORT:-18789}"
+  - id: pi-bootstrap-openclaw-claude
+    name: "OpenClaw Claude CLI"
+    comment: "Open the persistent Claude CLI admin session in OpenClaw's workspace"
+    icon: utilities-terminal
+    kind: exec
+    target: 'docker exec -u node -it ${CONTAINER_NAME:-openclaw} openclaw-cli-tmux claude'
+    terminal: true
+  - id: pi-bootstrap-openclaw-codex
+    name: "OpenClaw Codex CLI"
+    comment: "Open the persistent Codex CLI admin session in OpenClaw's workspace"
+    icon: utilities-terminal
+    kind: exec
+    target: 'docker exec -u node -it ${CONTAINER_NAME:-openclaw} openclaw-cli-tmux codex'
+    terminal: true
+info:
+  id: pi-bootstrap-openclaw-info
+  name: "OpenClaw Info"
