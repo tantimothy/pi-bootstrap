@@ -21,6 +21,8 @@ delete_confirm_msg: "All conversation history and any Mnemon persistent memory g
 # `chat-frontends` environment instead) — so there's genuinely no web UI here.
 web_uis: []
 custom_actions:
+  - label: "Manage Codex Provider"
+    command: "bash ${ENV_DIR}/scripts/manage-codex-provider.sh"
   - label: "Scaffold a Wiki for a Group (Mnemon profile)"
     command: 'read -rp "Group folder name (under groups/): " GROUP; bash ${ENV_DIR}/scripts/scaffold-wiki.sh "$GROUP"'
   - label: "Reload Mnemon for a Group (Mnemon profile)"
@@ -69,11 +71,14 @@ useful_commands: |2
      docker exec -it nanoclaw-mnemon bash -lc "cd /root && nanoclaw-claude-tmux.sh"   # Then: /add-telegram, /add-whatsapp, /add-discord, etc. (see README's "Adding Channels", and "Launching Claude CLI Directly" for why /root)
      docker exec -it nanoclaw-mnemon tmux attach -t claude              # Reattach to the admin claude session directly, no relaunch wrapper
      docker exec -it nanoclaw-mnemon bash -lc "cd $NANOCLAW_INSTALL_PATH && bash setup/register-claude-token.sh"   # Update Anthropic API key
+     bash environments/nanoclaw-mnemon/scripts/manage-codex-provider.sh  # Authenticate/switch/diagnose optional Codex provider
      ollama pull llama3.2                                              # Optional: pull a chat model; Mnemon embeddings use nomic-embed-text
 
   📌 Notes:
      🧠 Mnemon-specific actions and memory apply only when NANOCLAW_SETUP=mnemon
         (the default). Set NANOCLAW_SETUP=plain for an unpatched NanoClaw agent image.
+     🤖 NANOCLAW_INSTALL_CODEX=true prepares Codex during CLEAN without OAuth
+        or switching groups. Finish setup later through "Manage Codex Provider".
      🐳 NanoClaw manages its own Docker containers per conversation group.
         Use the Docker Manager in the deploy menu to view or delete them.
      ❌ iMessage isn't offered — this environment is container-mode only (see
