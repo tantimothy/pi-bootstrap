@@ -1,0 +1,8 @@
+deployment:
+  kind: container
+  value: "${CONTAINER_NAME:-openclaw}"
+updates:
+  local_images:
+    - image_pattern: "${OPENCLAW_LOCAL_IMAGE:-openclaw-with-clis:latest}"
+      dockerfile: Dockerfile
+      apt_updates: false
