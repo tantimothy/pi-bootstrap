@@ -239,7 +239,7 @@ _select_from_command() {
             [ -n "$model" ] || continue
             row="$(_catalog_row "$model")"
             if [ -n "$row" ]; then
-                details="$(printf '%s' "$row" | awk -F '\t' '{ print $2 " — " $3 " download" }')"
+                details="$(printf '%s' "$row" | awk -F '\t' '{ print $8 " | " $3 " download" }')"
             else
                 details="Installed model"
             fi
@@ -349,7 +349,7 @@ _catalog_menu_for_filter() {
         fi
         case ",$haystack," in
             *",$filter_value,"*)
-                items+=("$model" "$display_name | $disk_size download | $(_format_gib "$ram_min")–$(_format_gib "$ram_max") RAM | $notes")
+                items+=("$model" "$notes | $disk_size download | $(_format_gib "$ram_min")–$(_format_gib "$ram_max") RAM")
                 ;;
         esac
     done < "$CATALOG_FILE"
