@@ -6,6 +6,7 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_DIR="$(cd "$TEST_DIR/.." && pwd)"
 MANAGER="$ENV_DIR/scripts/manage-models.sh"
 RUNNER="$ENV_DIR/run.sh"
+MATRIX_RENDERER="$ENV_DIR/scripts/render-model-matrix.sh"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"; rm -f "$ENV_DIR/post-deploy-info.html"' EXIT
 
@@ -150,6 +151,8 @@ export OLLAMA_MANAGER_PRESSURE_STATUS=low
 export OLLAMA_MANAGER_PRESSURE_DETAIL="test pressure signal"
 export OLLAMA_MANAGER_TTY_INPUT=/dev/null
 export OLLAMA_MANAGER_TTY_OUTPUT="$TMP_DIR/dialog-ui.log"
+
+diff -u <("$MATRIX_RENDERER") "$ENV_DIR/MODEL-MATRIX.md"
 
 _write_model_menu_selection() {
     local output_file="$1"

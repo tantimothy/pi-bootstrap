@@ -74,6 +74,9 @@ does not load it into RAM.
 `models.tsv` translates the two supplied local-model articles into valid Ollama
 tags and groups them in two independent ways:
 
+See [`MODEL-MATRIX.md`](MODEL-MATRIX.md) for the pivot-style hardware and
+use-case view.
+
 - Hardware: Apple Silicon Mac 16GB, Apple Silicon Mac 8GB, Raspberry Pi 4/5
   8GB, and Raspberry Pi 4/5 4GB.
 - Suggested use: wiki Q&A, Mnemon/RAG embeddings, general chat, coding,
