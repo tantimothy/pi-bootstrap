@@ -12,8 +12,17 @@ REPO_DIR="$(cd "$ENV_DIR/../.." && pwd)"
 CATALOG_FILE="${OLLAMA_MODEL_CATALOG:-$ENV_DIR/models.tsv}"
 OLLAMA_CMD="${OLLAMA_CMD:-ollama}"
 DIALOG_CMD="${DIALOG_CMD:-dialog}"
+TTY_INPUT="${OLLAMA_MANAGER_TTY_INPUT:-/dev/tty}"
+TTY_OUTPUT="${OLLAMA_MANAGER_TTY_OUTPUT:-/dev/tty}"
 
 source "$REPO_DIR/lib/locale-lib.sh" || true
+
+# Menu helpers return choices through these globals. In particular, never run
+# dialog inside $(...) — command substitution gives it a pipe instead of the
+# real terminal on macOS, which makes the screen appear frozen until Enter.
+DIALOG_CHOICE=""
+SELECTED_MODEL=""
+NORMALIZED_MODEL=""
 
 _require_ollama() {
     if ! command -v "$OLLAMA_CMD" >/dev/null 2>&1; then
@@ -37,18 +46,17 @@ _dialog_menu() {
     local status
     local choice
     output_file="$(mktemp)"
-    # This helper is itself called inside command substitutions so its stdout
-    # can return the selected tag. Redirecting dialog's stderr here would also
-    # steal the terminal it uses to draw the UI (observed as an apparent hang
-    # on macOS). Keep stderr attached to the caller's terminal and send only
-    # dialog's result to fd 3.
+    # Keep stderr attached to the caller's terminal so dialog can draw its UI.
+    # Only the selected tag goes to fd 3; the function returns it through the
+    # DIALOG_CHOICE global, never through a command substitution.
     "$DIALOG_CMD" --clear --title " $title " \
-        --output-fd 3 --menu "$prompt" 22 108 14 "$@" 3>"$output_file"
+        --output-fd 3 --menu "$prompt" 22 108 14 "$@" \
+        3>"$output_file" <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
     status=$?
     choice="$(cat "$output_file")"
     rm -f "$output_file"
     [ "$status" -eq 0 ] && [ -n "$choice" ] || return 1
-    printf '%s\n' "$choice"
+    DIALOG_CHOICE="$choice"
 }
 
 _confirm() {
@@ -58,7 +66,8 @@ _confirm() {
         return 0
     fi
     _require_dialog || return 1
-    "$DIALOG_CMD" --clear --title " $title " --yesno "$message" 22 92
+    "$DIALOG_CMD" --clear --title " $title " --yesno "$message" 22 92 \
+        <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
 }
 
 _catalog_row() {
@@ -169,6 +178,36 @@ _running_names() {
     "$OLLAMA_CMD" ps 2>/dev/null | awk 'NR > 1 && NF { print $1 }'
 }
 
+# dialog/terminal combinations can leave a carriage return, control byte, or
+# optional pair of quotes around the selected tag. They are invisible in a
+# normal echo but make Ollama reject an otherwise-valid name. Normalize only
+# transport artifacts; punctuation used by real model names stays untouched.
+_normalize_model_name() {
+    NORMALIZED_MODEL="$(printf '%s' "$1" |
+        LC_ALL=C tr -d '\000-\037\177' |
+        sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    case "$NORMALIZED_MODEL" in
+        \"*\")
+            NORMALIZED_MODEL="${NORMALIZED_MODEL#\"}"
+            NORMALIZED_MODEL="${NORMALIZED_MODEL%\"}"
+            ;;
+        \'*\')
+            NORMALIZED_MODEL="${NORMALIZED_MODEL#\'}"
+            NORMALIZED_MODEL="${NORMALIZED_MODEL%\'}"
+            ;;
+    esac
+}
+
+_installed_model_exists() {
+    local wanted="$1"
+    local candidate
+    while IFS= read -r candidate; do
+        _normalize_model_name "$candidate"
+        [ "$NORMALIZED_MODEL" = "$wanted" ] && return 0
+    done < <(_installed_names)
+    return 1
+}
+
 _select_from_command() {
     local title="$1"
     local prompt="$2"
@@ -201,14 +240,20 @@ _select_from_command() {
         return 1
     fi
     _require_dialog || return 1
-    _dialog_menu "$title" "$prompt" "${items[@]}"
+    _dialog_menu "$title" "$prompt" "${items[@]}" || return 1
+    _normalize_model_name "$DIALOG_CHOICE"
+    SELECTED_MODEL="$NORMALIZED_MODEL"
 }
 
 stop_model() {
     local model="${1:-}"
     _require_ollama || return 1
     if [ -z "$model" ]; then
-        model="$(_select_from_command "Stop a Running Model" "Select a loaded model to unload from RAM:" "running")" || return 0
+        _select_from_command "Stop a Running Model" "Select a loaded model to unload from RAM:" "running" || return 0
+        model="$SELECTED_MODEL"
+    else
+        _normalize_model_name "$model"
+        model="$NORMALIZED_MODEL"
     fi
     _confirm "Stop Model" "Unload '$model' from RAM?\n\nThe model stays installed on disk and can be run again later." || return 0
     "$OLLAMA_CMD" stop "$model"
@@ -219,7 +264,11 @@ delete_model() {
     local model="${1:-}"
     _require_ollama || return 1
     if [ -z "$model" ]; then
-        model="$(_select_from_command "Delete an Installed Model" "Select a model to permanently remove from local storage:" "installed")" || return 0
+        _select_from_command "Delete an Installed Model" "Select a model to permanently remove from local storage:" "installed" || return 0
+        model="$SELECTED_MODEL"
+    else
+        _normalize_model_name "$model"
+        model="$NORMALIZED_MODEL"
     fi
     _confirm "Delete Model" "Permanently delete '$model' from local storage?\n\nYou will need to pull it again to use it later." || return 0
     "$OLLAMA_CMD" rm "$model"
@@ -263,31 +312,35 @@ _catalog_menu_for_filter() {
         echo "❌ No catalog entries matched '$filter_value'." >&2
         return 1
     fi
-    _dialog_menu "$title" "$prompt" "${items[@]}"
+    _dialog_menu "$title" "$prompt" "${items[@]}" || return 1
+    _normalize_model_name "$DIALOG_CHOICE"
+    SELECTED_MODEL="$NORMALIZED_MODEL"
 }
 
 _choose_pull_model() {
     local browse
     local category
-    browse="$(_dialog_menu "Pull a Recommended Model" \
+    _dialog_menu "Pull a Recommended Model" \
         "Browse the article-derived recommendations by hardware or suggested use:" \
         "hardware" "Hardware tier (RAM/device classification)" \
         "use" "Suggested use (wiki, general chat, coding, reasoning, etc.)" \
-        "all" "All catalogued models")" || return 1
+        "all" "All catalogued models" || return 1
+    browse="$DIALOG_CHOICE"
 
     case "$browse" in
         hardware)
-            category="$(_dialog_menu "Choose Hardware Tier" \
+            _dialog_menu "Choose Hardware Tier" \
                 "Select the host class. RAM is checked live again before pull:" \
                 "mac16" "Apple Silicon Mac — 16GB unified memory" \
                 "mac8" "Apple Silicon Mac — 8GB unified memory" \
                 "pi8" "Raspberry Pi 4/5 — 8GB RAM (CPU inference)" \
-                "pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)")" || return 1
+                "pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)" || return 1
+            category="$DIALOG_CHOICE"
             _catalog_menu_for_filter "hardware" "$category" "Recommended for $category" \
                 "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
             ;;
         use)
-            category="$(_dialog_menu "Choose Suggested Use" \
+            _dialog_menu "Choose Suggested Use" \
                 "Select how the supplied articles recommend using the model:" \
                 "wiki" "Wiki Q&A / retrieval-augmented generation" \
                 "embeddings" "Embeddings / Mnemon semantic recall" \
@@ -296,7 +349,8 @@ _choose_pull_model() {
                 "reasoning" "Reasoning, mathematics, and logic" \
                 "fast" "Fast/minimal resource use" \
                 "multilingual" "Multilingual work" \
-                "long-context" "Long-context document work")" || return 1
+                "long-context" "Long-context document work" || return 1
+            category="$DIALOG_CHOICE"
             _catalog_menu_for_filter "uses" "$category" "Models for $category" \
                 "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
             ;;
@@ -324,7 +378,11 @@ pull_model() {
     _require_ollama || return 1
     if [ -z "$model" ]; then
         _require_dialog || return 1
-        model="$(_choose_pull_model)" || return 0
+        _choose_pull_model || return 0
+        model="$SELECTED_MODEL"
+    else
+        _normalize_model_name "$model"
+        model="$NORMALIZED_MODEL"
     fi
     row="$(_catalog_row "$model")"
     if [ -z "$row" ]; then
@@ -355,12 +413,23 @@ Pull this model? (Pulling downloads it but does not load it into RAM.)" || retur
 
 run_model() {
     local model="${1:-}"
+    local selected_interactively=false
     _require_ollama || return 1
     if [ -z "$model" ]; then
-        model="$(_select_from_command "Run an Installed Model" "Select an installed model to start an interactive chat:" "installed")" || return 0
+        _select_from_command "Run an Installed Model" "Select an installed model to start an interactive chat:" "installed" || return 0
+        model="$SELECTED_MODEL"
+        selected_interactively=true
+    else
+        _normalize_model_name "$model"
+        model="$NORMALIZED_MODEL"
     fi
     if [ "$model" = "nomic-embed-text" ] || [ "$model" = "nomic-embed-text:latest" ]; then
         echo "❌ nomic-embed-text only creates embeddings; it cannot run an interactive chat." >&2
+        return 1
+    fi
+    if [ "$selected_interactively" = "true" ] && ! _installed_model_exists "$model"; then
+        printf "❌ Selected model is not an exact installed Ollama tag: %q\n" "$model" >&2
+        echo "   Refresh the installed-model list and try again." >&2
         return 1
     fi
     echo "🚀 Starting $model (use /exit or Ctrl+D to leave)..."
@@ -371,14 +440,15 @@ main_menu() {
     local action
     _require_dialog || return 1
     while true; do
-        action="$(_dialog_menu "Ollama Model Manager" "Choose an action:" \
+        _dialog_menu "Ollama Model Manager" "Choose an action:" \
             "installed" "List models installed on disk" \
             "running" "List models currently loaded in RAM" \
             "resources" "Show host RAM, CPU, disk, and loaded models" \
             "stop" "Unload a running model from RAM" \
             "delete" "Delete an installed model from disk" \
             "pull" "Pull an article-recommended model" \
-            "run" "Run an installed chat model")" || return 0
+            "run" "Run an installed chat model" || return 0
+        action="$DIALOG_CHOICE"
         case "$action" in
             installed) list_installed ;;
             running) list_running ;;

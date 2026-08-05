@@ -19,14 +19,14 @@ case "${1:-}" in
     list)
         cat <<'OUT'
 NAME                    ID              SIZE      MODIFIED
-llama3.2:3b             abc123          2.0 GB    1 hour ago
+llama3.2:latest         abc123          2.0 GB    1 hour ago
 nomic-embed-text:latest def456          274 MB    1 hour ago
 OUT
         ;;
     ps)
         cat <<'OUT'
 NAME          ID              SIZE      PROCESSOR    CONTEXT    UNTIL
-llama3.2:3b   abc123          3.1 GB    100% CPU     4096       4 minutes
+llama3.2:latest abc123          3.1 GB    100% CPU     4096       4 minutes
 OUT
         ;;
 esac
@@ -40,9 +40,15 @@ case "$*" in
     *"Pull a Recommended Model"*) printf '%s\n' "hardware" >&3 ;;
     *"Choose Hardware Tier"*) printf '%s\n' "pi4" >&3 ;;
     *"Recommended for pi4"*) printf '%s\n' "qwen3:1.7b" >&3 ;;
-    *"Stop a Running Model"*) printf '%s\n' "llama3.2:3b" >&3 ;;
-    *"Delete an Installed Model"*) printf '%s\n' "llama3.2:3b" >&3 ;;
-    *"Run an Installed Model"*) printf '%s\n' "llama3.2:3b" >&3 ;;
+    *"Stop a Running Model"*) printf '%s\n' '"llama3.2:latest"' >&3 ;;
+    *"Delete an Installed Model"*) printf 'llama3.2:latest\r\n' >&3 ;;
+    *"Run an Installed Model"*)
+        if [ "${DIALOG_TEST_INVALID_RUN:-false}" = "true" ]; then
+            printf '%s\n' "not-installed:latest" >&3
+        else
+            printf 'llama3.2:latest\r\n' >&3
+        fi
+        ;;
 esac
 exit 0
 STUB
@@ -122,10 +128,12 @@ export DIALOG_TEST_LOG="$DIALOG_LOG"
 export CURL_TEST_LOG="$TMP_DIR/curl.log"
 export OLLAMA_MANAGER_TOTAL_MIB=16384
 export OLLAMA_MANAGER_AVAILABLE_MIB=12288
+export OLLAMA_MANAGER_TTY_INPUT=/dev/null
+export OLLAMA_MANAGER_TTY_OUTPUT="$TMP_DIR/dialog-ui.log"
 
 installed_output="$("$MANAGER" --list-installed)"
 grep -q "Installed Ollama Models" <<< "$installed_output"
-grep -q "llama3.2:3b" <<< "$installed_output"
+grep -q "llama3.2:latest" <<< "$installed_output"
 
 running_output="$("$MANAGER" --list-running)"
 grep -q "Models Loaded in RAM" <<< "$running_output"
@@ -136,14 +144,14 @@ grep -q "RAM total: 16.0 GiB" <<< "$resource_output"
 grep -q "Available: 12.0 GiB" <<< "$resource_output"
 
 export OLLAMA_MANAGER_ASSUME_YES=true
-"$MANAGER" --stop llama3.2:3b >/dev/null
-"$MANAGER" --delete llama3.2:3b >/dev/null
+"$MANAGER" --stop llama3.2:latest >/dev/null
+"$MANAGER" --delete llama3.2:latest >/dev/null
 "$MANAGER" --pull phi4-mini >/dev/null
-"$MANAGER" --run llama3.2:3b >/dev/null
-grep -q '^stop llama3.2:3b$' "$OLLAMA_LOG"
-grep -q '^rm llama3.2:3b$' "$OLLAMA_LOG"
+"$MANAGER" --run llama3.2:latest >/dev/null
+grep -q '^stop llama3.2:latest$' "$OLLAMA_LOG"
+grep -q '^rm llama3.2:latest$' "$OLLAMA_LOG"
 grep -q '^pull phi4-mini$' "$OLLAMA_LOG"
-grep -q '^run llama3.2:3b$' "$OLLAMA_LOG"
+grep -q '^run llama3.2:latest$' "$OLLAMA_LOG"
 
 if "$MANAGER" --run nomic-embed-text >/dev/null 2>&1; then
     echo "Expected the embedding-only model to be rejected by --run" >&2
@@ -154,22 +162,33 @@ unset OLLAMA_MANAGER_ASSUME_YES
 : > "$OLLAMA_LOG"
 : > "$DIALOG_LOG"
 export DIALOG_TEST_UI_MARKER=true
-"$MANAGER" --pull >/dev/null 2>"$TMP_DIR/pull-ui.err"
+: > "$OLLAMA_MANAGER_TTY_OUTPUT"
+"$MANAGER" --pull >/dev/null
 grep -q '^pull qwen3:1.7b$' "$OLLAMA_LOG"
 grep -q 'Host RAM available now: 12.0 GiB' "$DIALOG_LOG"
 grep -q 'Assessment: FITS' "$DIALOG_LOG"
-grep -q 'DIALOG_UI:.*Pull a Recommended Model' "$TMP_DIR/pull-ui.err"
+grep -q 'DIALOG_UI:.*Pull a Recommended Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
 
 : > "$OLLAMA_LOG"
-"$MANAGER" --stop >/dev/null 2>"$TMP_DIR/stop-ui.err"
-"$MANAGER" --delete >/dev/null 2>"$TMP_DIR/delete-ui.err"
-"$MANAGER" --run >/dev/null 2>"$TMP_DIR/run-ui.err"
-grep -q '^stop llama3.2:3b$' "$OLLAMA_LOG"
-grep -q '^rm llama3.2:3b$' "$OLLAMA_LOG"
-grep -q '^run llama3.2:3b$' "$OLLAMA_LOG"
-grep -q 'DIALOG_UI:.*Stop a Running Model' "$TMP_DIR/stop-ui.err"
-grep -q 'DIALOG_UI:.*Delete an Installed Model' "$TMP_DIR/delete-ui.err"
-grep -q 'DIALOG_UI:.*Run an Installed Model' "$TMP_DIR/run-ui.err"
+"$MANAGER" --stop >/dev/null
+"$MANAGER" --delete >/dev/null
+"$MANAGER" --run >/dev/null
+grep -q '^stop llama3.2:latest$' "$OLLAMA_LOG"
+grep -q '^rm llama3.2:latest$' "$OLLAMA_LOG"
+grep -q '^run llama3.2:latest$' "$OLLAMA_LOG"
+grep -q 'DIALOG_UI:.*Stop a Running Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
+grep -q 'DIALOG_UI:.*Delete an Installed Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
+grep -q 'DIALOG_UI:.*Run an Installed Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
+
+: > "$OLLAMA_LOG"
+export DIALOG_TEST_INVALID_RUN=true
+if "$MANAGER" --run >"$TMP_DIR/invalid-run.out" 2>&1; then
+    echo "Expected a non-installed dialog selection to be rejected" >&2
+    exit 1
+fi
+! grep -q '^run ' "$OLLAMA_LOG"
+grep -q 'not an exact installed Ollama tag' "$TMP_DIR/invalid-run.out"
+unset DIALOG_TEST_INVALID_RUN
 unset DIALOG_TEST_UI_MARKER
 
 export FAKE_HEALTH_MODE=state
