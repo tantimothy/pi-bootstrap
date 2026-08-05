@@ -74,8 +74,9 @@ does not load it into RAM.
 `models.tsv` translates the two supplied local-model articles into valid Ollama
 tags and groups them in two independent ways:
 
-See [`MODEL-MATRIX.md`](MODEL-MATRIX.md) for the pivot-style hardware and
-use-case view.
+See [`MODEL-MATRIX.md`](MODEL-MATRIX.md) for a single pivot-style hardware and
+use-case table. Each model appears once under the minimum tier that introduces
+it, making the additional models unlocked by 8GB and 16GB hardware explicit.
 
 - Hardware: Apple Silicon Mac 16GB, Apple Silicon Mac 8GB, Raspberry Pi 4/5
   8GB, and Raspberry Pi 4/5 4GB.
