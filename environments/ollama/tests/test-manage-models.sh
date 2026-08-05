@@ -36,6 +36,17 @@ cat > "$TMP_DIR/dialog" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DIALOG_TEST_LOG"
 [ "${DIALOG_TEST_UI_MARKER:-false}" = "true" ] && echo "DIALOG_UI:$*" >&2
+if [ -n "${DIALOG_TEST_SEQUENCE_FILE:-}" ] && [ -s "$DIALOG_TEST_SEQUENCE_FILE" ]; then
+    response="$(sed -n '1p' "$DIALOG_TEST_SEQUENCE_FILE")"
+    sed '1d' "$DIALOG_TEST_SEQUENCE_FILE" > "$DIALOG_TEST_SEQUENCE_FILE.next"
+    mv "$DIALOG_TEST_SEQUENCE_FILE.next" "$DIALOG_TEST_SEQUENCE_FILE"
+    case "$response" in
+        BACK) exit 1 ;;
+        ESC) exit 255 ;;
+        OK) exit 0 ;;
+        *) printf '%s\n' "$response" >&3; exit 0 ;;
+    esac
+fi
 case "$*" in
     *"Pull a Recommended Model"*) printf '%s\n' "hardware" >&3 ;;
     *"Choose Hardware Tier"*) printf '%s\n' "pi4" >&3 ;;
@@ -179,6 +190,54 @@ grep -q '^run llama3.2:latest$' "$OLLAMA_LOG"
 grep -q 'DIALOG_UI:.*Stop a Running Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
 grep -q 'DIALOG_UI:.*Delete an Installed Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
 grep -q 'DIALOG_UI:.*Run an Installed Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
+
+# A cancellation at each Pull submenu must go back exactly one level:
+# model -> hardware tier -> browse method, and confirmation -> model.
+: > "$OLLAMA_LOG"
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' \
+    hardware \
+    pi4 \
+    ESC \
+    BACK \
+    all \
+    qwen3:1.7b \
+    BACK \
+    qwen3:1.7b \
+    OK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
+grep -q '^pull qwen3:1.7b$' "$OLLAMA_LOG"
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+[ "$(grep -c 'Choose Hardware Tier' "$DIALOG_LOG")" -eq 2 ]
+[ "$(grep -c 'All Recommended Models' "$DIALOG_LOG")" -eq 2 ]
+[ "$(grep -c 'Pull Qwen' "$DIALOG_LOG")" -eq 2 ]
+unset DIALOG_TEST_SEQUENCE_FILE
+
+# The same Back status must remain inside the full manager rather than unwind
+# the script: Pull -> hardware -> model -> hardware -> Pull -> main manager.
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' \
+    pull \
+    hardware \
+    pi4 \
+    ESC \
+    BACK \
+    BACK \
+    ESC > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" >/dev/null
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+[ "$(grep -c 'Ollama Model Manager' "$DIALOG_LOG")" -eq 2 ]
+[ "$(grep -c 'Pull a Recommended Model' "$DIALOG_LOG")" -eq 2 ]
+unset DIALOG_TEST_SEQUENCE_FILE
+
+: > "$OLLAMA_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' ESC > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --run >/dev/null
+! grep -q '^run ' "$OLLAMA_LOG"
+unset DIALOG_TEST_SEQUENCE_FILE
 
 : > "$OLLAMA_LOG"
 export DIALOG_TEST_INVALID_RUN=true
