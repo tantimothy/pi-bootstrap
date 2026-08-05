@@ -24,6 +24,14 @@ DIALOG_CHOICE=""
 SELECTED_MODEL=""
 NORMALIZED_MODEL=""
 MENU_BACK_STATUS=2
+TWO_LINE_MENU_TERMINAL_STATE=""
+
+_two_line_menu_signal_cleanup() {
+    [ -n "$TWO_LINE_MENU_TERMINAL_STATE" ] &&
+        stty "$TWO_LINE_MENU_TERMINAL_STATE" <&7 2>/dev/null || true
+    printf '\033[0m\033[2J\033[H' >&8 2>/dev/null || true
+    exit 130
+}
 
 _require_ollama() {
     if ! command -v "$OLLAMA_CMD" >/dev/null 2>&1; then
@@ -46,15 +54,12 @@ _dialog_menu() {
     local output_file
     local status
     local choice
-    local item_help_args=()
     output_file="$(mktemp)"
-    [ "${DIALOG_MENU_ITEM_HELP:-false}" = "true" ] && item_help_args+=(--item-help)
     # Keep stderr attached to the caller's terminal so dialog can draw its UI.
     # Only the selected tag goes to fd 3; the function returns it through the
     # DIALOG_CHOICE global, never through a command substitution.
     "$DIALOG_CMD" --clear --title " $title " \
         --cancel-label "Back" \
-        ${item_help_args[@]+"${item_help_args[@]}"} \
         --output-fd 3 --menu "$prompt" 22 108 14 "$@" \
         3>"$output_file" <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
     status=$?
@@ -67,6 +72,164 @@ _dialog_menu() {
     esac
     [ -n "$choice" ] || return 1
     DIALOG_CHOICE="$choice"
+}
+
+_two_line_model_menu() {
+    local title="$1"
+    local prompt="$2"
+    shift 2
+    local tags=()
+    local descriptions=()
+    local resources=()
+    local selected=0
+    local offset=0
+    local count
+    local visible=7
+    local rows=24
+    local cols=108
+    local content_width
+    local index
+    local range_end
+    local first_line
+    local second_line
+    local key
+    local rest
+    local terminal_state=""
+
+    while [ "$#" -ge 3 ]; do
+        tags+=("$1")
+        descriptions+=("$2")
+        resources+=("$3")
+        shift 3
+    done
+    count="${#tags[@]}"
+    [ "$count" -gt 0 ] || return 1
+
+    # Deterministic non-TTY driver for the shell regression suite.
+    if [ -n "${OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE:-}" ] &&
+       [ -s "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE" ]; then
+        key="$(sed -n '1p' "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE")"
+        sed '1d' "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE" \
+            > "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE.next"
+        mv "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE.next" \
+            "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE"
+        case "$key" in
+            BACK|ESC) return "$MENU_BACK_STATUS" ;;
+        esac
+        index=0
+        while [ "$index" -lt "$count" ]; do
+            if [ "${tags[$index]}" = "$key" ]; then
+                SELECTED_MODEL="$key"
+                return 0
+            fi
+            index=$((index + 1))
+        done
+        echo "❌ Test model-menu selection is not present: $key" >&2
+        return 1
+    fi
+
+    exec 7<"$TTY_INPUT" || return 1
+    exec 8>>"$TTY_OUTPUT" || {
+        exec 7<&-
+        return 1
+    }
+    if [ -t 7 ]; then
+        terminal_state="$(stty -g <&7 2>/dev/null || true)"
+        stty -echo -icanon min 1 time 0 <&7 2>/dev/null || true
+        rows="$(tput lines <&7 2>/dev/null || echo 24)"
+        cols="$(tput cols <&7 2>/dev/null || echo 108)"
+    fi
+    TWO_LINE_MENU_TERMINAL_STATE="$terminal_state"
+    trap '_two_line_menu_signal_cleanup' HUP INT TERM
+    [[ "$rows" =~ ^[0-9]+$ ]] || rows=24
+    [[ "$cols" =~ ^[0-9]+$ ]] || cols=108
+    visible=$(((rows - 7) / 2))
+    [ "$visible" -lt 3 ] && visible=3
+    [ "$visible" -gt 8 ] && visible=8
+    [ "$visible" -gt "$count" ] && visible="$count"
+    content_width=$((cols - 4))
+    [ "$content_width" -lt 40 ] && content_width=40
+
+    while true; do
+        if [ "$selected" -lt "$offset" ]; then
+            offset="$selected"
+        elif [ "$selected" -ge $((offset + visible)) ]; then
+            offset=$((selected - visible + 1))
+        fi
+
+        printf '\033[2J\033[H' >&8
+        printf ' %s\n\n %s\n\n' "$title" "$prompt" >&8
+        index="$offset"
+        while [ "$index" -lt "$count" ] && [ "$index" -lt $((offset + visible)) ]; do
+            first_line="${tags[$index]} — ${descriptions[$index]}"
+            second_line="  ${resources[$index]}"
+            if [ "$index" -eq "$selected" ]; then
+                printf '\033[7m > %-*.*s \033[0m\n' \
+                    "$content_width" "$content_width" "$first_line" >&8
+                printf '\033[7m   %-*.*s \033[0m\n' \
+                    "$content_width" "$content_width" "$second_line" >&8
+            else
+                printf '   %-*.*s\n' \
+                    "$content_width" "$content_width" "$first_line" >&8
+                printf '   %-*.*s\n' \
+                    "$content_width" "$content_width" "$second_line" >&8
+            fi
+            index=$((index + 1))
+        done
+        range_end=$((offset + visible))
+        [ "$range_end" -gt "$count" ] && range_end="$count"
+        printf '\n Showing %d–%d of %d' "$((offset + 1))" "$range_end" "$count" >&8
+        [ "$offset" -gt 0 ] && printf '  ↑ more above' >&8
+        [ "$range_end" -lt "$count" ] && printf '  ↓ more below' >&8
+        printf '\n ↑/↓ move/scroll  Enter select  Esc back' >&8
+
+        key=""
+        if ! IFS= read -r -n 1 -u 7 key; then
+            trap - HUP INT TERM
+            [ -n "$terminal_state" ] && stty "$terminal_state" <&7 2>/dev/null || true
+            TWO_LINE_MENU_TERMINAL_STATE=""
+            exec 7<&-
+            exec 8>&-
+            return "$MENU_BACK_STATUS"
+        fi
+        case "$key" in
+            ""|$'\n'|$'\r')
+                SELECTED_MODEL="${tags[$selected]}"
+                trap - HUP INT TERM
+                [ -n "$terminal_state" ] && stty "$terminal_state" <&7 2>/dev/null || true
+                TWO_LINE_MENU_TERMINAL_STATE=""
+                printf '\033[2J\033[H' >&8
+                exec 7<&-
+                exec 8>&-
+                return 0
+                ;;
+            $'\033')
+                rest=""
+                if [ -n "$terminal_state" ]; then
+                    stty -echo -icanon min 0 time 1 <&7 2>/dev/null || true
+                fi
+                IFS= read -r -n 2 -u 7 rest || true
+                if [ -n "$terminal_state" ]; then
+                    stty -echo -icanon min 1 time 0 <&7 2>/dev/null || true
+                fi
+                case "$rest" in
+                    "[A") [ "$selected" -gt 0 ] && selected=$((selected - 1)) ;;
+                    "[B") [ "$selected" -lt $((count - 1)) ] && selected=$((selected + 1)) ;;
+                    *)
+                        trap - HUP INT TERM
+                        [ -n "$terminal_state" ] && stty "$terminal_state" <&7 2>/dev/null || true
+                        TWO_LINE_MENU_TERMINAL_STATE=""
+                        printf '\033[2J\033[H' >&8
+                        exec 7<&-
+                        exec 8>&-
+                        return "$MENU_BACK_STATUS"
+                        ;;
+                esac
+                ;;
+            k) [ "$selected" -gt 0 ] && selected=$((selected - 1)) ;;
+            j) [ "$selected" -lt $((count - 1)) ] && selected=$((selected + 1)) ;;
+        esac
+    done
 }
 
 _confirm() {
@@ -466,11 +629,9 @@ _catalog_menu_for_filter() {
         echo "❌ No catalog entries matched '$filter_value'." >&2
         return 1
     fi
-    DIALOG_MENU_ITEM_HELP=true _dialog_menu "$title" "$prompt" "${items[@]}"
+    _two_line_model_menu "$title" "$prompt" "${items[@]}"
     local status=$?
     [ "$status" -eq 0 ] || return "$status"
-    _normalize_model_name "$DIALOG_CHOICE"
-    SELECTED_MODEL="$NORMALIZED_MODEL"
 }
 
 _pull_selected_model() {
@@ -540,7 +701,7 @@ _choose_and_pull_model() {
                 while true; do
                     _dialog_menu "Choose Hardware Tier" \
                         "Select the host class. RAM is checked live again before pull:" \
-                        "mac16" "Apple Silicon Mac — 16GB unified memory" \
+                        "mac16" "Apple Silicon Mac — 16GB (all catalog models; scroll for more)" \
                         "mac8" "Apple Silicon Mac — 8GB unified memory" \
                         "pi8" "Raspberry Pi 4/5 — 8GB RAM (CPU inference)" \
                         "pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)"

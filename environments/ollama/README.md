@@ -74,16 +74,32 @@ does not load it into RAM.
 `models.tsv` translates the two supplied local-model articles into valid Ollama
 tags and groups them in two independent ways:
 
+See [`MODEL-MATRIX.md`](MODEL-MATRIX.md) for the pivot-style hardware and
+use-case view.
+
 - Hardware: Apple Silicon Mac 16GB, Apple Silicon Mac 8GB, Raspberry Pi 4/5
   8GB, and Raspberry Pi 4/5 4GB.
 - Suggested use: wiki Q&A, Mnemon/RAG embeddings, general chat, coding,
   reasoning/math, fast/minimal, multilingual, and long-context work.
 
+The supplied wiki-model article's recommendations are represented explicitly:
+`phi4-mini`, `gemma4:e4b`, `qwen3.5:2b`, `qwen3.5:4b`, and
+`llama3.2:3b`. Gemma 4 E4B's current Ollama artifact is much larger than the
+article anticipated, so it is limited to the 16GB Mac tier and marked as tight.
+The separate `gemma3:4b` recommendation from the hardware article remains in
+the catalog as its own model.
+
+The 16GB Mac hardware tier intentionally contains the entire catalog. The
+two-row selector displays a page at a time and shows both the current range
+(`Showing 1–8 of 21`, for example) and whether more models are above or below.
+The smaller hardware tiers filter out models whose projected working set is
+not practical for that class.
+
 Before a pull, the menu shows:
 
-- model download size;
-- projected working-RAM range (weights plus runtime overhead and a modest
-  context);
+- each model tag and use case on its first row;
+- model download size and projected working-RAM range (weights plus runtime
+  overhead and a modest context) on its indented second row;
 - live host total and available RAM;
 - live memory pressure (`memory_pressure -Q` on macOS and kernel PSI on Linux);
 - a `FITS`, `CAUTION`, or `EXCEEDS` assessment.
