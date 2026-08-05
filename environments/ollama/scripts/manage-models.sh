@@ -23,6 +23,7 @@ source "$REPO_DIR/lib/locale-lib.sh" || true
 DIALOG_CHOICE=""
 SELECTED_MODEL=""
 NORMALIZED_MODEL=""
+MENU_BACK_STATUS=2
 
 _require_ollama() {
     if ! command -v "$OLLAMA_CMD" >/dev/null 2>&1; then
@@ -50,12 +51,18 @@ _dialog_menu() {
     # Only the selected tag goes to fd 3; the function returns it through the
     # DIALOG_CHOICE global, never through a command substitution.
     "$DIALOG_CMD" --clear --title " $title " \
+        --cancel-label "Back" \
         --output-fd 3 --menu "$prompt" 22 108 14 "$@" \
         3>"$output_file" <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
     status=$?
     choice="$(cat "$output_file")"
     rm -f "$output_file"
-    [ "$status" -eq 0 ] && [ -n "$choice" ] || return 1
+    case "$status" in
+        1|255) return "$MENU_BACK_STATUS" ;;
+        0) ;;
+        *) return "$status" ;;
+    esac
+    [ -n "$choice" ] || return 1
     DIALOG_CHOICE="$choice"
 }
 
@@ -66,8 +73,13 @@ _confirm() {
         return 0
     fi
     _require_dialog || return 1
-    "$DIALOG_CMD" --clear --title " $title " --yesno "$message" 22 92 \
-        <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
+    "$DIALOG_CMD" --clear --title " $title " --no-label "Back" \
+        --yesno "$message" 22 92 <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
+    local status=$?
+    case "$status" in
+        1|255) return "$MENU_BACK_STATUS" ;;
+        *) return "$status" ;;
+    esac
 }
 
 _catalog_row() {
@@ -227,7 +239,7 @@ _select_from_command() {
             [ -n "$model" ] || continue
             row="$(_catalog_row "$model")"
             if [ -n "$row" ]; then
-                details="$(printf '%s' "$row" | awk -F '\t' '{ print $2 " — " $3 " download" }')"
+                details="$(printf '%s' "$row" | awk -F '\t' '{ print $8 " | " $3 " d/l" }')"
             else
                 details="Installed model"
             fi
@@ -240,39 +252,73 @@ _select_from_command() {
         return 1
     fi
     _require_dialog || return 1
-    _dialog_menu "$title" "$prompt" "${items[@]}" || return 1
+    _dialog_menu "$title" "$prompt" "${items[@]}"
+    local status=$?
+    [ "$status" -eq 0 ] || return "$status"
     _normalize_model_name "$DIALOG_CHOICE"
     SELECTED_MODEL="$NORMALIZED_MODEL"
 }
 
 stop_model() {
     local model="${1:-}"
+    local status
+    local interactive=false
     _require_ollama || return 1
     if [ -z "$model" ]; then
-        _select_from_command "Stop a Running Model" "Select a loaded model to unload from RAM:" "running" || return 0
-        model="$SELECTED_MODEL"
+        interactive=true
     else
         _normalize_model_name "$model"
         model="$NORMALIZED_MODEL"
     fi
-    _confirm "Stop Model" "Unload '$model' from RAM?\n\nThe model stays installed on disk and can be run again later." || return 0
-    "$OLLAMA_CMD" stop "$model"
-    echo "✅ Stopped $model"
+    while true; do
+        if [ "$interactive" = "true" ]; then
+            _select_from_command "Stop a Running Model" "Select a loaded model to unload from RAM:" "running"
+            status=$?
+            [ "$status" -eq 0 ] || return "$status"
+            model="$SELECTED_MODEL"
+        fi
+        _confirm "Stop Model" "Unload '$model' from RAM?\n\nThe model stays installed on disk and can be run again later."
+        status=$?
+        if [ "$status" -eq "$MENU_BACK_STATUS" ]; then
+            [ "$interactive" = "true" ] && continue
+            return 0
+        fi
+        [ "$status" -eq 0 ] || return "$status"
+        "$OLLAMA_CMD" stop "$model"
+        echo "✅ Stopped $model"
+        return 0
+    done
 }
 
 delete_model() {
     local model="${1:-}"
+    local status
+    local interactive=false
     _require_ollama || return 1
     if [ -z "$model" ]; then
-        _select_from_command "Delete an Installed Model" "Select a model to permanently remove from local storage:" "installed" || return 0
-        model="$SELECTED_MODEL"
+        interactive=true
     else
         _normalize_model_name "$model"
         model="$NORMALIZED_MODEL"
     fi
-    _confirm "Delete Model" "Permanently delete '$model' from local storage?\n\nYou will need to pull it again to use it later." || return 0
-    "$OLLAMA_CMD" rm "$model"
-    echo "✅ Deleted $model"
+    while true; do
+        if [ "$interactive" = "true" ]; then
+            _select_from_command "Delete an Installed Model" "Select a model to permanently remove from local storage:" "installed"
+            status=$?
+            [ "$status" -eq 0 ] || return "$status"
+            model="$SELECTED_MODEL"
+        fi
+        _confirm "Delete Model" "Permanently delete '$model' from local storage?\n\nYou will need to pull it again to use it later."
+        status=$?
+        if [ "$status" -eq "$MENU_BACK_STATUS" ]; then
+            [ "$interactive" = "true" ] && continue
+            return 0
+        fi
+        [ "$status" -eq 0 ] || return "$status"
+        "$OLLAMA_CMD" rm "$model"
+        echo "✅ Deleted $model"
+        return 0
+    done
 }
 
 _catalog_menu_for_filter() {
@@ -303,7 +349,7 @@ _catalog_menu_for_filter() {
         fi
         case ",$haystack," in
             *",$filter_value,"*)
-                items+=("$model" "$display_name | $disk_size download | $(_format_gib "$ram_min")–$(_format_gib "$ram_max") RAM | $notes")
+                items+=("$model" "$notes | $disk_size d/l | $(_format_gib "$ram_min")–$(_format_gib "$ram_max") RAM")
                 ;;
         esac
     done < "$CATALOG_FILE"
@@ -312,57 +358,15 @@ _catalog_menu_for_filter() {
         echo "❌ No catalog entries matched '$filter_value'." >&2
         return 1
     fi
-    _dialog_menu "$title" "$prompt" "${items[@]}" || return 1
+    _dialog_menu "$title" "$prompt" "${items[@]}"
+    local status=$?
+    [ "$status" -eq 0 ] || return "$status"
     _normalize_model_name "$DIALOG_CHOICE"
     SELECTED_MODEL="$NORMALIZED_MODEL"
 }
 
-_choose_pull_model() {
-    local browse
-    local category
-    _dialog_menu "Pull a Recommended Model" \
-        "Browse the article-derived recommendations by hardware or suggested use:" \
-        "hardware" "Hardware tier (RAM/device classification)" \
-        "use" "Suggested use (wiki, general chat, coding, reasoning, etc.)" \
-        "all" "All catalogued models" || return 1
-    browse="$DIALOG_CHOICE"
-
-    case "$browse" in
-        hardware)
-            _dialog_menu "Choose Hardware Tier" \
-                "Select the host class. RAM is checked live again before pull:" \
-                "mac16" "Apple Silicon Mac — 16GB unified memory" \
-                "mac8" "Apple Silicon Mac — 8GB unified memory" \
-                "pi8" "Raspberry Pi 4/5 — 8GB RAM (CPU inference)" \
-                "pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)" || return 1
-            category="$DIALOG_CHOICE"
-            _catalog_menu_for_filter "hardware" "$category" "Recommended for $category" \
-                "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
-            ;;
-        use)
-            _dialog_menu "Choose Suggested Use" \
-                "Select how the supplied articles recommend using the model:" \
-                "wiki" "Wiki Q&A / retrieval-augmented generation" \
-                "embeddings" "Embeddings / Mnemon semantic recall" \
-                "general" "General chat, writing, summaries, formatting" \
-                "coding" "Code generation, reasoning, and fixes" \
-                "reasoning" "Reasoning, mathematics, and logic" \
-                "fast" "Fast/minimal resource use" \
-                "multilingual" "Multilingual work" \
-                "long-context" "Long-context document work" || return 1
-            category="$DIALOG_CHOICE"
-            _catalog_menu_for_filter "uses" "$category" "Models for $category" \
-                "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
-            ;;
-        all)
-            _catalog_menu_for_filter "all" "all" "All Recommended Models" \
-                "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
-            ;;
-    esac
-}
-
-pull_model() {
-    local model="${1:-}"
+_pull_selected_model() {
+    local model="$1"
     local row
     local display_name
     local disk_size
@@ -374,16 +378,8 @@ pull_model() {
     local fit
     local total_text="unavailable"
     local available_text="unavailable"
+    local status
 
-    _require_ollama || return 1
-    if [ -z "$model" ]; then
-        _require_dialog || return 1
-        _choose_pull_model || return 0
-        model="$SELECTED_MODEL"
-    else
-        _normalize_model_name "$model"
-        model="$NORMALIZED_MODEL"
-    fi
     row="$(_catalog_row "$model")"
     if [ -z "$row" ]; then
         echo "❌ '$model' is not in $CATALOG_FILE." >&2
@@ -405,10 +401,118 @@ Host RAM total: $total_text
 Host RAM available now: $available_text
 Assessment: $fit
 
-Pull this model? (Pulling downloads it but does not load it into RAM.)" || return 0
+Pull this model? (Pulling downloads it but does not load it into RAM.)"
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
 
     "$OLLAMA_CMD" pull "$model"
     echo "✅ Pulled $model"
+}
+
+_choose_and_pull_model() {
+    local browse
+    local category
+    local status
+
+    while true; do
+        _dialog_menu "Pull a Recommended Model" \
+            "Browse the article-derived recommendations by hardware or suggested use:" \
+            "hardware" "Hardware tier (RAM/device classification)" \
+            "use" "Suggested use (wiki, general chat, coding, reasoning, etc.)" \
+            "all" "All catalogued models"
+        status=$?
+        [ "$status" -eq 0 ] || return "$status"
+        browse="$DIALOG_CHOICE"
+
+        case "$browse" in
+            hardware)
+                while true; do
+                    _dialog_menu "Choose Hardware Tier" \
+                        "Select the host class. RAM is checked live again before pull:" \
+                        "mac16" "Apple Silicon Mac — 16GB unified memory" \
+                        "mac8" "Apple Silicon Mac — 8GB unified memory" \
+                        "pi8" "Raspberry Pi 4/5 — 8GB RAM (CPU inference)" \
+                        "pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)"
+                    status=$?
+                    [ "$status" -eq "$MENU_BACK_STATUS" ] && break
+                    [ "$status" -eq 0 ] || return "$status"
+                    category="$DIALOG_CHOICE"
+                    while true; do
+                        _catalog_menu_for_filter "hardware" "$category" "Recommended for $category" \
+                            "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
+                        status=$?
+                        [ "$status" -eq "$MENU_BACK_STATUS" ] && break
+                        [ "$status" -eq 0 ] || return "$status"
+                        _pull_selected_model "$SELECTED_MODEL"
+                        status=$?
+                        [ "$status" -eq "$MENU_BACK_STATUS" ] && continue
+                        return "$status"
+                    done
+                done
+                ;;
+            use)
+                while true; do
+                    _dialog_menu "Choose Suggested Use" \
+                        "Select how the supplied articles recommend using the model:" \
+                        "wiki" "Wiki Q&A / retrieval-augmented generation" \
+                        "embeddings" "Embeddings / Mnemon semantic recall" \
+                        "general" "General chat, writing, summaries, formatting" \
+                        "coding" "Code generation, reasoning, and fixes" \
+                        "reasoning" "Reasoning, mathematics, and logic" \
+                        "fast" "Fast/minimal resource use" \
+                        "multilingual" "Multilingual work" \
+                        "long-context" "Long-context document work"
+                    status=$?
+                    [ "$status" -eq "$MENU_BACK_STATUS" ] && break
+                    [ "$status" -eq 0 ] || return "$status"
+                    category="$DIALOG_CHOICE"
+                    while true; do
+                        _catalog_menu_for_filter "uses" "$category" "Models for $category" \
+                            "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
+                        status=$?
+                        [ "$status" -eq "$MENU_BACK_STATUS" ] && break
+                        [ "$status" -eq 0 ] || return "$status"
+                        _pull_selected_model "$SELECTED_MODEL"
+                        status=$?
+                        [ "$status" -eq "$MENU_BACK_STATUS" ] && continue
+                        return "$status"
+                    done
+                done
+                ;;
+            all)
+                while true; do
+                    _catalog_menu_for_filter "all" "all" "All Recommended Models" \
+                        "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
+                    status=$?
+                    [ "$status" -eq "$MENU_BACK_STATUS" ] && break
+                    [ "$status" -eq 0 ] || return "$status"
+                    _pull_selected_model "$SELECTED_MODEL"
+                    status=$?
+                    [ "$status" -eq "$MENU_BACK_STATUS" ] && continue
+                    return "$status"
+                done
+                ;;
+        esac
+    done
+}
+
+pull_model() {
+    local model="${1:-}"
+    local status
+
+    _require_ollama || return 1
+    if [ -z "$model" ]; then
+        _require_dialog || return 1
+        _choose_and_pull_model
+        return $?
+    else
+        _normalize_model_name "$model"
+        model="$NORMALIZED_MODEL"
+    fi
+    _pull_selected_model "$model"
+    status=$?
+    [ "$status" -eq "$MENU_BACK_STATUS" ] && return 0
+    return "$status"
 }
 
 run_model() {
@@ -416,7 +520,9 @@ run_model() {
     local selected_interactively=false
     _require_ollama || return 1
     if [ -z "$model" ]; then
-        _select_from_command "Run an Installed Model" "Select an installed model to start an interactive chat:" "installed" || return 0
+        _select_from_command "Run an Installed Model" "Select an installed model to start an interactive chat:" "installed"
+        local status=$?
+        [ "$status" -eq 0 ] || return "$status"
         model="$SELECTED_MODEL"
         selected_interactively=true
     else
@@ -438,6 +544,7 @@ run_model() {
 
 main_menu() {
     local action
+    local status
     _require_dialog || return 1
     while true; do
         _dialog_menu "Ollama Model Manager" "Choose an action:" \
@@ -447,17 +554,21 @@ main_menu() {
             "stop" "Unload a running model from RAM" \
             "delete" "Delete an installed model from disk" \
             "pull" "Pull an article-recommended model" \
-            "run" "Run an installed chat model" || return 0
+            "run" "Run an installed chat model"
+        status=$?
+        [ "$status" -eq "$MENU_BACK_STATUS" ] && return 0
+        [ "$status" -eq 0 ] || return "$status"
         action="$DIALOG_CHOICE"
         case "$action" in
-            installed) list_installed ;;
-            running) list_running ;;
-            resources) show_resources ;;
-            stop) stop_model ;;
-            delete) delete_model ;;
-            pull) pull_model ;;
-            run) run_model ;;
+            installed) list_installed; status=$? ;;
+            running) list_running; status=$? ;;
+            resources) show_resources; status=$? ;;
+            stop) stop_model; status=$? ;;
+            delete) delete_model; status=$? ;;
+            pull) pull_model; status=$? ;;
+            run) run_model; status=$? ;;
         esac
+        [ "$status" -eq "$MENU_BACK_STATUS" ] && continue
         echo ""
         read -rp "Press Enter to return to the Ollama model menu..."
     done
@@ -480,3 +591,6 @@ case "${1:-}" in
         exit 2
         ;;
 esac
+status=$?
+[ "$status" -eq "$MENU_BACK_STATUS" ] && exit 0
+exit "$status"
