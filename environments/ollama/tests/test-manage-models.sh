@@ -208,6 +208,21 @@ grep -a -q 'qwen3:1.7b — Extremely fast small multilingual model' "$OLLAMA_MAN
 grep -a -q '1.4 GB d/l | 2.0 GiB–3.0 GiB RAM' "$OLLAMA_MANAGER_TTY_OUTPUT"
 ! grep -a -q 'Qwen 3 1.7B' "$OLLAMA_MANAGER_TTY_OUTPUT"
 
+# Every model recommended by the supplied wiki-model document is present in
+# the rendered wiki-use menu. Escape then walks back through use -> browse.
+: > "$OLLAMA_LOG"
+: > "$OLLAMA_MANAGER_TTY_OUTPUT"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' use wiki BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+printf '\033' > "$MODEL_MENU_INPUT"
+OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
+! grep -q '^pull ' "$OLLAMA_LOG"
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+for wiki_model in phi4-mini gemma4:e4b qwen3.5:2b qwen3.5:4b llama3.2:3b; do
+    grep -a -q "$wiki_model" "$OLLAMA_MANAGER_TTY_OUTPUT"
+done
+unset DIALOG_TEST_SEQUENCE_FILE
+
 # Low pressure can soften a low-available-RAM result because macOS may still
 # have reclaimable/compressible capacity. Elevated pressure cannot.
 export OLLAMA_MANAGER_TOTAL_MIB=8192

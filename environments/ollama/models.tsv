@@ -13,6 +13,7 @@ qwen3.5:9b	Qwen 3.5 9B	6.6 GB	9216	12288	mac16	general,reasoning,multilingual,lo
 gemma3:1b	Gemma 3 1B	815 MB	1280	2304	mac8,mac16,pi8,pi4	fast,general	Lightweight, precise responses for basic tasks
 gemma3:4b	Gemma 3 4B	3.3 GB	4608	6656	mac8,mac16,pi8	wiki,general,reasoning,long-context	128K context and vision; tight on 8GB hardware
 gemma3:12b	Gemma 3 12B	8.1 GB	10240	14336	mac16	general,reasoning,long-context	Stretch option on 16GB; use short contexts and expect memory pressure
+gemma4:e4b	Gemma 4 E4B	9.6 GB	11264	15360	mac16	wiki,reasoning,long-context	128K context, tool calling, and agent logic; tight on 16GB, so keep context short
 phi3:mini	Phi-3 Mini 3.8B	2.2 GB	3584	5632	mac8,mac16,pi8	general,fast	Light/fast on Mac; maximum practical stretch on an 8GB Pi
 phi4-mini	Phi-4 Mini 3.8B	2.5 GB	3584	6144	mac8,mac16,pi8	wiki,reasoning,long-context	128K context; strong grounded wiki Q&A, math, and logic
 qwen2.5-coder:7b	Qwen 2.5 Coder 7B	4.7 GB	6656	9216	mac16	coding	Code generation, reasoning, and fixes on a 16GB Mac

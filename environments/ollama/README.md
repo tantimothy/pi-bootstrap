@@ -79,6 +79,13 @@ tags and groups them in two independent ways:
 - Suggested use: wiki Q&A, Mnemon/RAG embeddings, general chat, coding,
   reasoning/math, fast/minimal, multilingual, and long-context work.
 
+The supplied wiki-model article's recommendations are represented explicitly:
+`phi4-mini`, `gemma4:e4b`, `qwen3.5:2b`, `qwen3.5:4b`, and
+`llama3.2:3b`. Gemma 4 E4B's current Ollama artifact is much larger than the
+article anticipated, so it is limited to the 16GB Mac tier and marked as tight.
+The separate `gemma3:4b` recommendation from the hardware article remains in
+the catalog as its own model.
+
 Before a pull, the menu shows:
 
 - each model tag and use case on its first row;
