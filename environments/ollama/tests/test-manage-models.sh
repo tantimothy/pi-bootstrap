@@ -153,6 +153,11 @@ export OLLAMA_MANAGER_TTY_INPUT=/dev/null
 export OLLAMA_MANAGER_TTY_OUTPUT="$TMP_DIR/dialog-ui.log"
 
 diff -u <("$MATRIX_RENDERER") "$ENV_DIR/MODEL-MATRIX.md"
+test "$(grep -c '^| Model | Wiki |' "$ENV_DIR/MODEL-MATRIX.md")" -eq 1
+while IFS=$'\t' read -r model _; do
+    [[ "$model" == \#* ]] && continue
+    test "$(grep -Fc "| \`$model\` |" "$ENV_DIR/MODEL-MATRIX.md")" -eq 1
+done < "$ENV_DIR/models.tsv"
 
 _write_model_menu_selection() {
     local output_file="$1"
