@@ -146,7 +146,7 @@ This re-runs the same scan, then asks individually — `[y/N/a=all/c=cancel]` pe
 
 ## 🦙 Ollama Environment & Watchdog
 
-`ollama` is a host-level environment that installs/starts one native daemon shared by `nanoclaw-mnemon`, `chat-frontends`, and `llm-gateways`. Its ACTION menu lists installed/running models, shows host RAM and model resources, stops/deletes/runs models, and pulls an article-derived catalog browsable by hardware tier or suggested use. Before pulling, it compares the model's projected working-RAM range with live host RAM. See [`environments/ollama/README.md`](environments/ollama/README.md).
+`ollama` is a host-level environment that installs/starts one native daemon shared by `nanoclaw-mnemon`, `chat-frontends`, and `llm-gateways`. STOP pauses that shared daemon; TEARDOWN removes the recognized runtime while preserving its shared model cache; CLEAN reinstalls it. Its ACTION menu lists installed/running models, shows host RAM and model resources, stops/deletes/runs models, and pulls an article-derived catalog browsable by hardware tier or suggested use. Before pulling, it compares the model's projected working-RAM range with live host RAM. See [`environments/ollama/README.md`](environments/ollama/README.md).
 
 The separate `ollama-watchdog.sh` monitors that daemon. It was born from a real incident: Ollama's process was alive, `ollama ps` even still showed a loaded model, but every chat request hung forever with nothing in any app's logs — only a full restart fixed it. A check that just confirms the process exists would have missed that entirely; this instead hits Ollama's own API with a hard timeout:
 

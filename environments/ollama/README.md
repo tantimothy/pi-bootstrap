@@ -33,9 +33,27 @@ The setup is idempotent. If the API is already responsive it leaves the running
 daemon alone; otherwise it starts the Homebrew service, Ollama.app, the Linux
 systemd unit, or a bare `ollama serve` process as appropriate.
 
+## Lifecycle and teardown
+
+The normal environment lifecycle applies to the one shared native daemon:
+
+| Policy | Behavior |
+|---|---|
+| FAST | Install when missing (with confirmation), then start/reuse Ollama |
+| STOP | Stop the daemon but keep the runtime and every downloaded model |
+| TEARDOWN | Stop and remove the recognized Homebrew/Ollama.app or official Linux runtime; preserve downloaded models |
+| CLEAN | TEARDOWN followed by a fresh install/start; preserve downloaded models |
+| INFO | Show model-management and watchdog commands |
+
+Because every frontend, gateway, and Mnemon shares this daemon, STOP,
+TEARDOWN, and CLEAN briefly affect all of them. `~/.ollama` and the official
+Linux service's `/usr/share/ollama` model store are deliberately preserved.
+There is no bulk WIPE action; use **Delete an Installed Model** to remove model
+weights individually with confirmation.
+
 ## Model ACTION entries
 
-The Ollama environment adds these entries alongside FAST and INFO:
+The Ollama environment adds these entries alongside its lifecycle policies:
 
 | Action | Behavior |
 |---|---|

@@ -2,7 +2,7 @@ data_dirs: []
 install_dirs: []
 named_volumes: []
 no_data_msg: "(Ollama stores downloaded models under ~/.ollama, but this host setup does not claim or delete that shared state.)"
-no_delete_msg: "Use the Delete an Installed Model action to remove one model safely. This environment never bulk-deletes ~/.ollama."
+no_delete_msg: "TEARDOWN removes the recognized Ollama runtime but preserves downloaded models. Use the Delete an Installed Model action to remove one model safely; this environment never bulk-deletes ~/.ollama or /usr/share/ollama."
 web_uis: []
 custom_actions:
   - label: "List Installed Models"
@@ -32,6 +32,8 @@ useful_commands: |2
   📌 Notes:
      🦙 Ollama runs natively on the host and is shared by NanoClaw Mnemon,
         chat frontends, LLM gateways, and any direct API clients.
+     🧹 STOP pauses that shared daemon. TEARDOWN/CLEAN remove or reinstall the
+        recognized runtime while preserving every downloaded model.
      📊 Pull recommendations come from the supplied local-LLM/wiki articles.
         Working-RAM ranges are planning estimates, not guarantees: context
         length, parallel requests, quantization, and Ollama version all matter.

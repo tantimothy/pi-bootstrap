@@ -45,6 +45,10 @@ STUB
 
 cat > "$TMP_DIR/curl" <<'STUB'
 #!/usr/bin/env bash
+echo "curl $*" >> "${CURL_TEST_LOG:-/dev/null}"
+case "$*" in
+    *"https://ollama.com/install.sh"*) echo "exit 0"; exit 0 ;;
+esac
 [ "${FAKE_HEALTH_MODE:-always}" = "always" ] && exit 0
 [ -f "$FAKE_HEALTH_FILE" ]
 STUB
@@ -72,6 +76,27 @@ cat > "$TMP_DIR/sudo" <<'STUB'
 "$@"
 STUB
 
+cat > "$TMP_DIR/pgrep" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+
+cat > "$TMP_DIR/killall" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+
+cat > "$TMP_DIR/pkill" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+
+cat > "$TMP_DIR/rm" <<'STUB'
+#!/usr/bin/env bash
+echo "rm $*" >> "$PLATFORM_TEST_LOG"
+exit 0
+STUB
+
 cat > "$TMP_DIR/brew" <<'STUB'
 #!/usr/bin/env bash
 echo "brew $*" >> "$PLATFORM_TEST_LOG"
@@ -83,12 +108,14 @@ exit 0
 STUB
 
 chmod +x "$TMP_DIR/ollama" "$TMP_DIR/dialog" "$TMP_DIR/curl" \
-    "$TMP_DIR/uname" "$TMP_DIR/systemctl" "$TMP_DIR/sudo" "$TMP_DIR/brew"
+    "$TMP_DIR/uname" "$TMP_DIR/systemctl" "$TMP_DIR/sudo" "$TMP_DIR/pgrep" \
+    "$TMP_DIR/killall" "$TMP_DIR/pkill" "$TMP_DIR/rm" "$TMP_DIR/brew"
 
 export OLLAMA_CMD="$TMP_DIR/ollama"
 export DIALOG_CMD="$TMP_DIR/dialog"
 export OLLAMA_TEST_LOG="$OLLAMA_LOG"
 export DIALOG_TEST_LOG="$DIALOG_LOG"
+export CURL_TEST_LOG="$TMP_DIR/curl.log"
 export OLLAMA_MANAGER_TOTAL_MIB=16384
 export OLLAMA_MANAGER_AVAILABLE_MIB=12288
 
@@ -144,5 +171,45 @@ export FAKE_UNAME_M=arm64
 runner_output="$(PATH="$TMP_DIR:$PATH" "$RUNNER")"
 grep -q "Ollama is responsive" <<< "$runner_output"
 grep -q '^brew services start ollama$' "$PLATFORM_TEST_LOG"
+
+rm -f "$FAKE_HEALTH_FILE"
+: > "$PLATFORM_TEST_LOG"
+export FAKE_UNAME_S=Linux
+REBUILD_POLICY=STOP PATH="$TMP_DIR:$PATH" "$RUNNER" >"$TMP_DIR/linux-stop.out"
+grep -q '^systemctl stop ollama$' "$PLATFORM_TEST_LOG"
+grep -q 'Downloaded models are unchanged' "$TMP_DIR/linux-stop.out"
+
+: > "$PLATFORM_TEST_LOG"
+OLLAMA_TEARDOWN_BIN=/usr/local/bin/ollama REBUILD_POLICY=TEARDOWN \
+    PATH="$TMP_DIR:$PATH" "$RUNNER" >"$TMP_DIR/linux-teardown.out" 2>&1
+grep -q '^systemctl disable ollama$' "$PLATFORM_TEST_LOG"
+grep -q '^systemctl daemon-reload$' "$PLATFORM_TEST_LOG"
+grep -q '^rm -f -- /usr/local/bin/ollama$' "$PLATFORM_TEST_LOG"
+grep -q 'downloaded models were preserved' "$TMP_DIR/linux-teardown.out"
+
+: > "$PLATFORM_TEST_LOG"
+export FAKE_UNAME_S=Darwin
+REBUILD_POLICY=TEARDOWN PATH="$TMP_DIR:$PATH" "$RUNNER" >"$TMP_DIR/mac-teardown.out"
+grep -q '^brew services stop ollama$' "$PLATFORM_TEST_LOG"
+grep -q '^brew uninstall ollama$' "$PLATFORM_TEST_LOG"
+grep -q 'downloaded models were preserved' "$TMP_DIR/mac-teardown.out"
+
+rm -f "$FAKE_HEALTH_FILE"
+: > "$PLATFORM_TEST_LOG"
+export FAKE_UNAME_S=Darwin
+printf 'y\n' | OLLAMA_CMD=missing-ollama PATH="$TMP_DIR:$PATH" \
+    /bin/bash "$RUNNER" >"$TMP_DIR/mac-install.out"
+grep -q '^brew install ollama$' "$PLATFORM_TEST_LOG"
+grep -q '^brew services start ollama$' "$PLATFORM_TEST_LOG"
+
+rm -f "$FAKE_HEALTH_FILE"
+: > "$PLATFORM_TEST_LOG"
+: > "$CURL_TEST_LOG"
+export FAKE_UNAME_S=Linux
+export FAKE_UNAME_M=aarch64
+printf 'y\n' | OLLAMA_CMD=missing-ollama PATH="$TMP_DIR:$PATH" \
+    /bin/bash "$RUNNER" >"$TMP_DIR/linux-install.out"
+grep -q 'https://ollama.com/install.sh' "$CURL_TEST_LOG"
+grep -q '^systemctl enable --now ollama$' "$PLATFORM_TEST_LOG"
 
 echo "✅ Ollama model manager tests passed"
