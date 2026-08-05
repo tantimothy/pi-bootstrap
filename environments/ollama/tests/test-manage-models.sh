@@ -83,6 +83,12 @@ case "${1:-}" in
 esac
 STUB
 
+cat > "$TMP_DIR/memory_pressure" <<'STUB'
+#!/usr/bin/env bash
+echo "The system has 8589934592 bytes."
+echo "System-wide memory free percentage: ${FAKE_PRESSURE_FREE_PERCENT:-43}%"
+STUB
+
 cat > "$TMP_DIR/systemctl" <<'STUB'
 #!/usr/bin/env bash
 echo "systemctl $*" >> "$PLATFORM_TEST_LOG"
@@ -130,7 +136,8 @@ STUB
 
 chmod +x "$TMP_DIR/ollama" "$TMP_DIR/dialog" "$TMP_DIR/curl" \
     "$TMP_DIR/uname" "$TMP_DIR/systemctl" "$TMP_DIR/sudo" "$TMP_DIR/pgrep" \
-    "$TMP_DIR/killall" "$TMP_DIR/pkill" "$TMP_DIR/rm" "$TMP_DIR/brew"
+    "$TMP_DIR/killall" "$TMP_DIR/pkill" "$TMP_DIR/rm" "$TMP_DIR/brew" \
+    "$TMP_DIR/memory_pressure"
 
 export OLLAMA_CMD="$TMP_DIR/ollama"
 export DIALOG_CMD="$TMP_DIR/dialog"
@@ -139,6 +146,8 @@ export DIALOG_TEST_LOG="$DIALOG_LOG"
 export CURL_TEST_LOG="$TMP_DIR/curl.log"
 export OLLAMA_MANAGER_TOTAL_MIB=16384
 export OLLAMA_MANAGER_AVAILABLE_MIB=12288
+export OLLAMA_MANAGER_PRESSURE_STATUS=low
+export OLLAMA_MANAGER_PRESSURE_DETAIL="test pressure signal"
 export OLLAMA_MANAGER_TTY_INPUT=/dev/null
 export OLLAMA_MANAGER_TTY_OUTPUT="$TMP_DIR/dialog-ui.log"
 
@@ -153,6 +162,7 @@ grep -q "100% CPU" <<< "$running_output"
 resource_output="$("$MANAGER" --resources)"
 grep -q "RAM total: 16.0 GiB" <<< "$resource_output"
 grep -q "Available: 12.0 GiB" <<< "$resource_output"
+grep -q "Pressure:  LOW — test pressure signal" <<< "$resource_output"
 
 export OLLAMA_MANAGER_ASSUME_YES=true
 "$MANAGER" --stop llama3.2:latest >/dev/null
@@ -177,6 +187,7 @@ export DIALOG_TEST_UI_MARKER=true
 "$MANAGER" --pull >/dev/null
 grep -q '^pull qwen3:1.7b$' "$OLLAMA_LOG"
 grep -q 'Host RAM available now: 12.0 GiB' "$DIALOG_LOG"
+grep -q 'Host memory pressure: LOW — test pressure signal' "$DIALOG_LOG"
 grep -q 'Assessment: FITS' "$DIALOG_LOG"
 grep -q 'DIALOG_UI:.*Pull a Recommended Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
 recommended_line="$(grep 'Recommended for pi4' "$DIALOG_LOG")"
@@ -185,6 +196,56 @@ recommended_line="$(grep 'Recommended for pi4' "$DIALOG_LOG")"
 [[ "$recommended_line" == *"1.4 GB d/l"* ]]
 [[ "$recommended_line" != *"Qwen 3 1.7B"* ]]
 [[ "$recommended_line" != *" download"* ]]
+
+# Low pressure can soften a low-available-RAM result because macOS may still
+# have reclaimable/compressible capacity. Elevated pressure cannot.
+export OLLAMA_MANAGER_TOTAL_MIB=8192
+export OLLAMA_MANAGER_AVAILABLE_MIB=1024
+export OLLAMA_MANAGER_PRESSURE_STATUS=low
+: > "$DIALOG_LOG"
+"$MANAGER" --pull qwen3:1.7b >/dev/null
+grep -q 'Assessment: CAUTION — available RAM is low, but low pressure indicates reclaimable/compressible capacity' "$DIALOG_LOG"
+
+export OLLAMA_MANAGER_PRESSURE_STATUS=high
+: > "$DIALOG_LOG"
+"$MANAGER" --pull qwen3:1.7b >/dev/null
+grep -q 'Assessment: EXCEEDS — available RAM is below the projected minimum and pressure is not low' "$DIALOG_LOG"
+
+export OLLAMA_MANAGER_TOTAL_MIB=1024
+export OLLAMA_MANAGER_PRESSURE_STATUS=low
+: > "$DIALOG_LOG"
+"$MANAGER" --pull qwen3:1.7b >/dev/null
+grep -q 'Assessment: EXCEEDS — projected minimum is larger than physical RAM' "$DIALOG_LOG"
+
+export OLLAMA_MANAGER_TOTAL_MIB=16384
+export OLLAMA_MANAGER_AVAILABLE_MIB=12288
+export OLLAMA_MANAGER_PRESSURE_STATUS=low
+
+# Verify the native pressure collectors used on Mac and Pi/Linux.
+unset OLLAMA_MANAGER_PRESSURE_STATUS
+unset OLLAMA_MANAGER_PRESSURE_DETAIL
+export FAKE_UNAME_S=Darwin
+export FAKE_PRESSURE_FREE_PERCENT=43
+resource_output="$(PATH="$TMP_DIR:$PATH" "$MANAGER" --resources)"
+grep -q 'Pressure:  LOW — macOS reports 43% free memory capacity' <<< "$resource_output"
+
+export FAKE_PRESSURE_FREE_PERCENT=15
+resource_output="$(PATH="$TMP_DIR:$PATH" "$MANAGER" --resources)"
+grep -q 'Pressure:  MODERATE — macOS reports 15% free memory capacity' <<< "$resource_output"
+
+export FAKE_UNAME_S=Linux
+export OLLAMA_MANAGER_PSI_FILE="$TMP_DIR/memory.pressure"
+printf '%s\n' \
+    'some avg10=12.50 avg60=4.00 avg300=1.00 total=100' \
+    'full avg10=1.25 avg60=0.50 avg300=0.10 total=20' \
+    > "$OLLAMA_MANAGER_PSI_FILE"
+resource_output="$(PATH="$TMP_DIR:$PATH" "$MANAGER" --resources)"
+grep -q 'Pressure:  HIGH — Linux PSI avg10: some=12.50%, full=1.25%' <<< "$resource_output"
+
+export OLLAMA_MANAGER_PRESSURE_STATUS=low
+export OLLAMA_MANAGER_PRESSURE_DETAIL="test pressure signal"
+unset OLLAMA_MANAGER_PSI_FILE
+unset FAKE_PRESSURE_FREE_PERCENT
 
 : > "$OLLAMA_LOG"
 "$MANAGER" --stop >/dev/null

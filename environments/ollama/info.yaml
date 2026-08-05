@@ -35,7 +35,8 @@ useful_commands: |2
      🧹 STOP pauses that shared daemon. TEARDOWN/CLEAN remove or reinstall the
         recognized runtime while preserving every downloaded model.
      📊 Pull recommendations come from the supplied local-LLM/wiki articles.
-        Working-RAM ranges are planning estimates, not guarantees: context
-        length, parallel requests, quantization, and Ollama version all matter.
+        Assessments combine working-RAM estimates with macOS memory pressure
+        or Linux PSI. They remain guidance: context length, parallel requests,
+        quantization, and Ollama version all matter.
      🧠 nomic-embed-text is included for Mnemon semantic recall. It generates
         embeddings only and cannot be used as an interactive chat model.
