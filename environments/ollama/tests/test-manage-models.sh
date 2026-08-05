@@ -151,6 +151,18 @@ export OLLAMA_MANAGER_PRESSURE_DETAIL="test pressure signal"
 export OLLAMA_MANAGER_TTY_INPUT=/dev/null
 export OLLAMA_MANAGER_TTY_OUTPUT="$TMP_DIR/dialog-ui.log"
 
+_write_model_menu_selection() {
+    local output_file="$1"
+    local down_count="$2"
+    local index=0
+    : > "$output_file"
+    while [ "$index" -lt "$down_count" ]; do
+        printf '\033[B' >> "$output_file"
+        index=$((index + 1))
+    done
+    printf '\n' >> "$output_file"
+}
+
 installed_output="$("$MANAGER" --list-installed)"
 grep -q "Installed Ollama Models" <<< "$installed_output"
 grep -q "llama3.2:latest" <<< "$installed_output"
@@ -184,18 +196,17 @@ unset OLLAMA_MANAGER_ASSUME_YES
 : > "$DIALOG_LOG"
 export DIALOG_TEST_UI_MARKER=true
 : > "$OLLAMA_MANAGER_TTY_OUTPUT"
-"$MANAGER" --pull >/dev/null
+MODEL_MENU_INPUT="$TMP_DIR/model-menu-input"
+_write_model_menu_selection "$MODEL_MENU_INPUT" 3
+OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
 grep -q '^pull qwen3:1.7b$' "$OLLAMA_LOG"
 grep -q 'Host RAM available now: 12.0 GiB' "$DIALOG_LOG"
 grep -q 'Host memory pressure: LOW — test pressure signal' "$DIALOG_LOG"
 grep -q 'Assessment: FITS' "$DIALOG_LOG"
 grep -q 'DIALOG_UI:.*Pull a Recommended Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
-recommended_line="$(grep 'Recommended for pi4' "$DIALOG_LOG")"
-[[ "$recommended_line" == *"--item-help"* ]]
-[[ "$recommended_line" == *"Extremely fast small multilingual model"* ]]
-[[ "$recommended_line" == *"1.4 GB d/l"* ]]
-[[ "$recommended_line" != *"Qwen 3 1.7B"* ]]
-[[ "$recommended_line" != *" download"* ]]
+grep -a -q 'qwen3:1.7b — Extremely fast small multilingual model' "$OLLAMA_MANAGER_TTY_OUTPUT"
+grep -a -q '1.4 GB d/l | 2.0 GiB–3.0 GiB RAM' "$OLLAMA_MANAGER_TTY_OUTPUT"
+! grep -a -q 'Qwen 3 1.7B' "$OLLAMA_MANAGER_TTY_OUTPUT"
 
 # Low pressure can soften a low-available-RAM result because macOS may still
 # have reclaimable/compressible capacity. Elevated pressure cannot.
@@ -266,20 +277,23 @@ export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
 printf '%s\n' \
     hardware \
     pi4 \
-    ESC \
     BACK \
     all \
-    qwen3:1.7b \
+    BACK \
+    OK > "$DIALOG_TEST_SEQUENCE_FILE"
+export OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE="$TMP_DIR/model-menu-sequence"
+printf '%s\n' \
     BACK \
     qwen3:1.7b \
-    OK > "$DIALOG_TEST_SEQUENCE_FILE"
+    qwen3:1.7b > "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE"
 "$MANAGER" --pull >/dev/null
 grep -q '^pull qwen3:1.7b$' "$OLLAMA_LOG"
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+[ ! -s "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE" ]
 [ "$(grep -c 'Choose Hardware Tier' "$DIALOG_LOG")" -eq 2 ]
-[ "$(grep -c 'All Recommended Models' "$DIALOG_LOG")" -eq 2 ]
 [ "$(grep -c 'Pull Qwen' "$DIALOG_LOG")" -eq 2 ]
 unset DIALOG_TEST_SEQUENCE_FILE
+unset OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE
 
 # The same Back status must remain inside the full manager rather than unwind
 # the script: Pull -> hardware -> model -> hardware -> Pull -> main manager.
@@ -289,14 +303,27 @@ printf '%s\n' \
     pull \
     hardware \
     pi4 \
-    ESC \
     BACK \
     BACK \
     ESC > "$DIALOG_TEST_SEQUENCE_FILE"
+export OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE="$TMP_DIR/model-menu-sequence"
+printf '%s\n' BACK > "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE"
 "$MANAGER" >/dev/null
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+[ ! -s "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE" ]
 [ "$(grep -c 'Ollama Model Manager' "$DIALOG_LOG")" -eq 2 ]
 [ "$(grep -c 'Pull a Recommended Model' "$DIALOG_LOG")" -eq 2 ]
+unset DIALOG_TEST_SEQUENCE_FILE
+unset OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE
+
+# A literal Escape byte from the terminal backs out of the two-line catalog.
+: > "$OLLAMA_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' hardware pi4 BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+printf '\033' > "$MODEL_MENU_INPUT"
+OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
+! grep -q '^pull ' "$OLLAMA_LOG"
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
 unset DIALOG_TEST_SEQUENCE_FILE
 
 : > "$OLLAMA_LOG"

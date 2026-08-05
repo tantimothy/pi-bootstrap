@@ -81,9 +81,9 @@ tags and groups them in two independent ways:
 
 Before a pull, the menu shows:
 
-- model download size;
-- projected working-RAM range (weights plus runtime overhead and a modest
-  context);
+- each model tag and use case on its first row;
+- model download size and projected working-RAM range (weights plus runtime
+  overhead and a modest context) on its indented second row;
 - live host total and available RAM;
 - live memory pressure (`memory_pressure -Q` on macOS and kernel PSI on Linux);
 - a `FITS`, `CAUTION`, or `EXCEEDS` assessment.
