@@ -38,6 +38,7 @@ $0 !~ /^#/ {
     model[count] = $1
     model_hardware[count] = $6
     model_uses[count] = $7
+    model_notes[count] = $8
     if (("," model_hardware[count] ",") ~ /,pi4,/) {
         model_tier[count] = 1
     } else if (("," model_hardware[count] ",") ~ /,(mac8|pi8),/) {
@@ -47,11 +48,11 @@ $0 !~ /^#/ {
     }
 }
 END {
-    print "| Model | Wiki | Embeddings | General | Coding | Reasoning | Fast | Multilingual | Long context |"
-    print "|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|"
+    print "| Model | Wiki | Embeddings | General | Coding | Reasoning | Fast | Multilingual | Long context | Description |"
+    print "|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|"
     for (tier = 1; tier <= 3; tier++) {
         printf "| **%s** ", hardware[tier]
-        for (use = 1; use <= 8; use++) {
+        for (column = 1; column <= 9; column++) {
             printf "| "
         }
         print "|"
@@ -61,7 +62,7 @@ END {
                 for (use = 1; use <= 8; use++) {
                     printf "| %s ", (("," model_uses[row] ",") ~ ("," use_key[use] ",")) ? "✓" : ""
                 }
-                print "|"
+                printf "| %s |\n", model_notes[row]
             }
         }
     }

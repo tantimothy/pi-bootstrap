@@ -77,6 +77,7 @@ tags and groups them in two independent ways:
 See [`MODEL-MATRIX.md`](MODEL-MATRIX.md) for a single pivot-style hardware and
 use-case table. Each model appears once under the minimum tier that introduces
 it, making the additional models unlocked by 8GB and 16GB hardware explicit.
+The final column summarizes what each model is best suited for.
 
 - Hardware: Apple Silicon Mac 16GB, Apple Silicon Mac 8GB, Raspberry Pi 4/5
   8GB, and Raspberry Pi 4/5 4GB.
