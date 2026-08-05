@@ -39,18 +39,22 @@ _require_dialog() {
     fi
 }
 
-_dialog_menu() {
+_dialog_menu_impl() {
+    local item_help="$1"
+    shift
     local title="$1"
     local prompt="$2"
     shift 2
     local output_file
     local status
     local choice
+    local options=(--clear)
+    [ "$item_help" = "true" ] && options+=(--item-help)
     output_file="$(mktemp)"
     # Keep stderr attached to the caller's terminal so dialog can draw its UI.
     # Only the selected tag goes to fd 3; the function returns it through the
     # DIALOG_CHOICE global, never through a command substitution.
-    "$DIALOG_CMD" --clear --title " $title " \
+    "$DIALOG_CMD" "${options[@]}" --title " $title " \
         --cancel-label "Back" \
         --output-fd 3 --menu "$prompt" 22 108 14 "$@" \
         3>"$output_file" <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
@@ -64,6 +68,14 @@ _dialog_menu() {
     esac
     [ -n "$choice" ] || return 1
     DIALOG_CHOICE="$choice"
+}
+
+_dialog_menu() {
+    _dialog_menu_impl false "$@"
+}
+
+_dialog_menu_with_help() {
+    _dialog_menu_impl true "$@"
 }
 
 _confirm() {
@@ -472,7 +484,7 @@ _catalog_menu_for_filter() {
                 esac
                 use_summary="${uses//,/ · }"
                 summary="[$fit_label] $use_summary | RAM $(_format_gib "$ram_min")–$(_format_gib "$ram_max")"
-                sorted_rows+=("$priority"$'\t'"$ram_min"$'\t'"$model"$'\t'"$summary")
+                sorted_rows+=("$priority"$'\t'"$ram_min"$'\t'"$model"$'\t'"$summary"$'\t'"$notes")
                 ;;
         esac
     done < "$CATALOG_FILE"
@@ -482,13 +494,15 @@ _catalog_menu_for_filter() {
         return 1
     fi
 
-    while IFS=$'\t' read -r priority ram_min model summary; do
-        items+=("$model" "$summary")
+    while IFS=$'\t' read -r priority ram_min model summary notes; do
+        items+=("$model" "$summary" "$notes")
     done < <(printf '%s\n' "${sorted_rows[@]}" |
         LC_ALL=C sort -t $'\t' -k1,1n -k2,2n -k3,3)
 
     _require_dialog || return 1
-    _dialog_menu "$title" "$prompt Full model and host details appear after selection." "${items[@]}"
+    _dialog_menu_with_help "$title" \
+        "$prompt Highlight a model to see its description below; full model and host details appear after selection." \
+        "${items[@]}"
     local status=$?
     [ "$status" -eq 0 ] || return "$status"
     _normalize_model_name "$DIALOG_CHOICE"

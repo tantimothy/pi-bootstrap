@@ -201,8 +201,9 @@ grep -q 'Host memory pressure: LOW — test pressure signal' "$DIALOG_LOG"
 grep -q 'Assessment: FITS' "$DIALOG_LOG"
 grep -q 'DIALOG_UI:.*Pull a Recommended Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
 model_menu_log="$(grep 'Recommended for pi4' "$DIALOG_LOG")"
+grep -q -- '--item-help' <<< "$model_menu_log"
 grep -q 'qwen3:1.7b \[FITS\] general · fast · multilingual | RAM 2.0 GiB–3.0 GiB' <<< "$model_menu_log"
-[[ "$model_menu_log" != *"Extremely fast small multilingual model"* ]]
+grep -q 'qwen3:1.7b \[FITS\].*Extremely fast small multilingual model' <<< "$model_menu_log"
 [[ "$model_menu_log" != *"Qwen 3 1.7B"* ]]
 grep -q 'Download: 1.4 GB' "$DIALOG_LOG"
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]

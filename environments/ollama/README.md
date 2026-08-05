@@ -101,6 +101,8 @@ Before a pull, the menu shows:
 
 - each model tag, live fit label, suggested uses, and projected working-RAM
   range (weights plus runtime overhead and a modest context) on one row;
+- a description in dialog's bottom help line that changes with the highlighted
+  model;
 - full model description and download size after selecting a model;
 - live host total and available RAM;
 - live memory pressure (`memory_pressure -Q` on macOS and kernel PSI on Linux);
