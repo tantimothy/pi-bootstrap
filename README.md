@@ -144,9 +144,11 @@ This re-runs the same scan, then asks individually — `[y/N/a=all/c=cancel]` pe
 
 ---
 
-## 🐕 Ollama Watchdog
+## 🦙 Ollama Environment & Watchdog
 
-Ollama itself isn't one of this repo's environments — it's a host-level dependency `nanoclaw-mnemon` prompts to install and that `chat-frontends`/`llm-gateways` also talk to, always running natively rather than containerized (see those environments' own READMEs for why). None of them monitor it. `ollama-watchdog.sh` is a standalone script for that, born from a real incident: Ollama's process was alive, `ollama ps` even still showed a loaded model, but every chat request hung forever with nothing in any app's logs — only a full restart fixed it. A check that just confirms the process exists would have missed that entirely; this instead hits Ollama's own API with a hard timeout:
+`ollama` is a host-level environment that installs/starts one native daemon shared by `nanoclaw-mnemon`, `chat-frontends`, and `llm-gateways`. Its ACTION menu lists installed/running models, shows host RAM and model resources, stops/deletes/runs models, and pulls an article-derived catalog browsable by hardware tier or suggested use. Before pulling, it compares the model's projected working-RAM range with live host RAM. See [`environments/ollama/README.md`](environments/ollama/README.md).
+
+The separate `ollama-watchdog.sh` monitors that daemon. It was born from a real incident: Ollama's process was alive, `ollama ps` even still showed a loaded model, but every chat request hung forever with nothing in any app's logs — only a full restart fixed it. A check that just confirms the process exists would have missed that entirely; this instead hits Ollama's own API with a hard timeout:
 
 ```bash
 ./ollama-watchdog.sh --check      # one-shot: is it actually responding right now?
@@ -161,7 +163,7 @@ To run this automatically on a schedule instead of by hand:
 ./ollama-watchdog.sh --uninstall  # remove the scheduled job
 ```
 
-Also reachable from `deploy.sh` itself — every environment that depends on Ollama (`nanoclaw-mnemon`, `chat-frontends`, `llm-gateways`) has a **"Check / Restart Ollama"** entry in its own action menu, via that environment's `info.yaml` `custom_actions` (see below) — no need to drop to a shell for it.
+Also reachable from `deploy.sh` itself — the standalone `ollama` environment and every dependent environment (`nanoclaw-mnemon`, `chat-frontends`, `llm-gateways`) has a **"Check / Restart Ollama"** entry in its own action menu, via `info.yaml` `custom_actions` (see below) — no need to drop to a shell for it.
 
 Restart behavior is platform- and install-method-aware: macOS prefers `killall Ollama` + `open -a Ollama` if that's how it's running (the default Mac install), Linux prefers `systemctl restart ollama` if the official installer's systemd unit exists, and both fall back to killing/relaunching a bare `ollama serve` process otherwise. Every check and restart attempt is logged to `~/.ollama-watchdog.log` (override with `OLLAMA_WATCHDOG_LOG`), and on macOS a restart also fires a native notification via `osascript` (falls back to `notify-send` on Linux desktops that have it) — useful for a scheduled run where nothing's watching the terminal.
 

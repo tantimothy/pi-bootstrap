@@ -20,10 +20,9 @@ useful_commands: |2
      docker compose --profile all config --services                    # List every service this stack can run
 
   📌 Notes:
-     🦙 Both gateways route to the Ollama daemon already running on your
-        HOST (see the nanoclaw-mnemon environment's own Ollama setup) —
-        this environment doesn't run or manage Ollama itself, deliberately:
-        one shared daemon, reused across every environment in this repo.
+     🦙 Both gateways route to the shared native Ollama daemon on your HOST.
+        Use the standalone ollama environment to install it and manage models;
+        this environment only routes requests to that one shared daemon.
      🎛️ Which gateways actually run is controlled by COMPOSE_PROFILES in
         .env — LiteLLM runs by default (config-only, no database), Postgres
         and Portkey Gateway are both opt-in (add "litellm-db" and/or

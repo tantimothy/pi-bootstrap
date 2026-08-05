@@ -15,6 +15,7 @@ categories:
   - id: ai
     name: "AI Assistants"
     environments:
+      - ollama
       - openclaw
       - nanoclaw-mnemon
       - chat-frontends

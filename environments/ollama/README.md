@@ -1,0 +1,90 @@
+# Ollama — Shared Native Model Runtime
+
+Installs and starts Ollama directly on the macOS or Linux host, then exposes
+model-management ACTION entries in `deploy.sh`. One native daemon is shared by
+NanoClaw Mnemon, chat frontends, LLM gateways, and direct API clients at
+`http://localhost:11434`.
+
+Ollama is deliberately not containerized here. Native installation gives an M1
+Mac direct Metal/unified-memory access and avoids running a second model server
+for every consumer.
+
+## Supported hosts
+
+| Host | Install/start path | Resource detection | Inference |
+|---|---|---|---|
+| Apple Silicon Mac (macOS) | Homebrew service or Ollama.app | `sysctl` + `vm_stat` unified memory | Metal acceleration |
+| Raspberry Pi 4/5 (64-bit Linux) | Official ARM64 installer + systemd (or `ollama serve` fallback) | `/proc/meminfo` | CPU-only |
+
+All scripts stay compatible with macOS's stock Bash 3.2: they do not use
+associative arrays, `mapfile`, or GNU-only command flags. Raspberry Pi requires
+a **64-bit OS**; the setup stops with a clear error on 32-bit ARM instead of
+attempting an incompatible install.
+
+## Setup
+
+Select **AI Assistants → ollama → FAST** in `./deploy.sh`. If Ollama is missing,
+the script asks before installing it:
+
+- macOS: Homebrew (`brew install ollama`)
+- Linux/Raspberry Pi OS: Ollama's official install script
+
+The setup is idempotent. If the API is already responsive it leaves the running
+daemon alone; otherwise it starts the Homebrew service, Ollama.app, the Linux
+systemd unit, or a bare `ollama serve` process as appropriate.
+
+## Model ACTION entries
+
+The Ollama environment adds these entries alongside FAST and INFO:
+
+| Action | Behavior |
+|---|---|
+| List Installed Models | Runs `ollama list` |
+| List Running Models | Runs `ollama ps` |
+| Show Host Resources / Model RAM | Shows total/available RAM, CPU count, model-storage disk space, and loaded models |
+| Stop a Running Model | Selects a loaded model and unloads it with `ollama stop` |
+| Delete an Installed Model | Selects and confirms before `ollama rm` |
+| Pull a Recommended Model | Browses the curated catalog by hardware tier or suggested use |
+| Run an Installed Model | Starts an interactive `ollama run` session |
+| Check / Restart Ollama | Uses the repository's API-level watchdog |
+
+Stop and delete always require a confirmation. Pulling downloads a model but
+does not load it into RAM.
+
+## Pull catalog and RAM comparison
+
+`models.tsv` translates the two supplied local-model articles into valid Ollama
+tags and groups them in two independent ways:
+
+- Hardware: Apple Silicon Mac 16GB, Apple Silicon Mac 8GB, Raspberry Pi 4/5
+  8GB, and Raspberry Pi 4/5 4GB.
+- Suggested use: wiki Q&A, Mnemon/RAG embeddings, general chat, coding,
+  reasoning/math, fast/minimal, multilingual, and long-context work.
+
+Before a pull, the menu shows:
+
+- model download size;
+- projected working-RAM range (weights plus runtime overhead and a modest
+  context);
+- live host total and available RAM;
+- a `FITS`, `CAUTION`, or `EXCEEDS` assessment.
+
+The RAM range is guidance, not a reservation or benchmark. Very long contexts,
+parallel requests, higher-precision variants, and other applications increase
+real usage. On Raspberry Pi, all generation is CPU-bound; active cooling is
+strongly recommended.
+
+`nomic-embed-text` is present in every hardware tier because Mnemon uses it for
+semantic recall. It is an embedding-only model, so the run action rejects it as
+an interactive chat choice.
+
+## Direct use
+
+```bash
+bash environments/ollama/scripts/manage-models.sh
+bash environments/ollama/scripts/manage-models.sh --resources
+bash environments/ollama/scripts/manage-models.sh --pull phi4-mini
+bash ollama-watchdog.sh --check
+```
+
+Exit an interactive model chat with `/exit` or `Ctrl+D`.

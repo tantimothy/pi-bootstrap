@@ -1,0 +1,21 @@
+# model	display_name	disk_size	ram_min_mib	ram_max_mib	hardware	use_cases	notes
+nomic-embed-text	Nomic Embed Text	274 MB	512	1024	mac8,mac16,pi8,pi4	embeddings,wiki	Mnemon/RAG embeddings only; not a chat model
+llama3.2:1b	Llama 3.2 1B	1.3 GB	1536	2560	mac8,mac16,pi8,pi4	general,fast	Small general chat; fastest Llama option on Raspberry Pi
+llama3.2:3b	Llama 3.2 3B	2.0 GB	2560	4096	mac8,mac16,pi8	general,wiki	Balanced general chat, writing, summaries, and wiki Q&A
+qwen2.5:1.5b	Qwen 2.5 1.5B	986 MB	1536	2560	mac8,mac16,pi8,pi4	general,fast,multilingual	Fast multilingual chat with low memory use
+qwen2.5:3b	Qwen 2.5 3B	1.9 GB	2560	4096	mac8,mac16,pi8	general,multilingual	Balanced multilingual chat for an 8GB Raspberry Pi
+qwen3:1.7b	Qwen 3 1.7B	1.4 GB	2048	3072	mac8,mac16,pi8,pi4	general,fast,multilingual	Extremely fast small multilingual model
+qwen3:4b	Qwen 3 4B	2.5 GB	3584	5120	mac8,mac16,pi8	general,reasoning,multilingual	Strong intelligence/speed balance; tight on an 8GB Mac or Pi
+qwen3:8b	Qwen 3 8B	5.2 GB	7168	10240	mac16	general,reasoning,multilingual	General-purpose 16GB Mac pick with strong multilingual ability
+qwen3.5:2b	Qwen 3.5 2B	2.7 GB	3072	4608	mac8,mac16,pi8,pi4	wiki,general,multilingual,long-context	256K context; the 4GB Pi tier is a stretch with short contexts only
+qwen3.5:4b	Qwen 3.5 4B	3.4 GB	4608	6656	mac8,mac16,pi8	wiki,general,reasoning,multilingual,long-context	256K context; useful for wiki and agent-style work
+qwen3.5:9b	Qwen 3.5 9B	6.6 GB	9216	12288	mac16	general,reasoning,multilingual,long-context	High-quality 16GB Mac option; keep context modest for headroom
+gemma3:1b	Gemma 3 1B	815 MB	1280	2304	mac8,mac16,pi8,pi4	fast,general	Lightweight, precise responses for basic tasks
+gemma3:4b	Gemma 3 4B	3.3 GB	4608	6656	mac8,mac16,pi8	wiki,general,reasoning,long-context	128K context and vision; tight on 8GB hardware
+gemma3:12b	Gemma 3 12B	8.1 GB	10240	14336	mac16	general,reasoning,long-context	Stretch option on 16GB; use short contexts and expect memory pressure
+phi3:mini	Phi-3 Mini 3.8B	2.2 GB	3584	5632	mac8,mac16,pi8	general,fast	Light/fast on Mac; maximum practical stretch on an 8GB Pi
+phi4-mini	Phi-4 Mini 3.8B	2.5 GB	3584	6144	mac8,mac16,pi8	wiki,reasoning,long-context	128K context; strong grounded wiki Q&A, math, and logic
+qwen2.5-coder:7b	Qwen 2.5 Coder 7B	4.7 GB	6656	9216	mac16	coding	Code generation, reasoning, and fixes on a 16GB Mac
+deepseek-r1:1.5b	DeepSeek R1 1.5B	1.1 GB	2048	3072	mac8,mac16,pi8,pi4	reasoning,fast	CPU-friendly lightweight chain-of-thought reasoning
+deepseek-r1:8b	DeepSeek R1 8B	5.2 GB	7168	10240	mac16	reasoning	Reasoning and math for a 16GB Mac
+llama3.1:8b	Llama 3.1 8B	4.9 GB	6656	9216	mac16	general,wiki	Stable all-rounder for chat, summaries, and structured formatting

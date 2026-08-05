@@ -41,10 +41,10 @@ useful_commands: |2
      docker compose --profile all config --services                    # List every service this stack can run
 
   📌 Notes:
-     🦙 All three frontends talk to the Ollama daemon already running on
-        your HOST (see the nanoclaw-mnemon environment's own Ollama setup)
-        — this environment doesn't run or manage Ollama itself, deliberately:
-        one shared daemon, reused by every frontend and mnemon's embeddings.
+     🦙 All frontends talk to the shared native Ollama daemon on your HOST.
+        Use the standalone ollama environment to install it and manage models;
+        this environment only consumes it, so every frontend and Mnemon reuse
+        the same daemon and model cache.
      🎛️ Which frontends actually run is controlled by COMPOSE_PROFILES in
         .env, not separate on/off variables — Open WebUI and SillyTavern
         run by default, LobeHub is opt-in (add "lobehub" to the list and
