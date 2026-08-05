@@ -159,18 +159,6 @@ while IFS=$'\t' read -r model _; do
     test "$(grep -Fc "| \`$model\` |" "$ENV_DIR/MODEL-MATRIX.md")" -eq 1
 done < "$ENV_DIR/models.tsv"
 
-_write_model_menu_selection() {
-    local output_file="$1"
-    local down_count="$2"
-    local index=0
-    : > "$output_file"
-    while [ "$index" -lt "$down_count" ]; do
-        printf '\033[B' >> "$output_file"
-        index=$((index + 1))
-    done
-    printf '\n' >> "$output_file"
-}
-
 installed_output="$("$MANAGER" --list-installed)"
 grep -q "Installed Ollama Models" <<< "$installed_output"
 grep -q "llama3.2:latest" <<< "$installed_output"
@@ -204,30 +192,53 @@ unset OLLAMA_MANAGER_ASSUME_YES
 : > "$DIALOG_LOG"
 export DIALOG_TEST_UI_MARKER=true
 : > "$OLLAMA_MANAGER_TTY_OUTPUT"
-MODEL_MENU_INPUT="$TMP_DIR/model-menu-input"
-_write_model_menu_selection "$MODEL_MENU_INPUT" 3
-OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' hardware pi4 qwen3:1.7b OK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
 grep -q '^pull qwen3:1.7b$' "$OLLAMA_LOG"
 grep -q 'Host RAM available now: 12.0 GiB' "$DIALOG_LOG"
 grep -q 'Host memory pressure: LOW — test pressure signal' "$DIALOG_LOG"
 grep -q 'Assessment: FITS' "$DIALOG_LOG"
 grep -q 'DIALOG_UI:.*Pull a Recommended Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
-grep -a -q 'qwen3:1.7b — Extremely fast small multilingual model' "$OLLAMA_MANAGER_TTY_OUTPUT"
-grep -a -q '1.4 GB d/l | 2.0 GiB–3.0 GiB RAM' "$OLLAMA_MANAGER_TTY_OUTPUT"
-! grep -a -q 'Qwen 3 1.7B' "$OLLAMA_MANAGER_TTY_OUTPUT"
+model_menu_log="$(grep 'Recommended for pi4' "$DIALOG_LOG")"
+grep -q -- '--item-help' <<< "$model_menu_log"
+grep -q 'qwen3:1.7b \[FITS\] general · fast · multilingual | RAM 2.0 GiB–3.0 GiB' <<< "$model_menu_log"
+grep -q 'qwen3:1.7b \[FITS\].*Extremely fast small multilingual model' <<< "$model_menu_log"
+[[ "$model_menu_log" != *"Qwen 3 1.7B"* ]]
+grep -q 'Download: 1.4 GB' "$DIALOG_LOG"
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+unset DIALOG_TEST_SEQUENCE_FILE
+
+# Native dialog rows are sorted by live fit, then projected minimum RAM.
+export OLLAMA_MANAGER_TOTAL_MIB=8192
+export OLLAMA_MANAGER_AVAILABLE_MIB=4096
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' all BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
+model_menu_log="$(grep 'All Recommended Models' "$DIALOG_LOG")"
+awk -v menu="$model_menu_log" 'BEGIN {
+    fits = index(menu, "nomic-embed-text [FITS]")
+    caution = index(menu, "qwen3.5:4b [CAUTION]")
+    exceeds = index(menu, "gemma3:12b [EXCEEDS]")
+    exit !(fits > 0 && caution > fits && exceeds > caution)
+}'
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+unset DIALOG_TEST_SEQUENCE_FILE
+export OLLAMA_MANAGER_TOTAL_MIB=16384
+export OLLAMA_MANAGER_AVAILABLE_MIB=12288
 
 # Every model recommended by the supplied wiki-model document is present in
-# the rendered wiki-use menu. Escape then walks back through use -> browse.
+# the native wiki-use menu. Back then walks through model -> use -> browse.
 : > "$OLLAMA_LOG"
-: > "$OLLAMA_MANAGER_TTY_OUTPUT"
+: > "$DIALOG_LOG"
 export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
-printf '%s\n' use wiki BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
-printf '\033' > "$MODEL_MENU_INPUT"
-OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
+printf '%s\n' use wiki BACK BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
 ! grep -q '^pull ' "$OLLAMA_LOG"
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
 for wiki_model in phi4-mini gemma4:e4b qwen3.5:2b qwen3.5:4b llama3.2:3b; do
-    grep -a -q "$wiki_model" "$OLLAMA_MANAGER_TTY_OUTPUT"
+    grep -q "$wiki_model" "$DIALOG_LOG"
 done
 unset DIALOG_TEST_SEQUENCE_FILE
 
@@ -301,22 +312,18 @@ printf '%s\n' \
     hardware \
     pi4 \
     BACK \
-    all \
     BACK \
-    OK > "$DIALOG_TEST_SEQUENCE_FILE"
-export OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE="$TMP_DIR/model-menu-sequence"
-printf '%s\n' \
+    all \
+    qwen3:1.7b \
     BACK \
     qwen3:1.7b \
-    qwen3:1.7b > "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE"
+    OK > "$DIALOG_TEST_SEQUENCE_FILE"
 "$MANAGER" --pull >/dev/null
 grep -q '^pull qwen3:1.7b$' "$OLLAMA_LOG"
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
-[ ! -s "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE" ]
 [ "$(grep -c 'Choose Hardware Tier' "$DIALOG_LOG")" -eq 2 ]
 [ "$(grep -c 'Pull Qwen' "$DIALOG_LOG")" -eq 2 ]
 unset DIALOG_TEST_SEQUENCE_FILE
-unset OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE
 
 # The same Back status must remain inside the full manager rather than unwind
 # the script: Pull -> hardware -> model -> hardware -> Pull -> main manager.
@@ -328,29 +335,25 @@ printf '%s\n' \
     pi4 \
     BACK \
     BACK \
+    BACK \
     ESC > "$DIALOG_TEST_SEQUENCE_FILE"
-export OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE="$TMP_DIR/model-menu-sequence"
-printf '%s\n' BACK > "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE"
 "$MANAGER" >/dev/null
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
-[ ! -s "$OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE" ]
 [ "$(grep -c 'Ollama Model Manager' "$DIALOG_LOG")" -eq 2 ]
 [ "$(grep -c 'Pull a Recommended Model' "$DIALOG_LOG")" -eq 2 ]
 unset DIALOG_TEST_SEQUENCE_FILE
-unset OLLAMA_MANAGER_MODEL_MENU_SEQUENCE_FILE
 
-# A literal Escape byte from the terminal backs out of the two-line catalog.
+# Dialog Escape backs out of the catalog by exactly one level.
 : > "$OLLAMA_LOG"
 export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
-printf '%s\n' hardware pi4 BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
-printf '\033' > "$MODEL_MENU_INPUT"
-OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
+printf '%s\n' hardware pi4 ESC BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
 ! grep -q '^pull ' "$OLLAMA_LOG"
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
 unset DIALOG_TEST_SEQUENCE_FILE
 
-# The 16GB Mac tier is deliberately the complete catalog. Its first page must
-# make pagination obvious rather than making later models appear absent.
+# The 16GB Mac tier is deliberately the complete catalog, and the native
+# dialog menu must include every model.
 catalog_count="$(awk -F '\t' '$0 !~ /^#/ { count++ } END { print count + 0 }' "$ENV_DIR/models.tsv")"
 mac16_count="$(awk -F '\t' '
     $0 !~ /^#/ && ("," $6 ",") ~ /,mac16,/ { count++ }
@@ -358,13 +361,15 @@ mac16_count="$(awk -F '\t' '
 ' "$ENV_DIR/models.tsv")"
 [ "$mac16_count" -eq "$catalog_count" ]
 : > "$OLLAMA_LOG"
-: > "$OLLAMA_MANAGER_TTY_OUTPUT"
+: > "$DIALOG_LOG"
 export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
-printf '%s\n' hardware mac16 BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
-printf '\033' > "$MODEL_MENU_INPUT"
-OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
+printf '%s\n' hardware mac16 BACK BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
 ! grep -q '^pull ' "$OLLAMA_LOG"
-grep -a -q "Showing 1–8 of $catalog_count.*↓ more below" "$OLLAMA_MANAGER_TTY_OUTPUT"
+model_menu_log="$(grep 'Recommended for mac16' "$DIALOG_LOG")"
+for model in $(awk -F '\t' '$0 !~ /^#/ { print $1 }' "$ENV_DIR/models.tsv"); do
+    grep -q "$model" <<< "$model_menu_log"
+done
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
 unset DIALOG_TEST_SEQUENCE_FILE
 

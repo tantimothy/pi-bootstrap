@@ -92,16 +92,18 @@ The separate `gemma3:4b` recommendation from the hardware article remains in
 the catalog as its own model.
 
 The 16GB Mac hardware tier intentionally contains the entire catalog. The
-two-row selector displays a page at a time and shows both the current range
-(`Showing 1–8 of 21`, for example) and whether more models are above or below.
-The smaller hardware tiers filter out models whose projected working set is
-not practical for that class.
+native dialog selector scrolls through the list and sorts it by live assessment
+(`FITS`, `CAUTION`, then `EXCEEDS`) and projected minimum RAM. The smaller
+hardware tiers filter out models whose projected working set is not practical
+for that class.
 
 Before a pull, the menu shows:
 
-- each model tag and use case on its first row;
-- model download size and projected working-RAM range (weights plus runtime
-  overhead and a modest context) on its indented second row;
+- each model tag, live fit label, suggested uses, and projected working-RAM
+  range (weights plus runtime overhead and a modest context) on one row;
+- a description in dialog's bottom help line that changes with the highlighted
+  model;
+- full model description and download size after selecting a model;
 - live host total and available RAM;
 - live memory pressure (`memory_pressure -Q` on macOS and kernel PSI on Linux);
 - a `FITS`, `CAUTION`, or `EXCEEDS` assessment.
