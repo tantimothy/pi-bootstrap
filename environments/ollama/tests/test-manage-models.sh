@@ -35,10 +35,14 @@ STUB
 cat > "$TMP_DIR/dialog" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DIALOG_TEST_LOG"
+[ "${DIALOG_TEST_UI_MARKER:-false}" = "true" ] && echo "DIALOG_UI:$*" >&2
 case "$*" in
-    *"Pull a Recommended Model"*) printf '%s\n' "hardware" >&2 ;;
-    *"Choose Hardware Tier"*) printf '%s\n' "pi4" >&2 ;;
-    *"Recommended for pi4"*) printf '%s\n' "qwen3:1.7b" >&2 ;;
+    *"Pull a Recommended Model"*) printf '%s\n' "hardware" >&3 ;;
+    *"Choose Hardware Tier"*) printf '%s\n' "pi4" >&3 ;;
+    *"Recommended for pi4"*) printf '%s\n' "qwen3:1.7b" >&3 ;;
+    *"Stop a Running Model"*) printf '%s\n' "llama3.2:3b" >&3 ;;
+    *"Delete an Installed Model"*) printf '%s\n' "llama3.2:3b" >&3 ;;
+    *"Run an Installed Model"*) printf '%s\n' "llama3.2:3b" >&3 ;;
 esac
 exit 0
 STUB
@@ -149,10 +153,24 @@ fi
 unset OLLAMA_MANAGER_ASSUME_YES
 : > "$OLLAMA_LOG"
 : > "$DIALOG_LOG"
-"$MANAGER" --pull >/dev/null
+export DIALOG_TEST_UI_MARKER=true
+"$MANAGER" --pull >/dev/null 2>"$TMP_DIR/pull-ui.err"
 grep -q '^pull qwen3:1.7b$' "$OLLAMA_LOG"
 grep -q 'Host RAM available now: 12.0 GiB' "$DIALOG_LOG"
 grep -q 'Assessment: FITS' "$DIALOG_LOG"
+grep -q 'DIALOG_UI:.*Pull a Recommended Model' "$TMP_DIR/pull-ui.err"
+
+: > "$OLLAMA_LOG"
+"$MANAGER" --stop >/dev/null 2>"$TMP_DIR/stop-ui.err"
+"$MANAGER" --delete >/dev/null 2>"$TMP_DIR/delete-ui.err"
+"$MANAGER" --run >/dev/null 2>"$TMP_DIR/run-ui.err"
+grep -q '^stop llama3.2:3b$' "$OLLAMA_LOG"
+grep -q '^rm llama3.2:3b$' "$OLLAMA_LOG"
+grep -q '^run llama3.2:3b$' "$OLLAMA_LOG"
+grep -q 'DIALOG_UI:.*Stop a Running Model' "$TMP_DIR/stop-ui.err"
+grep -q 'DIALOG_UI:.*Delete an Installed Model' "$TMP_DIR/delete-ui.err"
+grep -q 'DIALOG_UI:.*Run an Installed Model' "$TMP_DIR/run-ui.err"
+unset DIALOG_TEST_UI_MARKER
 
 export FAKE_HEALTH_MODE=state
 export FAKE_HEALTH_FILE="$TMP_DIR/healthy"
