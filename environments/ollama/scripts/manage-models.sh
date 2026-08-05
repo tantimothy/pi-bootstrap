@@ -37,8 +37,13 @@ _dialog_menu() {
     local status
     local choice
     output_file="$(mktemp)"
+    # This helper is itself called inside command substitutions so its stdout
+    # can return the selected tag. Redirecting dialog's stderr here would also
+    # steal the terminal it uses to draw the UI (observed as an apparent hang
+    # on macOS). Keep stderr attached to the caller's terminal and send only
+    # dialog's result to fd 3.
     "$DIALOG_CMD" --clear --title " $title " \
-        --menu "$prompt" 22 108 14 "$@" 2>"$output_file"
+        --output-fd 3 --menu "$prompt" 22 108 14 "$@" 3>"$output_file"
     status=$?
     choice="$(cat "$output_file")"
     rm -f "$output_file"
