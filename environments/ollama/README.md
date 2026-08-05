@@ -59,7 +59,7 @@ The Ollama environment adds these entries alongside its lifecycle policies:
 |---|---|
 | List Installed Models | Runs `ollama list` |
 | List Running Models | Runs `ollama ps` |
-| Show Host Resources / Model RAM | Shows total/available RAM, CPU count, model-storage disk space, and loaded models |
+| Show Host Resources / Model RAM | Shows total/available RAM, memory pressure, CPU count, model-storage disk space, and loaded models |
 | Stop a Running Model | Selects a loaded model and unloads it with `ollama stop` |
 | Delete an Installed Model | Selects and confirms before `ollama rm` |
 | Pull a Recommended Model | Browses the curated catalog by hardware tier or suggested use |
@@ -85,12 +85,19 @@ Before a pull, the menu shows:
 - projected working-RAM range (weights plus runtime overhead and a modest
   context);
 - live host total and available RAM;
+- live memory pressure (`memory_pressure -Q` on macOS and kernel PSI on Linux);
 - a `FITS`, `CAUTION`, or `EXCEEDS` assessment.
 
-The RAM range is guidance, not a reservation or benchmark. Very long contexts,
-parallel requests, higher-precision variants, and other applications increase
-real usage. On Raspberry Pi, all generation is CPU-bound; active cooling is
-strongly recommended.
+Low pressure can produce `CAUTION` rather than `EXCEEDS` when the immediately
+available figure is below the model estimate, because macOS may still have
+reclaimable or compressible capacity. Elevated pressure keeps the stricter
+assessment, and a projected minimum larger than physical RAM always remains
+`EXCEEDS`.
+
+The RAM range and pressure bands are guidance, not a reservation or benchmark.
+Very long contexts, parallel requests, higher-precision variants, and other
+applications increase real usage. On Raspberry Pi, all generation is
+CPU-bound; active cooling is strongly recommended.
 
 `nomic-embed-text` is present in every hardware tier because Mnemon uses it for
 semantic recall. It is an embedding-only model, so the run action rejects it as

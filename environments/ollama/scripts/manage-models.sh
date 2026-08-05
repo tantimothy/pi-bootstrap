@@ -46,12 +46,15 @@ _dialog_menu() {
     local output_file
     local status
     local choice
+    local item_help_args=()
     output_file="$(mktemp)"
+    [ "${DIALOG_MENU_ITEM_HELP:-false}" = "true" ] && item_help_args+=(--item-help)
     # Keep stderr attached to the caller's terminal so dialog can draw its UI.
     # Only the selected tag goes to fd 3; the function returns it through the
     # DIALOG_CHOICE global, never through a command substitution.
     "$DIALOG_CMD" --clear --title " $title " \
         --cancel-label "Back" \
+        ${item_help_args[@]+"${item_help_args[@]}"} \
         --output-fd 3 --menu "$prompt" 22 108 14 "$@" \
         3>"$output_file" <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
     status=$?
@@ -125,18 +128,122 @@ _ram_values() {
     esac
 }
 
+_memory_pressure_values() {
+    MEMORY_PRESSURE_STATUS="${OLLAMA_MANAGER_PRESSURE_STATUS:-}"
+    MEMORY_PRESSURE_DETAIL="${OLLAMA_MANAGER_PRESSURE_DETAIL:-}"
+    [ -n "$MEMORY_PRESSURE_STATUS" ] && return 0
+
+    local free_percent
+    local some_avg10
+    local full_avg10
+    local psi_file="${OLLAMA_MANAGER_PSI_FILE:-/proc/pressure/memory}"
+    case "$(uname -s)" in
+        Darwin)
+            if command -v memory_pressure >/dev/null 2>&1; then
+                # memory_pressure -Q accounts for macOS reclaimable/compressed
+                # capacity. These are conservative planning bands, not claims
+                # to reproduce Activity Monitor's private color thresholds.
+                free_percent="$(memory_pressure -Q 2>/dev/null |
+                    awk -F ': ' '/System-wide memory free percentage:/ {
+                        gsub(/%/, "", $2)
+                        print $2
+                        exit
+                    }')"
+                if [[ "$free_percent" =~ ^[0-9]+$ ]]; then
+                    if [ "$free_percent" -ge 20 ]; then
+                        MEMORY_PRESSURE_STATUS="low"
+                    elif [ "$free_percent" -ge 10 ]; then
+                        MEMORY_PRESSURE_STATUS="moderate"
+                    else
+                        MEMORY_PRESSURE_STATUS="high"
+                    fi
+                    MEMORY_PRESSURE_DETAIL="macOS reports ${free_percent}% free memory capacity"
+                fi
+            fi
+            ;;
+        Linux)
+            if [ -r "$psi_file" ]; then
+                some_avg10="$(awk '
+                    /^some / {
+                        for (i = 1; i <= NF; i++) {
+                            if ($i ~ /^avg10=/) {
+                                sub(/^avg10=/, "", $i)
+                                print $i
+                                exit
+                            }
+                        }
+                    }
+                ' "$psi_file")"
+                full_avg10="$(awk '
+                    /^full / {
+                        for (i = 1; i <= NF; i++) {
+                            if ($i ~ /^avg10=/) {
+                                sub(/^avg10=/, "", $i)
+                                print $i
+                                exit
+                            }
+                        }
+                    }
+                ' "$psi_file")"
+                if [ -n "$some_avg10" ] && [ -n "$full_avg10" ]; then
+                    # PSI measures recent task stalls. Treat sustained full
+                    # stalls or double-digit partial stalls as high pressure.
+                    if awk -v some="$some_avg10" -v full="$full_avg10" \
+                        'BEGIN { exit ! (full >= 1.0 || some >= 10.0) }'; then
+                        MEMORY_PRESSURE_STATUS="high"
+                    elif awk -v some="$some_avg10" -v full="$full_avg10" \
+                        'BEGIN { exit ! (full > 0.0 || some >= 1.0) }'; then
+                        MEMORY_PRESSURE_STATUS="moderate"
+                    else
+                        MEMORY_PRESSURE_STATUS="low"
+                    fi
+                    MEMORY_PRESSURE_DETAIL="Linux PSI avg10: some=${some_avg10}%, full=${full_avg10}%"
+                fi
+            fi
+            ;;
+    esac
+
+    if [ -z "$MEMORY_PRESSURE_STATUS" ]; then
+        MEMORY_PRESSURE_STATUS="unknown"
+        MEMORY_PRESSURE_DETAIL="pressure signal unavailable"
+    fi
+}
+
+_pressure_summary() {
+    _memory_pressure_values
+    case "$MEMORY_PRESSURE_STATUS" in
+        low) printf 'LOW — %s\n' "$MEMORY_PRESSURE_DETAIL" ;;
+        moderate) printf 'MODERATE — %s\n' "$MEMORY_PRESSURE_DETAIL" ;;
+        high) printf 'HIGH — %s\n' "$MEMORY_PRESSURE_DETAIL" ;;
+        *) printf 'UNKNOWN — %s\n' "$MEMORY_PRESSURE_DETAIL" ;;
+    esac
+}
+
 _fit_status() {
     local ram_min="$1"
     local ram_max="$2"
     _ram_values
+    _memory_pressure_values
     if [ -z "${RAM_TOTAL_MIB:-}" ] || [ -z "${RAM_AVAILABLE_MIB:-}" ]; then
         printf '%s\n' "UNKNOWN — host RAM could not be measured"
+    elif [ "$RAM_TOTAL_MIB" -lt "$ram_min" ]; then
+        printf '%s\n' "EXCEEDS — projected minimum is larger than physical RAM"
+    elif [ "$RAM_AVAILABLE_MIB" -lt "$ram_min" ] && [ "$MEMORY_PRESSURE_STATUS" = "low" ]; then
+        printf '%s\n' "CAUTION — available RAM is low, but low pressure indicates reclaimable/compressible capacity"
+    elif [ "$RAM_AVAILABLE_MIB" -lt "$ram_min" ]; then
+        printf '%s\n' "EXCEEDS — available RAM is below the projected minimum and pressure is not low"
+    elif [ "$MEMORY_PRESSURE_STATUS" = "high" ]; then
+        printf '%s\n' "CAUTION — memory pressure is already high; stop other workloads first"
     elif [ "$RAM_AVAILABLE_MIB" -ge "$ram_max" ]; then
-        printf '%s\n' "FITS — available RAM meets the upper estimate"
+        if [ "$MEMORY_PRESSURE_STATUS" = "moderate" ]; then
+            printf '%s\n' "CAUTION — capacity fits, but memory pressure is already moderate"
+        elif [ "$MEMORY_PRESSURE_STATUS" = "low" ]; then
+            printf '%s\n' "FITS — available RAM meets the upper estimate and pressure is low"
+        else
+            printf '%s\n' "FITS — available RAM meets the upper estimate; pressure is unavailable"
+        fi
     elif [ "$RAM_AVAILABLE_MIB" -ge "$ram_min" ]; then
         printf '%s\n' "CAUTION — it fits only near the low estimate; use a short context"
-    else
-        printf '%s\n' "EXCEEDS — available RAM is below the projected minimum"
     fi
 }
 
@@ -154,6 +261,7 @@ show_resources() {
     else
         echo "   Available: unavailable"
     fi
+    echo "   Pressure:  $(_pressure_summary)"
     echo "   CPU:       $(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo unknown) logical cores"
     echo ""
     echo "💽 Storage for Ollama models"
@@ -349,7 +457,7 @@ _catalog_menu_for_filter() {
         fi
         case ",$haystack," in
             *",$filter_value,"*)
-                items+=("$model" "$notes | $disk_size d/l | $(_format_gib "$ram_min")–$(_format_gib "$ram_max") RAM")
+                items+=("$model" "$notes" "$disk_size d/l | $(_format_gib "$ram_min")–$(_format_gib "$ram_max") RAM")
                 ;;
         esac
     done < "$CATALOG_FILE"
@@ -358,7 +466,7 @@ _catalog_menu_for_filter() {
         echo "❌ No catalog entries matched '$filter_value'." >&2
         return 1
     fi
-    _dialog_menu "$title" "$prompt" "${items[@]}"
+    DIALOG_MENU_ITEM_HELP=true _dialog_menu "$title" "$prompt" "${items[@]}"
     local status=$?
     [ "$status" -eq 0 ] || return "$status"
     _normalize_model_name "$DIALOG_CHOICE"
@@ -378,6 +486,7 @@ _pull_selected_model() {
     local fit
     local total_text="unavailable"
     local available_text="unavailable"
+    local pressure_text
     local status
 
     row="$(_catalog_row "$model")"
@@ -389,6 +498,7 @@ _pull_selected_model() {
     _ram_values
     [ -n "${RAM_TOTAL_MIB:-}" ] && total_text="$(_format_gib "$RAM_TOTAL_MIB")"
     [ -n "${RAM_AVAILABLE_MIB:-}" ] && available_text="$(_format_gib "$RAM_AVAILABLE_MIB")"
+    pressure_text="$(_pressure_summary)"
     fit="$(_fit_status "$ram_min" "$ram_max")"
 
     _confirm "Pull $display_name" \
@@ -399,6 +509,7 @@ Projected working RAM: $(_format_gib "$ram_min")–$(_format_gib "$ram_max")
 
 Host RAM total: $total_text
 Host RAM available now: $available_text
+Host memory pressure: $pressure_text
 Assessment: $fit
 
 Pull this model? (Pulling downloads it but does not load it into RAM.)"
