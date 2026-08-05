@@ -180,6 +180,7 @@ grep -q 'Host RAM available now: 12.0 GiB' "$DIALOG_LOG"
 grep -q 'Assessment: FITS' "$DIALOG_LOG"
 grep -q 'DIALOG_UI:.*Pull a Recommended Model' "$OLLAMA_MANAGER_TTY_OUTPUT"
 recommended_line="$(grep 'Recommended for pi4' "$DIALOG_LOG")"
+[[ "$recommended_line" == *"--item-help"* ]]
 [[ "$recommended_line" == *"Extremely fast small multilingual model"* ]]
 [[ "$recommended_line" == *"1.4 GB d/l"* ]]
 [[ "$recommended_line" != *"Qwen 3 1.7B"* ]]

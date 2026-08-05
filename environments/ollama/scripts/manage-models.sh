@@ -46,12 +46,15 @@ _dialog_menu() {
     local output_file
     local status
     local choice
+    local item_help_args=()
     output_file="$(mktemp)"
+    [ "${DIALOG_MENU_ITEM_HELP:-false}" = "true" ] && item_help_args+=(--item-help)
     # Keep stderr attached to the caller's terminal so dialog can draw its UI.
     # Only the selected tag goes to fd 3; the function returns it through the
     # DIALOG_CHOICE global, never through a command substitution.
     "$DIALOG_CMD" --clear --title " $title " \
         --cancel-label "Back" \
+        ${item_help_args[@]+"${item_help_args[@]}"} \
         --output-fd 3 --menu "$prompt" 22 108 14 "$@" \
         3>"$output_file" <"$TTY_INPUT" 2>>"$TTY_OUTPUT"
     status=$?
@@ -349,7 +352,7 @@ _catalog_menu_for_filter() {
         fi
         case ",$haystack," in
             *",$filter_value,"*)
-                items+=("$model" "$notes | $disk_size d/l | $(_format_gib "$ram_min")–$(_format_gib "$ram_max") RAM")
+                items+=("$model" "$notes" "$disk_size d/l | $(_format_gib "$ram_min")–$(_format_gib "$ram_max") RAM")
                 ;;
         esac
     done < "$CATALOG_FILE"
@@ -358,7 +361,7 @@ _catalog_menu_for_filter() {
         echo "❌ No catalog entries matched '$filter_value'." >&2
         return 1
     fi
-    _dialog_menu "$title" "$prompt" "${items[@]}"
+    DIALOG_MENU_ITEM_HELP=true _dialog_menu "$title" "$prompt" "${items[@]}"
     local status=$?
     [ "$status" -eq 0 ] || return "$status"
     _normalize_model_name "$DIALOG_CHOICE"
