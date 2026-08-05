@@ -89,6 +89,7 @@ _two_line_model_menu() {
     local cols=108
     local content_width
     local index
+    local range_end
     local first_line
     local second_line
     local key
@@ -175,7 +176,12 @@ _two_line_model_menu() {
             fi
             index=$((index + 1))
         done
-        printf '\n ↑/↓ move  Enter select  Esc back' >&8
+        range_end=$((offset + visible))
+        [ "$range_end" -gt "$count" ] && range_end="$count"
+        printf '\n Showing %d–%d of %d' "$((offset + 1))" "$range_end" "$count" >&8
+        [ "$offset" -gt 0 ] && printf '  ↑ more above' >&8
+        [ "$range_end" -lt "$count" ] && printf '  ↓ more below' >&8
+        printf '\n ↑/↓ move/scroll  Enter select  Esc back' >&8
 
         key=""
         if ! IFS= read -r -n 1 -u 7 key; then
@@ -695,7 +701,7 @@ _choose_and_pull_model() {
                 while true; do
                     _dialog_menu "Choose Hardware Tier" \
                         "Select the host class. RAM is checked live again before pull:" \
-                        "mac16" "Apple Silicon Mac — 16GB unified memory" \
+                        "mac16" "Apple Silicon Mac — 16GB (all catalog models; scroll for more)" \
                         "mac8" "Apple Silicon Mac — 8GB unified memory" \
                         "pi8" "Raspberry Pi 4/5 — 8GB RAM (CPU inference)" \
                         "pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)"

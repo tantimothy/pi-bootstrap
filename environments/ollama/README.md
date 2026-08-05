@@ -86,6 +86,12 @@ article anticipated, so it is limited to the 16GB Mac tier and marked as tight.
 The separate `gemma3:4b` recommendation from the hardware article remains in
 the catalog as its own model.
 
+The 16GB Mac hardware tier intentionally contains the entire catalog. The
+two-row selector displays a page at a time and shows both the current range
+(`Showing 1–8 of 21`, for example) and whether more models are above or below.
+The smaller hardware tiers filter out models whose projected working set is
+not practical for that class.
+
 Before a pull, the menu shows:
 
 - each model tag and use case on its first row;

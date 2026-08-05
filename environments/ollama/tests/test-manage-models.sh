@@ -341,6 +341,25 @@ OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
 unset DIALOG_TEST_SEQUENCE_FILE
 
+# The 16GB Mac tier is deliberately the complete catalog. Its first page must
+# make pagination obvious rather than making later models appear absent.
+catalog_count="$(awk -F '\t' '$0 !~ /^#/ { count++ } END { print count + 0 }' "$ENV_DIR/models.tsv")"
+mac16_count="$(awk -F '\t' '
+    $0 !~ /^#/ && ("," $6 ",") ~ /,mac16,/ { count++ }
+    END { print count + 0 }
+' "$ENV_DIR/models.tsv")"
+[ "$mac16_count" -eq "$catalog_count" ]
+: > "$OLLAMA_LOG"
+: > "$OLLAMA_MANAGER_TTY_OUTPUT"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' hardware mac16 BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+printf '\033' > "$MODEL_MENU_INPUT"
+OLLAMA_MANAGER_TTY_INPUT="$MODEL_MENU_INPUT" "$MANAGER" --pull >/dev/null
+! grep -q '^pull ' "$OLLAMA_LOG"
+grep -a -q "Showing 1–8 of $catalog_count.*↓ more below" "$OLLAMA_MANAGER_TTY_OUTPUT"
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+unset DIALOG_TEST_SEQUENCE_FILE
+
 : > "$OLLAMA_LOG"
 export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
 printf '%s\n' ESC > "$DIALOG_TEST_SEQUENCE_FILE"
