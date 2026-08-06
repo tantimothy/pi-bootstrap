@@ -59,8 +59,43 @@ cat /home/node/.claude/settings.json   # hooks registered GLOBALLY, not in /work
 env | grep -i -E 'mnemon|no_proxy'     # what the image actually baked in
 ```
 
-If `mnemon embed --status` reports the endpoint unreachable while `curl`
-to the same URL from the same container works, suspect item 2 above and
-look at `NO_PROXY`/`no_proxy` first — the two clients disagree precisely
-because Go's proxy handling and curl's are configured by the same env vars
-but consulted differently.
+**`ollama_available: false` while `curl` to the same URL succeeds — do not
+guess at this one.** It has been misdiagnosed in both directions already
+(once as cosmetic, once as `NO_PROXY` needing to contain
+`host.docker.internal`, once as it needing to *not* contain it), and each
+wrong answer looked entirely reasonable. curl succeeding is not evidence
+that mnemon's request is taking the same route, because **curl and Go
+disagree about which proxy variables they honor**:
+
+- curl deliberately ignores the uppercase `HTTP_PROXY` for `http://` URLs
+  (it would collide with the CGI `HTTP_*` header namespace); it honors only
+  lowercase `http_proxy`. For `https://` it honors either case.
+- Go's `net/http` proxy resolution honors both cases.
+
+So on a container with `HTTP_PROXY` set but no lowercase `http_proxy`, curl
+goes **direct** and mnemon goes **through the proxy** — same URL, same
+environment, two different network paths, and only one of them working
+tells you nothing about the other.
+
+Settle it with one experiment before changing anything, run inside the
+affected agent container:
+
+```
+env | grep -i proxy                                   # note the CASE of each var
+curl -s -o /dev/null -w '%{http_code}\n' --noproxy '*' http://host.docker.internal:11434/api/tags
+curl -s -o /dev/null -w '%{http_code}\n' --proxy "$HTTP_PROXY" http://host.docker.internal:11434/api/tags
+```
+
+- direct works, proxied fails → mnemon must bypass the proxy for this host,
+  i.e. `NO_PROXY` **should** contain it, and the scheme-gating in item 2 is
+  wrong for this platform.
+- proxied works, direct fails → mnemon must use the proxy, the current
+  gating is right, and the fault is elsewhere (check that
+  `MNEMON_EMBED_ENDPOINT` is what mnemon actually reads, and that the proxy
+  forwards to a non-`https` upstream at all).
+- both work → the probe itself is the problem, not connectivity.
+
+Record which of the three you got in `pi-bootstrap-patch-fixes.md`,
+including the literal `env | grep -i proxy` output. That output is the
+single piece of evidence every previous round was missing, and it is what
+turns this from a fourth guess into a fix.
