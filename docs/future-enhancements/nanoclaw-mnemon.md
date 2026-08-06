@@ -140,6 +140,18 @@ container after the next real deploy for this patch's actual
 PASSED/SKIPPED/FAILED status — see
 `docs/lessons-learned/nanoclaw-mnemon.md`'s own entry for the full design.
 
+**Update:** there's now a defined path for the live `ollama_list_models`
+check specifically (and the equivalent live `mnemon embed --status` check)
+to actually happen, even though pi-bootstrap's own host-side tooling still
+can't run it directly — `entrypoint.sh`'s `/root/CLAUDE.md` now gives the
+admin `claude` session a standing instruction to run a smoke-test checklist
+covering exactly this the first time it connects after a TEARDOWN/CLEAN
+reset, writing results to `.pi-bootstrap-smoke-test.md`. That still hasn't
+been exercised against a real deploy either — it's a mechanism for getting
+this verified by the admin session live, not a substitute for someone
+actually doing it once and confirming the mechanism itself works as
+designed.
+
 ## Refactoring Opportunities
 
 See `docs/refactoring-opportunities.md`'s "yt-dlp's arch-detection

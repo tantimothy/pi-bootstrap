@@ -131,6 +131,15 @@ remove_agent_containers() {
         echo "$ids" | xargs "$DOCKER" stop 2>/dev/null || true
         echo "$ids" | xargs "$DOCKER" rm   2>/dev/null || true
     fi
+    # Called only from TEARDOWN and CLEAN (never FAST) — both destroy the
+    # orchestrator's own ephemeral state (including /root/.claude, per
+    # entrypoint.sh's own comment) and every agent container, so any prior
+    # smoke-test record is no longer evidence about the environment that
+    # exists now. Deleting it here (rather than leaving it for the admin
+    # session to notice is stale) is what makes entrypoint.sh's standing
+    # instruction — "run the checklist if this file is missing" — correctly
+    # re-trigger after either policy, without needing FAST to ever touch it.
+    rm -f "${INSTALL_PATH}/.pi-bootstrap-smoke-test.md" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------------------

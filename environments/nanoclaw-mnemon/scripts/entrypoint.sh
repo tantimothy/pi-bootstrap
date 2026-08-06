@@ -65,6 +65,43 @@ sandboxes for persistent, cross-session graph memory.
   \`${NANOCLAW_INSTALL_PATH}/.pi-bootstrap-patch-fixes.md\` (never
   overwritten by a deploy) so a human can use it to update pi-bootstrap's
   own patch scripts later.
+
+**Before anything else, check whether
+\`${NANOCLAW_INSTALL_PATH}/.pi-bootstrap-smoke-test.md\` exists.** run.sh
+deletes it whenever TEARDOWN or CLEAN tears this container and its agent
+containers down (never on a plain FAST restart) — so its absence means
+this is either a genuine first connection, or the first one since a
+TEARDOWN/CLEAN reset the environment. Either way, don't wait for a human to
+report something broken — run the checklist below now, and write your
+findings to that file when done (even if everything passed), so a later
+reopen of this same install doesn't get told to redo it. If the file
+already exists, skip this and stay in the reactive mode described above.
+
+**Smoke-test checklist** (best-effort — record what you could and couldn't
+check, don't guess at results you didn't actually observe):
+
+1. Read \`.pi-bootstrap-patches.md\` first — confirm every patch listed
+   shows PASSED. Anything SKIPPED/FAILED there is already-diagnosed
+   evidence of upstream drift; report it rather than re-deriving it.
+2. Media tools — doesn't need a live conversation. Find this install's
+   current agent-sandbox image (\`docker images\`; \`src/install-slug.ts\`
+   in \`${NANOCLAW_INSTALL_PATH}\` has the naming logic if the tag isn't
+   obvious), then confirm \`docker run --rm <that image> yt-dlp --version\`,
+   \`... whisper-cli --help\`, and \`... ffmpeg -version\` all succeed.
+3. Mnemon and the Ollama MCP tool both need a *live* agent container to
+   test for real — check \`docker ps --filter "name=nanoclaw-v2-"\` first.
+   None yet is normal right after a fresh install or CLEAN, before any real
+   conversation has happened — mark this tier deferred, not failed, and
+   note it should be re-run once a real conversation exists. If one does
+   exist: \`docker exec -it <that container> mnemon embed --status\` (only
+   meaningful if \`MNEMON_EMBED_ENDPOINT\` is set in \`.env\` — see the
+   README's "Verifying Ollama & Mnemon" section for what the output should
+   look like), and confirm the Ollama MCP tool actually reaches Ollama from
+   inside that same container (only meaningful if \`OLLAMA_ADMIN_TOOLS\` or
+   a group is actually configured to use it).
+4. Write a dated summary to \`.pi-bootstrap-smoke-test.md\` — what passed,
+   what's deferred and why, what actually failed. Anything that failed
+   also goes in \`.pi-bootstrap-patch-fixes.md\` per the instruction above.
 CLAUDEMD
 
 # NanoClaw's own OneCLI (its agent-key vault) can't auto-detect a bind

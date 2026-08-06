@@ -670,6 +670,8 @@ Verified directly against a real deploy, not assumed:
 
 **Confirmed working, live, end-to-end**: the agent-improvised rootless path, in both its forms — first `yt-dlp` binary + `ffmpeg-static` + `@xenova/transformers` (WASM) + `wavefile`, then upgraded to a real, native `whisper.cpp` binary (prebuilt release + a manually-extracted `libgomp` `.deb`) — all inside `/workspace/agent`. A real agent downloaded a real GGML model and produced a real transcription with genuine `whisper.cpp`, independent of anything this repo builds. The persistence claim (bind-mounted, survives respawns and agent-image rebuilds, lost only if the group's own folder is wiped) is verified directly against `container-runner.ts`'s own mount logic, not just taken on faith.
 
+**Not yet exercised**: the Ollama MCP tool patch (`apply_ollama_tool_patch()`) end-to-end against a truly stock NanoClaw clone, and the standing smoke-test instruction itself — `entrypoint.sh`'s `/root/CLAUDE.md` tells the admin `claude` session to proactively run a checklist covering all three patches (mnemon, media tools, Ollama) the first time it connects after a fresh install or a TEARDOWN/CLEAN reset, rather than waiting for something to look broken, writing results to `.pi-bootstrap-patches.md`'s sibling `.pi-bootstrap-smoke-test.md`. The mechanism itself (when it triggers, what it checks) hasn't been confirmed against a real deploy yet — see `docs/lessons-learned/nanoclaw-mnemon.md`'s own entry for the full design.
+
 Same caveat as the plain `nanoclaw` environment: this covers what's been tested, not a guarantee against everything upstream might change — treat your own first deploy as the real test, and see `MANUAL-STEPS.md` if you ever want to understand or reproduce any of this by hand.
 
 ---

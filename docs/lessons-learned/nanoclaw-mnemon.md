@@ -1390,3 +1390,80 @@ the deployed NanoClaw checkout, not this repo):
   fact. And "the previous round was wrong" doesn't mean "revert to the
   simplest theory" either — round 2's correction was real, but its own
   conclusion needed the same scrutiny round 1's did.
+
+## Standing Smoke-Test Instructions for the Admin Session
+
+**Status:** implemented, not yet exercised against a real deploy.
+
+### Summary
+
+The patches manifest (`.pi-bootstrap-patches.md`, see the entry above) only
+ever proves a patch's *text* landed — `grep -c`/anchor-presence checks run
+by `run.sh` on the host, before the container or its dependencies
+necessarily even exist. It can't prove the patched *functionality* actually
+works at runtime (Ollama genuinely reachable, mnemon genuinely embedding,
+whisper/yt-dlp genuinely present in the built image) — that requires
+something running live inside the container, with the Docker socket, after
+real dependencies exist.
+
+Rather than build a host-side automated test harness for this (impractical
+— `run.sh` runs before the orchestrator container, let alone any agent
+container, exists), `entrypoint.sh`'s `/root/CLAUDE.md` now gives the admin
+`claude` session a standing instruction: before doing anything else, check
+whether `.pi-bootstrap-smoke-test.md` exists in the install path. If it
+doesn't, this is either a genuine first connection or the first one since
+TEARDOWN/CLEAN reset the environment — run a checklist covering all three
+patches (manifest status, media-tool binaries in the built agent-sandbox
+image, and — best-effort, since it needs a live agent container which may
+not exist yet — mnemon's own `embed --status` and the Ollama MCP tool) and
+write the results to that file. Proactive, not reactive: the point raised
+in conversation was that "wait for something to look broken" is the wrong
+default for the one moment (right after TEARDOWN/CLEAN) where nobody's
+necessarily watching closely.
+
+### Why TEARDOWN too, not just CLEAN
+
+Only CLEAN actually re-applies the patches from a fresh `git reset --hard`
+— a plain TEARDOWN+redeploy doesn't touch NanoClaw's source at all, so in
+principle nothing *needs* re-verifying. But TEARDOWN destroys the
+orchestrator container (and all agent containers) just as thoroughly as
+CLEAN does, which means the admin session's own `/root/.claude` state is
+gone either way — a genuinely fresh claude-cli connection is happening
+either way, at a moment a human may not be watching either way. Correctness
+of "does the patch still apply" isn't the only thing worth verifying;
+"is everything still actually running correctly after this container got
+destroyed and recreated" is a reasonable bar too, and costs nothing extra
+to check at the same moment.
+
+### Mechanism
+
+`remove_agent_containers()` — already called from both the TEARDOWN and
+CLEAN policy branches, never from FAST — now also deletes
+`.pi-bootstrap-smoke-test.md` if present. This is the single point that
+correctly invalidates the smoke-test record exactly when it should (both
+policies the ask covered) without needing separate logic duplicated in
+each branch, and without ever false-triggering on a plain FAST restart or
+reconnect. The file itself lives in `$NANOCLAW_INSTALL_PATH` (host-mounted,
+not the container's ephemeral layer), so it persists correctly across
+ordinary container restarts (a host reboot, `docker restart`, "Choose
+Claude Model"'s stop+rm+relaunch of the *orchestrator* container alone —
+none of which call `remove_agent_containers()`) — only TEARDOWN/CLEAN
+clears it.
+
+### General Lessons
+
+- **A host-side manifest and a live-session smoke test answer different
+  questions, and neither substitutes for the other.** `.pi-bootstrap-patches.md`
+  answers "did the patch text land" — cheap, always available, but blind to
+  runtime behavior. A live check answers "does it actually work" — requires
+  a running environment with real dependencies, so it can only happen from
+  inside a session that has that environment, not from the host script that
+  set it up.
+- **The right question for "when should this re-run" is usually "what
+  state actually got invalidated," not "which policy name was used."**
+  Tying the smoke-test file's deletion to the one function both TEARDOWN
+  and CLEAN already shared (`remove_agent_containers()`) was simpler and
+  more correct than adding an `if [ "$POLICY" = "CLEAN" ] || [ "$POLICY" =
+  "TEARDOWN" ]` check in two separate places — it fell out of what those
+  two policies already had in common, rather than needing to be reasoned
+  about separately for each.
