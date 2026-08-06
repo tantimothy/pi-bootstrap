@@ -1467,3 +1467,183 @@ clears it.
   "TEARDOWN" ]` check in two separate places — it fell out of what those
   two policies already had in common, rather than needing to be reasoned
   about separately for each.
+
+## Two live-container findings from an admin session (2026-08-06), fixed in pi-bootstrap
+
+**Status:** merged. Both items were reported by a `claude` admin session
+running inside a deployed container (into
+`.pi-bootstrap-patch-fixes.md`, per that file's own instructions) and then
+folded back into this repo so the fix survives the next CLEAN/fresh install
+rather than staying a container-local workaround.
+
+### Issue 1: upstream NanoClaw silently dropped the Telegram channel import
+
+**Symptom:** Telegram stopped responding after a FAST restart (not a CLEAN
+— FAST does a plain `git pull --ff-only`, no re-clone). No error anywhere;
+messages sent to the bot in the meantime were queued by Telegram itself and
+delivered once fixed.
+
+**Root cause:** Upstream NanoClaw commit `675a6d87` ("remove accidentally
+merged Telegram channel code") removed `import './telegram.js';` from both
+`src/channels/index.ts` and `dist/channels/index.js`. A plain FAST sync
+picks up any upstream commit, including a regression like this one — there
+was previously no defense against upstream breaking its own wiring.
+
+**Fix:** Added `apply_telegram_import_patch()` to `run.sh`, applied
+unconditionally (like `apply_ollama_tool_patch()`, since Telegram isn't a
+mnemon-profile-specific feature) right after the CLEAN/FAST source sync.
+Idempotently re-adds `import './telegram.js';` after the `import
+'./cli.js';` line in both files if the line is missing, and records status
+in `.pi-bootstrap-patches.md` under a new "Telegram channel import
+self-heal" section, following the same anchor-based text-splice pattern
+`apply_mnemon_patch`/`apply_media_tools_patch`/`apply_ollama_tool_patch`
+already use elsewhere in this file.
+
+### Issue 2: `whisper-cli` (agent-side media tools) missing its shared libraries
+
+**Symptom:** `whisper-cli --help` (and any direct Bash invocation) failed
+with `libwhisper.so.1: cannot open shared object file: No such file or
+directory`, inside both the orchestrator's own image
+(`environments/nanoclaw-mnemon/Dockerfile`) and the agent-sandbox image
+(`apply_media_tools_patch()`'s patch block in `run.sh`).
+
+**Root cause:** whisper.cpp's cmake build defaults to dynamic linking
+(`libwhisper.so.1`, `libggml*.so`), but both Dockerfiles only `cp` out the
+compiled `whisper-cli` binary and then `rm -rf` the build tree the shared
+libraries lived in — so the binary that ships in the final image has no
+runtime dependency it can actually satisfy. (Code that goes through the
+`nodejs-whisper` npm package still worked, since that package separately
+extracts matching libraries into `/workspace/agent/bin/whisper-lib/` at
+startup and handles its own library loading — but that path never sets
+`LD_LIBRARY_PATH`, so a direct `whisper-cli` Bash invocation had nothing to
+find.)
+
+**Fix:** Added `-DBUILD_SHARED_LIBS=OFF` to the `cmake -B ... -S ...`
+invocation in both the orchestrator's `Dockerfile` and the agent-sandbox
+patch block in `run.sh`'s `apply_media_tools_patch()`, producing a
+statically-linked `whisper-cli` with no runtime library dependency at all
+— simpler than threading `LD_LIBRARY_PATH` through a wrapper script or an
+`ldconfig` entry at container-entrypoint time, and it doesn't depend on the
+`nodejs-whisper` package having run first to populate the lib directory.
+
+### General Lessons
+
+- **Not pinning NanoClaw's git ref (see the `.pi-bootstrap-patches.md`
+  header comment on this file's own `write_patches_manifest()`) means
+  upstream can regress its own base functionality, not just conflict with
+  a pi-bootstrap patch.** The existing text-splice patches all defend
+  pi-bootstrap's own additions against upstream drift; this Telegram fix is
+  the first one that defends stock upstream behavior against upstream
+  itself, applied with the identical mechanism.
+- **A binary that builds cleanly and copies into the image without error
+  can still be dead on arrival if the build step's own defaults (dynamic
+  linking) don't match how the final image actually ships it (binary only,
+  build tree deleted).** `docker compose build` succeeding is not evidence
+  the binary works — this was only caught by directly exec-ing into a live
+  container and running the command, per this repo's `CLAUDE.md` note that
+  Docker-based environments have no automated build validation.
+
+## Follow-up (2026-08-06, superseded same day): `ollama_available: false` is real, not cosmetic
+
+**Status:** this entry replaces an earlier version of itself. The first
+write-up here (based on a first-pass check that curl and the Ollama MCP
+tools both reached `host.docker.internal:11434` fine) concluded the
+`false` status mnemon reported was just a cosmetic bug in mnemon's own
+status check. That conclusion was wrong — a deeper investigation in the
+same admin session, prompted by mnemon's `embed --all` also failing (not
+just `--status` misreporting), found a real connectivity gap and fixed it.
+Leaving the wrong version of this section around would send a future
+session down the same "it's just cosmetic, no action needed" dead end, so
+the full story replaces it rather than appending alongside it.
+
+**Root cause:** Go's `http.Transport` (mnemon is a Go binary) bypasses the
+configured proxy specifically for `host.docker.internal` — the same class
+of bug as the Node `fetch()`/undici proxy issue noted elsewhere in this
+environment's docs, just hitting a different HTTP client. `curl` and the
+Ollama MCP tools both worked because they go through the proxy correctly;
+mnemon's Go HTTP client does not, for this one hostname. Confirmed
+directly:
+- `curl --noproxy '*' http://host.docker.internal:11434/api/tags` → empty
+  (direct path, no proxy — actually unreachable)
+- `curl http://host.docker.internal:11434/api/tags` (through the proxy) →
+  model list returned fine
+- `NO_PROXY=host.docker.internal mnemon embed --all` → still fails, because
+  the direct path is blocked at the network level regardless of which env
+  var mnemon's own client honors
+
+That last point matters for this repo specifically: `apply_mnemon_patch()`
+in `run.sh` already bakes `ENV NO_PROXY=${embed_host}` /
+`ENV no_proxy=${embed_host}` into the image whenever `MNEMON_EMBED_ENDPOINT`
+is set (added on the reasoning that the proxy is only needed for `https://`
+URLs, so excluding an `http://` endpoint from it should be a no-op) — see
+that function's own comment. In a network where the proxy is actually
+required to reach `host.docker.internal` at all, that `NO_PROXY` setting is
+counterproductive: it tells every HTTP client in the container to skip the
+one path that works. Worth revisiting if this ever gets patched at the
+image-env level instead of the loopback-forwarder level described below.
+
+**Workaround used to unblock this container (not the permanent fix):**
+Clawdia (the group's own agent) ran a local Node.js forwarder on
+`127.0.0.1:11435`, relaying to Ollama via proxy-aware `curl` subprocesses.
+Go connects to loopback directly with no proxy-bypass behavior involved;
+the forwarder does the proxy-aware hop on mnemon's behalf. Backfilled with
+`MNEMON_EMBED_ENDPOINT=http://127.0.0.1:11435 mnemon embed --all` — went
+from 0/342 to 342/342 insights embedded (100% coverage), persisted to the
+volume-mounted `/home/node/.claude/mnemon/` data dir, so it survives
+ordinary container restarts. The forwarder itself was run ephemerally and
+was not still running afterward — new insights created after the next
+container restart won't auto-embed until something makes the forwarder
+permanent.
+
+**Permanent pi-bootstrap fix actually shipped (this PR), instead of the
+forwarder:** rather than adding a permanent background forwarder process
+(more moving parts — a long-lived loopback listener, proxy-token
+derivation at runtime, a new failure mode if it dies) the forwarder
+workaround pointed at a smaller, better-precedented fix already sitting in
+this same file: `apply_mnemon_patch()`'s own `embed_env` block was baking
+`ENV NO_PROXY=${embed_host}` / `ENV no_proxy=${embed_host}` into the image
+*unconditionally* whenever `MNEMON_EMBED_ENDPOINT` was set — including for
+the `http://host.docker.internal:11434` default this environment ships
+with. That's precisely the value `apply_ollama_tool_patch()`'s own header
+comment (a few hundred lines up in this same file, from an earlier
+debugging session on the sibling Ollama MCP patch) already documents as
+actively wrong on this platform: `host.docker.internal` is only reachable
+*through* the proxy here, so excluding it via `NO_PROXY` breaks the
+connection outright rather than protecting anything. mnemon has no
+per-container-spawn env reassertion step the way `ollamaEnvArgs()` gives
+the MCP tool patch — it only ever sees this one baked-in image ENV — so
+this wrong value was the actual, sole cause of `ollama_available: false`.
+
+Fixed by scheme-gating the `NO_PROXY`/`no_proxy` assertion: only added for
+an `https://` embed endpoint (the original, correct concern — an intended
+external HTTPS endpoint getting silently hijacked by NanoClaw's own
+`HTTPS_PROXY` injection), never for the `http://` default. A real Pi
+deployment with no proxy configured at all sees no behavior change either
+way (`NO_PROXY` is inert with no proxy present); this only changes
+behavior on a platform where the proxy is actually required for
+`host.docker.internal` reachability, which is exactly the case that was
+broken. Takes effect on the next CLEAN deploy (the patch's own
+`MNEMON_VERSION` idempotency marker means a live image already carrying
+the old, wrong `NO_PROXY` needs a fresh `container/Dockerfile` re-clone —
+same as every other text-splice patch in this file — a FAST restart alone
+won't pick it up).
+
+### General Lessons
+
+- **A "cheap insurance, should be a no-op" env var is only actually
+  harmless if the no-op assumption has been verified against the real
+  platform, not just reasoned about from protocol conventions.** The
+  original `NO_PROXY` bake-in reasoned that `HTTPS_PROXY` routing
+  "obviously" doesn't touch `http://` URLs, so excluding the host from it
+  was free insurance either way — correct as a general HTTP convention,
+  wrong on this specific platform's actual proxy setup, and the assumption
+  was never re-checked against a live container until this session did.
+- **When two independently-diagnosed bugs in the same file turn out to be
+  the same root cause, the fix for the first one is usually the answer for
+  the second, not a new mechanism.** `apply_ollama_tool_patch()`'s own
+  header comment had already fully diagnosed "`NO_PROXY` must not include
+  `host.docker.internal` on this platform" for the Ollama MCP tool's own
+  connectivity. `apply_mnemon_patch()` sat right above it in the same file,
+  making the identical mistake for mnemon's connectivity — worth grepping
+  a file's own prior debugging comments for "the same shape of bug,
+  different function" before reaching for a heavier new fix.

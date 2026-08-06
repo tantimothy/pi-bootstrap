@@ -220,21 +220,39 @@ apply_mnemon_patch() {
             # HTTPS_PROXY (+ certs) into every agent container for OneCLI's
             # credential injection — verified directly against its source.
             # That only affects https:// URLs by proxy-env-var convention,
-            # so our http:// default is unaffected, but if someone points
-            # this at an HTTPS endpoint instead, it would otherwise get
-            # silently routed through a proxy that isn't built to pass
-            # arbitrary traffic through. NO_PROXY/no_proxy sidesteps that —
-            # same fix /add-ollama-provider's own SKILL.md applies for its
-            # analogous ANTHROPIC_BASE_URL-redirection case. Set
-            # unconditionally (not just for https://) since it's a no-op
-            # for plain HTTP and this is cheap insurance either way.
-            local embed_host
-            embed_host=$(printf '%s' "$MNEMON_EMBED_ENDPOINT" | sed -E 's#^[a-zA-Z]+://##; s#[:/].*$##')
-            if [ -n "$embed_host" ]; then
-                embed_env="${embed_env}
+            # so NO_PROXY/no_proxy insurance against it only makes sense for
+            # an https:// endpoint — same fix /add-ollama-provider's own
+            # SKILL.md applies for its analogous ANTHROPIC_BASE_URL-
+            # redirection case.
+            #
+            # Previously applied unconditionally (including for the http://
+            # default, on the reasoning that it'd be a harmless no-op there)
+            # — that was wrong, confirmed against a real live deploy: on at
+            # least one platform this environment runs on, plain
+            # http://host.docker.internal:11434 is NOT a direct socket —
+            # it's only reachable because HTTPS_PROXY routes it through the
+            # platform's own gateway, exactly the same finding already
+            # documented at length in apply_ollama_tool_patch()'s own header
+            # comment above (NO_PROXY/no_proxy must NOT include
+            # host.docker.internal, or that routing is bypassed and the
+            # connection fails outright). mnemon has no equivalent of that
+            # patch's per-container-spawn ollamaEnvArgs() reassertion — it
+            # only ever gets this baked image-level ENV — so an incorrect
+            # NO_PROXY here isn't just suboptimal, it's the only value
+            # mnemon's Go HTTP client ever sees. Gating this on scheme
+            # keeps the original https:// protection while no longer
+            # breaking the http:// default this environment ships as-is.
+            case "$MNEMON_EMBED_ENDPOINT" in
+                https://*)
+                    local embed_host
+                    embed_host=$(printf '%s' "$MNEMON_EMBED_ENDPOINT" | sed -E 's#^[a-zA-Z]+://##; s#[:/].*$##')
+                    if [ -n "$embed_host" ]; then
+                        embed_env="${embed_env}
 ENV NO_PROXY=${embed_host}
 ENV no_proxy=${embed_host}"
-            fi
+                    fi
+                    ;;
+            esac
             if [ -n "$MNEMON_EMBED_MODEL" ]; then
                 embed_env="${embed_env}
 ENV MNEMON_EMBED_MODEL=${MNEMON_EMBED_MODEL}"
@@ -317,6 +335,72 @@ MNEMON_DOCKER_BLOCK
 }
 
 # ---------------------------------------------------------------------------------------
+# Telegram-import self-heal — defends against upstream NanoClaw silently
+# dropping `import './telegram.js';` from its own channels barrel
+# (src/channels/index.ts, dist/channels/index.js). Confirmed directly
+# against a live deploy: upstream commit 675a6d87 ("remove accidentally
+# merged Telegram channel code") removed that import; a plain FAST `git
+# pull --ff-only` (the non-CLEAN sync path just above) picked the change up
+# with no error anywhere — registerChannelAdapter('telegram', ...) just
+# stopped running, and the bot went silently unresponsive (messages sent in
+# the meantime were queued upstream by Telegram and delivered once fixed).
+#
+# Unlike apply_mnemon_patch/apply_media_tools_patch above, this isn't a
+# feature this environment is adding on top of stock NanoClaw — Telegram
+# support ships in upstream NanoClaw itself. This patch exists purely to
+# restore wiring upstream has, at least once, deleted out from under itself.
+# Applied unconditionally (not gated on NANOCLAW_SETUP), same reasoning as
+# apply_ollama_tool_patch: Telegram is a general NanoClaw capability, not
+# specific to the mnemon profile.
+# ---------------------------------------------------------------------------------------
+apply_telegram_import_patch() {
+    TELEGRAM_IMPORT_PATCH_OK=true
+    TELEGRAM_IMPORT_PATCH_LOG=""
+    _telegram_import_log() { TELEGRAM_IMPORT_PATCH_LOG="${TELEGRAM_IMPORT_PATCH_LOG}- ${1}
+"; }
+
+    local any_patched=false
+    local rel f anchor tmp
+    for rel in src/channels/index.ts dist/channels/index.js; do
+        f="${INSTALL_PATH}/${rel}"
+        if [ ! -f "$f" ]; then
+            echo "⚠️  Couldn't find ${rel} under $INSTALL_PATH — skipping the telegram-import patch for it." >&2
+            _telegram_import_log "${rel}: **SKIPPED** — file missing, NanoClaw's own layout may have changed."
+            TELEGRAM_IMPORT_PATCH_OK=false
+            continue
+        fi
+
+        if grep -q "^import '\./telegram\.js';" "$f"; then
+            _telegram_import_log "${rel}: already patched (telegram import present)"
+            continue
+        fi
+
+        anchor=$(grep -n "^import '\./cli\.js';" "$f" | head -1 | cut -d: -f1)
+        if [ -z "$anchor" ]; then
+            echo "❌ Couldn't find the \"import './cli.js';\" anchor in ${rel} — skipping the telegram-import patch." >&2
+            echo "   NanoClaw's channels barrel may have changed upstream; add \"import './telegram.js';\" manually." >&2
+            _telegram_import_log "${rel}: **SKIPPED** — \"import './cli.js';\" anchor not found, upstream layout may have changed. Add \"import './telegram.js';\" manually."
+            TELEGRAM_IMPORT_PATCH_OK=false
+            continue
+        fi
+
+        tmp=$(mktemp)
+        {
+            head -n "$anchor" "$f"
+            echo "import './telegram.js';"
+            tail -n "+$((anchor + 1))" "$f"
+        } > "$tmp"
+        mv "$tmp" "$f"
+        any_patched=true
+        _telegram_import_log "${rel}: patched (telegram import restored)"
+    done
+
+    if [ "$any_patched" = true ]; then
+        echo "📡 Restored the Telegram channel import — upstream NanoClaw has dropped it before (commit 675a6d87)."
+    fi
+}
+
+# ---------------------------------------------------------------------------------------
 # yt-dlp/ffmpeg/whisper.cpp patch — gives the AGENT itself (not just the
 # orchestrator, which already has these — see the Dockerfile in this
 # directory) the ability to pull down and transcribe a video when a user
@@ -390,9 +474,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
 # fails outright where GCC 13+ or clang don't. See the orchestrator's own
 # Dockerfile (environments/nanoclaw-mnemon/Dockerfile) for the fuller
 # writeup — this block mirrors that fix.
+#
+# -DBUILD_SHARED_LIBS=OFF: without it, cmake links whisper-cli dynamically
+# against libwhisper.so.1/libggml*.so, which live under /tmp/whisper.cpp/build
+# and get deleted along with the rest of that tree two lines down — only the
+# binary is copied out. The resulting whisper-cli then fails at runtime with
+# "libwhisper.so.1: cannot open shared object file: No such file or
+# directory" (confirmed directly against a live agent container). A static
+# build removes the runtime dependency entirely rather than relying on some
+# other mechanism to place matching libs on LD_LIBRARY_PATH.
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake clang \
     && git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp \
-    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DBUILD_SHARED_LIBS=OFF \
     && cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)" \
     && cp /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli \
     && rm -rf /tmp/whisper.cpp \
@@ -1322,6 +1415,9 @@ ${media_tools_status}
 ## Ollama MCP tool (ollama_list_models, ollama_generate, opt-in admin tools)
 ${OLLAMA_PATCH_LOG:-- (no status recorded — apply_ollama_tool_patch may not have run)
 }
+## Telegram channel import self-heal (restores upstream regressions to src/channels/index.ts, dist/channels/index.js)
+${TELEGRAM_IMPORT_PATCH_LOG:-- (no status recorded — apply_telegram_import_patch may not have run)
+}
 MANIFEST_EOF
 
     write_patch_fixes_template
@@ -1660,6 +1756,10 @@ fi
 # per-agent-group capability, not specific to the mnemon profile (see
 # .env.example's OLLAMA_ADMIN_TOOLS comment).
 apply_ollama_tool_patch
+# Applied regardless of NANOCLAW_SETUP too — Telegram is a base NanoClaw
+# channel, not a pi-bootstrap addition; see apply_telegram_import_patch()'s
+# own header comment for why this self-heal exists at all.
+apply_telegram_import_patch
 write_patches_manifest
 
 # Group-local CLAUDE.local.md survives CLEAN and is read on every agent
