@@ -38,6 +38,16 @@ A third option — a bare `Dockerfile` with neither of the above — is recogniz
 
 Every environment gets a `REBUILD_POLICY` of `FAST` (default — reconcile/reattach without pulling fresh images), `CLEAN` (build/pull *before* touching what's running, so a failed build leaves the old container untouched), `STOP`, `TEARDOWN`, `INFO`, or `WIPE`.
 
+### Patching third-party source from a `run.sh` (currently only `nanoclaw-mnemon`)
+
+`nanoclaw-mnemon` clones upstream NanoClaw unpinned and text-splices features into it. Three rules that were each learned from a real, multi-round live failure:
+
+- **A patch block written into a file the deployed thing builds from must be version-marked.** Blocks are wrapped in `# >>> pi-bootstrap:<id> v<N> >>>` / `# <<< pi-bootstrap:<id> <<<`, and the "already applied?" check compares the *version*, not a token that happens to appear in the block. A content-blind check (`grep -q 'yt-dlp'`) can only distinguish "some generation is present" from "absent" — so once a block existed, every later FAST deploy reported success and silently kept stale text forever. **Bump the version constant whenever you edit a block's text**; an edit without a bump is invisible to every existing install.
+- **Writing the file is not the deliverable — reaching the running process is.** A rewritten `container/Dockerfile` changes nothing until the image is rebuilt *and* the long-lived containers spawned from the old image are replaced. Rebuild before restarting the thing that spawns them, then sweep. Getting this order wrong produced two separate "the fix is merged but it's still broken" investigations.
+- **Anchors are checked before use, never guessed.** A missing anchor skips just that sub-patch, loudly, with the reason recorded — it never splices blind and never aborts the whole deploy (all `apply_*_patch` calls need `|| true` under `set -euo pipefail`, since a deliberate `return 1` for "skipped" would otherwise kill the run).
+
+Each patch's user-facing documentation — what it changes, which anchors it depends on, and what shape a correct fix has to have — lives in `environments/nanoclaw-mnemon/templates/patch-details/<id>.md`, not inline in `run.sh`. `write_patches_manifest()` renders those plus per-deploy status into `pi-bootstrap-patches.md` inside the container, for the admin `claude` session to read when something looks broken. Keep prose in the template files: burying it in a shell heredoc made every doc change look like a code change in the diff.
+
 ### The `lib/` dispatcher layer
 
 Two YAML files exist per environment for data that's needed regardless of which deploy archetype it uses — **every caller goes through a dispatcher**, never a per-environment path directly:

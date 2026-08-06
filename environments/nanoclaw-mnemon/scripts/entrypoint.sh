@@ -126,6 +126,17 @@ check, don't guess at results you didn't actually observe):
      already is.
    - Also confirm \`yt-dlp --version\` and \`ffmpeg -version\` succeed the
      same way.
+   - **If the image passes and the live container fails, say exactly that.**
+     That combination is not a bug in the whisper build flags — those are
+     already correct in the image you just tested. It means the running
+     container predates the image and was never replaced. Report it as
+     "stale agent container, image is healthy" rather than "whisper is
+     broken", because the two point at completely different fixes and the
+     wrong one has already cost several rounds here. Deploying with the
+     CLEAN policy replaces the container; the deploy script also rebuilds
+     the agent image *before* restarting NanoClaw and then discards
+     containers spawned from the pre-rebuild image, so a CLEAN on current
+     pi-bootstrap should resolve it on its own.
 3. Mnemon and the Ollama MCP tool both need a *live* agent container to
    test for real — check \`docker ps --filter "name=nanoclaw-v2-"\` first.
    **Zero containers is the expected, normal state on a genuinely fresh
@@ -142,6 +153,22 @@ check, don't guess at results you didn't actually observe):
    look like), and confirm the Ollama MCP tool actually reaches Ollama from
    inside that same container (only meaningful if \`OLLAMA_ADMIN_TOOLS\` or
    a group is actually configured to use it).
+   - **If mnemon reports \`ollama_available: false\`, check the container's
+     own environment before concluding anything:** \`docker exec <that
+     container> env | grep -i -E 'no_proxy|mnemon|ollama'\`. If
+     \`NO_PROXY\`/\`no_proxy\` contains \`host.docker.internal\`, that is the
+     cause — on this platform \`host.docker.internal\` is reachable only
+     because the proxy routes it, so excluding it from proxying breaks the
+     connection outright. Current pi-bootstrap only bakes that ENV for
+     \`https://\` embed endpoints, never the \`http://\` default, so seeing it
+     on an \`http://\` endpoint means this container came from an image built
+     before that fix — the same stale-container situation described in
+     step 2, with the same resolution (a CLEAN deploy), not a live
+     connectivity problem to debug from in here.
+   - Corroborate with a direct request from the same container before
+     reporting either way — e.g. \`curl -s "\$MNEMON_EMBED_ENDPOINT/api/tags"\`.
+     \`curl\` succeeding while mnemon reports unavailable is the signature of
+     the env-var problem above, not of Ollama being down.
 4. Write a dated summary to \`pi-bootstrap-smoke-test.md\` — what passed,
    what's deferred and why, what actually failed. Anything that failed
    also goes in \`pi-bootstrap-patch-fixes.md\` per the instruction above.

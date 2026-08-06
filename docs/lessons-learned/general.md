@@ -443,3 +443,63 @@ shipping unasked — especially for a persistence mechanism, where the
 failure mode if it doesn't pan out is "breaks deployment entirely," a
 strictly worse outcome than the (accepted) status quo it was meant to
 improve on.
+
+## `_yaml_expand()` hung on any value containing `&` (2026-08-06)
+
+**Status:** fixed. Repo-wide — `lib/yaml-lib.sh`'s `_yaml_expand()` is the
+shared `${VAR}`/`${VAR:-default}` substitution behind `info.yaml`,
+`desktop-entries.yaml`, and every template rendered through them.
+
+**Symptom:** a deploy hangs — no error, no output, no timeout — whenever a
+substituted value contains an `&`.
+
+**Root cause:** the substitution was
+`result="${result//$expr/$val}"`. In bash 5.2+, an unquoted `&` in a
+pattern-substitution *replacement* expands to whatever the pattern just
+matched. So substituting a value containing `&` re-injected the literal
+`${VAR}` marker back into the result; the enclosing `while [[ "$result" =~
+... ]]` loop matched that marker again, substituted again, and never
+terminated.
+
+Hit for real by a template containing the shell snippet `2>&1`. It would
+equally have hit any ordinary YAML value with an `&` in it — a URL with two
+query parameters (`?a=1&b=2`), a label like "Fetch & transcribe" — none of
+which look remotely like a shell-quoting hazard when you write them.
+
+**Fix:** substitute by prefix/suffix splitting with a quoted pattern
+instead:
+
+```bash
+prefix="${result%%"$expr"*}"
+suffix="${result#*"$expr"}"
+result="${prefix}${val}${suffix}"
+```
+
+Quoting `"$expr"` makes it literal (only the trailing/leading `*` stays a
+wildcard), and the value is concatenated directly, so no character in it is
+special. Each iteration resolves the first remaining marker; repeated
+markers are picked up by later iterations, so the end result is unchanged.
+
+Escaping the `&` (`\&`) was the other option, and was rejected: it works on
+bash 5.2+ but relies on replacement backslash handling that differs on the
+bash 3.2 macOS still ships, which this repo has to keep working.
+
+### General Lessons
+
+- **Bash pattern substitution has a replacement mini-language, and it grew
+  a new member recently.** `${var//pat/repl}` is not a literal string
+  splice: `&` in `repl` means "the matched text" as of bash 5.2, and
+  backslash escapes it. Any code that builds `repl` from data — rather than
+  from a literal in the script — has to account for that, and the safest
+  answer is not to use pattern substitution for literal insertion at all.
+- **A bug that only manifests as a hang is worse than one that manifests as
+  a wrong answer,** because there is no output to inspect and nothing
+  obviously failed. This one was found only because a new template happened
+  to contain `2>&1`; it had been latent for as long as the function existed
+  and could have been triggered by an ordinary URL in any environment's
+  `info.yaml`.
+- **A shared helper's edge cases are every caller's edge cases.** This is
+  three lines in `lib/`, exercised by every environment in the repo. Worth
+  a regression test at the value level (`&`, `*`, `[`, backslash, multi-line
+  defaults) rather than trusting that whatever the current YAML files happen
+  to contain is representative.
