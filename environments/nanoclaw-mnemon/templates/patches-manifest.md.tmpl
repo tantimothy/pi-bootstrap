@@ -1,0 +1,41 @@
+# pi-bootstrap patch manifest
+
+**Regenerated on every deploy by `environments/nanoclaw-mnemon/run.sh` — do
+not hand-edit, your edits will be overwritten on the next FAST/CLEAN run.**
+
+This NanoClaw install is deployed by [pi-bootstrap](https://github.com/tantimothy/pi-bootstrap),
+which tracks upstream NanoClaw's `main` branch (not pinned to a fixed
+commit) and applies a handful of host-side patches to it on top — adding
+mnemon persistent memory, agent-side media transcription tools, and an
+Ollama MCP integration that aren't part of stock NanoClaw. Because the
+NanoClaw ref isn't pinned, an upstream change can occasionally shift the
+exact source lines one of these patches depends on, causing it to be
+skipped (loudly, never silently) on the next deploy.
+
+**If you are the `claude` admin session running inside this container and
+something here looks broken** (a tool listed below as SKIPPED or FAILED, a
+feature that should exist but doesn't), you have full access to this
+install's own source tree at `${INSTALL_PATH}` — feel free to apply the
+missing wiring by hand, following the linked skill doc for the exact
+change needed. Not required, and not necessarily easier than reporting it
+— just an option: it survives until the next CLEAN redeploy re-clones
+fresh, unless it happens to also satisfy the relevant patch's own
+idempotency check (in which case it survives that too).
+
+**Either way — whether you fix it or just diagnose it — write what you
+found (and did, if anything) into `.pi-bootstrap-patch-fixes.md` in this
+same directory.** That file is never overwritten by a deploy; a human (or
+a future pi-bootstrap session) reads it to decide whether to update the
+patch scripts in pi-bootstrap itself, so the fix stops being a
+container-local workaround and survives the next CLEAN/fresh install too.
+
+Last generated: ${generated_at} · Profile: `NANOCLAW_SETUP=${NANOCLAW_SETUP}`
+
+## Mnemon (persistent graph+vector memory)
+${mnemon_status}
+## Media tools (yt-dlp / ffmpeg / whisper.cpp, agent-side transcription)
+${media_tools_status}
+## Ollama MCP tool (ollama_list_models, ollama_generate, opt-in admin tools)
+${ollama_status}
+## Telegram channel import self-heal (restores upstream regressions to src/channels/index.ts, dist/channels/index.js)
+${telegram_status}

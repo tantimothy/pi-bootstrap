@@ -32,6 +32,12 @@ POLICY="${REBUILD_POLICY:-FAST}"
 # entry point, invoked directly rather than through deploy.sh's menu, which
 # is the only other place this got sourced).
 source "$REPO_DIR/lib/locale-lib.sh" || true
+# _yaml_expand — resolves `${VAR}`/`${VAR:-default}` markers against real
+# bash variables already in scope, safely (plain-name expansion only, no
+# command substitution/arbitrary code). Despite the name, it's a generic
+# string-templating helper, not YAML-specific — reused below by
+# write_patches_manifest() to render templates/patches-manifest.md.tmpl.
+source "$REPO_DIR/lib/yaml-lib.sh"
 
 echo "=========================================================="
 echo "🧠 NanoClaw + Mnemon Deployment Pipeline"
@@ -1527,9 +1533,20 @@ OLLAMA_ENV_TS
 # survives every redeploy) — mixing "what run.sh most recently observed"
 # with "what a human/future pi-bootstrap session still needs to read and
 # act on" in one file would make the latter easy to lose on the next CLEAN.
+#
+# The manifest's own markdown body lives in
+# templates/patches-manifest.md.tmpl, not inlined here as a heredoc — pulled
+# out into its own file so the prose is readable/editable as plain markdown
+# (no backslash-escaped backticks to dodge heredoc command substitution) and
+# stays visually separate from the status-gathering logic below. Rendered
+# via _yaml_expand (lib/yaml-lib.sh) — the same `${VAR}`/`${VAR:-default}`
+# substitution mechanism info.yaml/desktop-entries.yaml already use
+# elsewhere in this repo — against the plain local variables this function
+# sets first.
 # ---------------------------------------------------------------------------------------
 write_patches_manifest() {
     local manifest="${INSTALL_PATH}/.pi-bootstrap-patches.md"
+    local template="${SCRIPT_DIR}/templates/patches-manifest.md.tmpl"
 
     local mnemon_status media_tools_status
     if [ "$NANOCLAW_SETUP" = "mnemon" ]; then
@@ -1543,52 +1560,16 @@ write_patches_manifest() {
         media_tools_status="- Not applied — NANOCLAW_SETUP=plain (media-tools/whisper patch only applies to the mnemon profile; switch profiles via a CLEAN deploy to change this)
 "
     fi
+    local ollama_status="${OLLAMA_PATCH_LOG:-- (no status recorded — apply_ollama_tool_patch may not have run)
+}"
+    local telegram_status="${TELEGRAM_IMPORT_PATCH_LOG:-- (no status recorded — apply_telegram_import_patch may not have run)
+}"
+    local generated_at
+    generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-    cat > "$manifest" <<MANIFEST_EOF
-# pi-bootstrap patch manifest
-
-**Regenerated on every deploy by \`environments/nanoclaw-mnemon/run.sh\` — do
-not hand-edit, your edits will be overwritten on the next FAST/CLEAN run.**
-
-This NanoClaw install is deployed by [pi-bootstrap](https://github.com/tantimothy/pi-bootstrap),
-which tracks upstream NanoClaw's \`main\` branch (not pinned to a fixed
-commit) and applies a handful of host-side patches to it on top — adding
-mnemon persistent memory, agent-side media transcription tools, and an
-Ollama MCP integration that aren't part of stock NanoClaw. Because the
-NanoClaw ref isn't pinned, an upstream change can occasionally shift the
-exact source lines one of these patches depends on, causing it to be
-skipped (loudly, never silently) on the next deploy.
-
-**If you are the \`claude\` admin session running inside this container and
-something here looks broken** (a tool listed below as SKIPPED or FAILED, a
-feature that should exist but doesn't), you have full access to this
-install's own source tree at \`$INSTALL_PATH\` — feel free to apply the
-missing wiring by hand, following the linked skill doc for the exact
-change needed. Not required, and not necessarily easier than reporting it
-— just an option: it survives until the next CLEAN redeploy re-clones
-fresh, unless it happens to also satisfy the relevant patch's own
-idempotency check (in which case it survives that too).
-
-**Either way — whether you fix it or just diagnose it — write what you
-found (and did, if anything) into \`.pi-bootstrap-patch-fixes.md\` in this
-same directory.** That file is never overwritten by a deploy; a human (or
-a future pi-bootstrap session) reads it to decide whether to update the
-patch scripts in pi-bootstrap itself, so the fix stops being a
-container-local workaround and survives the next CLEAN/fresh install too.
-
-Last generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ") · Profile: \`NANOCLAW_SETUP=${NANOCLAW_SETUP}\`
-
-## Mnemon (persistent graph+vector memory)
-${mnemon_status}
-## Media tools (yt-dlp / ffmpeg / whisper.cpp, agent-side transcription)
-${media_tools_status}
-## Ollama MCP tool (ollama_list_models, ollama_generate, opt-in admin tools)
-${OLLAMA_PATCH_LOG:-- (no status recorded — apply_ollama_tool_patch may not have run)
-}
-## Telegram channel import self-heal (restores upstream regressions to src/channels/index.ts, dist/channels/index.js)
-${TELEGRAM_IMPORT_PATCH_LOG:-- (no status recorded — apply_telegram_import_patch may not have run)
-}
-MANIFEST_EOF
+    # $(...) strips the template file's trailing newline; printf's own
+    # trailing \n restores a normal, single newline-terminated text file.
+    printf '%s\n' "$(_yaml_expand "$(cat "$template")")" > "$manifest"
 
     write_patch_fixes_template
 }
