@@ -460,15 +460,15 @@ MEDIA_TOOLS_DOCKER_BLOCK
 #      wins over that Dockerfile ENV — so explicitly re-asserting the
 #      correct value here is what actually guards against it, not an
 #      assumption that the platform default alone is sufficient.
-# Unverified: whether NanoClaw's own OneCLI SDK call
-# (onecli.applyContainerConfig(), which runs in container-runner.ts AFTER
-# ollamaEnvArgs() pushes its own args) also sets NO_PROXY itself — if it
-# does, and `docker run -e` truly takes the last value for a repeated key
-# (the normal Docker CLI behavior), that later call would win regardless
-# of what this patch sets, making this whole mechanism a no-op in
-# practice. Not verifiable from this repo's own source since
-# @onecli-sh/sdk's internals aren't in front of us — flagged rather than
-# asserted as certain.
+# Confirmed, not just assumed: onecli.applyContainerConfig() (which runs in
+# container-runner.ts AFTER ollamaEnvArgs() pushes its own args, so it would
+# win on any key it also sets) pushes -e args from OneCLI's server-provided
+# config.env — checked directly against @onecli-sh/sdk's own source by
+# NanoClaw's own admin session. That response carries HTTPS_PROXY/
+# HTTP_PROXY (+ lowercase), NODE_EXTRA_CA_CERTS, NODE_USE_ENV_PROXY, GIT_*,
+# and CLAUDE_CODE_OAUTH_TOKEN — no NO_PROXY entry at all. So this function's
+# own NO_PROXY value is never contended with or overridden downstream; the
+# mechanism above works as intended, not just in theory.
 #
 # Idempotent per file: the two brand-new files this function owns
 # (ollama-mcp-stdio.ts, ollama-env.ts) are only written if missing, NOT

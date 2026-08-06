@@ -1283,14 +1283,27 @@ else in this specific deployment can and does make it wrong, and this is
 what corrects it back at the point that actually matters (container spawn,
 which happens after image build)."
 
-**What's still unverified, flagged rather than asserted:** whether
-NanoClaw's own `onecli.applyContainerConfig()` call — which runs in
-`container-runner.ts` *after* `ollamaEnvArgs()` pushes its own `-e` args —
-also sets `NO_PROXY` itself. If it does, and `docker run -e` takes the last
-value for a repeated key (standard Docker CLI behavior), that later call
-would win regardless of what this patch sets, making the whole mechanism a
-no-op in practice. `@onecli-sh/sdk`'s own internals aren't available to
-check this against, so it's recorded as an open question, not settled.
+**Round 4 (closed the open question from round 3):** NanoClaw's own admin
+session checked `@onecli-sh/sdk`'s actual source directly — something
+unavailable from inside this repo — and confirmed `onecli.applyContainerConfig()`
+(the call that runs *after* `ollamaEnvArgs()` in `container-runner.ts`,
+line 538 vs. line 491) pushes `-e` args from OneCLI's server-provided
+`config.env` response. That response carries `HTTPS_PROXY`/`HTTP_PROXY`
+(+ lowercase), `NODE_EXTRA_CA_CERTS`, `NODE_USE_ENV_PROXY`, `GIT_*`, and
+`CLAUDE_CODE_OAUTH_TOKEN` — no `NO_PROXY` entry at all. So there's no
+downstream key collision: `ollamaEnvArgs()`'s `NO_PROXY` value is never
+overridden, and the round-3 mechanism is confirmed to work as intended, not
+just plausible in theory.
+
+**A loose thread this surfaced, not yet chased down:** where the
+`NO_PROXY=0.250.250.254` value Clawdia originally observed (before *any* of
+this session's changes existed) actually came from, if it wasn't OneCLI's
+`config.env` and wasn't this repo's code at that point. Possibly the base
+container image, possibly something in NanoClaw's own entrypoint/startup —
+genuinely unknown, and doesn't block anything here (this patch's own value
+is confirmed to land correctly regardless of where that original one came
+from), but worth another look if `NO_PROXY` behavior on this platform is
+ever revisited.
 
 ### Verification approach
 
