@@ -1777,8 +1777,26 @@ fi
 
 if [ "$NANOCLAW_SETUP" = "mnemon" ]; then
     ensure_ollama_ready
-    apply_mnemon_patch
-    apply_media_tools_patch
+    # `|| true` on all four apply_*_patch calls below (not just this one) is
+    # load-bearing, not defensive boilerplate: run.sh runs under
+    # `set -euo pipefail`, and every one of these functions has `return 1`
+    # paths that are explicitly designed to skip just that one sub-patch,
+    # log it (SKIPPED, not FAILED) into MNEMON_PATCH_LOG/OLLAMA_PATCH_LOG/
+    # etc., and let the rest of the deploy continue — see e.g.
+    # apply_telegram_import_patch()'s own header comment. Called bare, a
+    # `return 1` from any of these is just this function's normal exit
+    # status as far as the shell is concerned, and `set -e` kills the
+    # entire deploy on it — confirmed against a real deploy: the
+    # telegram-import patch's package.json dependency guard correctly
+    # logged its SKIPPED reason and returned 1, and that alone aborted the
+    # whole `nanoclaw-mnemon` deployment task before write_patches_manifest
+    # (let alone anything after it) ever ran, even though every part of
+    # this file's own design — the manifest, the SKIPPED/FAILED status
+    # model, the "diagnosable from inside the container" comments — assumes
+    # a skipped sub-patch is a recoverable, loudly-logged event, not a
+    # deploy-ending one.
+    apply_mnemon_patch || true
+    apply_media_tools_patch || true
 else
     if [ "$POLICY" != "CLEAN" ] && [ -f "${INSTALL_PATH}/container/Dockerfile" ] && grep -q 'MNEMON_VERSION' "${INSTALL_PATH}/container/Dockerfile"; then
         echo "⚠️  NANOCLAW_SETUP=plain needs a CLEAN deploy to remove the existing Mnemon agent-image patch." >&2
@@ -1789,11 +1807,11 @@ fi
 # Applied regardless of NANOCLAW_SETUP — the Ollama MCP tool is a general
 # per-agent-group capability, not specific to the mnemon profile (see
 # .env.example's OLLAMA_ADMIN_TOOLS comment).
-apply_ollama_tool_patch
+apply_ollama_tool_patch || true
 # Applied regardless of NANOCLAW_SETUP too — Telegram is a base NanoClaw
 # channel, not a pi-bootstrap addition; see apply_telegram_import_patch()'s
 # own header comment for why this self-heal exists at all.
-apply_telegram_import_patch
+apply_telegram_import_patch || true
 write_patches_manifest
 
 # Group-local CLAUDE.local.md survives CLEAN and is read on every agent

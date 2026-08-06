@@ -1703,3 +1703,60 @@ re-dropping something it otherwise still supports.
   partially removes something is arguably a worse state than either fully
   keeping or fully removing it, since every downstream consumer has to
   independently discover which parts are still there.
+
+## Follow-up (2026-08-06): the dependency guard itself aborted the whole deploy
+
+**Status:** fixed, same day as the guard that introduced it. A real CLEAN
+deploy, on the exact `package.json`-missing-dependency case the guard above
+was built to handle safely, printed the guard's own SKIPPED message —
+and then the *entire deployment task failed* right after it, with no
+`write_patches_manifest` output and no further patches attempted:
+
+```
+telegram.ts's own dependency (@chat-adapter/telegram) is no longer in package.json — skipping the telegram-import patch.
+ERROR: Deployment task failed for [nanoclaw-mnemon].
+```
+
+**Root cause:** `run.sh` runs under `set -euo pipefail`. All four
+`apply_*_patch` functions (`apply_mnemon_patch`, `apply_media_tools_patch`,
+`apply_ollama_tool_patch`, `apply_telegram_import_patch`) are called as
+bare statements — `apply_mnemon_patch`, not `apply_mnemon_patch || true`
+or wrapped in an `if`. Every one of them has `return 1` paths that are
+explicitly designed, and extensively documented throughout this file, to
+skip just that one sub-patch, log a SKIPPED status into the relevant
+`*_PATCH_LOG` variable for `write_patches_manifest` to pick up, and let the
+rest of the deploy continue — the whole point of the
+`.pi-bootstrap-patches.md` manifest and its SKIPPED/FAILED/PASSED status
+model is that a skipped sub-patch is a recoverable, diagnosable event, not
+a deploy-ending one. But called bare, that `return 1` is just this
+function's exit status as far as the shell is concerned, and `set -e`
+terminates the whole script on it. This bug existed in all four call sites
+from the moment each function's own "missing file/anchor, skip this one"
+path was written — it just hadn't been exercised on a real deploy until
+the telegram dependency guard's SKIPPED path (itself only a few hours old)
+became the first one actually reachable in an ordinary, expected scenario
+rather than a rare "upstream changed unexpectedly" one.
+
+**Fix:** added `|| true` to all four call sites (not just the one that
+happened to trigger this), so a skipped sub-patch can never abort the
+overall deploy — matching what every one of these functions' own
+SKIPPED-logging design already assumed was happening.
+
+### General Lessons
+
+- **A function's own internal error handling doesn't matter if its call
+  site can still kill the whole script out from under it.** All the
+  care that went into `TELEGRAM_IMPORT_PATCH_LOG`/`*_PATCH_OK` variables,
+  the manifest, and the "diagnosable from inside the container" design
+  was real and correct — but none of it mattered because `set -e` at the
+  top of the file could unilaterally veto "keep going after a skip" the
+  moment a bare function call returned non-zero. Check the call site's
+  shell options (`set -e` in particular), not just the function body, when
+  reasoning about whether an error path actually degrades gracefully.
+- **A latent bug can hide for a long time behind "this only fires in a
+  rare case,"** and get exposed the moment something else (here, a
+  brand-new, more specific guard) makes that rare case common. The bug in
+  the call sites was there before this session touched the file at all;
+  it just needed a SKIPPED path to actually fire on a normal deploy to
+  surface, and this session's own telegram guard happened to be that
+  trigger.
