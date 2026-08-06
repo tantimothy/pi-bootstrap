@@ -1326,7 +1326,7 @@ change one day shifts an anchor line and silently breaks a sub-patch is
 addressed with two new files, written into `$NANOCLAW_INSTALL_PATH` (inside
 the deployed NanoClaw checkout, not this repo):
 
-- **`.pi-bootstrap-patches.md`** — regenerated on every deploy by a new
+- **`pi-bootstrap-patches.md`** — regenerated on every deploy by a new
   `write_patches_manifest()` in `run.sh`, listing every patch this
   environment applies (mnemon, media-tools/whisper, ollama-tool) and each
   one's PASSED/SKIPPED/FAILED status, sourced from `_LOG`/`_OK` status
@@ -1335,7 +1335,7 @@ the deployed NanoClaw checkout, not this repo):
   `OLLAMA_PATCH_OK`/`_LOG` — retrofitted onto the two older functions to
   match the new one's pattern, since the ask was "document everything that
   was done", not just the newest patch).
-- **`.pi-bootstrap-patch-fixes.md`** — touch-created once with an
+- **`pi-bootstrap-patch-fixes.md`** — touch-created once with an
   instructional header, then never overwritten by any later deploy. The
   admin `claude` session running inside the container (see
   `entrypoint.sh`'s `/root/CLAUDE.md`, which now points at both files) is
@@ -1359,9 +1359,9 @@ the deployed NanoClaw checkout, not this repo):
   admin session might reasonably hand-edit inside a running container
   (`ollama-mcp-stdio.ts`, `ollama-env.ts`), unconditionally overwriting it
   every deploy would silently clobber that live fix. The status-report file
-  (`.pi-bootstrap-patches.md`) is the opposite case — nothing else ever
+  (`pi-bootstrap-patches.md`) is the opposite case — nothing else ever
   writes to it, so overwriting it every deploy is correct, not lossy. The
-  fix-report file (`.pi-bootstrap-patch-fixes.md`) is a third case again —
+  fix-report file (`pi-bootstrap-patch-fixes.md`) is a third case again —
   owned by the admin session, not by `run.sh`, so `run.sh` may only
   touch-create it once and must never overwrite it afterward.
 - **WebFetch is unreliable for extracting exact source code**, especially
@@ -1397,7 +1397,7 @@ the deployed NanoClaw checkout, not this repo):
 
 ### Summary
 
-The patches manifest (`.pi-bootstrap-patches.md`, see the entry above) only
+The patches manifest (`pi-bootstrap-patches.md`, see the entry above) only
 ever proves a patch's *text* landed — `grep -c`/anchor-presence checks run
 by `run.sh` on the host, before the container or its dependencies
 necessarily even exist. It can't prove the patched *functionality* actually
@@ -1410,7 +1410,7 @@ Rather than build a host-side automated test harness for this (impractical
 — `run.sh` runs before the orchestrator container, let alone any agent
 container, exists), `entrypoint.sh`'s `/root/CLAUDE.md` now gives the admin
 `claude` session a standing instruction: before doing anything else, check
-whether `.pi-bootstrap-smoke-test.md` exists in the install path. If it
+whether `pi-bootstrap-smoke-test.md` exists in the install path. If it
 doesn't, this is either a genuine first connection or the first one since
 TEARDOWN/CLEAN reset the environment — run a checklist covering all three
 patches (manifest status, media-tool binaries in the built agent-sandbox
@@ -1439,7 +1439,7 @@ to check at the same moment.
 
 `remove_agent_containers()` — already called from both the TEARDOWN and
 CLEAN policy branches, never from FAST — now also deletes
-`.pi-bootstrap-smoke-test.md` if present. This is the single point that
+`pi-bootstrap-smoke-test.md` if present. This is the single point that
 correctly invalidates the smoke-test record exactly when it should (both
 policies the ask covered) without needing separate logic duplicated in
 each branch, and without ever false-triggering on a plain FAST restart or
@@ -1453,7 +1453,7 @@ clears it.
 ### General Lessons
 
 - **A host-side manifest and a live-session smoke test answer different
-  questions, and neither substitutes for the other.** `.pi-bootstrap-patches.md`
+  questions, and neither substitutes for the other.** `pi-bootstrap-patches.md`
   answers "did the patch text land" — cheap, always available, but blind to
   runtime behavior. A live check answers "does it actually work" — requires
   a running environment with real dependencies, so it can only happen from
@@ -1472,7 +1472,7 @@ clears it.
 
 **Status:** merged. Both items were reported by a `claude` admin session
 running inside a deployed container (into
-`.pi-bootstrap-patch-fixes.md`, per that file's own instructions) and then
+`pi-bootstrap-patch-fixes.md`, per that file's own instructions) and then
 folded back into this repo so the fix survives the next CLEAN/fresh install
 rather than staying a container-local workaround.
 
@@ -1494,7 +1494,7 @@ unconditionally (like `apply_ollama_tool_patch()`, since Telegram isn't a
 mnemon-profile-specific feature) right after the CLEAN/FAST source sync.
 Idempotently re-adds `import './telegram.js';` after the `import
 './cli.js';` line in both files if the line is missing, and records status
-in `.pi-bootstrap-patches.md` under a new "Telegram channel import
+in `pi-bootstrap-patches.md` under a new "Telegram channel import
 self-heal" section, following the same anchor-based text-splice pattern
 `apply_mnemon_patch`/`apply_media_tools_patch`/`apply_ollama_tool_patch`
 already use elsewhere in this file.
@@ -1528,7 +1528,7 @@ statically-linked `whisper-cli` with no runtime library dependency at all
 
 ### General Lessons
 
-- **Not pinning NanoClaw's git ref (see the `.pi-bootstrap-patches.md`
+- **Not pinning NanoClaw's git ref (see the `pi-bootstrap-patches.md`
   header comment on this file's own `write_patches_manifest()`) means
   upstream can regress its own base functionality, not just conflict with
   a pi-bootstrap patch.** The existing text-splice patches all defend
@@ -1678,7 +1678,7 @@ testing) never saw the build break.
 **Fix:** added a dependency guard to `apply_telegram_import_patch()` —
 before restoring the barrel import, check that `package.json` still lists
 `@chat-adapter/telegram`. If it doesn't, skip the whole patch loudly
-(logged as SKIPPED in `.pi-bootstrap-patches.md`, same as any other
+(logged as SKIPPED in `pi-bootstrap-patches.md`, same as any other
 anchor-not-found case) instead of restoring an import to code that can't
 build. Telegram simply won't be wired up until upstream's removal is
 finished properly (or reverted) — a working CLEAN build for everything
@@ -1726,7 +1726,7 @@ explicitly designed, and extensively documented throughout this file, to
 skip just that one sub-patch, log a SKIPPED status into the relevant
 `*_PATCH_LOG` variable for `write_patches_manifest` to pick up, and let the
 rest of the deploy continue — the whole point of the
-`.pi-bootstrap-patches.md` manifest and its SKIPPED/FAILED/PASSED status
+`pi-bootstrap-patches.md` manifest and its SKIPPED/FAILED/PASSED status
 model is that a skipped sub-patch is a recoverable, diagnosable event, not
 a deploy-ending one. But called bare, that `return 1` is just this
 function's exit status as far as the shell is concerned, and `set -e`
@@ -1864,7 +1864,7 @@ a `.orphaned-by-pi-bootstrap` suffix is enough on its own to drop out of
 repo's smoke test after a fresh CLEAN launch: Telegram never came up on
 its own, and only started working after the admin manually created a
 missing symlink, restored `telegram.ts`, and re-added the barrel import
-by hand. See `.pi-bootstrap-patch-fixes.md`'s 2026-08-06 "Telegram
+by hand. See `pi-bootstrap-patch-fixes.md`'s 2026-08-06 "Telegram
 silently broken: pi-bootstrap self-heal SKIPPED on incorrect premise"
 entry for the original live-container diagnosis this fix is based on.
 

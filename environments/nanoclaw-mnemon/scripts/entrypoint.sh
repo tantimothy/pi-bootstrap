@@ -54,7 +54,7 @@ sandboxes for persistent, cross-session graph memory.
   etc.), inspecting logs, or debugging.
 - \`docker logs -f ${CONTAINER_NAME:-nanoclaw-mnemon}\` (from the HOST, not
   from inside here) shows NanoClaw's own live application log.
-- \`${NANOCLAW_INSTALL_PATH}/.pi-bootstrap-patches.md\` — regenerated every
+- \`${NANOCLAW_INSTALL_PATH}/pi-bootstrap-patches.md\` — regenerated every
   deploy, lists every host-side patch pi-bootstrap applies on top of
   NanoClaw's own upstream source (mnemon, media/whisper tools, the Ollama
   MCP tool) and each one's current PASSED/SKIPPED/FAILED status. Since
@@ -62,12 +62,12 @@ sandboxes for persistent, cross-session graph memory.
   commit, an upstream change can occasionally break one of these patches —
   check this file first if a feature it describes seems to be missing or
   broken. If you diagnose or fix something, record it in the sibling
-  \`${NANOCLAW_INSTALL_PATH}/.pi-bootstrap-patch-fixes.md\` (never
+  \`${NANOCLAW_INSTALL_PATH}/pi-bootstrap-patch-fixes.md\` (never
   overwritten by a deploy) so a human can use it to update pi-bootstrap's
   own patch scripts later.
 
 **Before anything else, check whether
-\`${NANOCLAW_INSTALL_PATH}/.pi-bootstrap-smoke-test.md\` exists.** run.sh
+\`${NANOCLAW_INSTALL_PATH}/pi-bootstrap-smoke-test.md\` exists.** run.sh
 deletes it whenever TEARDOWN or CLEAN tears this container and its agent
 containers down (never on a plain FAST restart) — so its absence means
 this is either a genuine first connection, or the first one since a
@@ -80,7 +80,7 @@ already exists, skip this and stay in the reactive mode described above.
 **Smoke-test checklist** (best-effort — record what you could and couldn't
 check, don't guess at results you didn't actually observe):
 
-1. Read \`.pi-bootstrap-patches.md\` first — confirm every patch listed
+1. Read \`pi-bootstrap-patches.md\` first — confirm every patch listed
    shows PASSED. Anything SKIPPED/FAILED there is already-diagnosed
    evidence of upstream drift; report it rather than re-deriving it. **Do
    NOT stop at this file's own self-reported status for the Telegram
@@ -118,9 +118,9 @@ check, don't guess at results you didn't actually observe):
    look like), and confirm the Ollama MCP tool actually reaches Ollama from
    inside that same container (only meaningful if \`OLLAMA_ADMIN_TOOLS\` or
    a group is actually configured to use it).
-4. Write a dated summary to \`.pi-bootstrap-smoke-test.md\` — what passed,
+4. Write a dated summary to \`pi-bootstrap-smoke-test.md\` — what passed,
    what's deferred and why, what actually failed. Anything that failed
-   also goes in \`.pi-bootstrap-patch-fixes.md\` per the instruction above.
+   also goes in \`pi-bootstrap-patch-fixes.md\` per the instruction above.
 CLAUDEMD
 
 # NanoClaw's own OneCLI (its agent-key vault) can't auto-detect a bind
