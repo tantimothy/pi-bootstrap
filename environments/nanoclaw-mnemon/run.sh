@@ -353,24 +353,60 @@ MNEMON_DOCKER_BLOCK
 # apply_ollama_tool_patch: Telegram is a general NanoClaw capability, not
 # specific to the mnemon profile.
 #
-# Dependency guard (added after a real CLEAN build failure): commit
-# 675a6d87 turned out to be a HALF removal, not a clean one — it dropped
-# the barrel import and (confirmed against a live build error) the
-# `@chat-adapter/telegram` dependency from package.json, but left
-# src/channels/telegram.ts itself in the tree still importing that now-
-# missing package. Restoring only the barrel import (which is all this
-# function did originally) makes tsc try to compile telegram.ts again,
-# which now fails outright: `Cannot find module '@chat-adapter/telegram'`,
-# killing the entire CLEAN build, not just Telegram. A FAST restart never
-# hit this because it doesn't reinstall dependencies or rebuild — the
-# already-installed node_modules from before 675a6d87 papered over it.
-# Guard against re-breaking the build: only restore the import if
-# package.json still actually lists that dependency (i.e. telegram.ts's
-# own import is resolvable) — if it doesn't, skip the whole patch loudly
-# instead of restoring a barrel import to code that can't build. See
-# .pi-bootstrap-patch-fixes.md for what a real fix upstream would need
-# (either NanoClaw re-adding the dependency, or fully finishing the
-# removal it started).
+# Dependency guard + orphan quarantine (added after two rounds of real
+# CLEAN build failures — see docs/lessons-learned/nanoclaw-mnemon.md for
+# the full history of getting this wrong twice before landing here).
+#
+# Checked directly against upstream's actual git history (not guessed):
+# commit 675a6d87 ("remove accidentally merged Telegram channel code",
+# 2026-03-25) was a CLEAN, complete removal — src/channels/telegram.ts,
+# its test file, and the barrel import were all deleted together in that
+# one commit. `@chat-adapter/telegram` was dropped from package.json
+# separately, over a month later, in commit 25687dc. Neither commit left
+# upstream itself in a broken state at any point — a prior version of
+# this comment claimed otherwise ("a half removal"); that was wrong,
+# reasoned from a live build error alone rather than upstream's actual
+# history, and this session corrected it after actually checking.
+#
+# So where does a real deploy's own src/channels/telegram.ts (still
+# importing the now-gone @chat-adapter/telegram) come from, if upstream's
+# removal was clean? Not from `git pull`/`git reset --hard` — both only
+# ever touch tracked files, and upstream's history never re-adds
+# telegram.ts once 675a6d87 lands. The only mechanism that plants a new,
+# untracked telegram.ts into an existing install is NanoClaw's own
+# /add-telegram-style channel skill (see src/channels/index.ts's own
+# comment: "channel skills ... copy their module from the `channels`
+# branch and append a self-registration import") being run at some point
+# against this specific deployment. Once that file exists on disk,
+# NOTHING in a normal git sync — FAST's `git pull` or CLEAN's
+# `git reset --hard` — ever removes it again: reset --hard only resets
+# tracked files to match the target commit, and an untracked file has no
+# tracked counterpart to reset away. It just sits there, orphaned,
+# forever, once its own dependency stops existing.
+#
+# Why that alone breaks a CLEAN build even with NO import anywhere
+# referencing it: NanoClaw's own tsconfig.json sets
+# `"include": ["src/**/*"]` — confirmed directly against the real file —
+# so tsc type-checks every .ts file physically present under src/,
+# whether anything imports it or not. An orphaned telegram.ts with a
+# dangling `@chat-adapter/telegram` import fails the build on its own,
+# independent of whatever this function does or doesn't do to the barrel
+# import. The dependency-guard fix from the previous round (only restore
+# the barrel import if the dependency is still in package.json) was
+# necessary but not sufficient — it stopped this function from making
+# things worse, but did nothing about an orphan that was already there
+# before this function ever ran.
+#
+# So this function now does two things: (1) restore the barrel import,
+# same as before, only when the dependency actually resolves; (2)
+# unconditionally quarantine (rename out of the tsc-compiled tree, never
+# delete) src/channels/telegram.ts and its test file whenever they exist
+# AND the dependency does NOT resolve — the one combination that's
+# guaranteed to break every future CLEAN build otherwise. Quarantining
+# instead of deleting keeps the file recoverable (e.g. if the operator
+# wants to vendor @chat-adapter/telegram themselves) while getting it out
+# of tsc's `include` glob, which only recognizes known source extensions
+# — a `.orphaned-by-pi-bootstrap` suffix is enough on its own.
 # ---------------------------------------------------------------------------------------
 apply_telegram_import_patch() {
     TELEGRAM_IMPORT_PATCH_OK=true
@@ -378,17 +414,58 @@ apply_telegram_import_patch() {
     _telegram_import_log() { TELEGRAM_IMPORT_PATCH_LOG="${TELEGRAM_IMPORT_PATCH_LOG}- ${1}
 "; }
 
+    # Quarantine pass — runs regardless of package.json's state below,
+    # because an orphaned telegram.ts breaks the build purely by existing
+    # (tsconfig's `include: ["src/**/*"]`), whether or not the dependency
+    # check that follows ever restores the barrel import. Only fires when
+    # the dependency is actually missing (i.e. the file genuinely can't
+    # build) — a real, working local Telegram setup with the dependency
+    # present is left alone.
+    local dep_present=false
     local pkg_json="${INSTALL_PATH}/package.json"
+    if [ -f "$pkg_json" ] && grep -q '"@chat-adapter/telegram"' "$pkg_json"; then
+        dep_present=true
+    fi
+    if [ "$dep_present" = false ]; then
+        local orphan tgt
+        for orphan in src/channels/telegram.ts src/channels/telegram.test.ts; do
+            tgt="${INSTALL_PATH}/${orphan}"
+            if [ -f "$tgt" ]; then
+                mv "$tgt" "${tgt}.orphaned-by-pi-bootstrap"
+                echo "🧹 Quarantined orphaned ${orphan} (its own @chat-adapter/telegram dependency is gone; tsc would otherwise fail on it regardless of the barrel import — see this function's own header comment)." >&2
+                _telegram_import_log "${orphan}: **QUARANTINED** — renamed to ${orphan}.orphaned-by-pi-bootstrap (dependency missing from package.json; tsconfig's include: [\"src/**/*\"] would otherwise fail the build on this file alone). Restore it manually once @chat-adapter/telegram is available again."
+            fi
+        done
+    fi
+
     if [ ! -f "$pkg_json" ]; then
         echo "⚠️  Couldn't find package.json under $INSTALL_PATH — skipping the telegram-import patch (can't verify its dependency is installable)." >&2
-        _telegram_import_log "**SKIPPED (whole patch)** — package.json missing, can't verify @chat-adapter/telegram is still a listed dependency."
+        _telegram_import_log "**SKIPPED (barrel import)** — package.json missing, can't verify @chat-adapter/telegram is still a listed dependency."
         TELEGRAM_IMPORT_PATCH_OK=false
         return 1
     fi
-    if ! grep -q '"@chat-adapter/telegram"' "$pkg_json"; then
+    if [ "$dep_present" = false ]; then
         echo "⚠️  telegram.ts's own dependency (@chat-adapter/telegram) is no longer in package.json — skipping the telegram-import patch." >&2
-        echo "   Restoring the barrel import alone would break the build (Cannot find module '@chat-adapter/telegram'); NanoClaw's Telegram removal (commit 675a6d87) looks incomplete upstream." >&2
-        _telegram_import_log "**SKIPPED (whole patch)** — @chat-adapter/telegram missing from package.json; restoring the import would break the build (confirmed: TS2307 on telegram.ts). Telegram removal upstream (commit 675a6d87) looks incomplete — see .pi-bootstrap-patch-fixes.md."
+        echo "   Restoring the barrel import would break the build (Cannot find module '@chat-adapter/telegram'); NanoClaw dropped this dependency in commit 25687dc, after cleanly removing telegram.ts itself in 675a6d87." >&2
+        _telegram_import_log "**SKIPPED (barrel import)** — @chat-adapter/telegram missing from package.json (dropped upstream in commit 25687dc); restoring the import would break the build. See .pi-bootstrap-patch-fixes.md."
+        # Strip a STALE barrel import too, not just skip adding a new one —
+        # the quarantine pass above just renamed telegram.ts/telegram.js out
+        # from under any import that already points at it (e.g. left behind
+        # by an earlier run of this function before this guard existed, or
+        # by a real prior /add-telegram skill run). Left in place, that
+        # import would now fail to resolve './telegram.js' at all, breaking
+        # the build in a different way than the one this function exists to
+        # prevent. Idempotent either way — a fresh checkout with no barrel
+        # import present just no-ops here.
+        local rel f
+        for rel in src/channels/index.ts dist/channels/index.js; do
+            f="${INSTALL_PATH}/${rel}"
+            if [ -f "$f" ] && grep -q "^import '\./telegram\.js';" "$f"; then
+                grep -v "^import '\./telegram\.js';" "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
+                echo "🧹 Removed a stale \"import './telegram.js';\" from ${rel} (its target was just quarantined; leaving the import would break the build differently)." >&2
+                _telegram_import_log "${rel}: stale barrel import removed (target file quarantined, dependency unresolvable)"
+            fi
+        done
         TELEGRAM_IMPORT_PATCH_OK=false
         return 1
     fi
