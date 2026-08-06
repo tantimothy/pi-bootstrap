@@ -1226,7 +1226,7 @@ in `run.sh` (same idempotent text-splice mechanism as `apply_mnemon_patch()`/
 `NANOCLAW_SETUP` mnemon/plain branch — this is a general per-group agent
 capability, not a mnemon-profile feature.
 
-### The real shipped-skill bug, and a misdiagnosed one that got corrected mid-session
+### The real shipped-skill bug, and three rounds on a NO_PROXY side-question
 
 **The real bug (`.env` vars never read):** the skill's `ollamaEnvArgs()`
 reads `process.env.OLLAMA_HOST`/`OLLAMA_ADMIN_TOOLS` directly, but NanoClaw
@@ -1238,32 +1238,59 @@ envConfig.X`). Confirmed by a live user who ran the skill, hit this, and
 fixed it by hand — the fix matches their own already-working `config.ts`
 exactly.
 
-**The misdiagnosed one, corrected after this section was first written:**
-an early replication summary this session was given also described a
-second bug — "OneCLI's own `NO_PROXY=host.docker.internal` default breaks
-Ollama routing," fixed by overriding `NO_PROXY`/`no_proxy` to a dummy value
-(`0.250.250.254`, made `.env`-configurable as `OLLAMA_NO_PROXY_OVERRIDE`).
-That fix shipped in the first version of `apply_ollama_tool_patch()`. A
-follow-up cross-check against the actual debugging session's own live
-transcript (a timestamped env dump from inside the real container)
-overturned it:
+**The `NO_PROXY` side-question went through three rounds before landing.**
+It's worth recording the sequence, not just the final answer, since the
+middle round overturned the first and then itself got partially overturned
+by the third — a good example of why secondhand debugging narratives need
+primary evidence before shipping code around them.
 
-- `NO_PROXY=<OneCLI's own gateway IP>` was **already the platform default
-  before any fix was applied** — visible in the very first env dump, never
-  added by anyone. It was never the problem.
-- The real bug was `OLLAMA_HOST` itself being set to
-  `http://<that same gateway IP>:11434` — the OneCLI credential gateway,
-  not Ollama, which 403s regardless of proxying. Removing/correcting that
-  one value was the entire fix.
-- The one config that **did** reproduce a live failure was the opposite of
-  what got shipped: temporarily setting `NO_PROXY=host.docker.internal`
-  caused direct (unproxied) TCP connections straight to the Docker gateway
-  IP, which refused the connection outright.
+**Round 1 (shipped first):** an early replication summary this session was
+given described a second bug — "OneCLI's own `NO_PROXY=host.docker.internal`
+default breaks Ollama routing" — fixed by overriding `NO_PROXY`/`no_proxy`
+to a dummy value (`0.250.250.254`, made `.env`-configurable as
+`OLLAMA_NO_PROXY_OVERRIDE`). This shipped in the first version of
+`apply_ollama_tool_patch()`.
 
-`OLLAMA_NO_PROXY_OVERRIDE` was removed from `apply_ollama_tool_patch()`,
-`config.ts`'s export list, `.env.example`, and the README as a result —
-`ollamaEnvArgs()` no longer touches `NO_PROXY`/`no_proxy` at all, leaving it
-entirely to OneCLI's own default. Only the `.env`-read fix above remains.
+**Round 2 (overturned round 1):** a follow-up cross-check against a
+timestamped env dump from the actual debugging session showed
+`NO_PROXY=<OneCLI's own gateway IP>` was already the platform default
+*before* any fix was applied, and was never the problem — the real bug was
+`OLLAMA_HOST` itself pointing at that same gateway IP (the OneCLI
+credential-vault address, not Ollama, which 403s regardless of proxying).
+This round concluded `NO_PROXY` didn't need touching at all and removed
+`OLLAMA_NO_PROXY_OVERRIDE` entirely.
+
+**Round 3 (partially restored round 1, for a different reason):** a
+reconciled account from the admin `claude` session running inside the real
+container, cross-checked directly against `container-runner.ts`'s own
+source, filled in the missing piece: `host.docker.internal:11434` isn't a
+direct Ollama socket on this platform at all — it only resolves because
+`HTTPS_PROXY` routes the request through OneCLI's own gateway, which
+forwards it to the real backend. Excluding `host.docker.internal` from
+proxying via `NO_PROXY` breaks that routing outright (confirmed: this was
+reproduced live during debugging, as a direct TCP connection refusal to the
+Docker gateway IP). OneCLI's own platform default correctly excludes
+`host.docker.internal` — but this repo's own `apply_mnemon_patch()` bakes
+`ENV NO_PROXY=host.docker.internal` into the agent-sandbox Dockerfile for
+unrelated reasons (its own "cheap insurance" against an HTTPS embed
+endpoint being proxied — see that function's own comment), and `docker run
+-e` wins over a Dockerfile `ENV`. So re-asserting the correct value at
+container-spawn time in `ollamaEnvArgs()` isn't redundant with OneCLI's own
+default — it's what actually protects against this repo's *own* other
+patch quietly breaking it. `OLLAMA_NO_PROXY_OVERRIDE` was restored, with
+the reasoning corrected: not "OneCLI's default is wrong," but "something
+else in this specific deployment can and does make it wrong, and this is
+what corrects it back at the point that actually matters (container spawn,
+which happens after image build)."
+
+**What's still unverified, flagged rather than asserted:** whether
+NanoClaw's own `onecli.applyContainerConfig()` call — which runs in
+`container-runner.ts` *after* `ollamaEnvArgs()` pushes its own `-e` args —
+also sets `NO_PROXY` itself. If it does, and `docker run -e` takes the last
+value for a repeated key (standard Docker CLI behavior), that later call
+would win regardless of what this patch sets, making the whole mechanism a
+no-op in practice. `@onecli-sh/sdk`'s own internals aren't available to
+check this against, so it's recorded as an open question, not settled.
 
 ### Verification approach
 
@@ -1333,17 +1360,20 @@ the deployed NanoClaw checkout, not this repo):
 - **A secondhand, prose "replication summary" of a debugging session is not
   the same evidence as the session's own transcript**, even when it's
   detailed, specific, and was personally verified as working by the person
-  who wrote it. The original summary's root-cause story (a `NO_PROXY`
-  default breaking Ollama routing) was plausible, internally consistent,
-  and got baked into shipped code and this very document — but a real
-  literal env-var dump, timestamped from inside the actual container,
-  showed a different root cause entirely (see above). Fixing forward from a
-  narrative reconstruction is fine when it's the best evidence available,
-  but it should stay explicitly provisional — flagged for re-verification
-  against primary evidence — rather than committed to shipped code and
-  documentation as settled fact. When two independent accounts of the same
-  incident genuinely disagree (as happened here, briefly, before the
-  transcript resolved it — see the conversation this session's own record
-  for the back-and-forth), that disagreement itself is a signal to go find
-  primary evidence rather than pick whichever account sounds more
-  authoritative.
+  who wrote it. Three rounds landed on this one setting (see above) before
+  the *mechanism* was actually right — round 1's root-cause story was wrong
+  (OneCLI's default was never the problem), round 2 correctly caught that
+  but over-corrected by assuming "not the platform default" meant "safe to
+  never set," and only round 3 — reasoning from actual source
+  (`container-runner.ts`) instead of another paraphrase — surfaced the real
+  mechanism (HTTPS_PROXY-only routing, plus this repo's own
+  `apply_mnemon_patch()` as the thing that actually puts a container at
+  risk). Each round's fix was plausible and internally consistent on its
+  own; only checking against primary evidence (a transcript, then real
+  source code) caught what prose summaries alone kept getting subtly wrong.
+  Fixing forward from a narrative reconstruction is fine when it's the best
+  evidence available, but it should stay explicitly provisional — flagged
+  for re-verification — rather than committed to shipped code as settled
+  fact. And "the previous round was wrong" doesn't mean "revert to the
+  simplest theory" either — round 2's correction was real, but its own
+  conclusion needed the same scrutiny round 1's did.

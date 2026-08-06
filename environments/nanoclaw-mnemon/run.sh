@@ -433,20 +433,42 @@ MEDIA_TOOLS_DOCKER_BLOCK
 # exporting OLLAMA_HOST/OLLAMA_ADMIN_TOOLS the same way every other .env
 # value is) is baked into the patch text below from the start.
 #
-# NO_PROXY is deliberately left untouched — an earlier version of this
-# patch also forced NO_PROXY/no_proxy on every agent container spawn,
-# based on an initial (wrong) diagnosis that OneCLI's own default was
-# `host.docker.internal`, breaking Ollama routing. A live transcript from
-# the actual debugging session (timestamped env dump) instead showed:
-# OneCLI's real platform default was already NO_PROXY=<its own gateway
-# IP> the whole time, never `host.docker.internal`, and was never the
-# problem. The actual bug was OLLAMA_HOST itself pointing at that same
-# gateway IP (a misconfigured `.env` value, not a shipped-code default) —
-# fixing that alone was the entire fix. Forcing NO_PROXY here would have
-# been a no-op on the platform it was "verified" against (matched the
-# existing default) but risked silently clobbering OneCLI's own real
-# default value on a platform where it legitimately differs — so this
-# patch stays out of NO_PROXY entirely and leaves it to OneCLI.
+# NO_PROXY/no_proxy is explicitly re-asserted on every agent container
+# spawn (see ollama-env.ts's own header comment for the full mechanism).
+# This one detail went through three revisions before landing here —
+# worth recording since the next drift-diagnosis session will otherwise
+# re-derive the same confusion from scratch:
+#   1. First version: forced NO_PROXY based on a diagnosis that OneCLI's
+#      own default was `host.docker.internal`, breaking Ollama routing.
+#   2. A live, timestamped env dump from the actual debugging session
+#      overturned that — OneCLI's real default was already NO_PROXY=<its
+#      own gateway IP> the whole time, never `host.docker.internal`. The
+#      actual original bug was OLLAMA_HOST itself pointing at that same
+#      gateway IP. This version (wrongly) concluded NO_PROXY didn't need
+#      touching at all, and removed it.
+#   3. A follow-up reconciliation (the admin `claude` session inspecting
+#      the live container directly, with NanoClaw's own container-runner.ts
+#      source in hand) restored it: host.docker.internal:11434 is NOT a
+#      direct Ollama socket on this platform — it only works because
+#      HTTPS_PROXY routes it through OneCLI's own gateway. If NO_PROXY
+#      ever includes host.docker.internal, that routing is bypassed and
+#      the connection fails outright. OneCLI's own default correctly
+#      excludes host.docker.internal — but this repo's own
+#      apply_mnemon_patch() bakes `ENV NO_PROXY=host.docker.internal` into
+#      the agent-sandbox Dockerfile for unrelated reasons, and `docker run
+#      -e` (ollamaEnvArgs()'s own output, applied at container-spawn time)
+#      wins over that Dockerfile ENV — so explicitly re-asserting the
+#      correct value here is what actually guards against it, not an
+#      assumption that the platform default alone is sufficient.
+# Unverified: whether NanoClaw's own OneCLI SDK call
+# (onecli.applyContainerConfig(), which runs in container-runner.ts AFTER
+# ollamaEnvArgs() pushes its own args) also sets NO_PROXY itself — if it
+# does, and `docker run -e` truly takes the last value for a repeated key
+# (the normal Docker CLI behavior), that later call would win regardless
+# of what this patch sets, making this whole mechanism a no-op in
+# practice. Not verifiable from this repo's own source since
+# @onecli-sh/sdk's internals aren't in front of us — flagged rather than
+# asserted as certain.
 #
 # Idempotent per file: the two brand-new files this function owns
 # (ollama-mcp-stdio.ts, ollama-env.ts) are only written if missing, NOT
@@ -1033,16 +1055,16 @@ OLLAMA_INDEX_BLOCK
         fi
     fi
 
-    # 3. src/config.ts — read OLLAMA_HOST/OLLAMA_ADMIN_TOOLS from NanoClaw's
-    # own .env (readEnvFile), falling back to process.env — the two-line
-    # addition to readEnvFile's own key list, plus two export lines. Matches
-    # the user's own verified-working config.ts exactly (no NO_PROXY-related
-    # key here — see this function's own header comment for why).
+    # 3. src/config.ts — read OLLAMA_HOST/OLLAMA_ADMIN_TOOLS/
+    # OLLAMA_NO_PROXY_OVERRIDE from NanoClaw's own .env (readEnvFile),
+    # falling back to process.env — the three-line addition to readEnvFile's
+    # own key list, plus three export lines. See this function's own header
+    # comment for why OLLAMA_NO_PROXY_OVERRIDE exists.
     if grep -q "^export const OLLAMA_HOST" "$config_ts"; then
         echo "✅ config.ts already exports OLLAMA_HOST/OLLAMA_ADMIN_TOOLS."
         _ollama_log "config.ts: already patched"
     else
-        echo "🦙 Wiring OLLAMA_HOST/OLLAMA_ADMIN_TOOLS into config.ts..."
+        echo "🦙 Wiring OLLAMA_HOST/OLLAMA_ADMIN_TOOLS/OLLAMA_NO_PROXY_OVERRIDE into config.ts..."
         local keys_anchor
         keys_anchor=$(grep -n "^  'ONECLI_GATEWAY_CONTAINER'," "$config_ts" | head -1 | cut -d: -f1)
         if [ -z "$keys_anchor" ]; then
@@ -1058,6 +1080,7 @@ OLLAMA_INDEX_BLOCK
                 cat <<'OLLAMA_CONFIG_KEYS_BLOCK'
   'OLLAMA_HOST',
   'OLLAMA_ADMIN_TOOLS',
+  'OLLAMA_NO_PROXY_OVERRIDE',
 OLLAMA_CONFIG_KEYS_BLOCK
                 tail -n "+$((keys_anchor + 1))" "$config_ts"
             } > "$tmp"
@@ -1081,11 +1104,12 @@ OLLAMA_CONFIG_KEYS_BLOCK
 
 export const OLLAMA_HOST = process.env.OLLAMA_HOST || envConfig.OLLAMA_HOST;
 export const OLLAMA_ADMIN_TOOLS = process.env.OLLAMA_ADMIN_TOOLS || envConfig.OLLAMA_ADMIN_TOOLS;
+export const OLLAMA_NO_PROXY_OVERRIDE = process.env.OLLAMA_NO_PROXY_OVERRIDE || envConfig.OLLAMA_NO_PROXY_OVERRIDE;
 OLLAMA_CONFIG_EXPORT_BLOCK
                     tail -n "+$((export_anchor + 1))" "$config_ts"
                 } > "$tmp2"
                 mv "$tmp2" "$config_ts"
-                _ollama_log "config.ts: patched (readEnvFile key list + two exports added)"
+                _ollama_log "config.ts: patched (readEnvFile key list + three exports added)"
             fi
         fi
     fi
@@ -1099,18 +1123,29 @@ OLLAMA_CONFIG_EXPORT_BLOCK
     else
         echo "🦙 Writing src/ollama-env.ts..."
         cat > "$ollama_env" <<'OLLAMA_ENV_TS'
-import { OLLAMA_ADMIN_TOOLS, OLLAMA_HOST } from './config.js';
+import { OLLAMA_ADMIN_TOOLS, OLLAMA_HOST, OLLAMA_NO_PROXY_OVERRIDE } from './config.js';
 
 /**
  * Env vars forwarded to every agent container so the Ollama MCP server it
  * spawns (ollama-mcp-stdio.ts) can reach the host's Ollama daemon.
  *
- * Deliberately does NOT touch NO_PROXY/no_proxy -- that's OneCLI's own
- * concern, and forcing it here risks clobbering whatever OneCLI's actual
- * platform default legitimately is on a given host. Leave OLLAMA_HOST
- * unset (the default) to use ollama-mcp-stdio.ts's own built-in default of
- * http://host.docker.internal:11434 -- only set it if that default is
- * wrong for your setup.
+ * host.docker.internal:11434 is not a direct Ollama socket on this
+ * platform -- it only works because HTTPS_PROXY routes the request through
+ * OneCLI's own gateway, which forwards it to the real Ollama backend.
+ * Direct TCP to that hostname (i.e. host.docker.internal excluded from
+ * proxying via NO_PROXY) fails outright. OneCLI's own platform default
+ * NO_PROXY value does NOT include host.docker.internal -- but something
+ * else can leave a container with a NO_PROXY that does: this repo's own
+ * apply_mnemon_patch(), for one, bakes `ENV NO_PROXY=host.docker.internal`
+ * into the agent-sandbox Dockerfile as "cheap insurance" for its own,
+ * unrelated reasons. `docker run -e` (this function's own output) wins
+ * over a Dockerfile ENV, so explicitly re-asserting the correct value here
+ * -- rather than assuming whatever the image/platform already set is
+ * right -- is what actually guards against that. OLLAMA_NO_PROXY_OVERRIDE
+ * (see config.ts) lets an operator supply the real platform value if it
+ * differs from the default below (confirmed correct on OrbStack; unverified
+ * on a real Linux/Raspberry Pi Docker host, where OneCLI's own default may
+ * be a different address entirely).
  */
 export function ollamaEnvArgs(): string[] {
   const args: string[] = [];
@@ -1120,6 +1155,9 @@ export function ollamaEnvArgs(): string[] {
   if (OLLAMA_ADMIN_TOOLS) {
     args.push('-e', `OLLAMA_ADMIN_TOOLS=${OLLAMA_ADMIN_TOOLS}`);
   }
+  const noProxy = OLLAMA_NO_PROXY_OVERRIDE || '0.250.250.254';
+  args.push('-e', `NO_PROXY=${noProxy}`);
+  args.push('-e', `no_proxy=${noProxy}`);
   return args;
 }
 OLLAMA_ENV_TS
@@ -1661,6 +1699,7 @@ else
         -e CLAUDE_MODEL="${CLAUDE_MODEL:-}" \
         -e OLLAMA_HOST="${OLLAMA_HOST:-}" \
         -e OLLAMA_ADMIN_TOOLS="${OLLAMA_ADMIN_TOOLS:-}" \
+        -e OLLAMA_NO_PROXY_OVERRIDE="${OLLAMA_NO_PROXY_OVERRIDE:-}" \
         -v "$INSTALL_PATH:$INSTALL_PATH" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \
