@@ -2043,3 +2043,78 @@ those versions).
 - **Ordering bugs hide behind steps that individually all succeed.** Every
   step in the CLEAN sequence worked and reported success. Only their
   relative order was wrong, which no single step's output could reveal.
+
+## Follow-up (2026-08-06, same day): the agent-container sweep never matched anything — a container built 2026-07-21 survived every CLEAN for two weeks
+
+**Status:** fixed. Found immediately after the previous entry's reorder
+shipped, when a live CLEAN ran the corrected sequence and the post-rebuild
+sweep still reported nothing to remove — while the admin session's smoke
+test, written after that same CLEAN, showed a stale agent container still
+serving.
+
+**The evidence that made this unambiguous:** the smoke test named the live
+container's image as
+`nanoclaw-agent-v2-91b144eb:ag-1783945827013-hhyk7w`, built **2026-07-21**,
+while `nanoclaw-agent-v2-91b144eb:latest` was from that day and passed the
+`whisper-cli` `ldd` check cleanly. The report was provably post-CLEAN on
+two independent grounds: it quoted patch statuses as "patched v2" (a marker
+string only the versioned-block code emits), and
+`remove_agent_containers()` deletes `pi-bootstrap-smoke-test.md`
+unconditionally on every CLEAN, so the file could only have been written
+afterward.
+
+So the reorder from the previous entry was necessary but not sufficient.
+Rebuilding the image before restarting NanoClaw is worthless if the sweep
+that replaces the old containers matches nothing.
+
+**Root cause:** `sweep_agent_container_ids()` enumerated with
+`docker ps -a --format '{{.ID}} {{.Image}}'` and matched
+`^nanoclaw-agent-v2-` on the image field alone. But `docker ps`'s `{{.Image}}`
+resolves the container's image ID to a *name at query time*, and falls back
+to a bare `sha256:...` when that reference no longer resolves. NanoClaw tags
+each agent image ephemerally (`:ag-<timestamp>-<random>`), so once such a tag
+is collected or overwritten, the container it produced becomes invisible to
+a matcher keyed on the image name — with no error and no output, which reads
+exactly like "there was nothing to sweep".
+
+**Fix:** match on the container NAME (`nanoclaw-v2-*`, assigned by NanoClaw
+at creation and never rewritten) *as well as* the image reference. That is
+also the identifier `scripts/entrypoint.sh`'s own smoke-test checklist tells
+the admin session to look for, so the two now agree instead of quietly
+using different keys for the same set of containers. Three supporting
+changes, all aimed at the same failure mode rather than the specific bug:
+
+- the removal path now lists the container IDs it is acting on, re-runs the
+  sweep afterward, and reports any survivor — `docker rm` is deliberately
+  best-effort here (`|| true`, so a self-removed container can't abort a
+  deploy), which means a failure to remove otherwise produces no output at
+  all;
+- the "found none" path now says so explicitly and prints the
+  `docker ps --filter 'name=nanoclaw-v2-'` command that answers the question
+  independently, instead of being silent;
+- a container that matches by name/image but is dropped by the bind-mount
+  scope check (which exists so a second NanoClaw install on the same host
+  isn't swept) is now reported rather than silently skipped, so if that
+  check is ever the thing failing, the next run names it.
+
+### General Lessons
+
+- **An identifier that is resolved at query time is not an identifier.**
+  `{{.Image}}` looks like a stable property of a container and is actually a
+  lookup that can degrade to a different format when the tag it depended on
+  goes away. Anything matching on it needs to tolerate both shapes, or key
+  on something assigned once and never rewritten — here, the name.
+- **"Found nothing" and "did nothing" are different results and must print
+  differently.** This sweep had been failing since at least 2026-07-21 and
+  produced identical output to a healthy no-op the entire time. The fix that
+  matters most long-term is not the matcher — it is that the two cases can
+  now be told apart from the log alone.
+- **Verify destructive operations that are deliberately best-effort.** `||
+  true` is correct here (a container that vanished on its own must not abort
+  a deploy) and it also swallows exactly the signal you would want. If a
+  step must not silently fail, re-check the postcondition rather than
+  trusting the exit status you just discarded.
+- **A fix landing and the symptom persisting is information, not a
+  setback.** The reorder was right; it just sat downstream of a second,
+  independent bug. Reading "still broken" as "the diagnosis was wrong" would
+  have reverted a correct change.

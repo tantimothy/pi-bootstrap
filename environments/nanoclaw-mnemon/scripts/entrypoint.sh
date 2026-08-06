@@ -165,10 +165,22 @@ check, don't guess at results you didn't actually observe):
      before that fix — the same stale-container situation described in
      step 2, with the same resolution (a CLEAN deploy), not a live
      connectivity problem to debug from in here.
-   - Corroborate with a direct request from the same container before
-     reporting either way — e.g. \`curl -s "\$MNEMON_EMBED_ENDPOINT/api/tags"\`.
-     \`curl\` succeeding while mnemon reports unavailable is the signature of
-     the env-var problem above, not of Ollama being down.
+   - **\`curl\` succeeding does NOT mean mnemon's request takes the same
+     route.** curl ignores the uppercase \`HTTP_PROXY\` for \`http://\` URLs
+     and honors only lowercase \`http_proxy\`; Go honors both. So with
+     \`HTTP_PROXY\` set and no lowercase twin, curl goes direct while mnemon
+     goes through the proxy — same URL, two different paths. Run this exact
+     experiment in the affected container and report all three lines
+     verbatim, including the CASE of each proxy var:
+     \`\`\`
+     env | grep -i proxy
+     curl -s -o /dev/null -w '%{http_code}\\n' --noproxy '*' "\$MNEMON_EMBED_ENDPOINT/api/tags"
+     curl -s -o /dev/null -w '%{http_code}\\n' --proxy "\$HTTP_PROXY" "\$MNEMON_EMBED_ENDPOINT/api/tags"
+     \`\`\`
+     direct-works/proxied-fails means mnemon must bypass the proxy for this
+     host; proxied-works/direct-fails means it must use it. This has been
+     misdiagnosed in both directions already — do not propose a fix without
+     these three outputs in hand.
 4. Write a dated summary to \`pi-bootstrap-smoke-test.md\` — what passed,
    what's deferred and why, what actually failed. Anything that failed
    also goes in \`pi-bootstrap-patch-fixes.md\` per the instruction above.

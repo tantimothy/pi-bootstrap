@@ -118,19 +118,47 @@ HOST_TZ="$(readlink /etc/localtime 2>/dev/null | sed -n 's#.*/zoneinfo/##p')"
 HOST_TZ="${HOST_TZ:-UTC}"
 
 # ---------------------------------------------------------------------------------------
-# Agent containers spawned by NanoClaw are all named/imaged nanoclaw-agent-v2-*
-# regardless of which install produced them — matching just that prefix
-# can collide with another NanoClaw installation. Scope the sweep to
-# containers whose bind mounts actually trace back to THIS install path.
+# Identify this install's NanoClaw agent containers.
+#
+# Two independent identifiers are matched, and that redundancy is the whole
+# point — matching only the image reference silently failed for a live
+# install, letting an agent container built 2026-07-21 keep serving through
+# every CLEAN deploy for over two weeks:
+#
+#   - CONTAINER NAME: NanoClaw names each one `nanoclaw-v2-<group>-<id>`.
+#     Stable, assigned at creation, never rewritten. This is also the
+#     identifier the smoke-test checklist in scripts/entrypoint.sh tells the
+#     admin session to look for, so the two now agree.
+#   - IMAGE REFERENCE: `nanoclaw-agent-v2-<slug>:<per-agent tag>`.
+#
+# The image alone is not dependable here because `docker ps --format
+# '{{.Image}}'` resolves the container's image ID to a *name at query time*
+# and falls back to a bare `sha256:...` when that reference no longer
+# resolves. NanoClaw tags each agent image ephemerally
+# (`:ag-<timestamp>-<random>`), so once such a tag is collected or
+# overwritten, the container it produced became invisible to this sweep —
+# no error, no output, just silently nothing to remove. That is exactly what
+# a live CLEAN showed: the post-rebuild sweep announced itself and found
+# zero containers while a stale one was demonstrably still running.
+#
+# The bind-mount scope check stays: agent containers from a DIFFERENT
+# NanoClaw install on the same host share both naming schemes, and only the
+# mount path distinguishes them. But a container that matches by name/image
+# and is then dropped by that check is now reported rather than silently
+# skipped — if the scope check is ever the thing failing, the next run says
+# so instead of looking like a clean sweep.
 # ---------------------------------------------------------------------------------------
 sweep_agent_container_ids() {
     local ids id mounts
-    ids=$($DOCKER ps -a --format '{{.ID}} {{.Image}}' 2>/dev/null | awk '$2 ~ /^nanoclaw-agent-v2-/ {print $1}')
+    ids=$($DOCKER ps -a --format '{{.ID}} {{.Names}} {{.Image}}' 2>/dev/null \
+        | awk '$2 ~ /^nanoclaw-v2-/ || $3 ~ /^nanoclaw-agent-v2-/ {print $1}')
     [ -z "$ids" ] && return 0
     for id in $ids; do
         mounts=$($DOCKER inspect "$id" --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' 2>/dev/null)
         if echo "$mounts" | grep -qF "$INSTALL_PATH"; then
             echo "$id"
+        else
+            echo "ℹ️  Agent container $id looks like NanoClaw's but has no bind mount under $INSTALL_PATH — leaving it alone (another NanoClaw install on this host?). If this install's own agents keep surviving CLEAN, this line is the reason to look at." >&2
         fi
     done
 }
@@ -139,8 +167,29 @@ remove_agent_containers() {
     local ids; ids=$(sweep_agent_container_ids)
     if [ -n "$ids" ]; then
         echo "🐳 Removing this install's agent containers..."
+        echo "$ids" | sed 's/^/     /'
         echo "$ids" | xargs "$DOCKER" stop 2>/dev/null || true
         echo "$ids" | xargs "$DOCKER" rm   2>/dev/null || true
+        # Verify rather than assume. `docker rm` is best-effort here (|| true,
+        # deliberately — a container that vanished on its own must not abort a
+        # deploy), which means a failure to remove otherwise produces no output
+        # at all and reads exactly like success. Re-running the sweep is the
+        # only honest check, and this is the class of silent failure that let a
+        # two-week-old agent container survive every CLEAN unnoticed.
+        local remaining; remaining=$(sweep_agent_container_ids)
+        if [ -n "$remaining" ]; then
+            echo "⚠️  These agent containers were NOT removed and will keep serving from their old image:" >&2
+            echo "$remaining" | sed 's/^/     /' >&2
+            echo "   Remove them by hand ('docker rm -f <id>') — NanoClaw respawns each group's container from the current image on its next message." >&2
+        fi
+    else
+        # Distinguish "nothing to sweep" from "swept". A live install had this
+        # report zero for weeks while a stale container was demonstrably still
+        # running, because the matcher missed it — so say which of the two
+        # this is, and give the command that answers it independently.
+        echo "🐳 No agent containers found for this install (nothing to replace)."
+        echo "   If an agent container IS running, this line means the sweep didn't match it — check with:"
+        echo "     docker ps --filter 'name=nanoclaw-v2-' --format '{{.Names}}\t{{.Image}}\t{{.CreatedAt}}'"
     fi
     # Every caller of this function has just invalidated whatever the last
     # smoke test observed: TEARDOWN and CLEAN destroy the orchestrator's own
