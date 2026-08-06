@@ -1857,3 +1857,61 @@ a `.orphaned-by-pi-bootstrap` suffix is enough on its own to drop out of
   it can't fix a build broken by a file that's merely *present*. Worth
   checking a project's actual compiler config before assuming "nothing
   imports it anymore" is equivalent to "it won't be compiled."
+
+## Follow-up (2026-08-06): dependency guard checked package.json, not resolvability — Telegram stayed dead after a "fixed" CLEAN launch
+
+**Status:** fixed, same day. Reported by an admin session running the
+repo's smoke test after a fresh CLEAN launch: Telegram never came up on
+its own, and only started working after the admin manually created a
+missing symlink, restored `telegram.ts`, and re-added the barrel import
+by hand. See `.pi-bootstrap-patch-fixes.md`'s 2026-08-06 "Telegram
+silently broken: pi-bootstrap self-heal SKIPPED on incorrect premise"
+entry for the original live-container diagnosis this fix is based on.
+
+**What was broken:** `apply_telegram_import_patch()`'s dependency guard
+(added in the very first entry in this file) only ever checked whether
+`"@chat-adapter/telegram"` appeared as a literal string in `package.json`.
+On this deploy that check was factually correct — the string really
+wasn't there, upstream dropped it in commit `25687dc` — but it was the
+wrong question. The package was still fully installed and resolvable:
+present in pnpm's content-addressable virtual store at
+`node_modules/.pnpm/@chat-adapter+telegram@4.29.0/`, nested deps and all.
+Only the top-level `node_modules/@chat-adapter/telegram` symlink was
+missing — pruned by some earlier `pnpm install` run after `package.json`
+stopped listing it, which is normal pnpm behavior (the store itself is
+only cleared by an explicit `pnpm store prune`, a separate step nothing
+here ever runs). The guard treated "not listed in package.json" and "not
+resolvable" as the same condition. They aren't: resolvability is a
+property of `node_modules`, not of `package.json`'s text.
+
+Because the guard came back false, the self-heal did the opposite of what
+was needed: it quarantined the still-working `telegram.ts` (renamed to
+`telegram.ts.orphaned-by-pi-bootstrap`) and skipped restoring the barrel
+import — silently disabling a channel that would have worked fine as-is.
+
+**Fix:** `apply_telegram_import_patch()`'s dependency check now verifies
+resolvability directly against the filesystem instead of trusting
+`package.json` alone, in order: (1) does
+`node_modules/@chat-adapter/telegram` already exist (a dangling symlink
+correctly falls through, since the check uses `-e`, which follows the
+link); (2) if not, does the package exist in the local pnpm virtual store
+anyway (`node_modules/.pnpm/@chat-adapter+telegram@*/`) — if so, recreate
+just the missing top-level symlink and treat the dependency as present;
+(3) only if neither finds it, fall back to the `package.json` listing,
+which is the sole signal available on a genuinely fresh install, before
+`pnpm install` has ever populated `node_modules`. The function also now
+un-quarantines `telegram.ts`/`telegram.test.ts` (moves back from
+`*.orphaned-by-pi-bootstrap`) whenever the dependency resolves, undoing
+any incorrect quarantine a previous run applied under the old,
+package.json-only guard.
+
+### General Lessons
+
+- **A dependency check should test the property you actually care about,
+  not a proxy for it that happens to usually agree.** `package.json`
+  listing a dependency and that dependency being resolvable at runtime are
+  correlated, not identical — package managers prune top-level links
+  independently of their content-addressable stores, and a config file's
+  text is not the same fact as the filesystem state it's supposed to
+  describe. When a guard exists specifically to prevent a broken build,
+  check the condition that actually causes the break.

@@ -357,6 +357,26 @@ MNEMON_DOCKER_BLOCK
 # CLEAN build failures — see docs/lessons-learned/nanoclaw-mnemon.md for
 # the full history of getting this wrong twice before landing here).
 #
+# Dependency guard checks *resolvability*, not just package.json — a real
+# live deploy (2026-08-06, see .pi-bootstrap-patch-fixes.md) hit a false
+# SKIP: package.json genuinely lacked "@chat-adapter/telegram" (upstream
+# dropped it in commit 25687dc), but the package was still fully present
+# in pnpm's content-addressable virtual store
+# (node_modules/.pnpm/@chat-adapter+telegram@*/), including its own nested
+# deps — only the top-level node_modules/@chat-adapter/telegram symlink
+# was missing (pruned by a `pnpm install` run after package.json no longer
+# listed it; pnpm's store prune is a separate, not-automatically-triggered
+# step, so the store entry survived). grep-on-package.json alone can't see
+# that: it treats "not listed" and "not resolvable" as the same case, when
+# they aren't. So this guard now checks, in order: (1) does the top-level
+# symlink already exist (dangling links correctly fail this, since `-e`
+# follows the link); (2) if not, does the package exist in the local pnpm
+# virtual store anyway — if so, recreate just the missing top-level
+# symlink and treat the dependency as present; (3) only if neither of
+# those find it, fall back to the package.json listing, which is the only
+# signal available on a fresh install before `pnpm install` has ever
+# populated node_modules at all.
+#
 # Checked directly against upstream's actual git history (not guessed):
 # commit 675a6d87 ("remove accidentally merged Telegram channel code",
 # 2026-03-25) was a CLEAN, complete removal — src/channels/telegram.ts,
@@ -423,7 +443,31 @@ apply_telegram_import_patch() {
     # present is left alone.
     local dep_present=false
     local pkg_json="${INSTALL_PATH}/package.json"
-    if [ -f "$pkg_json" ] && grep -q '"@chat-adapter/telegram"' "$pkg_json"; then
+    local telegram_link="${INSTALL_PATH}/node_modules/@chat-adapter/telegram"
+    local pnpm_store_dir="${INSTALL_PATH}/node_modules/.pnpm"
+    local telegram_store telegram_store_name
+
+    if [ -e "$telegram_link" ]; then
+        # -e follows the symlink — a dangling link (store entry gone too)
+        # correctly falls through to the store/package.json checks below.
+        dep_present=true
+        _telegram_import_log "node_modules/@chat-adapter/telegram: already resolvable (symlink present)"
+    elif [ -d "$pnpm_store_dir" ]; then
+        telegram_store=$(find "$pnpm_store_dir" -maxdepth 1 -type d -name '@chat-adapter+telegram@*' 2>/dev/null | head -1)
+        if [ -n "$telegram_store" ] && [ -d "${telegram_store}/node_modules/@chat-adapter/telegram" ]; then
+            telegram_store_name=$(basename "$telegram_store")
+            mkdir -p "${INSTALL_PATH}/node_modules/@chat-adapter"
+            ln -s "../.pnpm/${telegram_store_name}/node_modules/@chat-adapter/telegram" "$telegram_link"
+            dep_present=true
+            echo "🔗 Recreated missing node_modules/@chat-adapter/telegram symlink — package.json no longer lists it, but it's still present in pnpm's virtual store (see .pi-bootstrap-patch-fixes.md 2026-08-06 entry)." >&2
+            _telegram_import_log "node_modules/@chat-adapter/telegram: **RESTORED** — symlink recreated pointing at pnpm's virtual store (${telegram_store_name}); package.json listing was stale/absent but the store still had it."
+        fi
+    fi
+    if [ "$dep_present" = false ] && [ -f "$pkg_json" ] && grep -q '"@chat-adapter/telegram"' "$pkg_json"; then
+        # Neither the symlink nor the pnpm store has it yet — this is the
+        # fresh-install case, before `pnpm install` has ever populated
+        # node_modules. Trust package.json here; the upcoming install step
+        # will fetch it.
         dep_present=true
     fi
     if [ "$dep_present" = false ]; then
@@ -469,6 +513,21 @@ apply_telegram_import_patch() {
         TELEGRAM_IMPORT_PATCH_OK=false
         return 1
     fi
+
+    # Dependency resolves now — undo any quarantine a previous run applied
+    # incorrectly (e.g. under the old package.json-only guard, which would
+    # have quarantined telegram.ts on the exact false-SKIP scenario this
+    # function's dependency guard now avoids; see .pi-bootstrap-patch-fixes.md
+    # 2026-08-06 entry).
+    local orphan tgt
+    for orphan in src/channels/telegram.ts src/channels/telegram.test.ts; do
+        tgt="${INSTALL_PATH}/${orphan}.orphaned-by-pi-bootstrap"
+        if [ -f "$tgt" ]; then
+            mv "$tgt" "${INSTALL_PATH}/${orphan}"
+            echo "♻️  Restored ${orphan} from a previous incorrect quarantine — its dependency resolves now." >&2
+            _telegram_import_log "${orphan}: **RESTORED** — un-quarantined (dependency now resolves)"
+        fi
+    done
 
     local any_patched=false
     local rel f anchor tmp
