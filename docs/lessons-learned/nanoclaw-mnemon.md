@@ -1542,3 +1542,47 @@ statically-linked `whisper-cli` with no runtime library dependency at all
   the binary works — this was only caught by directly exec-ing into a live
   container and running the command, per this repo's `CLAUDE.md` note that
   Docker-based environments have no automated build validation.
+
+## Follow-up (2026-08-06): the smoke test's `ollama_available: false` was a false report
+
+**Status:** closed, no code change. The same admin session's smoke test
+(`.pi-bootstrap-smoke-test.md`) had flagged `mnemon embed --status`
+reporting `"ollama_available": false` / `"coverage": "0%"` as a CONCERN,
+while separately confirming Ollama itself was reachable at
+`host.docker.internal:11434` from inside the container. A later check in
+the same session confirmed Ollama working through all three access paths
+this environment exposes to an agent:
+
+1. **Via mnemon's own embed endpoint** — `MNEMON_EMBED_ENDPOINT=http://host.docker.internal:11434`
+   with `nomic-embed-text` (137M, 768-dim); every `mnemon recall` embeds its
+   query through this and was already confirmed working.
+2. **Via the Ollama MCP tools** (`apply_ollama_tool_patch()`'s own patch) —
+   `ollama_generate`/`ollama_list_models`/`ollama_pull_model` etc., used
+   successfully earlier in the same session for an unrelated lookup.
+   Models available: `llama3.2:latest` (3.2B), `qwen3.5:2b`,
+   `nomic-embed-text` (embed-only).
+3. **Directly via `curl`** — `host.docker.internal:11434` reachable through
+   the container's proxy setup. (Native `fetch()` breaks there — an
+   undici/proxy TLS issue — but `curl` subprocesses work fine; noted here
+   in case it explains why some in-process check inside mnemon itself sees
+   a different result than a subprocess `curl` does.)
+
+**Conclusion:** `ollama_available: false` is a false negative from
+mnemon's own `embed --status` availability check, not a real connectivity
+problem — Ollama is reachable through every path this environment actually
+uses it through. Likely explanations: mnemon's own check hits a different
+endpoint/method than a plain `/api/tags` fetch (e.g. an in-process
+`fetch()` hitting the same undici/proxy issue noted in path 3 above, where
+a subprocess `curl` doesn't), or the check simply hasn't been exercised
+yet — `coverage: 0%` is consistent with "no recall has embedded anything
+yet" rather than "broken."
+
+**Why no code change here:** this is a status-reporting bug inside
+mnemon's own `embed --status` command (upstream, not something
+`environments/nanoclaw-mnemon/run.sh` patches or owns), and the underlying
+capability it's misreporting on is confirmed working. Recorded here so a
+future session doesn't re-diagnose the same "concern" as if it were new,
+and so a fix — if one ever gets made — has a starting point: check what
+`mnemon embed --status`'s own availability probe actually calls, and
+whether it goes through the same `fetch()` path that path 3 above already
+found broken under this container's proxy setup.
