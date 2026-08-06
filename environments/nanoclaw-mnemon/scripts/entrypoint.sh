@@ -90,9 +90,14 @@ check, don't guess at results you didn't actually observe):
    \`... whisper-cli --help\`, and \`... ffmpeg -version\` all succeed.
 3. Mnemon and the Ollama MCP tool both need a *live* agent container to
    test for real — check \`docker ps --filter "name=nanoclaw-v2-"\` first.
-   None yet is normal right after a fresh install or CLEAN, before any real
-   conversation has happened — mark this tier deferred, not failed, and
-   note it should be re-run once a real conversation exists. If one does
+   **Zero containers is the expected, normal state on a genuinely fresh
+   install** — no agent container is spawned until a real inbound message
+   arrives, and that can't happen until at least one channel (Telegram,
+   etc.) is paired, which vanilla setup may not have reached yet. This is
+   NOT a failure of anything this tier is checking — mark it DEFERRED (not
+   FAILED, not SKIPPED) with the reason "no channel paired / no live agent
+   container yet," and note it should be re-run once a real conversation
+   exists. If a live container does
    exist: \`docker exec -it <that container> mnemon embed --status\` (only
    meaningful if \`MNEMON_EMBED_ENDPOINT\` is set in \`.env\` — see the
    README's "Verifying Ollama & Mnemon" section for what the output should
