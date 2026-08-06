@@ -1226,30 +1226,44 @@ in `run.sh` (same idempotent text-splice mechanism as `apply_mnemon_patch()`/
 `NANOCLAW_SETUP` mnemon/plain branch — this is a general per-group agent
 capability, not a mnemon-profile feature.
 
-### The two shipped-skill bugs (confirmed by a live user who ran the skill,
-hit both, and fixed them by hand)
+### The real shipped-skill bug, and a misdiagnosed one that got corrected mid-session
 
-1. **`.env` vars never read.** The skill's `ollamaEnvArgs()` reads
-   `process.env.OLLAMA_HOST`/`OLLAMA_ADMIN_TOOLS` directly, but NanoClaw
-   loads `.env` through its own `readEnvFile()` — those values never reach
-   `process.env` on their own. Fix: `src/config.ts` needs `OLLAMA_HOST`/
-   `OLLAMA_ADMIN_TOOLS` added to the `readEnvFile([...])` key list and
-   exported the same way every other config value is (`process.env.X ||
-   envConfig.X`).
-2. **OneCLI's own `NO_PROXY=host.docker.internal` default breaks Ollama
-   routing.** OneCLI injects that into every agent container so its own
-   proxy address isn't self-proxied — but Ollama is reached AT
-   `host.docker.internal:11434` THROUGH that same proxy, so the default
-   value routes Ollama traffic OUTSIDE the proxy instead, breaking the
-   connection. Fix: `ollama-env.ts`'s `ollamaEnvArgs()` overrides
-   `NO_PROXY`/`no_proxy` to any value that isn't `host.docker.internal` —
-   made `.env`-configurable as `OLLAMA_NO_PROXY_OVERRIDE` rather than
-   hardcoded, since the value that happens to be safe on OrbStack
-   (`0.250.250.254`, OrbStack's own raw host IP) means nothing in
-   particular on a real Linux/Raspberry Pi Docker host.
+**The real bug (`.env` vars never read):** the skill's `ollamaEnvArgs()`
+reads `process.env.OLLAMA_HOST`/`OLLAMA_ADMIN_TOOLS` directly, but NanoClaw
+loads `.env` through its own `readEnvFile()` — those values never reach
+`process.env` on their own. Fix: `src/config.ts` needs `OLLAMA_HOST`/
+`OLLAMA_ADMIN_TOOLS` added to the `readEnvFile([...])` key list and
+exported the same way every other config value is (`process.env.X ||
+envConfig.X`). Confirmed by a live user who ran the skill, hit this, and
+fixed it by hand — the fix matches their own already-working `config.ts`
+exactly.
 
-Both fixes are baked into the patch text `apply_ollama_tool_patch()` writes
-from the start — it never reproduces the skill's own shipped bug.
+**The misdiagnosed one, corrected after this section was first written:**
+an early replication summary this session was given also described a
+second bug — "OneCLI's own `NO_PROXY=host.docker.internal` default breaks
+Ollama routing," fixed by overriding `NO_PROXY`/`no_proxy` to a dummy value
+(`0.250.250.254`, made `.env`-configurable as `OLLAMA_NO_PROXY_OVERRIDE`).
+That fix shipped in the first version of `apply_ollama_tool_patch()`. A
+follow-up cross-check against the actual debugging session's own live
+transcript (a timestamped env dump from inside the real container)
+overturned it:
+
+- `NO_PROXY=<OneCLI's own gateway IP>` was **already the platform default
+  before any fix was applied** — visible in the very first env dump, never
+  added by anyone. It was never the problem.
+- The real bug was `OLLAMA_HOST` itself being set to
+  `http://<that same gateway IP>:11434` — the OneCLI credential gateway,
+  not Ollama, which 403s regardless of proxying. Removing/correcting that
+  one value was the entire fix.
+- The one config that **did** reproduce a live failure was the opposite of
+  what got shipped: temporarily setting `NO_PROXY=host.docker.internal`
+  caused direct (unproxied) TCP connections straight to the Docker gateway
+  IP, which refused the connection outright.
+
+`OLLAMA_NO_PROXY_OVERRIDE` was removed from `apply_ollama_tool_patch()`,
+`config.ts`'s export list, `.env.example`, and the README as a result —
+`ollamaEnvArgs()` no longer touches `NO_PROXY`/`no_proxy` at all, leaving it
+entirely to OneCLI's own default. Only the `.env`-read fix above remains.
 
 ### Verification approach
 
@@ -1316,3 +1330,20 @@ the deployed NanoClaw checkout, not this repo):
   something byte-exact. Asking the user directly for a pasted/uploaded copy
   of their own real, working file was faster and more reliable than several
   rounds of retrying WebFetch with narrower prompts or raw-URL redirects.
+- **A secondhand, prose "replication summary" of a debugging session is not
+  the same evidence as the session's own transcript**, even when it's
+  detailed, specific, and was personally verified as working by the person
+  who wrote it. The original summary's root-cause story (a `NO_PROXY`
+  default breaking Ollama routing) was plausible, internally consistent,
+  and got baked into shipped code and this very document — but a real
+  literal env-var dump, timestamped from inside the actual container,
+  showed a different root cause entirely (see above). Fixing forward from a
+  narrative reconstruction is fine when it's the best evidence available,
+  but it should stay explicitly provisional — flagged for re-verification
+  against primary evidence — rather than committed to shipped code and
+  documentation as settled fact. When two independent accounts of the same
+  incident genuinely disagree (as happened here, briefly, before the
+  transcript resolved it — see the conversation this session's own record
+  for the back-and-forth), that disagreement itself is a signal to go find
+  primary evidence rather than pick whichever account sounds more
+  authoritative.
