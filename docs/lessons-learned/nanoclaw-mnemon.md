@@ -1467,3 +1467,78 @@ clears it.
   "TEARDOWN" ]` check in two separate places — it fell out of what those
   two policies already had in common, rather than needing to be reasoned
   about separately for each.
+
+## Two live-container findings from an admin session (2026-08-06), fixed in pi-bootstrap
+
+**Status:** merged. Both items were reported by a `claude` admin session
+running inside a deployed container (into
+`.pi-bootstrap-patch-fixes.md`, per that file's own instructions) and then
+folded back into this repo so the fix survives the next CLEAN/fresh install
+rather than staying a container-local workaround.
+
+### Issue 1: upstream NanoClaw silently dropped the Telegram channel import
+
+**Symptom:** Telegram stopped responding after a FAST restart (not a CLEAN
+— FAST does a plain `git pull --ff-only`, no re-clone). No error anywhere;
+messages sent to the bot in the meantime were queued by Telegram itself and
+delivered once fixed.
+
+**Root cause:** Upstream NanoClaw commit `675a6d87` ("remove accidentally
+merged Telegram channel code") removed `import './telegram.js';` from both
+`src/channels/index.ts` and `dist/channels/index.js`. A plain FAST sync
+picks up any upstream commit, including a regression like this one — there
+was previously no defense against upstream breaking its own wiring.
+
+**Fix:** Added `apply_telegram_import_patch()` to `run.sh`, applied
+unconditionally (like `apply_ollama_tool_patch()`, since Telegram isn't a
+mnemon-profile-specific feature) right after the CLEAN/FAST source sync.
+Idempotently re-adds `import './telegram.js';` after the `import
+'./cli.js';` line in both files if the line is missing, and records status
+in `.pi-bootstrap-patches.md` under a new "Telegram channel import
+self-heal" section, following the same anchor-based text-splice pattern
+`apply_mnemon_patch`/`apply_media_tools_patch`/`apply_ollama_tool_patch`
+already use elsewhere in this file.
+
+### Issue 2: `whisper-cli` (agent-side media tools) missing its shared libraries
+
+**Symptom:** `whisper-cli --help` (and any direct Bash invocation) failed
+with `libwhisper.so.1: cannot open shared object file: No such file or
+directory`, inside both the orchestrator's own image
+(`environments/nanoclaw-mnemon/Dockerfile`) and the agent-sandbox image
+(`apply_media_tools_patch()`'s patch block in `run.sh`).
+
+**Root cause:** whisper.cpp's cmake build defaults to dynamic linking
+(`libwhisper.so.1`, `libggml*.so`), but both Dockerfiles only `cp` out the
+compiled `whisper-cli` binary and then `rm -rf` the build tree the shared
+libraries lived in — so the binary that ships in the final image has no
+runtime dependency it can actually satisfy. (Code that goes through the
+`nodejs-whisper` npm package still worked, since that package separately
+extracts matching libraries into `/workspace/agent/bin/whisper-lib/` at
+startup and handles its own library loading — but that path never sets
+`LD_LIBRARY_PATH`, so a direct `whisper-cli` Bash invocation had nothing to
+find.)
+
+**Fix:** Added `-DBUILD_SHARED_LIBS=OFF` to the `cmake -B ... -S ...`
+invocation in both the orchestrator's `Dockerfile` and the agent-sandbox
+patch block in `run.sh`'s `apply_media_tools_patch()`, producing a
+statically-linked `whisper-cli` with no runtime library dependency at all
+— simpler than threading `LD_LIBRARY_PATH` through a wrapper script or an
+`ldconfig` entry at container-entrypoint time, and it doesn't depend on the
+`nodejs-whisper` package having run first to populate the lib directory.
+
+### General Lessons
+
+- **Not pinning NanoClaw's git ref (see the `.pi-bootstrap-patches.md`
+  header comment on this file's own `write_patches_manifest()`) means
+  upstream can regress its own base functionality, not just conflict with
+  a pi-bootstrap patch.** The existing text-splice patches all defend
+  pi-bootstrap's own additions against upstream drift; this Telegram fix is
+  the first one that defends stock upstream behavior against upstream
+  itself, applied with the identical mechanism.
+- **A binary that builds cleanly and copies into the image without error
+  can still be dead on arrival if the build step's own defaults (dynamic
+  linking) don't match how the final image actually ships it (binary only,
+  build tree deleted).** `docker compose build` succeeding is not evidence
+  the binary works — this was only caught by directly exec-ing into a live
+  container and running the command, per this repo's `CLAUDE.md` note that
+  Docker-based environments have no automated build validation.

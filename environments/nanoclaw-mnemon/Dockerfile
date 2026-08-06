@@ -76,9 +76,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # (unlike GCC 13+ or clang) fails outright on instead of just warning.
 # clang doesn't have this conflict, so switching just this build's
 # compiler sidesteps it without needing a newer GCC than bookworm ships.
+#
+# -DBUILD_SHARED_LIBS=OFF: whisper.cpp's cmake defaults to a dynamically
+# linked whisper-cli, against libwhisper.so.1/libggml*.so — libraries that
+# live under /tmp/whisper.cpp/build and get deleted along with the rest of
+# that tree two lines down, since only the binary is copied out. Without
+# this flag the copied-out whisper-cli fails at runtime with "libwhisper.so.1:
+# cannot open shared object file: No such file or directory". Confirmed
+# directly: `whisper-cli --help` errored; a static build (or manually
+# exporting LD_LIBRARY_PATH to wherever the matching .so files happen to
+# live) is required. Statically linking is the fix here since nothing else
+# in this image provides those libraries at runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake clang \
     && git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp \
-    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    && cmake -B /tmp/whisper.cpp/build -S /tmp/whisper.cpp -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DBUILD_SHARED_LIBS=OFF \
     && cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)" \
     && cp /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli \
     && rm -rf /tmp/whisper.cpp \
