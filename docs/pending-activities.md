@@ -1,6 +1,6 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-07-19**. GitHub itself (PR/issue
+A snapshot of open follow-ups as of **2026-08-07**. GitHub itself (PR/issue
 state) is always the authoritative source for anything below that
 references a PR — this file is a convenience index, not a system of
 record, and goes stale the moment something merges or gets tested. Prune
@@ -111,6 +111,35 @@ the user on their own Mac. Not yet done:
   against `freebsd/calendar-data` once, as a point-in-time snapshot; no
   process exists yet to catch it drifting again over time. See
   `docs/future-enhancements/mac-terminal-setup.md` #3.
+
+## nanoclaw-mnemon: per-group derived agent images — stale case fixed, deleted case still open
+
+Full account in `docs/lessons-learned/nanoclaw-mnemon.md` ("the real cause
+of both symptoms was a per-group DERIVED image nothing ever rebuilt"), the
+mechanism in `environments/nanoclaw-mnemon/README.md`'s "Per-group agent
+images" section, and the design options in
+`docs/future-enhancements/nanoclaw-mnemon.md` #7.
+
+- **Shipped and needs a live confirmation:** `rebuild_stale_group_images()`
+  rebuilds any `nanoclaw-agent-v2-*:<group-id>` image older than the base
+  after each base rebuild. Verified only against a mocked Docker — no live
+  CLEAN has exercised it yet. What to look for: a
+  `Group '<id>' runs a derived agent image older than the base` line,
+  followed by a multi-minute package reinstall, after which `ldd` inside
+  that group's agent reports `not a dynamic executable`.
+- **Still open, no code:** a derived image that has been *deleted* is not
+  detected at all — nothing left for `docker images` to enumerate, and the
+  dangling tag lives in NanoClaw's own database. The group then fails
+  completely silently (spawn retried every 60s, exit 125, empty stderr, no
+  WARN, no "Container exited"), which is how it went unnoticed for days.
+  Recovery is manual: `pnpm ncl groups restart --id <group-id> --rebuild`.
+  Detection matters more than automatic repair here.
+- **Also unverified:** whether mnemon's `ollama_available` actually flips to
+  true once a group runs a derived image rebuilt on the current base. The
+  live proxy diagnostic (direct connection refused, via-proxy HTTP 200, both
+  `HTTP_PROXY` and `http_proxy` set) confirms the current `https://`-only
+  `NO_PROXY` scheme-gating is correct, so this is expected to resolve with
+  the image — but it has not been observed resolving.
 
 ## Known, deliberately-deferred code quality items
 

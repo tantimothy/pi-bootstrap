@@ -398,7 +398,63 @@ The orchestrator image has no `USER` directive, so NanoClaw's first-run "you are
 
 ## Agent-container cleanup scope
 
-NanoClaw names conversation-group agent containers and images `nanoclaw-agent-v2-*`. `run.sh` scopes `TEARDOWN` and `CLEAN` to containers whose bind mounts trace back to this installation's `$NANOCLAW_INSTALL_PATH`, rather than deleting every container matching that name. This protects another independently installed NanoClaw instance, if one exists outside this repository.
+NanoClaw names conversation-group agent containers `nanoclaw-v2-<group>-<id>` and their images `nanoclaw-agent-v2-*`. `run.sh` scopes `TEARDOWN` and `CLEAN` to containers whose bind mounts trace back to this installation's `$NANOCLAW_INSTALL_PATH`, rather than deleting every container matching that name. This protects another independently installed NanoClaw instance, if one exists outside this repository.
+
+Containers are matched on **both** their name and their image reference. That redundancy is deliberate: `docker ps`'s `{{.Image}}` column resolves a container's image ID to a name at query time and degrades to a bare `sha256:...` when that reference no longer resolves, so a matcher keyed only on the image name can silently miss containers — which it did, for weeks, on a real install.
+
+## 🧊 Per-group agent images (why an old one can quietly outlive a rebuild)
+
+**Read this before concluding that a patched capability "didn't take".** It is the single most misleading failure mode in this environment.
+
+There are two kinds of agent image, and they age differently:
+
+| | Base agent-sandbox image | Derived per-group image |
+|---|---|---|
+| Tag | `nanoclaw-agent-v2-<slug>:latest` | `nanoclaw-agent-v2-<slug>:<group-id>` |
+| Exists for | every install | only groups that installed custom packages |
+| Rebuilt by | every `CLEAN` | `run.sh` (only since the fix below), otherwise `ncl groups restart --rebuild` |
+
+A conversation group that installs custom packages — through NanoClaw's own `install_packages` self-modification flow, or `ncl groups add-package` — gets its **own image**, built *from* the base and tagged with that group's ID. NanoClaw stores the tag and uses it directly for every spawn of that group.
+
+Everything this environment patches into the agent sandbox (`whisper.cpp`, `yt-dlp`, `ffmpeg`, mnemon and its ENVs — see "🎙️ Transcribing Audio/Video" and "🧠 Mnemon Integration") goes into the **base**. A group with a derived image keeps running whatever the base looked like on the day its own image was last built. Nothing in pi-bootstrap used to rebuild those, so it could drift arbitrarily far behind — a real install ran a two-week-old derived image against a current base, which is why `whisper-cli` stayed broken and mnemon kept reporting `ollama_available: false` across repeated `CLEAN` deploys, while every check against the base image passed.
+
+What makes this so hard to spot: **replacing the container doesn't help.** It respawns from the same derived image. The symptom is "the image is healthy, the agent isn't, and redeploying changes nothing."
+
+`run.sh` now rebuilds any derived image older than the base after each base rebuild, so this should no longer accumulate. To check by hand:
+
+```bash
+# what exists, and how old is each?
+docker images --format '{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}' | grep nanoclaw-agent-v2-
+
+# which image is a running agent actually using?
+docker ps --filter 'name=nanoclaw-v2-' --format '{{.Names}}\t{{.Image}}\t{{.CreatedAt}}'
+```
+
+If a running agent's image isn't `:latest`, any check you run inside it describes *that* image, not the base.
+
+### ⚠️ Don't hand-delete `nanoclaw-agent-v2-*` images that aren't `:latest`
+
+Each one is load-bearing for a specific group, and deleting one breaks that group **silently and completely**. The tag stays in NanoClaw's database, `docker run` fails instantly with exit 125, the captured stderr comes back empty, and NanoClaw's close handler emits nothing at INFO — so there is no error anywhere. The only visible symptom is this, repeating forever while the pending message count climbs and the channel never replies:
+
+```
+INFO Spawning container containerName="nanoclaw-v2-<group>-<timestamp>"
+...60 seconds later...
+INFO Spawning container containerName="nanoclaw-v2-<group>-<timestamp+60>"
+```
+
+If a channel has gone unresponsive and the logs look like that, check the group's image still exists before investigating anything else. Recovery — this rebuilds the derived image on the current base and updates the stored tag, and takes several minutes because it reinstalls that group's packages:
+
+```bash
+docker exec -it nanoclaw-mnemon bash -lc \
+  "cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups list"
+
+docker exec -it nanoclaw-mnemon bash -lc \
+  "cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups restart --id <group-id> --rebuild"
+```
+
+Note `pnpm ncl`, not bare `ncl` — in the orchestrator container `ncl` is a pnpm script alias inside NanoClaw's source tree, so it needs both the `cd` and the `pnpm` prefix. (A bare `/usr/local/bin/ncl` does exist inside *agent* containers; different image, different story.)
+
+**Known gap:** a derived image that has been *deleted* can't be detected automatically — there's nothing left for `docker images` to enumerate, and the dangling tag lives in NanoClaw's own database. Recovery is the manual rebuild above. Tracked in `docs/future-enhancements/nanoclaw-mnemon.md` #7.
 
 ---
 
