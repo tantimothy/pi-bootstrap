@@ -32,6 +32,12 @@ POLICY="${REBUILD_POLICY:-FAST}"
 # entry point, invoked directly rather than through deploy.sh's menu, which
 # is the only other place this got sourced).
 source "$REPO_DIR/lib/locale-lib.sh" || true
+# _yaml_expand — resolves `${VAR}`/`${VAR:-default}` markers against real
+# bash variables already in scope, safely (plain-name expansion only, no
+# command substitution/arbitrary code). Despite the name, it's a generic
+# string-templating helper, not YAML-specific — reused below by
+# write_patches_manifest() to render templates/patches-manifest.md.tmpl.
+source "$REPO_DIR/lib/yaml-lib.sh"
 
 echo "=========================================================="
 echo "🧠 NanoClaw + Mnemon Deployment Pipeline"
@@ -139,7 +145,7 @@ remove_agent_containers() {
     # session to notice is stale) is what makes entrypoint.sh's standing
     # instruction — "run the checklist if this file is missing" — correctly
     # re-trigger after either policy, without needing FAST to ever touch it.
-    rm -f "${INSTALL_PATH}/.pi-bootstrap-smoke-test.md" 2>/dev/null || true
+    rm -f "${INSTALL_PATH}/pi-bootstrap-smoke-test.md" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------------------
@@ -358,7 +364,7 @@ MNEMON_DOCKER_BLOCK
 # the full history of getting this wrong twice before landing here).
 #
 # Dependency guard checks *resolvability*, not just package.json — a real
-# live deploy (2026-08-06, see .pi-bootstrap-patch-fixes.md) hit a false
+# live deploy (2026-08-06, see pi-bootstrap-patch-fixes.md) hit a false
 # SKIP: package.json genuinely lacked "@chat-adapter/telegram" (upstream
 # dropped it in commit 25687dc), but the package was still fully present
 # in pnpm's content-addressable virtual store
@@ -459,7 +465,7 @@ apply_telegram_import_patch() {
             mkdir -p "${INSTALL_PATH}/node_modules/@chat-adapter"
             ln -s "../.pnpm/${telegram_store_name}/node_modules/@chat-adapter/telegram" "$telegram_link"
             dep_present=true
-            echo "🔗 Recreated missing node_modules/@chat-adapter/telegram symlink — package.json no longer lists it, but it's still present in pnpm's virtual store (see .pi-bootstrap-patch-fixes.md 2026-08-06 entry)." >&2
+            echo "🔗 Recreated missing node_modules/@chat-adapter/telegram symlink — package.json no longer lists it, but it's still present in pnpm's virtual store (see pi-bootstrap-patch-fixes.md 2026-08-06 entry)." >&2
             _telegram_import_log "node_modules/@chat-adapter/telegram: **RESTORED** — symlink recreated pointing at pnpm's virtual store (${telegram_store_name}); package.json listing was stale/absent but the store still had it."
         fi
     fi
@@ -491,7 +497,7 @@ apply_telegram_import_patch() {
     if [ "$dep_present" = false ]; then
         echo "⚠️  telegram.ts's own dependency (@chat-adapter/telegram) is no longer in package.json — skipping the telegram-import patch." >&2
         echo "   Restoring the barrel import would break the build (Cannot find module '@chat-adapter/telegram'); NanoClaw dropped this dependency in commit 25687dc, after cleanly removing telegram.ts itself in 675a6d87." >&2
-        _telegram_import_log "**SKIPPED (barrel import)** — @chat-adapter/telegram missing from package.json (dropped upstream in commit 25687dc); restoring the import would break the build. See .pi-bootstrap-patch-fixes.md."
+        _telegram_import_log "**SKIPPED (barrel import)** — @chat-adapter/telegram missing from package.json (dropped upstream in commit 25687dc); restoring the import would break the build. See pi-bootstrap-patch-fixes.md."
         # Strip a STALE barrel import too, not just skip adding a new one —
         # the quarantine pass above just renamed telegram.ts/telegram.js out
         # from under any import that already points at it (e.g. left behind
@@ -517,7 +523,7 @@ apply_telegram_import_patch() {
     # Dependency resolves now — undo any quarantine a previous run applied
     # incorrectly (e.g. under the old package.json-only guard, which would
     # have quarantined telegram.ts on the exact false-SKIP scenario this
-    # function's dependency guard now avoids; see .pi-bootstrap-patch-fixes.md
+    # function's dependency guard now avoids; see pi-bootstrap-patch-fixes.md
     # 2026-08-06 entry).
     local orphan tgt
     for orphan in src/channels/telegram.ts src/channels/telegram.test.ts; do
@@ -745,9 +751,9 @@ MEDIA_TOOLS_DOCKER_BLOCK
 # Idempotent per file: the two brand-new files this function owns
 # (ollama-mcp-stdio.ts, ollama-env.ts) are only written if missing, NOT
 # unconditionally overwritten on every deploy — if the admin `claude`
-# session ever hand-fixes either file live (see the .pi-bootstrap-patches.md
+# session ever hand-fixes either file live (see the pi-bootstrap-patches.md
 # manifest write_patches_manifest() writes right after this function runs,
-# and its sibling .pi-bootstrap-patch-fixes.md), that fix survives every
+# and its sibling pi-bootstrap-patch-fixes.md), that fix survives every
 # later FAST/CLEAN run untouched, since this function only ever fills in a
 # MISSING file, never replaces an existing one. The three files this
 # function splices INTO
@@ -1497,14 +1503,14 @@ OLLAMA_ENV_TS
         echo "✅ Ollama-tool patch verified (all five files present/wired)."
         _ollama_log "**Verification: PASSED** (all five files present/wired)"
     else
-        echo "⚠️  Ollama-tool patch verification found a gap — see .pi-bootstrap-patches.md in $INSTALL_PATH for details." >&2
+        echo "⚠️  Ollama-tool patch verification found a gap — see pi-bootstrap-patches.md in $INSTALL_PATH for details." >&2
         _ollama_log "**Verification: FAILED** — mcp_stdio exists=${mcp_count}, index.ts ollama refs=${index_count}, container-runner.ts ollamaEnvArgs refs=${runner_count}, config.ts OLLAMA_HOST refs=${config_count}, ollama-env.ts exists=$([ -f "$ollama_env" ] && echo yes || echo no)"
         OLLAMA_PATCH_OK=false
     fi
 }
 
 # ---------------------------------------------------------------------------------------
-# Writes $INSTALL_PATH/.pi-bootstrap-patches.md — a status report of every
+# Writes $INSTALL_PATH/pi-bootstrap-patches.md — a status report of every
 # host-side patch this environment applies to the NanoClaw checkout
 # (mnemon, media-tools/whisper, ollama-tool), regenerated on every deploy.
 # This is how the drift-vs-upstream problem gets closed: pi-bootstrap does
@@ -1527,9 +1533,20 @@ OLLAMA_ENV_TS
 # survives every redeploy) — mixing "what run.sh most recently observed"
 # with "what a human/future pi-bootstrap session still needs to read and
 # act on" in one file would make the latter easy to lose on the next CLEAN.
+#
+# The manifest's own markdown body lives in
+# templates/patches-manifest.md.tmpl, not inlined here as a heredoc — pulled
+# out into its own file so the prose is readable/editable as plain markdown
+# (no backslash-escaped backticks to dodge heredoc command substitution) and
+# stays visually separate from the status-gathering logic below. Rendered
+# via _yaml_expand (lib/yaml-lib.sh) — the same `${VAR}`/`${VAR:-default}`
+# substitution mechanism info.yaml/desktop-entries.yaml already use
+# elsewhere in this repo — against the plain local variables this function
+# sets first.
 # ---------------------------------------------------------------------------------------
 write_patches_manifest() {
-    local manifest="${INSTALL_PATH}/.pi-bootstrap-patches.md"
+    local manifest="${INSTALL_PATH}/pi-bootstrap-patches.md"
+    local template="${SCRIPT_DIR}/templates/patches-manifest.md.tmpl"
 
     local mnemon_status media_tools_status
     if [ "$NANOCLAW_SETUP" = "mnemon" ]; then
@@ -1543,67 +1560,31 @@ write_patches_manifest() {
         media_tools_status="- Not applied — NANOCLAW_SETUP=plain (media-tools/whisper patch only applies to the mnemon profile; switch profiles via a CLEAN deploy to change this)
 "
     fi
+    local ollama_status="${OLLAMA_PATCH_LOG:-- (no status recorded — apply_ollama_tool_patch may not have run)
+}"
+    local telegram_status="${TELEGRAM_IMPORT_PATCH_LOG:-- (no status recorded — apply_telegram_import_patch may not have run)
+}"
+    local generated_at
+    generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-    cat > "$manifest" <<MANIFEST_EOF
-# pi-bootstrap patch manifest
-
-**Regenerated on every deploy by \`environments/nanoclaw-mnemon/run.sh\` — do
-not hand-edit, your edits will be overwritten on the next FAST/CLEAN run.**
-
-This NanoClaw install is deployed by [pi-bootstrap](https://github.com/tantimothy/pi-bootstrap),
-which tracks upstream NanoClaw's \`main\` branch (not pinned to a fixed
-commit) and applies a handful of host-side patches to it on top — adding
-mnemon persistent memory, agent-side media transcription tools, and an
-Ollama MCP integration that aren't part of stock NanoClaw. Because the
-NanoClaw ref isn't pinned, an upstream change can occasionally shift the
-exact source lines one of these patches depends on, causing it to be
-skipped (loudly, never silently) on the next deploy.
-
-**If you are the \`claude\` admin session running inside this container and
-something here looks broken** (a tool listed below as SKIPPED or FAILED, a
-feature that should exist but doesn't), you have full access to this
-install's own source tree at \`$INSTALL_PATH\` — feel free to apply the
-missing wiring by hand, following the linked skill doc for the exact
-change needed. Not required, and not necessarily easier than reporting it
-— just an option: it survives until the next CLEAN redeploy re-clones
-fresh, unless it happens to also satisfy the relevant patch's own
-idempotency check (in which case it survives that too).
-
-**Either way — whether you fix it or just diagnose it — write what you
-found (and did, if anything) into \`.pi-bootstrap-patch-fixes.md\` in this
-same directory.** That file is never overwritten by a deploy; a human (or
-a future pi-bootstrap session) reads it to decide whether to update the
-patch scripts in pi-bootstrap itself, so the fix stops being a
-container-local workaround and survives the next CLEAN/fresh install too.
-
-Last generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ") · Profile: \`NANOCLAW_SETUP=${NANOCLAW_SETUP}\`
-
-## Mnemon (persistent graph+vector memory)
-${mnemon_status}
-## Media tools (yt-dlp / ffmpeg / whisper.cpp, agent-side transcription)
-${media_tools_status}
-## Ollama MCP tool (ollama_list_models, ollama_generate, opt-in admin tools)
-${OLLAMA_PATCH_LOG:-- (no status recorded — apply_ollama_tool_patch may not have run)
-}
-## Telegram channel import self-heal (restores upstream regressions to src/channels/index.ts, dist/channels/index.js)
-${TELEGRAM_IMPORT_PATCH_LOG:-- (no status recorded — apply_telegram_import_patch may not have run)
-}
-MANIFEST_EOF
+    # $(...) strips the template file's trailing newline; printf's own
+    # trailing \n restores a normal, single newline-terminated text file.
+    printf '%s\n' "$(_yaml_expand "$(cat "$template")")" > "$manifest"
 
     write_patch_fixes_template
 }
 
 # ---------------------------------------------------------------------------------------
-# Touch-creates $INSTALL_PATH/.pi-bootstrap-patch-fixes.md with an
+# Touch-creates $INSTALL_PATH/pi-bootstrap-patch-fixes.md with an
 # instructional header — ONLY if it doesn't already exist. Never
-# overwritten on subsequent deploys (unlike .pi-bootstrap-patches.md
+# overwritten on subsequent deploys (unlike pi-bootstrap-patches.md
 # above): this file's whole purpose is to accumulate whatever the admin
 # `claude` session writes into it across the container's lifetime, closing
 # the loop back to a human — see write_patches_manifest()'s own header
 # comment for the full rationale on why these are two separate files.
 # ---------------------------------------------------------------------------------------
 write_patch_fixes_template() {
-    local fixes="${INSTALL_PATH}/.pi-bootstrap-patch-fixes.md"
+    local fixes="${INSTALL_PATH}/pi-bootstrap-patch-fixes.md"
     [ -f "$fixes" ] && return 0
 
     cat > "$fixes" <<'FIXES_EOF'
@@ -1613,7 +1594,7 @@ This file is created once (empty template below) and then left alone by
 every deploy — nothing in pi-bootstrap overwrites or reads it back
 automatically. It exists so that if you (the `claude` admin session
 running inside this container) diagnose or fix something related to a
-patch described in the sibling `.pi-bootstrap-patches.md` — mnemon, the
+patch described in the sibling `pi-bootstrap-patches.md` — mnemon, the
 media/whisper tools, the Ollama MCP tool, or anything added after this was
 written — you have somewhere durable to record it. A human (or a future
 pi-bootstrap session working on the repo that deployed this container)
