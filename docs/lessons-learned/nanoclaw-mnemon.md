@@ -1543,46 +1543,107 @@ statically-linked `whisper-cli` with no runtime library dependency at all
   container and running the command, per this repo's `CLAUDE.md` note that
   Docker-based environments have no automated build validation.
 
-## Follow-up (2026-08-06): the smoke test's `ollama_available: false` was a false report
+## Follow-up (2026-08-06, superseded same day): `ollama_available: false` is real, not cosmetic
 
-**Status:** closed, no code change. The same admin session's smoke test
-(`.pi-bootstrap-smoke-test.md`) had flagged `mnemon embed --status`
-reporting `"ollama_available": false` / `"coverage": "0%"` as a CONCERN,
-while separately confirming Ollama itself was reachable at
-`host.docker.internal:11434` from inside the container. A later check in
-the same session confirmed Ollama working through all three access paths
-this environment exposes to an agent:
+**Status:** this entry replaces an earlier version of itself. The first
+write-up here (based on a first-pass check that curl and the Ollama MCP
+tools both reached `host.docker.internal:11434` fine) concluded the
+`false` status mnemon reported was just a cosmetic bug in mnemon's own
+status check. That conclusion was wrong — a deeper investigation in the
+same admin session, prompted by mnemon's `embed --all` also failing (not
+just `--status` misreporting), found a real connectivity gap and fixed it.
+Leaving the wrong version of this section around would send a future
+session down the same "it's just cosmetic, no action needed" dead end, so
+the full story replaces it rather than appending alongside it.
 
-1. **Via mnemon's own embed endpoint** — `MNEMON_EMBED_ENDPOINT=http://host.docker.internal:11434`
-   with `nomic-embed-text` (137M, 768-dim); every `mnemon recall` embeds its
-   query through this and was already confirmed working.
-2. **Via the Ollama MCP tools** (`apply_ollama_tool_patch()`'s own patch) —
-   `ollama_generate`/`ollama_list_models`/`ollama_pull_model` etc., used
-   successfully earlier in the same session for an unrelated lookup.
-   Models available: `llama3.2:latest` (3.2B), `qwen3.5:2b`,
-   `nomic-embed-text` (embed-only).
-3. **Directly via `curl`** — `host.docker.internal:11434` reachable through
-   the container's proxy setup. (Native `fetch()` breaks there — an
-   undici/proxy TLS issue — but `curl` subprocesses work fine; noted here
-   in case it explains why some in-process check inside mnemon itself sees
-   a different result than a subprocess `curl` does.)
+**Root cause:** Go's `http.Transport` (mnemon is a Go binary) bypasses the
+configured proxy specifically for `host.docker.internal` — the same class
+of bug as the Node `fetch()`/undici proxy issue noted elsewhere in this
+environment's docs, just hitting a different HTTP client. `curl` and the
+Ollama MCP tools both worked because they go through the proxy correctly;
+mnemon's Go HTTP client does not, for this one hostname. Confirmed
+directly:
+- `curl --noproxy '*' http://host.docker.internal:11434/api/tags` → empty
+  (direct path, no proxy — actually unreachable)
+- `curl http://host.docker.internal:11434/api/tags` (through the proxy) →
+  model list returned fine
+- `NO_PROXY=host.docker.internal mnemon embed --all` → still fails, because
+  the direct path is blocked at the network level regardless of which env
+  var mnemon's own client honors
 
-**Conclusion:** `ollama_available: false` is a false negative from
-mnemon's own `embed --status` availability check, not a real connectivity
-problem — Ollama is reachable through every path this environment actually
-uses it through. Likely explanations: mnemon's own check hits a different
-endpoint/method than a plain `/api/tags` fetch (e.g. an in-process
-`fetch()` hitting the same undici/proxy issue noted in path 3 above, where
-a subprocess `curl` doesn't), or the check simply hasn't been exercised
-yet — `coverage: 0%` is consistent with "no recall has embedded anything
-yet" rather than "broken."
+That last point matters for this repo specifically: `apply_mnemon_patch()`
+in `run.sh` already bakes `ENV NO_PROXY=${embed_host}` /
+`ENV no_proxy=${embed_host}` into the image whenever `MNEMON_EMBED_ENDPOINT`
+is set (added on the reasoning that the proxy is only needed for `https://`
+URLs, so excluding an `http://` endpoint from it should be a no-op) — see
+that function's own comment. In a network where the proxy is actually
+required to reach `host.docker.internal` at all, that `NO_PROXY` setting is
+counterproductive: it tells every HTTP client in the container to skip the
+one path that works. Worth revisiting if this ever gets patched at the
+image-env level instead of the loopback-forwarder level described below.
 
-**Why no code change here:** this is a status-reporting bug inside
-mnemon's own `embed --status` command (upstream, not something
-`environments/nanoclaw-mnemon/run.sh` patches or owns), and the underlying
-capability it's misreporting on is confirmed working. Recorded here so a
-future session doesn't re-diagnose the same "concern" as if it were new,
-and so a fix — if one ever gets made — has a starting point: check what
-`mnemon embed --status`'s own availability probe actually calls, and
-whether it goes through the same `fetch()` path that path 3 above already
-found broken under this container's proxy setup.
+**Workaround used to unblock this container (not the permanent fix):**
+Clawdia (the group's own agent) ran a local Node.js forwarder on
+`127.0.0.1:11435`, relaying to Ollama via proxy-aware `curl` subprocesses.
+Go connects to loopback directly with no proxy-bypass behavior involved;
+the forwarder does the proxy-aware hop on mnemon's behalf. Backfilled with
+`MNEMON_EMBED_ENDPOINT=http://127.0.0.1:11435 mnemon embed --all` — went
+from 0/342 to 342/342 insights embedded (100% coverage), persisted to the
+volume-mounted `/home/node/.claude/mnemon/` data dir, so it survives
+ordinary container restarts. The forwarder itself was run ephemerally and
+was not still running afterward — new insights created after the next
+container restart won't auto-embed until something makes the forwarder
+permanent.
+
+**Permanent pi-bootstrap fix actually shipped (this PR), instead of the
+forwarder:** rather than adding a permanent background forwarder process
+(more moving parts — a long-lived loopback listener, proxy-token
+derivation at runtime, a new failure mode if it dies) the forwarder
+workaround pointed at a smaller, better-precedented fix already sitting in
+this same file: `apply_mnemon_patch()`'s own `embed_env` block was baking
+`ENV NO_PROXY=${embed_host}` / `ENV no_proxy=${embed_host}` into the image
+*unconditionally* whenever `MNEMON_EMBED_ENDPOINT` was set — including for
+the `http://host.docker.internal:11434` default this environment ships
+with. That's precisely the value `apply_ollama_tool_patch()`'s own header
+comment (a few hundred lines up in this same file, from an earlier
+debugging session on the sibling Ollama MCP patch) already documents as
+actively wrong on this platform: `host.docker.internal` is only reachable
+*through* the proxy here, so excluding it via `NO_PROXY` breaks the
+connection outright rather than protecting anything. mnemon has no
+per-container-spawn env reassertion step the way `ollamaEnvArgs()` gives
+the MCP tool patch — it only ever sees this one baked-in image ENV — so
+this wrong value was the actual, sole cause of `ollama_available: false`.
+
+Fixed by scheme-gating the `NO_PROXY`/`no_proxy` assertion: only added for
+an `https://` embed endpoint (the original, correct concern — an intended
+external HTTPS endpoint getting silently hijacked by NanoClaw's own
+`HTTPS_PROXY` injection), never for the `http://` default. A real Pi
+deployment with no proxy configured at all sees no behavior change either
+way (`NO_PROXY` is inert with no proxy present); this only changes
+behavior on a platform where the proxy is actually required for
+`host.docker.internal` reachability, which is exactly the case that was
+broken. Takes effect on the next CLEAN deploy (the patch's own
+`MNEMON_VERSION` idempotency marker means a live image already carrying
+the old, wrong `NO_PROXY` needs a fresh `container/Dockerfile` re-clone —
+same as every other text-splice patch in this file — a FAST restart alone
+won't pick it up).
+
+### General Lessons
+
+- **A "cheap insurance, should be a no-op" env var is only actually
+  harmless if the no-op assumption has been verified against the real
+  platform, not just reasoned about from protocol conventions.** The
+  original `NO_PROXY` bake-in reasoned that `HTTPS_PROXY` routing
+  "obviously" doesn't touch `http://` URLs, so excluding the host from it
+  was free insurance either way — correct as a general HTTP convention,
+  wrong on this specific platform's actual proxy setup, and the assumption
+  was never re-checked against a live container until this session did.
+- **When two independently-diagnosed bugs in the same file turn out to be
+  the same root cause, the fix for the first one is usually the answer for
+  the second, not a new mechanism.** `apply_ollama_tool_patch()`'s own
+  header comment had already fully diagnosed "`NO_PROXY` must not include
+  `host.docker.internal` on this platform" for the Ollama MCP tool's own
+  connectivity. `apply_mnemon_patch()` sat right above it in the same file,
+  making the identical mistake for mnemon's connectivity — worth grepping
+  a file's own prior debugging comments for "the same shape of bug,
+  different function" before reaching for a heavier new fix.

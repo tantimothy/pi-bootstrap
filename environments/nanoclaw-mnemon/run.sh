@@ -220,21 +220,39 @@ apply_mnemon_patch() {
             # HTTPS_PROXY (+ certs) into every agent container for OneCLI's
             # credential injection — verified directly against its source.
             # That only affects https:// URLs by proxy-env-var convention,
-            # so our http:// default is unaffected, but if someone points
-            # this at an HTTPS endpoint instead, it would otherwise get
-            # silently routed through a proxy that isn't built to pass
-            # arbitrary traffic through. NO_PROXY/no_proxy sidesteps that —
-            # same fix /add-ollama-provider's own SKILL.md applies for its
-            # analogous ANTHROPIC_BASE_URL-redirection case. Set
-            # unconditionally (not just for https://) since it's a no-op
-            # for plain HTTP and this is cheap insurance either way.
-            local embed_host
-            embed_host=$(printf '%s' "$MNEMON_EMBED_ENDPOINT" | sed -E 's#^[a-zA-Z]+://##; s#[:/].*$##')
-            if [ -n "$embed_host" ]; then
-                embed_env="${embed_env}
+            # so NO_PROXY/no_proxy insurance against it only makes sense for
+            # an https:// endpoint — same fix /add-ollama-provider's own
+            # SKILL.md applies for its analogous ANTHROPIC_BASE_URL-
+            # redirection case.
+            #
+            # Previously applied unconditionally (including for the http://
+            # default, on the reasoning that it'd be a harmless no-op there)
+            # — that was wrong, confirmed against a real live deploy: on at
+            # least one platform this environment runs on, plain
+            # http://host.docker.internal:11434 is NOT a direct socket —
+            # it's only reachable because HTTPS_PROXY routes it through the
+            # platform's own gateway, exactly the same finding already
+            # documented at length in apply_ollama_tool_patch()'s own header
+            # comment above (NO_PROXY/no_proxy must NOT include
+            # host.docker.internal, or that routing is bypassed and the
+            # connection fails outright). mnemon has no equivalent of that
+            # patch's per-container-spawn ollamaEnvArgs() reassertion — it
+            # only ever gets this baked image-level ENV — so an incorrect
+            # NO_PROXY here isn't just suboptimal, it's the only value
+            # mnemon's Go HTTP client ever sees. Gating this on scheme
+            # keeps the original https:// protection while no longer
+            # breaking the http:// default this environment ships as-is.
+            case "$MNEMON_EMBED_ENDPOINT" in
+                https://*)
+                    local embed_host
+                    embed_host=$(printf '%s' "$MNEMON_EMBED_ENDPOINT" | sed -E 's#^[a-zA-Z]+://##; s#[:/].*$##')
+                    if [ -n "$embed_host" ]; then
+                        embed_env="${embed_env}
 ENV NO_PROXY=${embed_host}
 ENV no_proxy=${embed_host}"
-            fi
+                    fi
+                    ;;
+            esac
             if [ -n "$MNEMON_EMBED_MODEL" ]; then
                 embed_env="${embed_env}
 ENV MNEMON_EMBED_MODEL=${MNEMON_EMBED_MODEL}"
