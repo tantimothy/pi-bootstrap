@@ -352,12 +352,46 @@ MNEMON_DOCKER_BLOCK
 # Applied unconditionally (not gated on NANOCLAW_SETUP), same reasoning as
 # apply_ollama_tool_patch: Telegram is a general NanoClaw capability, not
 # specific to the mnemon profile.
+#
+# Dependency guard (added after a real CLEAN build failure): commit
+# 675a6d87 turned out to be a HALF removal, not a clean one — it dropped
+# the barrel import and (confirmed against a live build error) the
+# `@chat-adapter/telegram` dependency from package.json, but left
+# src/channels/telegram.ts itself in the tree still importing that now-
+# missing package. Restoring only the barrel import (which is all this
+# function did originally) makes tsc try to compile telegram.ts again,
+# which now fails outright: `Cannot find module '@chat-adapter/telegram'`,
+# killing the entire CLEAN build, not just Telegram. A FAST restart never
+# hit this because it doesn't reinstall dependencies or rebuild — the
+# already-installed node_modules from before 675a6d87 papered over it.
+# Guard against re-breaking the build: only restore the import if
+# package.json still actually lists that dependency (i.e. telegram.ts's
+# own import is resolvable) — if it doesn't, skip the whole patch loudly
+# instead of restoring a barrel import to code that can't build. See
+# .pi-bootstrap-patch-fixes.md for what a real fix upstream would need
+# (either NanoClaw re-adding the dependency, or fully finishing the
+# removal it started).
 # ---------------------------------------------------------------------------------------
 apply_telegram_import_patch() {
     TELEGRAM_IMPORT_PATCH_OK=true
     TELEGRAM_IMPORT_PATCH_LOG=""
     _telegram_import_log() { TELEGRAM_IMPORT_PATCH_LOG="${TELEGRAM_IMPORT_PATCH_LOG}- ${1}
 "; }
+
+    local pkg_json="${INSTALL_PATH}/package.json"
+    if [ ! -f "$pkg_json" ]; then
+        echo "⚠️  Couldn't find package.json under $INSTALL_PATH — skipping the telegram-import patch (can't verify its dependency is installable)." >&2
+        _telegram_import_log "**SKIPPED (whole patch)** — package.json missing, can't verify @chat-adapter/telegram is still a listed dependency."
+        TELEGRAM_IMPORT_PATCH_OK=false
+        return 1
+    fi
+    if ! grep -q '"@chat-adapter/telegram"' "$pkg_json"; then
+        echo "⚠️  telegram.ts's own dependency (@chat-adapter/telegram) is no longer in package.json — skipping the telegram-import patch." >&2
+        echo "   Restoring the barrel import alone would break the build (Cannot find module '@chat-adapter/telegram'); NanoClaw's Telegram removal (commit 675a6d87) looks incomplete upstream." >&2
+        _telegram_import_log "**SKIPPED (whole patch)** — @chat-adapter/telegram missing from package.json; restoring the import would break the build (confirmed: TS2307 on telegram.ts). Telegram removal upstream (commit 675a6d87) looks incomplete — see .pi-bootstrap-patch-fixes.md."
+        TELEGRAM_IMPORT_PATCH_OK=false
+        return 1
+    fi
 
     local any_patched=false
     local rel f anchor tmp

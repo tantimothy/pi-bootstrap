@@ -1647,3 +1647,59 @@ won't pick it up).
   making the identical mistake for mnemon's connectivity — worth grepping
   a file's own prior debugging comments for "the same shape of bug,
   different function" before reaching for a heavier new fix.
+
+## Follow-up (2026-08-06): the Telegram-import self-heal itself broke CLEAN builds
+
+**Status:** fixed, same day as the patch that introduced it. A real user
+ran a CLEAN build after `apply_telegram_import_patch()` shipped and hit:
+
+```
+src/channels/telegram.ts(6,39): error TS2307: Cannot find module '@chat-adapter/telegram' or its corresponding type declarations.
+ELIFECYCLE  Command failed with exit code 2.
+ERROR: Deployment task failed for [nanoclaw-mnemon].
+```
+
+**Root cause:** commit `675a6d87` ("remove accidentally merged Telegram
+channel code") turned out to be a HALF removal, not a clean one — it
+dropped the barrel import (`src/channels/index.ts`) and, confirmed by this
+build error, the `@chat-adapter/telegram` dependency from `package.json`,
+but left `src/channels/telegram.ts` itself sitting in the tree, still
+importing that now-missing package. `apply_telegram_import_patch()`
+originally only restored the barrel import — which made `tsc` try to
+compile `telegram.ts` again during a CLEAN build's fresh `pnpm install` +
+build, and it can't: the dependency isn't there. This killed the *entire*
+CLEAN build, not just Telegram. A FAST restart never surfaces this,
+because it neither reinstalls dependencies nor rebuilds — the
+already-installed `node_modules` from before `675a6d87` papered over the
+missing dependency the whole time, which is exactly why the live admin
+session that originally found and fixed this (via FAST-restart-only
+testing) never saw the build break.
+
+**Fix:** added a dependency guard to `apply_telegram_import_patch()` —
+before restoring the barrel import, check that `package.json` still lists
+`@chat-adapter/telegram`. If it doesn't, skip the whole patch loudly
+(logged as SKIPPED in `.pi-bootstrap-patches.md`, same as any other
+anchor-not-found case) instead of restoring an import to code that can't
+build. Telegram simply won't be wired up until upstream's removal is
+finished properly (or reverted) — a working CLEAN build for everything
+else takes priority over Telegram specifically, and this patch was never
+meant to fix upstream's own incomplete work, just defend against upstream
+re-dropping something it otherwise still supports.
+
+### General Lessons
+
+- **A patch validated only against a FAST-restart flow can still break a
+  CLEAN build, because the two paths exercise completely different
+  machinery** (FAST: reuse existing `node_modules`/`dist`, no install or
+  rebuild; CLEAN: fresh `git reset --hard`, fresh `pnpm install`, fresh
+  build). A fix confirmed working live in a FAST-restarted container is
+  not the same claim as "this survives a CLEAN build" — the two need
+  separate verification, not just the same live-container check twice.
+- **"Remove accidentally merged X" upstream commits are worth treating as
+  suspect, not as ground truth that X is now fully gone.** This is the
+  second time this exact commit's incompleteness has bitten this
+  environment (first the missing import broke the running adapter, now
+  the missing dependency breaks the build) — a removal commit that only
+  partially removes something is arguably a worse state than either fully
+  keeping or fully removing it, since every downstream consumer has to
+  independently discover which parts are still there.
