@@ -163,6 +163,95 @@ sweep_agent_container_ids() {
     done
 }
 
+# ---------------------------------------------------------------------------------------
+# Per-group DERIVED agent images — the layer of this system that neither this
+# script nor its docs knew existed until a live install spent days broken by it.
+#
+# NanoClaw does not always run agents from the base agent-sandbox image. A
+# conversation group that installs custom packages (its own `install_packages`
+# self-modification flow, or `ncl groups add-package`) gets its own image,
+# built FROM the base and tagged `nanoclaw-agent-v2-<slug>:<group-id>`. The tag
+# is stored in NanoClaw's own container_configs table, and container-runner.ts
+# passes it straight to `docker run` on every spawn for that group.
+#
+# Two consequences, both of which bit a real deployment:
+#
+#   1. **A derived image is never rebuilt by anything in this repo.** CLEAN
+#      rebuilds the BASE image (container/build.sh) and stops there — upstream
+#      treats derived images as operator-managed, rebuilt only via
+#      `ncl groups restart --rebuild`. So every patch this script applies to
+#      container/Dockerfile — the statically-linked whisper-cli, the
+#      scheme-gated mnemon NO_PROXY ENV — lands in the base and never reaches
+#      a group that has one. That group keeps running whatever the base looked
+#      like on the day its derived image was built, indefinitely. A live
+#      install ran a 2026-07-21 derived image against a 2026-08-06 base for
+#      over two weeks, which is the actual reason `whisper-cli` stayed
+#      dynamically linked and mnemon kept reporting ollama_available:false
+#      through repeated CLEAN deploys. Replacing the CONTAINER does not help:
+#      it just respawns from the same stale derived image.
+#   2. **Deleting a derived image breaks that group silently and completely.**
+#      The tag stays in NanoClaw's database, `docker run` fails instantly
+#      (exit 125, nothing on the captured stderr), and NanoClaw's close
+#      handler emits nothing at INFO — so the only visible symptom is that
+#      messages queue forever while a spawn is retried every 60s. Anyone
+#      cleaning up "old nanoclaw images" by hand will hit this.
+#
+# So: after the base image is rebuilt, any derived image older than it is
+# stale by construction, and is rebuilt here. The group ID needed to do that
+# is the image tag itself — verified against a real install, where image
+# `nanoclaw-agent-v2-91b144eb:ag-1783945827013-hhyk7w` corresponded to group
+# `ag-1783945827013-hhyk7w`. That means this needs no database access and no
+# parsing of `ncl groups list` output, only Docker's own image list.
+# ---------------------------------------------------------------------------------------
+AGENT_IMAGE_REPO_PREFIX="nanoclaw-agent-v2-"
+GROUP_IMAGES_LOG=""
+
+_group_images_log() { GROUP_IMAGES_LOG="${GROUP_IMAGES_LOG}- ${1}
+"; }
+
+rebuild_stale_group_images() {
+    local base_tag base_created repo_tag created group_id stale=0 rebuilt=0
+
+    base_tag=$($DOCKER images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+        | awk -F: -v p="^${AGENT_IMAGE_REPO_PREFIX}" '$1 ~ p && $2 == "latest" {print; exit}')
+    if [ -z "$base_tag" ]; then
+        _group_images_log "Skipped — no ${AGENT_IMAGE_REPO_PREFIX}*:latest base image found to compare against."
+        return 0
+    fi
+    base_created=$($DOCKER image inspect "$base_tag" --format '{{.Created}}' 2>/dev/null) || return 0
+
+    while IFS= read -r repo_tag; do
+        [ -z "$repo_tag" ] && continue
+        created=$($DOCKER image inspect "$repo_tag" --format '{{.Created}}' 2>/dev/null) || continue
+        # Docker reports .Created as RFC3339 in UTC, so a plain string
+        # comparison orders these correctly without needing date parsing
+        # (`date -d` is GNU-only; this has to work on macOS too).
+        if [[ "$created" < "$base_created" ]]; then
+            stale=$((stale + 1))
+            group_id="${repo_tag##*:}"
+            echo "♻️  Group '${group_id}' runs a derived agent image older than the base it should build on — rebuilding it so this deploy's patches actually reach that group..."
+            echo "   (this installs that group's own custom packages on top of the new base and can take several minutes)"
+            if $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm ncl groups restart --id '$group_id' --rebuild"; then
+                rebuilt=$((rebuilt + 1))
+                _group_images_log "Group \`${group_id}\`: derived image was older than the base — **REBUILT**."
+            else
+                echo "⚠️  Couldn't rebuild group '${group_id}''s derived image automatically." >&2
+                echo "   That group will keep running the older image — including, if this deploy changed them, an out-of-date whisper-cli or mnemon proxy configuration." >&2
+                echo "   Run this by hand inside the orchestrator container:" >&2
+                echo "     cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups restart --id '${group_id}' --rebuild" >&2
+                _group_images_log "Group \`${group_id}\`: derived image is older than the base and the automatic rebuild **FAILED**. Until \`pnpm ncl groups restart --id ${group_id} --rebuild\` succeeds, this group runs a pre-patch image — expect whisper-cli and mnemon symptoms here even though the base image is healthy."
+            fi
+        fi
+    done < <($DOCKER images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+        | awk -F: -v p="^${AGENT_IMAGE_REPO_PREFIX}" '$1 ~ p && $2 != "latest" && $2 != "<none>" {print}')
+
+    if [ "$stale" -eq 0 ]; then
+        _group_images_log "No per-group derived images are older than the base image (nothing to rebuild)."
+    else
+        echo "🧩 Per-group derived agent images: ${stale} stale, ${rebuilt} rebuilt."
+    fi
+}
+
 remove_agent_containers() {
     local ids; ids=$(sweep_agent_container_ids)
     if [ -n "$ids" ]; then
@@ -1791,11 +1880,20 @@ write_patches_manifest() {
     # container, it's the longest prose this environment produces, and
     # burying it in a shell heredoc made it effectively unreviewable — a
     # doc change looked like a code change in every diff.
-    local mnemon_detail media_tools_detail ollama_detail telegram_detail
+    local mnemon_detail media_tools_detail ollama_detail telegram_detail group_images_detail
     mnemon_detail="$(_patch_detail mnemon)"
     media_tools_detail="$(_patch_detail media-tools)"
     ollama_detail="$(_patch_detail ollama-tool)"
     telegram_detail="$(_patch_detail telegram-import)"
+    group_images_detail="$(_patch_detail group-images)"
+
+    # Unlike the four patch statuses above, this one is only known AFTER the
+    # agent-sandbox image is rebuilt, which happens later in the deploy. The
+    # manifest is therefore written once here (so a deploy that fails midway
+    # still leaves a usable one) and refreshed after the image work — see the
+    # second write_patches_manifest call further down.
+    local group_images_status="${GROUP_IMAGES_LOG:-- Not checked yet — this deploy had not reached the agent-image rebuild step when this manifest was written. If this line survives to the end of a deploy, the rebuild step did not run at all (it only runs on CLEAN, or on FAST when a patch changed container/Dockerfile).
+}"
 
     # $(...) strips the template file's trailing newline; printf's own
     # trailing \n restores a normal, single newline-terminated text file.
@@ -2333,6 +2431,10 @@ if [ "$POLICY" = "CLEAN" ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
             # running containers would buy nothing and just drop live state.
             echo "🐳 Discarding any agent container spawned from the pre-rebuild image..."
             remove_agent_containers
+            # Sweeping containers is not enough for a group that runs its own
+            # derived image — it would just respawn from that same stale
+            # image. See rebuild_stale_group_images()'s header.
+            rebuild_stale_group_images
         fi
     else
         if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
@@ -2357,6 +2459,7 @@ if [ "$POLICY" != "CLEAN" ] && [ "${AGENT_IMAGE_NEEDS_REBUILD:-false}" = "true" 
         if $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'"; then
             echo "🐳 Discarding any agent container still running the pre-rebuild image..."
             remove_agent_containers
+            rebuild_stale_group_images
         else
             echo "⚠️  Agent-sandbox image rebuild failed — the updated patch won't take effect until this succeeds. See the build output above." >&2
         fi
@@ -2364,6 +2467,12 @@ if [ "$POLICY" != "CLEAN" ] && [ "${AGENT_IMAGE_NEEDS_REBUILD:-false}" = "true" 
         echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — the updated container/Dockerfile patch won't take effect until the agent-sandbox image is rebuilt." >&2
     fi
 fi
+
+# Refresh the manifest now that the agent-image and per-group-image work has
+# run — that section was written as "not checked yet" earlier, because its
+# status doesn't exist until this point in the deploy. Everything else in the
+# manifest re-renders identically from the same status variables.
+write_patches_manifest
 
 if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway and/or approval-delivery fix)..."

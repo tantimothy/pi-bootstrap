@@ -2118,3 +2118,101 @@ changes, all aimed at the same failure mode rather than the specific bug:
   setback.** The reorder was right; it just sat downstream of a second,
   independent bug. Reading "still broken" as "the diagnosis was wrong" would
   have reverted a correct change.
+
+## Follow-up (2026-08-07): the real cause of both symptoms was a per-group DERIVED image nothing ever rebuilt — and the two preceding entries were only half right
+
+**Status:** fixed. This supersedes the "stale agent container" conclusion in
+the two entries above. Those found real bugs and fixed them, but neither was
+the cause of the whisper-cli or mnemon symptoms, and the fixes could not have
+resolved them.
+
+**What was actually happening.** NanoClaw does not always run agents from the
+base agent-sandbox image. A conversation group that installs custom packages
+— via its own `install_packages` self-modification flow, or
+`ncl groups add-package` — gets its own **derived image**, built FROM the base
+and tagged `nanoclaw-agent-v2-<slug>:<group-id>`. That tag is stored in
+NanoClaw's `container_configs` table and `container-runner.ts` passes it
+directly to `docker run` on every spawn for that group.
+
+Nothing in pi-bootstrap ever rebuilt those. CLEAN rebuilds the base
+(`container/build.sh`) and stops; upstream treats derived images as
+operator-managed, refreshed only by `ncl groups restart --rebuild`. So every
+patch this environment applies to `container/Dockerfile` landed in the base
+and never reached the group that had one. The live install's Clawdia group
+(custom packages: `python3`, `yt-dlp`, `ffmpeg`, `cmake`, `build-essential`,
+`nodejs-whisper`) ran a **2026-07-21** derived image against a **2026-08-06**
+base for over two weeks.
+
+That is the whole explanation for both long-running symptoms:
+
+- `whisper-cli` dynamically linked against a missing `libwhisper.so.1` — the
+  derived image was built before the `-DBUILD_SHARED_LIBS=OFF` fix existed.
+- `ollama_available: false` — the derived image was built before the NO_PROXY
+  scheme-gating fix, so it still had `ENV NO_PROXY=host.docker.internal`
+  baked in, which on this platform bypasses the proxy routing that actually
+  reaches Ollama.
+
+**Where the previous two entries went wrong.** Both correctly observed that
+the base image passed every check while the running agent failed, and both
+concluded "stale container — replace it". But replacing the container
+achieves nothing here: it respawns from the *same derived image*. The
+distinguishing evidence was available and misread — the live container's
+image was reported as
+`nanoclaw-agent-v2-91b144eb:ag-1783945827013-hhyk7w`, not `:latest`, in
+every report. That tag was read as an ephemeral per-spawn tag; it was a
+per-group image with the group ID as its tag. One `docker images` listing
+would have separated the two readings at any point.
+
+The sweep bug found in the previous entry was real and is still worth having
+fixed — the matcher genuinely never matched, and a sweep that reports
+"nothing found" identically to "nothing to do" is its own hazard. It just
+wasn't this.
+
+**A second, sharper failure mode, hit while cleaning up.** Deleting a derived
+image breaks that group **silently and totally**. The tag stays in NanoClaw's
+database; `docker run` against a tag with no image and no registry fails
+instantly with exit 125; the captured stderr comes back empty, so NanoClaw's
+close handler emits nothing at INFO — no "Container exited", no WARN. The
+only visible symptom is `Spawning container` repeating every 60 seconds
+forever while the pending message count climbs. An operator tidying up "old
+nanoclaw images" by hand will hit this, and there is nothing in the logs to
+tell them what they did.
+
+**Fix:** `rebuild_stale_group_images()` runs after every base-image rebuild.
+It lists `nanoclaw-agent-v2-*` images whose tag isn't `latest`, compares each
+one's `.Created` against the base's, and rebuilds any that are older via
+`pnpm ncl groups restart --id <tag> --rebuild`. No database access and no
+parsing of `ncl groups list` output is needed, because **the image tag is the
+group ID** — verified against the live install rather than assumed. A failed
+rebuild is reported with the exact manual command and recorded in the
+manifest rather than aborting the deploy. `.Created` is compared as an RFC3339
+string, which orders correctly without `date -d` (GNU-only, unavailable on
+macOS).
+
+A new `templates/patch-details/group-images.md` documents the whole
+mechanism, and the smoke-test checklist gained a step 0: establish which
+image a group actually runs *before* testing anything inside it.
+
+### General Lessons
+
+- **"The image is healthy but the container isn't" has more than one cause,
+  and they need different fixes.** Two consecutive investigations landed on
+  "stale container, replace it" because that explanation fits the evidence —
+  it just wasn't the only thing that fits. When a diagnosis predicts a fix,
+  and the fix ships, and the symptom persists unchanged, the diagnosis is
+  the thing to re-examine, not the delivery of it a third time.
+- **An identifier you don't recognize is a question, not noise.** The tag
+  `:ag-1783945827013-hhyk7w` appeared verbatim in every report from the
+  start and was explained away twice with a guess about NanoClaw's internals
+  that nobody checked. It was in fact the group ID, which made the whole
+  mechanism discoverable from a single `docker images` listing.
+- **Patching a base image is only half a delivery path when derived images
+  exist.** Anything that builds FROM your artifact is a copy that will not
+  update itself. This is the same lesson as "rebuild before restarting",
+  one layer further out, and it will generalize to any future per-group or
+  per-tenant image NanoClaw adds.
+- **A destructive operation with no error output is worse than one that
+  fails loudly.** Deleting a derived image produced no log line anywhere in
+  NanoClaw at any level. The deploy script cannot fix upstream's silence,
+  but it can refuse to leave the situation undetectable — which is what the
+  manifest section and the checklist step now do.
