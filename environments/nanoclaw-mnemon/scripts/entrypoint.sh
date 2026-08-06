@@ -82,7 +82,21 @@ check, don't guess at results you didn't actually observe):
 
 1. Read \`.pi-bootstrap-patches.md\` first — confirm every patch listed
    shows PASSED. Anything SKIPPED/FAILED there is already-diagnosed
-   evidence of upstream drift; report it rather than re-deriving it.
+   evidence of upstream drift; report it rather than re-deriving it. **Do
+   NOT stop at this file's own self-reported status for the Telegram
+   channel import row, though** — a real session (2026-08-06) trusted a
+   logged SKIPPED at face value and reported Telegram as expectedly
+   unavailable, when the bot was actually already working. The patch's own
+   status line is a self-report of what it checked, not independent
+   confirmation the channel is actually live. Verify Telegram against
+   ground truth instead: \`docker logs ${CONTAINER_NAME:-nanoclaw-mnemon}
+   2>&1 | grep -i telegram | tail -20\` (run from the HOST, or via this
+   container's own Docker socket) — look for an actual adapter
+   initialization line (e.g. "Telegram adapter initialized"). If the logs
+   show it initialized, report Telegram as working regardless of what the
+   patch row says; if the row says PASSED/already-patched but the logs
+   show no initialization (or an error), that's a real finding worth
+   investigating and recording, not a contradiction to paper over.
 2. Media tools — doesn't need a live conversation. Find this install's
    current agent-sandbox image (\`docker images\`; \`src/install-slug.ts\`
    in \`${NANOCLAW_INSTALL_PATH}\` has the naming logic if the tag isn't
