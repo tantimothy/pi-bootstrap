@@ -97,11 +97,35 @@ check, don't guess at results you didn't actually observe):
    patch row says; if the row says PASSED/already-patched but the logs
    show no initialization (or an error), that's a real finding worth
    investigating and recording, not a contradiction to paper over.
-2. Media tools — doesn't need a live conversation. Find this install's
-   current agent-sandbox image (\`docker images\`; \`src/install-slug.ts\`
-   in \`${NANOCLAW_INSTALL_PATH}\` has the naming logic if the tag isn't
-   obvious), then confirm \`docker run --rm <that image> yt-dlp --version\`,
-   \`... whisper-cli --help\`, and \`... ffmpeg -version\` all succeed.
+2. Media tools — doesn't need a live conversation, but **check a real,
+   already-running agent container if one exists, not just a fresh
+   \`docker run\` of whatever tag looks current.** A real session (2026-08-06)
+   hit exactly this trap: \`docker run --rm <the "current" tag>
+   whisper-cli --help\` passed cleanly, but a separate check against an
+   actual live agent container (\`docker ps --filter "name=nanoclaw-v2-"\`)
+   found \`whisper-cli\` still dynamically linked against a missing
+   \`libwhisper.so.1\` — that live container had been spawned from an older
+   image build than whatever \`docker images\`/the "current" tag now
+   reflects, and nothing had forced it to respawn since. A passing check on
+   a fresh throwaway container doesn't tell you what's actually serving
+   real messages right now.
+   - If a live \`nanoclaw-v2-*\` container exists: \`docker exec <that
+     container> ldd \$(which whisper-cli)\` — "not a dynamic executable"
+     means statically linked (healthy); a list of \`.so\` deps, especially
+     \`libwhisper.so.1 => not found\`, means it's stale and will fail on
+     real transcription despite \`--help\` or the Node.js API path working.
+   - Also check its own build recency isn't the point (the container has no
+     access to pi-bootstrap's git history to compare against) — the \`ldd\`
+     output itself is the ground truth, not a date.
+   - If no live container exists yet, fall back to \`docker run --rm
+     <current agent-sandbox image; \`docker images\`, or
+     \`src/install-slug.ts\` in \`${NANOCLAW_INSTALL_PATH}\` for the naming
+     logic if the tag isn't obvious> ldd \$(which whisper-cli)\` — same
+     check, just note in your write-up that this only proves the image
+     *would* be fine for a fresh spawn, not that anything currently running
+     already is.
+   - Also confirm \`yt-dlp --version\` and \`ffmpeg -version\` succeed the
+     same way.
 3. Mnemon and the Ollama MCP tool both need a *live* agent container to
    test for real — check \`docker ps --filter "name=nanoclaw-v2-"\` first.
    **Zero containers is the expected, normal state on a genuinely fresh
