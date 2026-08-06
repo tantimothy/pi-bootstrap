@@ -1760,3 +1760,100 @@ SKIPPED-logging design already assumed was happening.
   it just needed a SKIPPED path to actually fire on a normal deploy to
   surface, and this session's own telegram guard happened to be that
   trigger.
+
+## Follow-up (2026-08-06): the dependency guard wasn't the real fix — an orphaned file was
+
+**Status:** fixed, same day, after the `set -e` fix above still left a real
+user hitting the exact same build error a third time:
+
+```
+src/channels/telegram.ts(6,39): error TS2307: Cannot find module '@chat-adapter/telegram' or its corresponding type declarations.
+ELIFECYCLE  Command failed with exit code 2.
+ERROR: Deployment task failed for [nanoclaw-mnemon].
+```
+
+This time the `set -e` fix was confirmed working (the deploy got further —
+past the point it died at before), but the underlying `tsc` failure was
+still there. The two previous entries in this file had assumed, without
+checking, that upstream's own removal (commit `675a6d87`) was incomplete —
+"a half removal" that left `telegram.ts` in the tree pointing at a
+dependency the same commit had dropped. That assumption turned out to be
+wrong, and this time it was checked against upstream's real history
+instead of re-guessed:
+
+- `675a6d87` (2026-03-25, "remove accidentally merged Telegram channel
+  code") deleted `src/channels/telegram.ts`, `telegram.test.ts`, **and**
+  the barrel import together, in one commit. A clean, complete removal —
+  not partial.
+- `@chat-adapter/telegram` was dropped from `package.json` separately,
+  over a month later, in a different commit (`25687dc`,
+  "chore(deps): drop @chat-adapter/telegram from trunk").
+- Neither commit left upstream `main` itself broken at any point in
+  between.
+
+So a fresh clone of `main` today has no `telegram.ts` at all, and no
+`@chat-adapter/telegram` reference anywhere. A real deployment's
+`telegram.ts` — still present, still importing the long-gone package — has
+to have come from somewhere else: NanoClaw's own channel-skill mechanism
+(`/add-telegram`-style skills copy their module from a separate `channels`
+branch into an existing install — see `src/channels/index.ts`'s own
+comment) run at some point directly against this deployment, not from
+`main`'s tracked history. Once that file exists on disk, **nothing in a
+normal git sync ever removes it again**: `git pull` and `git reset --hard`
+both only ever touch *tracked* files, and upstream's history never
+re-introduces `telegram.ts` once `675a6d87` lands — there's no tracked
+"delete this" instruction for a file that was never tracked locally to
+begin with. It just sits there, orphaned, permanently, once its own
+dependency stops resolving.
+
+**Why this broke the build even with zero import anywhere pointing at
+it:** confirmed directly against NanoClaw's real `tsconfig.json` —
+`"include": ["src/**/*"]`. `tsc` type-checks every `.ts` file physically
+present under `src/`, whether anything imports it or not. The previous
+round's dependency guard (only restore the barrel import if the dependency
+still resolves) was necessary but nowhere near sufficient — it stopped
+*this function* from making things worse, but did nothing about a
+dead file that was already sitting there before the function ever ran,
+which fails the build purely by existing.
+
+**Fix:** `apply_telegram_import_patch()` now also quarantines (renames to
+`*.orphaned-by-pi-bootstrap`, never deletes) `src/channels/telegram.ts`
+and `telegram.test.ts` whenever they exist and `@chat-adapter/telegram`
+isn't in `package.json` — regardless of what the barrel import looks like.
+It also strips a *stale* barrel import from `src/channels/index.ts` /
+`dist/channels/index.js` in that same situation, since quarantining the
+target file out from under an import that already pointed at it would
+otherwise just trade one unresolvable-module build error for another
+(`Cannot find module './telegram.js'` instead of
+`'@chat-adapter/telegram'`). Renaming instead of deleting keeps the file
+recoverable if an operator ever wants to vendor the dependency themselves;
+a `.orphaned-by-pi-bootstrap` suffix is enough on its own to drop out of
+`tsc`'s `include` glob, since it only recognizes known source extensions.
+
+### General Lessons
+
+- **A live build error tells you where the failure surfaced, not where it
+  came from — check the actual upstream history before writing a root
+  cause into a comment.** "Commit X left the repo in a broken half-state"
+  was a plausible-sounding story that fit the one data point available (a
+  build error mentioning that commit's own hash) and was wrong on both
+  counts: the commit was a clean removal, and the actual cause was a file
+  that was never part of that commit's history at all. Cloning the real
+  upstream repo and reading `git show --stat`/`git log --diff-filter`
+  directly took a few minutes and settled it definitively — worth doing
+  before writing a root cause down as fact in a comment other sessions will
+  trust.
+- **`git reset --hard` is not `git clean -fdx` — it only ever touches
+  tracked files.** Every fix in this file up to this point implicitly
+  assumed a CLEAN deploy's hard reset would return the source tree to a
+  known-clean state. That's only true for files git actually tracks in
+  this specific local checkout; an untracked file dropped in by some other
+  mechanism (here, a channel skill run) survives every reset indefinitely,
+  and needs its own explicit handling — checking file existence + its
+  dependency, not just checking git state.
+- **A blanket `include: ["src/**/*"]` in a `tsconfig.json` means "every
+  file that exists," not "every file that's reachable."** An import-graph
+  fix (add/remove a barrel import) only ever addresses what's *reachable*;
+  it can't fix a build broken by a file that's merely *present*. Worth
+  checking a project's actual compiler config before assuming "nothing
+  imports it anymore" is equivalent to "it won't be compiled."
