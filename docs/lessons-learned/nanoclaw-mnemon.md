@@ -1206,3 +1206,264 @@ about to run, before that code's next restart.
     repo) — check there first for anything upgrade-tripwire-related in a
     future NanoClaw version, since the sanctioned command/flow is owned and
     versioned by NanoClaw upstream, not by this environment.
+
+## Ollama MCP Tool — Auto-Applied by Default, With a Drift-Diagnosis Manifest
+
+**Status:** implemented, verified against a live user's own already-patched
+NanoClaw checkout (see below), not yet confirmed via a fresh end-to-end
+deploy in this repo's own CI-less workflow.
+
+### Summary
+
+NanoClaw's own `/add-ollama-tool` skill registers an MCP server that
+exposes local Ollama models (`ollama_list_models`, `ollama_generate`, plus
+opt-in admin tools) to every per-group agent container. It's an opt-in,
+manually-run skill upstream, and its shipped `ollama-env.ts` output has two
+real bugs. This environment now applies a hand-written, bug-fixed
+equivalent automatically, every deploy, via a new `apply_ollama_tool_patch()`
+in `run.sh` (same idempotent text-splice mechanism as `apply_mnemon_patch()`/
+`apply_media_tools_patch()`), called unconditionally after the
+`NANOCLAW_SETUP` mnemon/plain branch — this is a general per-group agent
+capability, not a mnemon-profile feature.
+
+### The real shipped-skill bug, and three rounds on a NO_PROXY side-question
+
+**The real bug (`.env` vars never read):** the skill's `ollamaEnvArgs()`
+reads `process.env.OLLAMA_HOST`/`OLLAMA_ADMIN_TOOLS` directly, but NanoClaw
+loads `.env` through its own `readEnvFile()` — those values never reach
+`process.env` on their own. Fix: `src/config.ts` needs `OLLAMA_HOST`/
+`OLLAMA_ADMIN_TOOLS` added to the `readEnvFile([...])` key list and
+exported the same way every other config value is (`process.env.X ||
+envConfig.X`). Confirmed by a live user who ran the skill, hit this, and
+fixed it by hand — the fix matches their own already-working `config.ts`
+exactly.
+
+**The `NO_PROXY` side-question went through three rounds before landing.**
+It's worth recording the sequence, not just the final answer, since the
+middle round overturned the first and then itself got partially overturned
+by the third — a good example of why secondhand debugging narratives need
+primary evidence before shipping code around them.
+
+**Round 1 (shipped first):** an early replication summary this session was
+given described a second bug — "OneCLI's own `NO_PROXY=host.docker.internal`
+default breaks Ollama routing" — fixed by overriding `NO_PROXY`/`no_proxy`
+to a dummy value (`0.250.250.254`, made `.env`-configurable as
+`OLLAMA_NO_PROXY_OVERRIDE`). This shipped in the first version of
+`apply_ollama_tool_patch()`.
+
+**Round 2 (overturned round 1):** a follow-up cross-check against a
+timestamped env dump from the actual debugging session showed
+`NO_PROXY=<OneCLI's own gateway IP>` was already the platform default
+*before* any fix was applied, and was never the problem — the real bug was
+`OLLAMA_HOST` itself pointing at that same gateway IP (the OneCLI
+credential-vault address, not Ollama, which 403s regardless of proxying).
+This round concluded `NO_PROXY` didn't need touching at all and removed
+`OLLAMA_NO_PROXY_OVERRIDE` entirely.
+
+**Round 3 (partially restored round 1, for a different reason):** a
+reconciled account from the admin `claude` session running inside the real
+container, cross-checked directly against `container-runner.ts`'s own
+source, filled in the missing piece: `host.docker.internal:11434` isn't a
+direct Ollama socket on this platform at all — it only resolves because
+`HTTPS_PROXY` routes the request through OneCLI's own gateway, which
+forwards it to the real backend. Excluding `host.docker.internal` from
+proxying via `NO_PROXY` breaks that routing outright (confirmed: this was
+reproduced live during debugging, as a direct TCP connection refusal to the
+Docker gateway IP). OneCLI's own platform default correctly excludes
+`host.docker.internal` — but this repo's own `apply_mnemon_patch()` bakes
+`ENV NO_PROXY=host.docker.internal` into the agent-sandbox Dockerfile for
+unrelated reasons (its own "cheap insurance" against an HTTPS embed
+endpoint being proxied — see that function's own comment), and `docker run
+-e` wins over a Dockerfile `ENV`. So re-asserting the correct value at
+container-spawn time in `ollamaEnvArgs()` isn't redundant with OneCLI's own
+default — it's what actually protects against this repo's *own* other
+patch quietly breaking it. `OLLAMA_NO_PROXY_OVERRIDE` was restored, with
+the reasoning corrected: not "OneCLI's default is wrong," but "something
+else in this specific deployment can and does make it wrong, and this is
+what corrects it back at the point that actually matters (container spawn,
+which happens after image build)."
+
+**Round 4 (closed the open question from round 3):** NanoClaw's own admin
+session checked `@onecli-sh/sdk`'s actual source directly — something
+unavailable from inside this repo — and confirmed `onecli.applyContainerConfig()`
+(the call that runs *after* `ollamaEnvArgs()` in `container-runner.ts`,
+line 538 vs. line 491) pushes `-e` args from OneCLI's server-provided
+`config.env` response. That response carries `HTTPS_PROXY`/`HTTP_PROXY`
+(+ lowercase), `NODE_EXTRA_CA_CERTS`, `NODE_USE_ENV_PROXY`, `GIT_*`, and
+`CLAUDE_CODE_OAUTH_TOKEN` — no `NO_PROXY` entry at all. So there's no
+downstream key collision: `ollamaEnvArgs()`'s `NO_PROXY` value is never
+overridden, and the round-3 mechanism is confirmed to work as intended, not
+just plausible in theory.
+
+**A loose thread this surfaced, not yet chased down:** where the
+`NO_PROXY=0.250.250.254` value Clawdia originally observed (before *any* of
+this session's changes existed) actually came from, if it wasn't OneCLI's
+`config.env` and wasn't this repo's code at that point. Possibly the base
+container image, possibly something in NanoClaw's own entrypoint/startup —
+genuinely unknown, and doesn't block anything here (this patch's own value
+is confirmed to land correctly regardless of where that original one came
+from), but worth another look if `NO_PROXY` behavior on this platform is
+ever revisited.
+
+### Verification approach
+
+WebFetch could not reliably reproduce NanoClaw's actual TypeScript source
+byte-for-byte (the underlying summarization model refused/truncated full
+files); `add_repo` for the upstream `nanocoai/nanoclaw` repo failed twice
+with an MCP approval error. Resolved by asking the user to paste the exact
+files from their own already-working, already-patched NanoClaw checkout
+(`ollama-mcp-stdio.ts`, `index.ts`, `container-runner.ts`, `config.ts`).
+Every anchor `apply_ollama_tool_patch()`'s `grep -n` calls search for was
+confirmed to match those real files exactly, and the generated splice
+output was confirmed byte-identical to the corresponding already-patched
+sections of the user's own working copy.
+
+### Drift-diagnosis design (the actual ask this session)
+
+Deliberately **not** pinning NanoClaw's git ref — this environment still
+tracks upstream `main`, same as always. Instead, the risk that an upstream
+change one day shifts an anchor line and silently breaks a sub-patch is
+addressed with two new files, written into `$NANOCLAW_INSTALL_PATH` (inside
+the deployed NanoClaw checkout, not this repo):
+
+- **`.pi-bootstrap-patches.md`** — regenerated on every deploy by a new
+  `write_patches_manifest()` in `run.sh`, listing every patch this
+  environment applies (mnemon, media-tools/whisper, ollama-tool) and each
+  one's PASSED/SKIPPED/FAILED status, sourced from `_LOG`/`_OK` status
+  variables each `apply_*_patch()` function now sets
+  (`MNEMON_PATCH_OK`/`_LOG`, `MEDIA_TOOLS_PATCH_OK`/`_LOG`,
+  `OLLAMA_PATCH_OK`/`_LOG` — retrofitted onto the two older functions to
+  match the new one's pattern, since the ask was "document everything that
+  was done", not just the newest patch).
+- **`.pi-bootstrap-patch-fixes.md`** — touch-created once with an
+  instructional header, then never overwritten by any later deploy. The
+  admin `claude` session running inside the container (see
+  `entrypoint.sh`'s `/root/CLAUDE.md`, which now points at both files) is
+  meant to record whatever it diagnoses or hand-fixes here, so a human (or
+  a future pi-bootstrap session) can read it later and decide whether to
+  update the actual patch scripts in this repo.
+
+### General Lessons
+
+- **A drift-mitigation strategy doesn't have to mean pinning.** Pinning a
+  fast-moving upstream trades one class of problem (silent breakage) for
+  another (silent staleness — a pinned ref never gets security fixes or new
+  features without a deliberate bump). Tracking `main` and instead making
+  breakage *loud and diagnosable in place* — every sub-patch checks its own
+  anchor and reports SKIPPED rather than guessing, plus a persistent status
+  file an admin session or a human can read — is a real alternative worth
+  considering before defaulting to pinning.
+- **"Fill in if missing" vs. "always overwrite" is the same fork every
+  self-owned generated file eventually needs.** For a file this repo's own
+  patch function fully owns (nothing upstream creates it) but that a live
+  admin session might reasonably hand-edit inside a running container
+  (`ollama-mcp-stdio.ts`, `ollama-env.ts`), unconditionally overwriting it
+  every deploy would silently clobber that live fix. The status-report file
+  (`.pi-bootstrap-patches.md`) is the opposite case — nothing else ever
+  writes to it, so overwriting it every deploy is correct, not lossy. The
+  fix-report file (`.pi-bootstrap-patch-fixes.md`) is a third case again —
+  owned by the admin session, not by `run.sh`, so `run.sh` may only
+  touch-create it once and must never overwrite it afterward.
+- **WebFetch is unreliable for extracting exact source code**, especially
+  anything non-trivial (a full TypeScript module) — its underlying
+  summarization step will refuse or truncate rather than reproduce
+  something byte-exact. Asking the user directly for a pasted/uploaded copy
+  of their own real, working file was faster and more reliable than several
+  rounds of retrying WebFetch with narrower prompts or raw-URL redirects.
+- **A secondhand, prose "replication summary" of a debugging session is not
+  the same evidence as the session's own transcript**, even when it's
+  detailed, specific, and was personally verified as working by the person
+  who wrote it. Three rounds landed on this one setting (see above) before
+  the *mechanism* was actually right — round 1's root-cause story was wrong
+  (OneCLI's default was never the problem), round 2 correctly caught that
+  but over-corrected by assuming "not the platform default" meant "safe to
+  never set," and only round 3 — reasoning from actual source
+  (`container-runner.ts`) instead of another paraphrase — surfaced the real
+  mechanism (HTTPS_PROXY-only routing, plus this repo's own
+  `apply_mnemon_patch()` as the thing that actually puts a container at
+  risk). Each round's fix was plausible and internally consistent on its
+  own; only checking against primary evidence (a transcript, then real
+  source code) caught what prose summaries alone kept getting subtly wrong.
+  Fixing forward from a narrative reconstruction is fine when it's the best
+  evidence available, but it should stay explicitly provisional — flagged
+  for re-verification — rather than committed to shipped code as settled
+  fact. And "the previous round was wrong" doesn't mean "revert to the
+  simplest theory" either — round 2's correction was real, but its own
+  conclusion needed the same scrutiny round 1's did.
+
+## Standing Smoke-Test Instructions for the Admin Session
+
+**Status:** implemented, not yet exercised against a real deploy.
+
+### Summary
+
+The patches manifest (`.pi-bootstrap-patches.md`, see the entry above) only
+ever proves a patch's *text* landed — `grep -c`/anchor-presence checks run
+by `run.sh` on the host, before the container or its dependencies
+necessarily even exist. It can't prove the patched *functionality* actually
+works at runtime (Ollama genuinely reachable, mnemon genuinely embedding,
+whisper/yt-dlp genuinely present in the built image) — that requires
+something running live inside the container, with the Docker socket, after
+real dependencies exist.
+
+Rather than build a host-side automated test harness for this (impractical
+— `run.sh` runs before the orchestrator container, let alone any agent
+container, exists), `entrypoint.sh`'s `/root/CLAUDE.md` now gives the admin
+`claude` session a standing instruction: before doing anything else, check
+whether `.pi-bootstrap-smoke-test.md` exists in the install path. If it
+doesn't, this is either a genuine first connection or the first one since
+TEARDOWN/CLEAN reset the environment — run a checklist covering all three
+patches (manifest status, media-tool binaries in the built agent-sandbox
+image, and — best-effort, since it needs a live agent container which may
+not exist yet — mnemon's own `embed --status` and the Ollama MCP tool) and
+write the results to that file. Proactive, not reactive: the point raised
+in conversation was that "wait for something to look broken" is the wrong
+default for the one moment (right after TEARDOWN/CLEAN) where nobody's
+necessarily watching closely.
+
+### Why TEARDOWN too, not just CLEAN
+
+Only CLEAN actually re-applies the patches from a fresh `git reset --hard`
+— a plain TEARDOWN+redeploy doesn't touch NanoClaw's source at all, so in
+principle nothing *needs* re-verifying. But TEARDOWN destroys the
+orchestrator container (and all agent containers) just as thoroughly as
+CLEAN does, which means the admin session's own `/root/.claude` state is
+gone either way — a genuinely fresh claude-cli connection is happening
+either way, at a moment a human may not be watching either way. Correctness
+of "does the patch still apply" isn't the only thing worth verifying;
+"is everything still actually running correctly after this container got
+destroyed and recreated" is a reasonable bar too, and costs nothing extra
+to check at the same moment.
+
+### Mechanism
+
+`remove_agent_containers()` — already called from both the TEARDOWN and
+CLEAN policy branches, never from FAST — now also deletes
+`.pi-bootstrap-smoke-test.md` if present. This is the single point that
+correctly invalidates the smoke-test record exactly when it should (both
+policies the ask covered) without needing separate logic duplicated in
+each branch, and without ever false-triggering on a plain FAST restart or
+reconnect. The file itself lives in `$NANOCLAW_INSTALL_PATH` (host-mounted,
+not the container's ephemeral layer), so it persists correctly across
+ordinary container restarts (a host reboot, `docker restart`, "Choose
+Claude Model"'s stop+rm+relaunch of the *orchestrator* container alone —
+none of which call `remove_agent_containers()`) — only TEARDOWN/CLEAN
+clears it.
+
+### General Lessons
+
+- **A host-side manifest and a live-session smoke test answer different
+  questions, and neither substitutes for the other.** `.pi-bootstrap-patches.md`
+  answers "did the patch text land" — cheap, always available, but blind to
+  runtime behavior. A live check answers "does it actually work" — requires
+  a running environment with real dependencies, so it can only happen from
+  inside a session that has that environment, not from the host script that
+  set it up.
+- **The right question for "when should this re-run" is usually "what
+  state actually got invalidated," not "which policy name was used."**
+  Tying the smoke-test file's deletion to the one function both TEARDOWN
+  and CLEAN already shared (`remove_agent_containers()`) was simpler and
+  more correct than adding an `if [ "$POLICY" = "CLEAN" ] || [ "$POLICY" =
+  "TEARDOWN" ]` check in two separate places — it fell out of what those
+  two policies already had in common, rather than needing to be reasoned
+  about separately for each.
