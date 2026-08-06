@@ -1915,3 +1915,131 @@ package.json-only guard.
   text is not the same fact as the filesystem state it's supposed to
   describe. When a guard exists specifically to prevent a broken build,
   check the condition that actually causes the break.
+
+## Follow-up (2026-08-06): whisper-cli and mnemon→Ollama stayed broken after fixes that were already in `master` — one root cause, two symptoms
+
+**Status:** fixed. This closes the "whisper-cli still broken after CLEAN"
+investigation that a previous session left open after exhausting the
+repo-side leads, and the `ollama_available: false` report that had already
+been diagnosed and "fixed" twice.
+
+**Symptoms, as reported from a live deploy:**
+
+- `whisper-cli` inside the running agent container was still dynamically
+  linked against a missing `libwhisper.so.1`, even though
+  `-DBUILD_SHARED_LIBS=OFF` was confirmed present in both
+  `environments/nanoclaw-mnemon/Dockerfile` and `run.sh`'s
+  `apply_media_tools_patch()`, and confirmed merged to `master`.
+- mnemon kept reporting `ollama_available: false`, even though the
+  scheme-gating fix for the `NO_PROXY` ENV that `apply_mnemon_patch()`
+  bakes into the agent image had also shipped.
+
+Both had been chased as *patch-content* bugs — were the compile flags
+right, was the `NO_PROXY` gating right — and both patches' content was
+already correct. Neither symptom was about patch content at all.
+
+**Root cause — the agent-sandbox image was rebuilt too late in the CLEAN
+sequence.** These are the steps that mattered, in the order they used to
+run:
+
+```
+CLEAN's early teardown removes every agent container        (run.sh ~1770)
+git reset --hard; patches rewrite container/Dockerfile      (~1824-1931)
+orchestrator container starts — NanoClaw is LIVE again      (~1957)
+start-nanoclaw.sh restarts NanoClaw                         (~2057)
+container/build.sh finally rebuilds the agent image         (~2069)  <-- last
+```
+
+Rewriting `container/Dockerfile` changes nothing that runs. The image has
+to be rebuilt from it, and then the containers spawned from the *old* image
+have to be replaced. But NanoClaw was live and serving from the
+orchestrator-start step onward — several steps before the image rebuild. Any
+group receiving a message in that window got an agent container spawned from
+the still-stale image. Agent containers are long-lived, so it kept serving
+from that stale image indefinitely, surviving every later FAST deploy, with
+nothing in the flow to notice or replace it.
+
+That single mechanism accounts for both symptoms exactly, including the
+detail that made the whisper case so confusing: the *image* was fine and the
+*container* was not. An earlier session had already observed precisely that
+split — a throwaway `docker run` of the current tag passed `whisper-cli
+--help` while the live container failed `ldd` — and correctly changed the
+smoke test to check a live container (commit `ff08efd`), but read the split
+as a smoke-test accuracy problem rather than as the diagnosis it was.
+
+**Fix:** the agent-sandbox image rebuild now runs *before* both NanoClaw
+restart paths, and on success sweeps this install's agent containers, so
+anything spawned from the pre-rebuild image is discarded and respawned from
+the new one on the next message. `remove_agent_containers()` is the single
+point that also clears `pi-bootstrap-smoke-test.md`, so the admin session's
+standing self-verification correctly re-triggers afterward.
+
+**Second, contributing cause — content-blind idempotency checks meant a
+patch fix could never reach an already-patched install on FAST.** Both
+Dockerfile patches tested "is this patched?" with a grep for a single token
+the block happens to contain (`yt-dlp`, `MNEMON_VERSION`). That answers
+"some generation of this patch is present", never "the current generation
+is present". So once a block existed, every later FAST deploy said "already
+patched" and left it alone no matter how much the block's text had changed
+in this repo since. CLEAN masked this — its `git reset --hard` deletes the
+whole block, so the next apply writes current text — which is exactly why it
+presented as "fixed in master, still broken live" instead of an obvious
+no-op.
+
+Each Dockerfile patch block is now wrapped in versioned markers:
+
+```
+# >>> pi-bootstrap:<id> v<N> >>>
+...
+# <<< pi-bootstrap:<id> <<<
+```
+
+giving four distinguishable states instead of two — `current` (no-op),
+`stale-marked` (strip the old block, re-splice current text, flag the image
+for rebuild), `stale-unmarked` (a pre-marker block, which has no dependable
+end boundary because both patches splice at the same anchor: warn loudly,
+record it in the manifest, and say plainly that a CLEAN is what fixes it),
+and `absent`. A patch that actually rewrites the Dockerfile now sets
+`AGENT_IMAGE_NEEDS_REBUILD`, so even a FAST deploy rebuilds the agent image
+and sweeps stale containers rather than leaving the write inert.
+
+**Bump the version constant whenever you change a block's text.** That is
+the entire mechanism; an edit without a bump is invisible to every existing
+install, which is the bug this exists to prevent.
+
+**Third, found while building the above — `_yaml_expand()` hung on any
+value containing `&`.** `lib/yaml-lib.sh` substituted with
+`result="${result//$expr/$val}"`. In bash 5.2+, an unquoted `&` in a
+pattern-substitution *replacement* expands to whatever the pattern just
+matched — so a value containing `&` re-injected the `${VAR}` marker into the
+result, the loop matched it again, and never terminated. Not a wrong answer:
+a hang. Hit for real by a template containing `2>&1`, and it would equally
+have hit any `info.yaml`/`desktop-entries.yaml` value with a two-parameter
+URL or an "X & Y" label. Fixed by substituting with prefix/suffix splitting
+and a quoted `"$expr"` pattern, which inserts the value literally and works
+identically on the bash 3.2 macOS still ships (escaping the `&` instead
+would have relied on replacement backslash handling that differs across
+those versions).
+
+### General Lessons
+
+- **"The fix is in `master` and it's still broken" is a question about
+  delivery, not about the fix.** Three separate rounds went into
+  re-checking compile flags and proxy gating that were already correct. The
+  question worth asking first is: what has to happen for this change to
+  reach the thing I'm observing — and did all of it happen, in an order
+  that works? Here the change had to reach a file, then an image, then a
+  container, and the last hop never ran.
+- **An idempotency check that can't tell "patched" from "patched with the
+  version I meant" is a silent no-op generator.** It works perfectly until
+  the first time you change the patch, and then it fails in the least
+  visible way possible: by reporting success. If a patch's text can change
+  between releases, its "already applied?" check has to be version-aware.
+- **A diagnostic that distinguishes two cases is worth more than one that
+  confirms the case you expect.** The image-passes/container-fails split
+  was observed and acted on, but as a smoke-test bug rather than as
+  evidence. It had already localized the fault to container lifecycle
+  rather than patch content; nobody read it that way for several rounds.
+- **Ordering bugs hide behind steps that individually all succeed.** Every
+  step in the CLEAN sequence worked and reported success. Only their
+  relative order was wrong, which no single step's output could reveal.

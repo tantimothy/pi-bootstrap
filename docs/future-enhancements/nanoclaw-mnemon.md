@@ -55,6 +55,22 @@ the tools it just patched in actually work. A one-line `docker run --rm
 lessons-learned doc immediately, at build time, instead of requiring a
 live agent to hit the failure days later.
 
+**Important caveat, added 2026-08-06 after this exact check produced a
+false PASS:** a `docker run --rm <image>` probe validates the *image* and
+says nothing about the containers actually serving messages. The
+whisper-cli/`libwhisper.so.1` failure that went several rounds unresolved
+had a healthy image the whole time — the live agent container had been
+spawned from an earlier build and was never replaced (full account in
+`docs/lessons-learned/nanoclaw-mnemon.md`, "whisper-cli and mnemon→Ollama
+stayed broken after fixes that were already in `master`"). `run.sh` now
+rebuilds the agent image before restarting NanoClaw and sweeps containers
+spawned from the pre-rebuild image, which removes the *cause*; a build-time
+probe is still worth adding, but it must be described as verifying the
+image only. If it is ever used to answer "is transcription working right
+now", it will confidently give the wrong answer — that question can only be
+answered against a live `nanoclaw-agent-v2-*` container, which is what the
+smoke-test checklist in `scripts/entrypoint.sh` already does.
+
 ### 5. Live-verify the admin-session tmux wrapper and `CLAUDE_MODEL` — done, see "Update" below
 
 `scripts/claude-tmux.sh` (grouped-session `docker exec` wrapper for "Open a

@@ -24,6 +24,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 POLICY="${REBUILD_POLICY:-FAST}"
+# Set to true by any patch that actually rewrites container/Dockerfile, so a
+# non-CLEAN deploy knows it has to rebuild the agent-sandbox image for that
+# write to mean anything (CLEAN always rebuilds regardless). See the
+# "Versioned patch blocks" comment block further down.
+AGENT_IMAGE_NEEDS_REBUILD=false
 
 # This script prints emoji/arrows/em-dashes throughout, including via
 # lib/run-info.sh's post-deploy summary further down — see lib/locale-lib.sh's
@@ -137,14 +142,23 @@ remove_agent_containers() {
         echo "$ids" | xargs "$DOCKER" stop 2>/dev/null || true
         echo "$ids" | xargs "$DOCKER" rm   2>/dev/null || true
     fi
-    # Called only from TEARDOWN and CLEAN (never FAST) — both destroy the
-    # orchestrator's own ephemeral state (including /root/.claude, per
-    # entrypoint.sh's own comment) and every agent container, so any prior
-    # smoke-test record is no longer evidence about the environment that
-    # exists now. Deleting it here (rather than leaving it for the admin
-    # session to notice is stale) is what makes entrypoint.sh's standing
-    # instruction — "run the checklist if this file is missing" — correctly
-    # re-trigger after either policy, without needing FAST to ever touch it.
+    # Every caller of this function has just invalidated whatever the last
+    # smoke test observed: TEARDOWN and CLEAN destroy the orchestrator's own
+    # ephemeral state (including /root/.claude, per entrypoint.sh's own
+    # comment) plus every agent container, and the two post-image-rebuild
+    # sweeps further below replace every agent container with one built from
+    # a different image. In all four cases a prior smoke-test record is no
+    # longer evidence about the environment that exists now. Deleting it here
+    # — at the single point they all go through, rather than at each call
+    # site — is what makes entrypoint.sh's standing instruction ("run the
+    # checklist if this file is missing") correctly re-trigger afterward.
+    #
+    # Note this is now reachable on a FAST deploy too, via the
+    # AGENT_IMAGE_NEEDS_REBUILD sweep — which is the point: a FAST run that
+    # actually replaced the agent image has changed exactly the thing the
+    # smoke test checks. A FAST run that changed nothing never reaches here,
+    # so an ordinary restart still leaves the marker (and the admin session's
+    # reactive-only mode) alone.
     rm -f "${INSTALL_PATH}/pi-bootstrap-smoke-test.md" 2>/dev/null || true
 }
 
@@ -168,6 +182,79 @@ stamp_upgrade_state() {
         echo "🔏 Stamping upgrade-state.json to the freshly-synced code version (sanctioned upgrade flow)..."
         $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm exec tsx scripts/upgrade-state.ts set" \
             || echo "⚠️  Failed to stamp upgrade-state.json — NanoClaw's own startup tripwire may refuse to start until 'pnpm exec tsx scripts/upgrade-state.ts set' is run manually inside the container." >&2
+    fi
+}
+
+# ---------------------------------------------------------------------------------------
+# Versioned patch blocks — how a patch fix actually reaches an install that
+# was already patched by an older version of this script.
+#
+# The two container/Dockerfile patches below used to test "is this patched?"
+# with a content-blind grep for one token the block happens to contain
+# ('yt-dlp', 'MNEMON_VERSION'). That answers "some generation of this patch
+# is present", never "the CURRENT generation is present" — so once a block
+# was in place, every later deploy said "already patched" and left it alone,
+# no matter how much the block's text had changed in this repo since. Two
+# real fixes shipped to master and then never reached an existing install on
+# a FAST deploy because of exactly this: whisper.cpp's -DBUILD_SHARED_LIBS=OFF
+# static-link fix, and scheme-gating the NO_PROXY ENV that was breaking
+# mnemon's own Ollama connectivity. CLEAN hid the problem (its `git reset
+# --hard` deletes the whole block, so the next apply writes current text) —
+# which is why it looked like "fixed in master, still broken live" rather
+# than an obvious no-op.
+#
+# So each block is now wrapped in versioned begin/end markers:
+#
+#   # >>> pi-bootstrap:<id> v<N> >>>
+#   ...block...
+#   # <<< pi-bootstrap:<id> <<<
+#
+# giving three distinguishable states instead of two:
+#   - current marker present  -> genuinely up to date, no-op
+#   - older marker present    -> stale; strip the old block and re-splice
+#                                current text (this is the case FAST could
+#                                never handle before)
+#   - no marker, but the old  -> a block written before markers existed.
+#     content signature is       Can't be stripped reliably (both patches
+#     present                    splice at the same anchor, so an unmarked
+#                                block has no dependable end boundary), so
+#                                warn loudly, record it in the manifest, and
+#                                say plainly that a CLEAN is what fixes it.
+#
+# Bump the version constant whenever you change a block's text — that is the
+# whole mechanism; an edit without a bump is invisible to an existing
+# install, which is the bug this exists to prevent.
+# ---------------------------------------------------------------------------------------
+MEDIA_TOOLS_PATCH_VERSION=2
+MNEMON_PATCH_VERSION=2
+
+# Deletes a marked block (any version) for one patch id, in place. awk rather
+# than sed -i, which is not portable between GNU and BSD/macOS.
+_strip_patch_block() {
+    local file="$1" id="$2" tmp
+    tmp=$(mktemp)
+    awk -v id="$id" '
+        $0 ~ ("^# >>> pi-bootstrap:" id " v") { skip = 1; next }
+        skip && $0 ~ ("^# <<< pi-bootstrap:" id " <<<$") { skip = 0; next }
+        !skip { print }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+}
+
+# Classifies one patch block's state in $1 against the current version.
+# Echoes exactly one of: current | stale-marked | stale-unmarked | absent
+# $2 = patch id, $3 = current version, $4 = legacy content signature (a
+# grep -q pattern that matches a pre-marker block).
+_patch_block_state() {
+    local file="$1" id="$2" version="$3" legacy_sig="$4"
+    if grep -qF "# >>> pi-bootstrap:${id} v${version} >>>" "$file"; then
+        echo current
+    elif grep -q "^# >>> pi-bootstrap:${id} v" "$file"; then
+        echo stale-marked
+    elif grep -q "$legacy_sig" "$file"; then
+        echo stale-unmarked
+    else
+        echo absent
     fi
 }
 
@@ -198,10 +285,37 @@ apply_mnemon_patch() {
         return 1
     fi
 
-    if grep -q 'MNEMON_VERSION' "$dockerfile"; then
-        echo "✅ mnemon already patched into container/Dockerfile."
-        _mnemon_log "container/Dockerfile: already patched (mnemon binary install)"
-    else
+    local mnemon_state do_splice=true
+    mnemon_state=$(_patch_block_state "$dockerfile" mnemon "$MNEMON_PATCH_VERSION" 'MNEMON_VERSION')
+    case "$mnemon_state" in
+        current)
+            echo "✅ mnemon already patched into container/Dockerfile (v${MNEMON_PATCH_VERSION}, current)."
+            _mnemon_log "container/Dockerfile: already patched, current (mnemon binary install v${MNEMON_PATCH_VERSION})"
+            do_splice=false
+            ;;
+        stale-marked)
+            echo "♻️  container/Dockerfile has an OLDER mnemon patch block — replacing it with v${MNEMON_PATCH_VERSION}..."
+            _strip_patch_block "$dockerfile" mnemon
+            _mnemon_log "container/Dockerfile: **UPDATED** — an older mnemon patch block was replaced with v${MNEMON_PATCH_VERSION}. The agent-sandbox image is rebuilt below so this actually takes effect."
+            AGENT_IMAGE_NEEDS_REBUILD=true
+            ;;
+        stale-unmarked)
+            # The pre-marker era, and the reason a live install kept reporting
+            # mnemon's ollama_available:false long after the fix shipped: an
+            # old block bakes `ENV NO_PROXY=host.docker.internal` in
+            # unconditionally, the scheme-gated version below doesn't, and the
+            # old content-blind check never noticed the difference.
+            echo "⚠️  container/Dockerfile contains an mnemon patch block from before this script tracked patch versions." >&2
+            echo "   It can't be replaced in place (an unmarked block has no reliable end boundary), so it is being left alone." >&2
+            echo "   Run a CLEAN deploy to fix it: CLEAN hard-resets container/Dockerfile to upstream, and this patch then re-applies at v${MNEMON_PATCH_VERSION}." >&2
+            echo "   Until then, mnemon may keep reporting ollama_available:false — the old block bakes an unconditional NO_PROXY=host.docker.internal into the image, which breaks the very routing mnemon needs to reach Ollama." >&2
+            _mnemon_log "container/Dockerfile: **STALE (needs CLEAN)** — an unversioned, pre-marker mnemon block is present and cannot be replaced in place. Run a CLEAN deploy to reset container/Dockerfile to upstream and re-apply at v${MNEMON_PATCH_VERSION}. Symptom while stale: \`ollama_available: false\`, because the old block bakes an unconditional \`ENV NO_PROXY=host.docker.internal\` into the agent image and that bypasses the proxy routing that actually reaches Ollama."
+            MNEMON_PATCH_OK=false
+            do_splice=false
+            ;;
+    esac
+
+    if [ "$do_splice" = true ]; then
         echo "🧠 Patching mnemon binary install into container/Dockerfile..."
         local anchor
         anchor=$(grep -n '^# ---- Bun runtime' "$dockerfile" | head -1 | cut -d: -f1)
@@ -268,6 +382,7 @@ ENV MNEMON_EMBED_MODEL=${MNEMON_EMBED_MODEL}"
         {
             head -n "$((anchor - 1))" "$dockerfile"
             cat <<MNEMON_DOCKER_BLOCK
+# >>> pi-bootstrap:mnemon v${MNEMON_PATCH_VERSION} >>>
 # ---- mnemon — persistent agent memory ----------------------------------------
 ARG MNEMON_VERSION=${MNEMON_VERSION}
 RUN ARCH=\$(dpkg --print-architecture) && \\
@@ -277,12 +392,16 @@ RUN ARCH=\$(dpkg --print-architecture) && \\
 
 ENV MNEMON_DATA_DIR=/home/node/.claude/mnemon
 ${embed_env}
+# <<< pi-bootstrap:mnemon <<<
 
 MNEMON_DOCKER_BLOCK
             tail -n "+${anchor}" "$dockerfile"
         } > "$tmp"
         mv "$tmp" "$dockerfile"
-        _mnemon_log "container/Dockerfile: patched (mnemon binary install added)"
+        _mnemon_log "container/Dockerfile: patched (mnemon binary install v${MNEMON_PATCH_VERSION} added)"
+        # See apply_media_tools_patch()'s identical flag for why writing the
+        # Dockerfile alone isn't enough.
+        AGENT_IMAGE_NEEDS_REBUILD=true
     fi
 
     if grep -q 'mnemon setup' "$entry"; then
@@ -612,11 +731,34 @@ apply_media_tools_patch() {
         return 1
     fi
 
-    if grep -q 'yt-dlp' "$dockerfile"; then
-        echo "✅ yt-dlp/ffmpeg/whisper.cpp already patched into container/Dockerfile."
-        _media_tools_log "container/Dockerfile: already patched (yt-dlp/ffmpeg/whisper.cpp)"
-        return 0
-    fi
+    local state
+    state=$(_patch_block_state "$dockerfile" media-tools "$MEDIA_TOOLS_PATCH_VERSION" 'yt-dlp')
+    case "$state" in
+        current)
+            echo "✅ yt-dlp/ffmpeg/whisper.cpp already patched into container/Dockerfile (v${MEDIA_TOOLS_PATCH_VERSION}, current)."
+            _media_tools_log "container/Dockerfile: already patched, current (yt-dlp/ffmpeg/whisper.cpp v${MEDIA_TOOLS_PATCH_VERSION})"
+            return 0
+            ;;
+        stale-marked)
+            echo "♻️  container/Dockerfile has an OLDER media-tools patch block — replacing it with v${MEDIA_TOOLS_PATCH_VERSION}..."
+            _strip_patch_block "$dockerfile" media-tools
+            _media_tools_log "container/Dockerfile: **UPDATED** — an older media-tools patch block was replaced with v${MEDIA_TOOLS_PATCH_VERSION}. The agent-sandbox image is rebuilt below so this actually takes effect."
+            AGENT_IMAGE_NEEDS_REBUILD=true
+            ;;
+        stale-unmarked)
+            # The pre-marker era. Notably this is the state that kept the
+            # whisper-cli static-link fix (-DBUILD_SHARED_LIBS=OFF) out of
+            # already-patched installs: the old check saw 'yt-dlp', called it
+            # patched, and never looked at the cmake line again.
+            echo "⚠️  container/Dockerfile contains a media-tools patch block from before this script tracked patch versions." >&2
+            echo "   It can't be replaced in place (an unmarked block has no reliable end boundary), so it is being left alone." >&2
+            echo "   Run a CLEAN deploy to fix it: CLEAN hard-resets container/Dockerfile to upstream, and this patch then re-applies at v${MEDIA_TOOLS_PATCH_VERSION}." >&2
+            echo "   Until then, whisper-cli in the agent sandbox may still be the older dynamically-linked build (fails with 'libwhisper.so.1: cannot open shared object file')." >&2
+            _media_tools_log "container/Dockerfile: **STALE (needs CLEAN)** — an unversioned, pre-marker media-tools block is present and cannot be replaced in place. Run a CLEAN deploy to reset container/Dockerfile to upstream and re-apply at v${MEDIA_TOOLS_PATCH_VERSION}. Symptom while stale: whisper-cli fails with \`libwhisper.so.1: cannot open shared object file\` because the old block linked it dynamically against libs deleted from the image."
+            MEDIA_TOOLS_PATCH_OK=false
+            return 0
+            ;;
+    esac
 
     echo "🎙️  Patching yt-dlp/ffmpeg/whisper.cpp into container/Dockerfile (agent sandbox)..."
     local anchor
@@ -632,6 +774,12 @@ apply_media_tools_patch() {
     local tmp; tmp=$(mktemp)
     {
         head -n "$((anchor - 1))" "$dockerfile"
+        # Unquoted heredoc delimiter ONLY on the marker line (so the version
+        # interpolates); the block body below stays inside its own quoted
+        # heredoc so nothing in it is subject to shell expansion.
+        cat <<MEDIA_TOOLS_MARKER_BEGIN
+# >>> pi-bootstrap:media-tools v${MEDIA_TOOLS_PATCH_VERSION} >>>
+MEDIA_TOOLS_MARKER_BEGIN
         cat <<'MEDIA_TOOLS_DOCKER_BLOCK'
 # ---- media tools — yt-dlp / ffmpeg / whisper.cpp, so the agent itself can
 # transcribe video/audio when given a URL, via its own Bash tool -----------
@@ -688,11 +836,17 @@ RUN set -eu; \
     curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${yt_asset}" -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
+# <<< pi-bootstrap:media-tools <<<
+
 MEDIA_TOOLS_DOCKER_BLOCK
         tail -n "+${anchor}" "$dockerfile"
     } > "$tmp"
     mv "$tmp" "$dockerfile"
-    _media_tools_log "container/Dockerfile: patched (yt-dlp/ffmpeg/whisper.cpp added)"
+    _media_tools_log "container/Dockerfile: patched (yt-dlp/ffmpeg/whisper.cpp v${MEDIA_TOOLS_PATCH_VERSION} added)"
+    # container/Dockerfile changed on disk — inert until the agent-sandbox
+    # image is rebuilt from it. CLEAN always rebuilds; FAST only does when
+    # this flag says a patch actually wrote something.
+    AGENT_IMAGE_NEEDS_REBUILD=true
 }
 
 # ---------------------------------------------------------------------------------------
@@ -1544,6 +1698,20 @@ OLLAMA_ENV_TS
 # elsewhere in this repo — against the plain local variables this function
 # sets first.
 # ---------------------------------------------------------------------------------------
+# Reads one patch's detail section from templates/patch-details/<id>.md.
+# Missing file is not fatal — the manifest is a diagnostic aid, and a
+# deploy that still applies every patch correctly shouldn't fail because a
+# documentation file didn't ship. Says so in the output rather than
+# silently emitting an empty section.
+_patch_detail() {
+    local f="${SCRIPT_DIR}/templates/patch-details/${1}.md"
+    if [ -f "$f" ]; then
+        cat "$f"
+    else
+        echo "_(detail unavailable — templates/patch-details/${1}.md is missing from the pi-bootstrap checkout that deployed this container.)_"
+    fi
+}
+
 write_patches_manifest() {
     local manifest="${INSTALL_PATH}/pi-bootstrap-patches.md"
     local template="${SCRIPT_DIR}/templates/patches-manifest.md.tmpl"
@@ -1566,6 +1734,19 @@ write_patches_manifest() {
 }"
     local generated_at
     generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+    # Per-patch documentation — what the patch changes, which anchors it
+    # depends on, and what shape a correct fix has to have. Kept in
+    # templates/patch-details/*.md rather than inline here: it's reference
+    # documentation aimed at whoever has to repair a patch from inside the
+    # container, it's the longest prose this environment produces, and
+    # burying it in a shell heredoc made it effectively unreviewable — a
+    # doc change looked like a code change in every diff.
+    local mnemon_detail media_tools_detail ollama_detail telegram_detail
+    mnemon_detail="$(_patch_detail mnemon)"
+    media_tools_detail="$(_patch_detail media-tools)"
+    ollama_detail="$(_patch_detail ollama-tool)"
+    telegram_detail="$(_patch_detail telegram-import)"
 
     # $(...) strips the template file's trailing newline; printf's own
     # trailing \n restores a normal, single newline-terminated text file.
@@ -2041,6 +2222,100 @@ if [ "$NANOCLAW_INSTALL_CODEX" = "true" ] && { [ "$POLICY" = "CLEAN" ] || [ ! -f
     $DOCKER exec -i "$CONTAINER_NAME" bash -s -- "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/install-codex-provider.sh"
 fi
 
+# ---------------------------------------------------------------------------------------
+# Rebuild the agent-sandbox image BEFORE either NanoClaw restart path below,
+# then sweep this install's agent containers one more time.
+#
+# Ordering here is load-bearing, and getting it wrong was a real, live bug
+# that survived several rounds of "the fix is already in master, why is it
+# still broken" — worth spelling out so it doesn't get reordered back:
+#
+#   apply_mnemon_patch/apply_media_tools_patch (far above) only rewrite
+#   container/Dockerfile on the HOST. Nothing an agent actually runs changes
+#   until container/build.sh turns that Dockerfile into a new agent-sandbox
+#   IMAGE, and nothing a *running* agent runs changes until the container
+#   spawned from the old image is replaced. This block used to sit AFTER the
+#   two restart paths below, which meant the sequence was:
+#
+#     CLEAN's early teardown removes every agent container   (~line 1770)
+#     ... source sync, patches rewrite container/Dockerfile ...
+#     orchestrator container starts, NanoClaw comes back up  (~line 1957)
+#     start-nanoclaw.sh restarts NanoClaw again              (below)
+#     agent-sandbox image finally rebuilt                    (this block)
+#
+#   NanoClaw is live and serving from the orchestrator-start step onward, so
+#   any group that received a message in that window got a fresh agent
+#   container spawned from the STILL-STALE image — and agent containers are
+#   long-lived, so it kept serving from that stale image indefinitely, across
+#   every later FAST deploy. Two symptoms this produced, both reported as
+#   "fixed upstream but still broken live", both explained by exactly this:
+#     - whisper-cli dynamically linked against a missing libwhisper.so.1,
+#       even though -DBUILD_SHARED_LIBS=OFF was confirmed present in the
+#       Dockerfile and a fresh `docker run <tag> whisper-cli --help` passed.
+#       The image was fine; the running container predated it.
+#     - mnemon reporting ollama_available:false, because the stale image
+#       still had the pre-scheme-gating `ENV NO_PROXY=host.docker.internal`
+#       baked in (see apply_mnemon_patch()'s own comment) — an image-level
+#       ENV that a rebuilt image fixes and a stale container never sees.
+#
+# So: rebuild first, then sweep whatever was spawned from the old image in
+# the meantime, and only then let the restart paths below bring NanoClaw up
+# against an image that actually matches the patched Dockerfile. NanoClaw
+# respawns a swept group's container on its next message, from the new image.
+#
+# Kept independent of which restart path runs (patch_rc or the CLEAN one) —
+# a newly-applied runtime patch used to skip this rebuild entirely because
+# patch_rc=2 bypassed an older combined branch.
+if [ "$POLICY" = "CLEAN" ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    if [ -f "${INSTALL_PATH}/container/build.sh" ]; then
+        echo "🛠️  Rebuilding the NanoClaw agent-sandbox image (profile patches + optional providers)..."
+        # BuildKit cache mounts in container/Dockerfile need DOCKER_BUILDKIT=1
+        # — docker exec never forwards the host's env on its own (same
+        # reasoning as the nanoclaw.sh wizard call further below).
+        if ! $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'"; then
+            if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
+                echo "❌ Agent-sandbox image rebuild failed — refusing to report a successful CLEAN because Codex would not survive in the replacement image." >&2
+                exit 1
+            fi
+            echo "⚠️  Agent-sandbox image rebuild failed — profile changes won't take effect until this succeeds. See the build output above." >&2
+        else
+            # Only sweep on a SUCCESSFUL rebuild. After a failed one the old
+            # image is still the newest thing that exists, so discarding the
+            # running containers would buy nothing and just drop live state.
+            echo "🐳 Discarding any agent container spawned from the pre-rebuild image..."
+            remove_agent_containers
+        fi
+    else
+        if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
+            echo "❌ ${INSTALL_PATH}/container/build.sh not found — refusing to report a successful CLEAN because the replacement Codex agent image cannot be built." >&2
+            exit 1
+        fi
+        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild. Profile changes won't take effect until the image is rebuilt some other way." >&2
+    fi
+fi
+
+# A patch above actually rewrote container/Dockerfile on a non-CLEAN deploy
+# (only possible now that the patch functions detect a *stale* block rather
+# than accepting any block as "already patched" — see apply_mnemon_patch()'s
+# marker comment). The Dockerfile change is inert until the agent-sandbox
+# image is rebuilt from it, and CLEAN's own rebuild block above doesn't run
+# on FAST, so do it here. Without this, a FAST deploy would report a patch as
+# freshly applied while every agent kept running the old image — the same
+# class of "fixed on disk, stale in the container" bug documented above.
+if [ "$POLICY" != "CLEAN" ] && [ "${AGENT_IMAGE_NEEDS_REBUILD:-false}" = "true" ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    if [ -f "${INSTALL_PATH}/container/build.sh" ]; then
+        echo "🛠️  A patch updated container/Dockerfile — rebuilding the agent-sandbox image so it takes effect..."
+        if $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'"; then
+            echo "🐳 Discarding any agent container still running the pre-rebuild image..."
+            remove_agent_containers
+        else
+            echo "⚠️  Agent-sandbox image rebuild failed — the updated patch won't take effect until this succeeds. See the build output above." >&2
+        fi
+    else
+        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — the updated container/Dockerfile patch won't take effect until the agent-sandbox image is rebuilt." >&2
+    fi
+fi
+
 if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway and/or approval-delivery fix)..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
@@ -2061,32 +2336,10 @@ if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -n
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
 fi
 
-# The host rebuild paths above do NOT rebuild the agent-sandbox Docker image
-# that apply_mnemon_patch/apply_media_tools_patch and the optional Codex
-# provider CLI manifest affect. Keep this independent from which host rebuild
-# path ran: a newly-applied runtime patch used to skip this image rebuild
-# because patch_rc=2 bypassed the older combined branch.
-if [ "$POLICY" = "CLEAN" ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
-    if [ -f "${INSTALL_PATH}/container/build.sh" ]; then
-        echo "🛠️  Rebuilding the NanoClaw agent-sandbox image (profile patches + optional providers)..."
-        # BuildKit cache mounts in container/Dockerfile need DOCKER_BUILDKIT=1
-        # — docker exec never forwards the host's env on its own (same
-        # reasoning as the nanoclaw.sh wizard call further below).
-        if ! $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'"; then
-            if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
-                echo "❌ Agent-sandbox image rebuild failed — refusing to report a successful CLEAN because Codex would not survive in the replacement image." >&2
-                exit 1
-            fi
-            echo "⚠️  Agent-sandbox image rebuild failed — profile changes won't take effect until this succeeds. See the build output above." >&2
-        fi
-    else
-        if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
-            echo "❌ ${INSTALL_PATH}/container/build.sh not found — refusing to report a successful CLEAN because the replacement Codex agent image cannot be built." >&2
-            exit 1
-        fi
-        echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — skipping the agent-sandbox image rebuild. Profile changes won't take effect until the image is rebuilt some other way." >&2
-    fi
-fi
+# (The agent-sandbox image rebuild that used to live here has moved ABOVE the
+# two NanoClaw restart paths — see that block's own comment for why the
+# ordering matters. Rebuilding it here, after NanoClaw was already back up
+# and serving, is what let stale-image agent containers survive a CLEAN.)
 
 # NanoClaw's own nohup fallback (setup/service.ts, used whenever there's no
 # systemd/launchd — always true here) writes start-nanoclaw.sh but never

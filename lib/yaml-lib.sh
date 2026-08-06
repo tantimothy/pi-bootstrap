@@ -46,15 +46,37 @@ _require_yq() {
 # value, or "" if unset — matching plain bash expansion.
 #
 # Loops (rather than a single non-overlapping regex pass) so a string with
-# more than one marker gets every one resolved, not just the first.
+# more than one marker gets every one resolved, not just the first. Each
+# iteration resolves the first remaining marker; repeated markers are picked
+# up by later iterations.
+#
+# Substitution is done with prefix/suffix splitting rather than the obvious
+# `result="${result//$expr/$val}"`, and that is not a style preference:
+#
+#   - In bash 5.2+, an unquoted `&` in a pattern-substitution REPLACEMENT
+#     expands to whatever the pattern just matched. So a value containing
+#     `&` — a URL with two query parameters, a shell snippet redirecting
+#     with `2>&1`, an "X & Y" label — silently expanded to the marker text
+#     itself, re-injecting `${VAR}` into the result. The loop above then
+#     matched it again, substituted again, and never terminated: a hang, not
+#     a wrong answer. Hit for real by a template containing `2>&1`.
+#   - Escaping the `&` instead would work on 5.2+ but relies on replacement
+#     backslash handling that differs on the bash 3.2 macOS still ships,
+#     which this repo has to keep working.
+#
+# Quoting "$expr" inside the pattern makes it a literal (only the trailing/
+# leading `*` stays a wildcard), and the value is concatenated in directly,
+# so no character in it is special. Works identically on bash 3.2 and 5.x.
 _yaml_expand() {
-    local s="$1" result="$1" var default expr val
+    local s="$1" result="$1" var default expr val prefix suffix
     while [[ "$result" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\} ]]; do
         expr="${BASH_REMATCH[0]}"
         var="${BASH_REMATCH[1]}"
         default="${BASH_REMATCH[3]}"
         val="${!var:-$default}"
-        result="${result//$expr/$val}"
+        prefix="${result%%"$expr"*}"
+        suffix="${result#*"$expr"}"
+        result="${prefix}${val}${suffix}"
     done
     printf '%s' "$result"
 }
