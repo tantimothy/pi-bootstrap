@@ -1206,3 +1206,113 @@ about to run, before that code's next restart.
     repo) — check there first for anything upgrade-tripwire-related in a
     future NanoClaw version, since the sanctioned command/flow is owned and
     versioned by NanoClaw upstream, not by this environment.
+
+## Ollama MCP Tool — Auto-Applied by Default, With a Drift-Diagnosis Manifest
+
+**Status:** implemented, verified against a live user's own already-patched
+NanoClaw checkout (see below), not yet confirmed via a fresh end-to-end
+deploy in this repo's own CI-less workflow.
+
+### Summary
+
+NanoClaw's own `/add-ollama-tool` skill registers an MCP server that
+exposes local Ollama models (`ollama_list_models`, `ollama_generate`, plus
+opt-in admin tools) to every per-group agent container. It's an opt-in,
+manually-run skill upstream, and its shipped `ollama-env.ts` output has two
+real bugs. This environment now applies a hand-written, bug-fixed
+equivalent automatically, every deploy, via a new `apply_ollama_tool_patch()`
+in `run.sh` (same idempotent text-splice mechanism as `apply_mnemon_patch()`/
+`apply_media_tools_patch()`), called unconditionally after the
+`NANOCLAW_SETUP` mnemon/plain branch — this is a general per-group agent
+capability, not a mnemon-profile feature.
+
+### The two shipped-skill bugs (confirmed by a live user who ran the skill,
+hit both, and fixed them by hand)
+
+1. **`.env` vars never read.** The skill's `ollamaEnvArgs()` reads
+   `process.env.OLLAMA_HOST`/`OLLAMA_ADMIN_TOOLS` directly, but NanoClaw
+   loads `.env` through its own `readEnvFile()` — those values never reach
+   `process.env` on their own. Fix: `src/config.ts` needs `OLLAMA_HOST`/
+   `OLLAMA_ADMIN_TOOLS` added to the `readEnvFile([...])` key list and
+   exported the same way every other config value is (`process.env.X ||
+   envConfig.X`).
+2. **OneCLI's own `NO_PROXY=host.docker.internal` default breaks Ollama
+   routing.** OneCLI injects that into every agent container so its own
+   proxy address isn't self-proxied — but Ollama is reached AT
+   `host.docker.internal:11434` THROUGH that same proxy, so the default
+   value routes Ollama traffic OUTSIDE the proxy instead, breaking the
+   connection. Fix: `ollama-env.ts`'s `ollamaEnvArgs()` overrides
+   `NO_PROXY`/`no_proxy` to any value that isn't `host.docker.internal` —
+   made `.env`-configurable as `OLLAMA_NO_PROXY_OVERRIDE` rather than
+   hardcoded, since the value that happens to be safe on OrbStack
+   (`0.250.250.254`, OrbStack's own raw host IP) means nothing in
+   particular on a real Linux/Raspberry Pi Docker host.
+
+Both fixes are baked into the patch text `apply_ollama_tool_patch()` writes
+from the start — it never reproduces the skill's own shipped bug.
+
+### Verification approach
+
+WebFetch could not reliably reproduce NanoClaw's actual TypeScript source
+byte-for-byte (the underlying summarization model refused/truncated full
+files); `add_repo` for the upstream `nanocoai/nanoclaw` repo failed twice
+with an MCP approval error. Resolved by asking the user to paste the exact
+files from their own already-working, already-patched NanoClaw checkout
+(`ollama-mcp-stdio.ts`, `index.ts`, `container-runner.ts`, `config.ts`).
+Every anchor `apply_ollama_tool_patch()`'s `grep -n` calls search for was
+confirmed to match those real files exactly, and the generated splice
+output was confirmed byte-identical to the corresponding already-patched
+sections of the user's own working copy.
+
+### Drift-diagnosis design (the actual ask this session)
+
+Deliberately **not** pinning NanoClaw's git ref — this environment still
+tracks upstream `main`, same as always. Instead, the risk that an upstream
+change one day shifts an anchor line and silently breaks a sub-patch is
+addressed with two new files, written into `$NANOCLAW_INSTALL_PATH` (inside
+the deployed NanoClaw checkout, not this repo):
+
+- **`.pi-bootstrap-patches.md`** — regenerated on every deploy by a new
+  `write_patches_manifest()` in `run.sh`, listing every patch this
+  environment applies (mnemon, media-tools/whisper, ollama-tool) and each
+  one's PASSED/SKIPPED/FAILED status, sourced from `_LOG`/`_OK` status
+  variables each `apply_*_patch()` function now sets
+  (`MNEMON_PATCH_OK`/`_LOG`, `MEDIA_TOOLS_PATCH_OK`/`_LOG`,
+  `OLLAMA_PATCH_OK`/`_LOG` — retrofitted onto the two older functions to
+  match the new one's pattern, since the ask was "document everything that
+  was done", not just the newest patch).
+- **`.pi-bootstrap-patch-fixes.md`** — touch-created once with an
+  instructional header, then never overwritten by any later deploy. The
+  admin `claude` session running inside the container (see
+  `entrypoint.sh`'s `/root/CLAUDE.md`, which now points at both files) is
+  meant to record whatever it diagnoses or hand-fixes here, so a human (or
+  a future pi-bootstrap session) can read it later and decide whether to
+  update the actual patch scripts in this repo.
+
+### General Lessons
+
+- **A drift-mitigation strategy doesn't have to mean pinning.** Pinning a
+  fast-moving upstream trades one class of problem (silent breakage) for
+  another (silent staleness — a pinned ref never gets security fixes or new
+  features without a deliberate bump). Tracking `main` and instead making
+  breakage *loud and diagnosable in place* — every sub-patch checks its own
+  anchor and reports SKIPPED rather than guessing, plus a persistent status
+  file an admin session or a human can read — is a real alternative worth
+  considering before defaulting to pinning.
+- **"Fill in if missing" vs. "always overwrite" is the same fork every
+  self-owned generated file eventually needs.** For a file this repo's own
+  patch function fully owns (nothing upstream creates it) but that a live
+  admin session might reasonably hand-edit inside a running container
+  (`ollama-mcp-stdio.ts`, `ollama-env.ts`), unconditionally overwriting it
+  every deploy would silently clobber that live fix. The status-report file
+  (`.pi-bootstrap-patches.md`) is the opposite case — nothing else ever
+  writes to it, so overwriting it every deploy is correct, not lossy. The
+  fix-report file (`.pi-bootstrap-patch-fixes.md`) is a third case again —
+  owned by the admin session, not by `run.sh`, so `run.sh` may only
+  touch-create it once and must never overwrite it afterward.
+- **WebFetch is unreliable for extracting exact source code**, especially
+  anything non-trivial (a full TypeScript module) — its underlying
+  summarization step will refuse or truncate rather than reproduce
+  something byte-exact. Asking the user directly for a pasted/uploaded copy
+  of their own real, working file was faster and more reliable than several
+  rounds of retrying WebFetch with narrower prompts or raw-URL redirects.

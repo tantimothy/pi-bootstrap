@@ -169,15 +169,23 @@ apply_mnemon_patch() {
     local dockerfile="${INSTALL_PATH}/container/Dockerfile"
     local entry="${INSTALL_PATH}/container/entrypoint.sh"
 
+    MNEMON_PATCH_OK=true
+    MNEMON_PATCH_LOG=""
+    _mnemon_log() { MNEMON_PATCH_LOG="${MNEMON_PATCH_LOG}- ${1}
+"; }
+
     if [ ! -f "$dockerfile" ] || [ ! -f "$entry" ]; then
         echo "⚠️  Couldn't find container/Dockerfile or container/entrypoint.sh under $INSTALL_PATH" >&2
         echo "   — NanoClaw's own layout may have changed upstream. Skipping the mnemon patch;" >&2
         echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
+        _mnemon_log "**SKIPPED (whole patch)** — container/Dockerfile or container/entrypoint.sh missing; NanoClaw's own layout may have changed. Apply manually: https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw"
+        MNEMON_PATCH_OK=false
         return 1
     fi
 
     if grep -q 'MNEMON_VERSION' "$dockerfile"; then
         echo "✅ mnemon already patched into container/Dockerfile."
+        _mnemon_log "container/Dockerfile: already patched (mnemon binary install)"
     else
         echo "🧠 Patching mnemon binary install into container/Dockerfile..."
         local anchor
@@ -186,6 +194,8 @@ apply_mnemon_patch() {
             echo "❌ Couldn't find the '# ---- Bun runtime' anchor in container/Dockerfile." >&2
             echo "   NanoClaw's Dockerfile may have changed upstream — skipping the mnemon patch;" >&2
             echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
+            _mnemon_log "container/Dockerfile: **SKIPPED** — '# ---- Bun runtime' anchor not found, upstream layout may have changed. Apply manually: https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw"
+            MNEMON_PATCH_OK=false
             return 1
         fi
         # Both opt-in and unset by default — see MNEMON_EMBED_ENDPOINT's own
@@ -239,10 +249,12 @@ MNEMON_DOCKER_BLOCK
             tail -n "+${anchor}" "$dockerfile"
         } > "$tmp"
         mv "$tmp" "$dockerfile"
+        _mnemon_log "container/Dockerfile: patched (mnemon binary install added)"
     fi
 
     if grep -q 'mnemon setup' "$entry"; then
         echo "✅ mnemon already wired into container/entrypoint.sh."
+        _mnemon_log "container/entrypoint.sh: already wired (mnemon setup)"
     else
         echo "🧠 Wiring mnemon setup into container/entrypoint.sh..."
         local anchor
@@ -250,6 +262,8 @@ MNEMON_DOCKER_BLOCK
         if [ -z "$anchor" ]; then
             echo "❌ Couldn't find 'set -e' in container/entrypoint.sh — skipping the mnemon patch;" >&2
             echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
+            _mnemon_log "container/entrypoint.sh: **SKIPPED** — 'set -e' anchor not found, upstream layout may have changed. Apply manually: https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw"
+            MNEMON_PATCH_OK=false
             return 1
         fi
         # "mnemon setup --yes --global" — NOT bare "mnemon setup --yes"
@@ -289,6 +303,7 @@ MNEMON_DOCKER_BLOCK
         # which BSD/macOS chmod doesn't support) to stay portable.
         chmod +x "$tmp"
         mv "$tmp" "$entry"
+        _mnemon_log "container/entrypoint.sh: patched (mnemon setup --yes --global wired in)"
     fi
 }
 
@@ -316,13 +331,21 @@ MNEMON_DOCKER_BLOCK
 apply_media_tools_patch() {
     local dockerfile="${INSTALL_PATH}/container/Dockerfile"
 
+    MEDIA_TOOLS_PATCH_OK=true
+    MEDIA_TOOLS_PATCH_LOG=""
+    _media_tools_log() { MEDIA_TOOLS_PATCH_LOG="${MEDIA_TOOLS_PATCH_LOG}- ${1}
+"; }
+
     if [ ! -f "$dockerfile" ]; then
         echo "⚠️  Couldn't find container/Dockerfile under $INSTALL_PATH — skipping the media-tools patch." >&2
+        _media_tools_log "**SKIPPED (whole patch)** — container/Dockerfile missing; NanoClaw's own layout may have changed."
+        MEDIA_TOOLS_PATCH_OK=false
         return 1
     fi
 
     if grep -q 'yt-dlp' "$dockerfile"; then
         echo "✅ yt-dlp/ffmpeg/whisper.cpp already patched into container/Dockerfile."
+        _media_tools_log "container/Dockerfile: already patched (yt-dlp/ffmpeg/whisper.cpp)"
         return 0
     fi
 
@@ -333,6 +356,8 @@ apply_media_tools_patch() {
         echo "❌ Couldn't find the '# ---- Bun runtime' anchor in container/Dockerfile." >&2
         echo "   NanoClaw's Dockerfile may have changed upstream — skipping the media-tools patch;" >&2
         echo "   apply it manually per this environment's README." >&2
+        _media_tools_log "container/Dockerfile: **SKIPPED** — '# ---- Bun runtime' anchor not found, upstream layout may have changed. Apply manually per this environment's README."
+        MEDIA_TOOLS_PATCH_OK=false
         return 1
     fi
     local tmp; tmp=$(mktemp)
@@ -389,6 +414,906 @@ MEDIA_TOOLS_DOCKER_BLOCK
         tail -n "+${anchor}" "$dockerfile"
     } > "$tmp"
     mv "$tmp" "$dockerfile"
+    _media_tools_log "container/Dockerfile: patched (yt-dlp/ffmpeg/whisper.cpp added)"
+}
+
+# ---------------------------------------------------------------------------------------
+# /add-ollama-tool patch — registers an MCP server exposing local Ollama
+# models (ollama_list_models, ollama_generate, and opt-in admin tools) to
+# EVERY per-group agent container, gated on OLLAMA_ADMIN_TOOLS rather than
+# NANOCLAW_SETUP — this is a general agent capability, not a mnemon
+# feature, so it applies to both the "mnemon" and "plain" profiles (called
+# unconditionally below, outside that if/else).
+#
+# Written directly from NanoClaw's own actual source, not the skill's
+# documented (buggy) output — the shipped /add-ollama-tool skill has two
+# real bugs (confirmed directly by a live user who ran it, hit both, and
+# fixed them by hand): ollamaEnvArgs() never actually read .env (only
+# process.env, which NanoClaw's own readEnvFile() doesn't populate), and
+# OneCLI's own NO_PROXY=host.docker.internal default silently defeats
+# Ollama routing through its proxy. Both fixes are baked into the patch
+# text below from the start — this function never reproduces the bug.
+#
+# Idempotent per file: the two brand-new files this function owns
+# (ollama-mcp-stdio.ts, ollama-env.ts) are only written if missing, NOT
+# unconditionally overwritten on every deploy — if the admin `claude`
+# session ever hand-fixes either file live (see the .pi-bootstrap-patches.md
+# manifest write_patches_manifest() writes right after this function runs,
+# and its sibling .pi-bootstrap-patch-fixes.md), that fix survives every
+# later FAST/CLEAN run untouched, since this function only ever fills in a
+# MISSING file, never replaces an existing one. The three files this
+# function splices INTO
+# (index.ts, config.ts, container-runner.ts) use the same marker-based
+# idempotency as apply_mnemon_patch/apply_media_tools_patch above, and are
+# excluded from CHANNEL_SKILL_MODS's snapshot-and-reapply pathspec below for
+# the identical reason those two functions' own files are: this function
+# already owns re-applying itself, idempotently, after every CLEAN reset —
+# letting the generic reapply mechanism ALSO touch these files risks
+# reapplying stale patch text that then satisfies this function's own
+# idempotency check and never gets updated again (the exact bug already
+# hit once for apply_media_tools_patch, see that function's own comment).
+#
+# Every anchor is checked before use — if NanoClaw's upstream source has
+# changed shape since this was written, the affected sub-patch is skipped
+# with a loud warning and a link to the skill's own doc
+# (https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-ollama-tool/SKILL.md)
+# rather than guessing. Every sub-patch's actual result — applied,
+# already-present, or skipped-with-reason — is captured in
+# OLLAMA_PATCH_LOG and OLLAMA_PATCH_OK for the manifest this function
+# writes at the end, so a broken patch is diagnosable from inside the
+# container without needing to reconstruct what run.sh attempted.
+# ---------------------------------------------------------------------------------------
+apply_ollama_tool_patch() {
+    local agent_src="${INSTALL_PATH}/container/agent-runner/src"
+    local index_ts="${agent_src}/index.ts"
+    local mcp_stdio="${agent_src}/ollama-mcp-stdio.ts"
+    local ollama_env="${INSTALL_PATH}/src/ollama-env.ts"
+    local config_ts="${INSTALL_PATH}/src/config.ts"
+    local container_runner="${INSTALL_PATH}/src/container-runner.ts"
+    local skill_url="https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-ollama-tool/SKILL.md"
+
+    OLLAMA_PATCH_OK=true
+    OLLAMA_PATCH_LOG=""
+    _ollama_log() { OLLAMA_PATCH_LOG="${OLLAMA_PATCH_LOG}- ${1}
+"; }
+
+    if [ ! -f "$index_ts" ] || [ ! -f "$config_ts" ] || [ ! -f "$container_runner" ]; then
+        echo "⚠️  Couldn't find container/agent-runner/src/index.ts, src/config.ts, or src/container-runner.ts under $INSTALL_PATH" >&2
+        echo "   — NanoClaw's own layout may have changed upstream. Skipping the Ollama-tool patch;" >&2
+        echo "   apply it manually per $skill_url" >&2
+        _ollama_log "**SKIPPED (whole patch)** — one or more expected source files are missing; NanoClaw's own layout may have changed. Apply manually: $skill_url"
+        OLLAMA_PATCH_OK=false
+        return 1
+    fi
+
+    # 1. container/agent-runner/src/ollama-mcp-stdio.ts — the MCP server
+    # itself. Fully owned by this patch (nothing upstream creates this
+    # file), so this only ever fills it in if missing — never overwrites
+    # an existing copy, live-fixed or not.
+    if [ -f "$mcp_stdio" ]; then
+        echo "✅ ollama-mcp-stdio.ts already present."
+        _ollama_log "ollama-mcp-stdio.ts: already present (left untouched — could be a prior deploy's copy or a live admin-session fix)"
+    else
+        echo "🦙 Writing container/agent-runner/src/ollama-mcp-stdio.ts..."
+        cat > "$mcp_stdio" <<'OLLAMA_MCP_STDIO_TS'
+/**
+ * Ollama MCP Server for NanoClaw
+ * Exposes local Ollama models (native Ollama REST API, /api/*) as tools for the
+ * container agent. Uses host.docker.internal to reach the host's Ollama daemon
+ * from inside the container.
+ *
+ * Ollama runs locally and is keyless — there are no credentials to thread. The
+ * only configuration is the base URL (OLLAMA_HOST) and an opt-in flag for the
+ * library-management tools (OLLAMA_ADMIN_TOOLS).
+ */
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+
+import fs from 'fs';
+import path from 'path';
+
+const OLLAMA_HOST =
+  process.env.OLLAMA_HOST || 'http://host.docker.internal:11434';
+const OLLAMA_ADMIN_TOOLS = process.env.OLLAMA_ADMIN_TOOLS === 'true';
+const OLLAMA_STATUS_FILE = '/workspace/ipc/ollama_status.json';
+
+function log(msg: string): void {
+  console.error(`[OLLAMA] ${msg}`);
+}
+
+function writeStatus(status: string, detail?: string): void {
+  try {
+    const data = { status, detail, timestamp: new Date().toISOString() };
+    const tmpPath = `${OLLAMA_STATUS_FILE}.tmp`;
+    fs.mkdirSync(path.dirname(OLLAMA_STATUS_FILE), { recursive: true });
+    fs.writeFileSync(tmpPath, JSON.stringify(data));
+    fs.renameSync(tmpPath, OLLAMA_STATUS_FILE);
+  } catch {
+    /* best-effort */
+  }
+}
+
+async function ollamaFetch(
+  apiPath: string,
+  options?: RequestInit,
+): Promise<Response> {
+  const url = `${OLLAMA_HOST}${apiPath}`;
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    // Fallback to localhost if host.docker.internal fails
+    if (OLLAMA_HOST.includes('host.docker.internal')) {
+      const fallbackUrl = url.replace('host.docker.internal', 'localhost');
+      return await fetch(fallbackUrl, options);
+    }
+    throw err;
+  }
+}
+
+function formatBytes(bytes?: number): string {
+  if (bytes === undefined || bytes === null) return '?';
+  const gb = bytes / 1024 / 1024 / 1024;
+  if (gb >= 1) return `${gb.toFixed(1)}GB`;
+  const mb = bytes / 1024 / 1024;
+  return `${mb.toFixed(0)}MB`;
+}
+
+const server = new McpServer({
+  name: 'ollama',
+  version: '1.0.0',
+});
+
+server.tool(
+  'ollama_list_models',
+  'List all models installed in the local Ollama daemon. Use this to see which models are available before calling ollama_generate.',
+  {},
+  async () => {
+    log('Listing models...');
+    writeStatus('listing', 'Listing installed models');
+    try {
+      const res = await ollamaFetch('/api/tags');
+      if (!res.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Ollama API error: ${res.status} ${res.statusText}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const data = (await res.json()) as {
+        models?: Array<{
+          name: string;
+          size?: number;
+          details?: { family?: string; parameter_size?: string };
+        }>;
+      };
+      const models = data.models || [];
+
+      if (models.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'No models installed. Pull one on the host with `ollama pull <model>` (e.g. `ollama pull llama3.2`).',
+            },
+          ],
+        };
+      }
+
+      const list = models
+        .map((m) => {
+          const family = m.details?.family ? ` ${m.details.family}` : '';
+          const params = m.details?.parameter_size
+            ? ` ${m.details.parameter_size}`
+            : '';
+          return `- ${m.name} (${formatBytes(m.size)}${family}${params})`;
+        })
+        .join('\n');
+
+      log(`Found ${models.length} models`);
+      return {
+        content: [
+          { type: 'text' as const, text: `Installed models:\n${list}` },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Failed to connect to Ollama at ${OLLAMA_HOST}: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.tool(
+  'ollama_generate',
+  'Send a prompt to a local Ollama model and get a response. Good for cheaper/faster tasks like summarization, translation, or general queries. Use ollama_list_models first to see available models.',
+  {
+    model: z
+      .string()
+      .describe(
+        'The model name as returned by ollama_list_models (e.g. "llama3.2" or "gemma3:1b")',
+      ),
+    prompt: z.string().describe('The prompt to send to the model'),
+    system: z
+      .string()
+      .optional()
+      .describe('Optional system prompt to set model behavior'),
+    temperature: z
+      .number()
+      .optional()
+      .describe('Sampling temperature (0.0–2.0). Defaults to model default.'),
+  },
+  async (args) => {
+    log(`>>> Generating with ${args.model} (${args.prompt.length} chars)...`);
+    writeStatus('generating', `Generating with ${args.model}`);
+    try {
+      const body: Record<string, unknown> = {
+        model: args.model,
+        prompt: args.prompt,
+        stream: false,
+      };
+      if (args.system) body.system = args.system;
+      if (args.temperature !== undefined) {
+        body.options = { temperature: args.temperature };
+      }
+
+      const startedAt = Date.now();
+      const res = await ollamaFetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Ollama error (${res.status}): ${errorText}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const data = (await res.json()) as {
+        response?: string;
+        eval_count?: number;
+      };
+
+      const response = data.response ?? '';
+      const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+      const evalCount = data.eval_count;
+
+      const meta = `\n\n[${args.model} | ${elapsedSec}s${
+        evalCount !== undefined ? ` | ${evalCount} tokens` : ''
+      }]`;
+
+      log(
+        `<<< Done: ${args.model} | ${elapsedSec}s | ${
+          evalCount ?? '?'
+        } tokens | ${response.length} chars`,
+      );
+      writeStatus(
+        'done',
+        `${args.model} | ${elapsedSec}s | ${evalCount ?? '?'} tokens`,
+      );
+
+      return { content: [{ type: 'text' as const, text: response + meta }] };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Failed to call Ollama: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
+
+// Library-management tools — opt-in via OLLAMA_ADMIN_TOOLS=true. These mutate
+// the host's model library (pull/delete) or inspect it, so they are gated
+// behind an explicit flag rather than exposed by default.
+if (OLLAMA_ADMIN_TOOLS) {
+  server.tool(
+    'ollama_pull_model',
+    'Pull (download) a model from the Ollama registry into the local daemon. Blocks until the download completes — large models can take several minutes.',
+    {
+      model: z
+        .string()
+        .describe('The model name to pull (e.g. "llama3.2" or "qwen3-coder:30b")'),
+    },
+    async (args) => {
+      log(`Pulling model: ${args.model}`);
+      writeStatus('pulling', `Pulling ${args.model}`);
+      try {
+        const res = await ollamaFetch('/api/pull', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: args.model, stream: false }),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Ollama pull error (${res.status}): ${errorText}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const data = (await res.json()) as { status?: string };
+        log(`Pulled: ${args.model} (${data.status ?? 'ok'})`);
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Pulled ${args.model}: ${data.status ?? 'success'}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Failed to pull ${args.model}: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'ollama_delete_model',
+    'Delete a locally installed model from the Ollama daemon to free disk space.',
+    {
+      model: z.string().describe('The model name to delete (e.g. "gemma3:1b")'),
+    },
+    async (args) => {
+      log(`Deleting model: ${args.model}`);
+      writeStatus('deleting', `Deleting ${args.model}`);
+      try {
+        const res = await ollamaFetch('/api/delete', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: args.model }),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Ollama delete error (${res.status}): ${errorText}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        log(`Deleted: ${args.model}`);
+        return {
+          content: [
+            { type: 'text' as const, text: `Deleted ${args.model}.` },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Failed to delete ${args.model}: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'ollama_show_model',
+    'Show details for a locally installed model: modelfile, parameters, template, and architecture info.',
+    {
+      model: z
+        .string()
+        .describe('The model name to inspect (e.g. "llama3.2")'),
+    },
+    async (args) => {
+      log(`Showing model: ${args.model}`);
+      try {
+        const res = await ollamaFetch('/api/show', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: args.model }),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Ollama show error (${res.status}): ${errorText}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const data = (await res.json()) as {
+          parameters?: string;
+          template?: string;
+          details?: {
+            family?: string;
+            parameter_size?: string;
+            quantization_level?: string;
+          };
+        };
+
+        const parts: string[] = [`Model: ${args.model}`];
+        if (data.details) {
+          const d = data.details;
+          parts.push(
+            `Family: ${d.family ?? '?'} | Params: ${d.parameter_size ?? '?'} | Quant: ${d.quantization_level ?? '?'}`,
+          );
+        }
+        if (data.parameters) parts.push(`Parameters:\n${data.parameters}`);
+        if (data.template) parts.push(`Template:\n${data.template}`);
+
+        return {
+          content: [{ type: 'text' as const, text: parts.join('\n\n') }],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Failed to show ${args.model}: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'ollama_list_running',
+    'List models currently loaded in memory, with memory usage and processor type (CPU/GPU). Use this to see what is warm and consuming resources.',
+    {},
+    async () => {
+      log('Listing running models...');
+      try {
+        const res = await ollamaFetch('/api/ps');
+        if (!res.ok) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Ollama API error: ${res.status} ${res.statusText}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const data = (await res.json()) as {
+          models?: Array<{
+            name: string;
+            size?: number;
+            size_vram?: number;
+          }>;
+        };
+        const models = data.models || [];
+
+        if (models.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: 'No models currently loaded in memory.',
+              },
+            ],
+          };
+        }
+
+        const list = models
+          .map((m) => {
+            const vram = m.size_vram ?? 0;
+            const total = m.size ?? 0;
+            const processor =
+              vram === 0
+                ? 'CPU'
+                : vram >= total
+                  ? 'GPU'
+                  : `${Math.round((vram / total) * 100)}% GPU`;
+            return `- ${m.name} (${formatBytes(total)}, ${processor})`;
+          })
+          .join('\n');
+
+        return {
+          content: [
+            { type: 'text' as const, text: `Loaded models:\n${list}` },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Failed to connect to Ollama at ${OLLAMA_HOST}: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+OLLAMA_MCP_STDIO_TS
+        _ollama_log "ollama-mcp-stdio.ts: written fresh"
+    fi
+
+    # 2. container/agent-runner/src/index.ts — register the ollama MCP
+    # server alongside the existing nanoclaw one.
+    if grep -q "ollama-mcp-stdio" "$index_ts"; then
+        echo "✅ index.ts already registers the ollama MCP server."
+        _ollama_log "index.ts: already registered"
+    else
+        echo "🦙 Registering the ollama MCP server in index.ts..."
+        local anchor
+        anchor=$(grep -n "args: \['run', mcpServerPath\]," "$index_ts" | head -1 | cut -d: -f1)
+        if [ -z "$anchor" ]; then
+            echo "❌ Couldn't find the 'nanoclaw' mcpServers entry anchor in index.ts." >&2
+            echo "   NanoClaw's own agent-runner source may have changed upstream — skipping;" >&2
+            echo "   apply it manually per $skill_url" >&2
+            _ollama_log "index.ts: **SKIPPED** — anchor not found, upstream layout may have changed. Apply manually: $skill_url"
+            OLLAMA_PATCH_OK=false
+        else
+            local insert_after=$((anchor + 2))
+            local tmp; tmp=$(mktemp)
+            {
+                head -n "$insert_after" "$index_ts"
+                cat <<'OLLAMA_INDEX_BLOCK'
+    ollama: {
+      command: 'bun',
+      args: ['run', path.join(__dirname, 'ollama-mcp-stdio.ts')],
+      env: {
+        ...(process.env.OLLAMA_HOST ? { OLLAMA_HOST: process.env.OLLAMA_HOST } : {}),
+        ...(process.env.OLLAMA_ADMIN_TOOLS ? { OLLAMA_ADMIN_TOOLS: process.env.OLLAMA_ADMIN_TOOLS } : {}),
+      },
+    },
+OLLAMA_INDEX_BLOCK
+                tail -n "+$((insert_after + 1))" "$index_ts"
+            } > "$tmp"
+            mv "$tmp" "$index_ts"
+            _ollama_log "index.ts: patched (ollama entry added after the nanoclaw mcpServers entry)"
+        fi
+    fi
+
+    # 3. src/config.ts — read OLLAMA_HOST/OLLAMA_ADMIN_TOOLS/
+    # OLLAMA_NO_PROXY_OVERRIDE from NanoClaw's own .env (readEnvFile),
+    # falling back to process.env — the two-line addition to readEnvFile's
+    # own key list, plus three export lines.
+    if grep -q "^export const OLLAMA_HOST" "$config_ts"; then
+        echo "✅ config.ts already exports OLLAMA_HOST/OLLAMA_ADMIN_TOOLS."
+        _ollama_log "config.ts: already patched"
+    else
+        echo "🦙 Wiring OLLAMA_HOST/OLLAMA_ADMIN_TOOLS/OLLAMA_NO_PROXY_OVERRIDE into config.ts..."
+        local keys_anchor
+        keys_anchor=$(grep -n "^  'ONECLI_GATEWAY_CONTAINER'," "$config_ts" | head -1 | cut -d: -f1)
+        if [ -z "$keys_anchor" ]; then
+            echo "❌ Couldn't find the readEnvFile() key-list anchor in config.ts." >&2
+            echo "   NanoClaw's own config.ts may have changed upstream — skipping;" >&2
+            echo "   apply it manually per $skill_url" >&2
+            _ollama_log "config.ts: **SKIPPED** — readEnvFile() anchor not found, upstream layout may have changed. Apply manually: $skill_url"
+            OLLAMA_PATCH_OK=false
+        else
+            local tmp; tmp=$(mktemp)
+            {
+                head -n "$keys_anchor" "$config_ts"
+                cat <<'OLLAMA_CONFIG_KEYS_BLOCK'
+  'OLLAMA_HOST',
+  'OLLAMA_ADMIN_TOOLS',
+  'OLLAMA_NO_PROXY_OVERRIDE',
+OLLAMA_CONFIG_KEYS_BLOCK
+                tail -n "+$((keys_anchor + 1))" "$config_ts"
+            } > "$tmp"
+            mv "$tmp" "$config_ts"
+
+            # Re-find the export anchor fresh in the just-updated file —
+            # never assume the line number from before the first splice
+            # still applies after it shifted the file by 3 lines.
+            local export_anchor
+            export_anchor=$(grep -n "^export const TIMEZONE = resolveConfigTimezone();" "$config_ts" | head -1 | cut -d: -f1)
+            if [ -z "$export_anchor" ]; then
+                echo "❌ Couldn't find the TIMEZONE export anchor in config.ts after the key-list edit." >&2
+                echo "   Reverting the key-list edit — apply the whole config.ts patch manually per $skill_url" >&2
+                _ollama_log "config.ts: **PARTIALLY SKIPPED** — key-list edit applied, but the export-line anchor was missing, so the export lines themselves were NOT added. Apply the rest manually: $skill_url"
+                OLLAMA_PATCH_OK=false
+            else
+                local tmp2; tmp2=$(mktemp)
+                {
+                    head -n "$export_anchor" "$config_ts"
+                    cat <<'OLLAMA_CONFIG_EXPORT_BLOCK'
+
+export const OLLAMA_HOST = process.env.OLLAMA_HOST || envConfig.OLLAMA_HOST;
+export const OLLAMA_ADMIN_TOOLS = process.env.OLLAMA_ADMIN_TOOLS || envConfig.OLLAMA_ADMIN_TOOLS;
+export const OLLAMA_NO_PROXY_OVERRIDE = process.env.OLLAMA_NO_PROXY_OVERRIDE || envConfig.OLLAMA_NO_PROXY_OVERRIDE;
+OLLAMA_CONFIG_EXPORT_BLOCK
+                    tail -n "+$((export_anchor + 1))" "$config_ts"
+                } > "$tmp2"
+                mv "$tmp2" "$config_ts"
+                _ollama_log "config.ts: patched (readEnvFile key list + three exports added)"
+            fi
+        fi
+    fi
+
+    # 4. src/ollama-env.ts — the fixed ollamaEnvArgs() implementation.
+    # Fully owned by this patch, same "fill in if missing, never overwrite"
+    # rule as ollama-mcp-stdio.ts above.
+    if [ -f "$ollama_env" ]; then
+        echo "✅ ollama-env.ts already present."
+        _ollama_log "ollama-env.ts: already present (left untouched)"
+    else
+        echo "🦙 Writing src/ollama-env.ts..."
+        cat > "$ollama_env" <<'OLLAMA_ENV_TS'
+import { OLLAMA_ADMIN_TOOLS, OLLAMA_HOST, OLLAMA_NO_PROXY_OVERRIDE } from './config.js';
+
+/**
+ * Env vars forwarded to every agent container so the Ollama MCP server it
+ * spawns (ollama-mcp-stdio.ts) can reach the host's Ollama daemon.
+ *
+ * OneCLI sets NO_PROXY=host.docker.internal by default on every agent
+ * container (so its own proxy address isn't self-proxied) -- but Ollama is
+ * reached AT host.docker.internal:11434 THROUGH that same proxy, so its
+ * default NO_PROXY value routes Ollama traffic OUTSIDE the proxy instead,
+ * breaking the connection. Overriding NO_PROXY to anything that isn't
+ * "host.docker.internal" fixes this -- the value itself doesn't need to be
+ * reachable, it just can't collide with a real hostname something else in
+ * the container needs left un-proxied. OLLAMA_NO_PROXY_OVERRIDE (see
+ * config.ts) lets an operator pick a different dummy value if the default
+ * ever collides with something real on their network; falls back to
+ * OrbStack's own raw host IP, confirmed safe there since OneCLI itself
+ * already claims that exact address.
+ */
+export function ollamaEnvArgs(): string[] {
+  const args: string[] = [];
+  if (OLLAMA_HOST) {
+    args.push('-e', `OLLAMA_HOST=${OLLAMA_HOST}`);
+  }
+  if (OLLAMA_ADMIN_TOOLS) {
+    args.push('-e', `OLLAMA_ADMIN_TOOLS=${OLLAMA_ADMIN_TOOLS}`);
+  }
+  const noProxy = OLLAMA_NO_PROXY_OVERRIDE || '0.250.250.254';
+  args.push('-e', `NO_PROXY=${noProxy}`);
+  args.push('-e', `no_proxy=${noProxy}`);
+  return args;
+}
+OLLAMA_ENV_TS
+        _ollama_log "ollama-env.ts: written fresh"
+    fi
+
+    # 5. src/container-runner.ts — import ollamaEnvArgs and call it in
+    # buildContainerArgs(). Two separate splices in the same file; each
+    # re-finds its own anchor fresh rather than assuming a line number
+    # computed before the first splice still applies after it.
+    if grep -q "ollama-env" "$container_runner"; then
+        echo "✅ container-runner.ts already wires ollamaEnvArgs()."
+        _ollama_log "container-runner.ts: already patched"
+    else
+        echo "🦙 Wiring ollamaEnvArgs() into container-runner.ts..."
+        local import_anchor
+        import_anchor=$(grep -n "^import './providers/index.js';" "$container_runner" | head -1 | cut -d: -f1)
+        local call_anchor
+        call_anchor=$(grep -n 'args.push(.-e., `TZ=\${containerConfig.timezone ?? TIMEZONE}`);' "$container_runner" | head -1 | cut -d: -f1)
+        if [ -z "$import_anchor" ] || [ -z "$call_anchor" ]; then
+            echo "❌ Couldn't find the providers/index.js import or the TZ args.push() anchor in container-runner.ts." >&2
+            echo "   NanoClaw's own container-runner.ts may have changed upstream — skipping;" >&2
+            echo "   apply it manually per $skill_url" >&2
+            _ollama_log "container-runner.ts: **SKIPPED** — one or both anchors not found, upstream layout may have changed. Apply manually: $skill_url"
+            OLLAMA_PATCH_OK=false
+        else
+            local tmp; tmp=$(mktemp)
+            {
+                head -n "$import_anchor" "$container_runner"
+                echo "import { ollamaEnvArgs } from './ollama-env.js';"
+                tail -n "+$((import_anchor + 1))" "$container_runner"
+            } > "$tmp"
+            mv "$tmp" "$container_runner"
+
+            # Re-find fresh — the import splice above shifted every line
+            # after it down by one.
+            call_anchor=$(grep -n 'args.push(.-e., `TZ=\${containerConfig.timezone ?? TIMEZONE}`);' "$container_runner" | head -1 | cut -d: -f1)
+            local tmp2; tmp2=$(mktemp)
+            {
+                head -n "$call_anchor" "$container_runner"
+                echo "  args.push(...ollamaEnvArgs());"
+                tail -n "+$((call_anchor + 1))" "$container_runner"
+            } > "$tmp2"
+            mv "$tmp2" "$container_runner"
+            _ollama_log "container-runner.ts: patched (import added, ollamaEnvArgs() called in buildContainerArgs())"
+        fi
+    fi
+
+    # Post-patch verification — same checks the original bug-fix
+    # replication summary itself specified, run automatically instead of
+    # trusting each sub-patch's own idempotency check alone (a check can
+    # pass while the surrounding structure it depends on has quietly
+    # drifted). No TypeScript toolchain invoked here (tsc/vitest) — this
+    # runs on the bare HOST before NanoClaw's own container exists at all,
+    # and there's no guarantee node_modules is even installed yet on a
+    # first-ever deploy; see the manifest's own note pointing at a
+    # `docker exec`-based typecheck instead, which runs after the
+    # container (and its dependencies) genuinely exist.
+    local mcp_count index_count runner_count config_count
+    mcp_count=$([ -f "$mcp_stdio" ] && echo 1 || echo 0)
+    index_count=$(grep -c "ollama" "$index_ts" 2>/dev/null || echo 0)
+    runner_count=$(grep -c "ollamaEnvArgs" "$container_runner" 2>/dev/null || echo 0)
+    config_count=$(grep -c "OLLAMA_HOST" "$config_ts" 2>/dev/null || echo 0)
+    if [ "$mcp_count" -gt 0 ] && [ "$index_count" -gt 0 ] && [ "$runner_count" -gt 0 ] && [ "$config_count" -gt 0 ] && [ -f "$ollama_env" ]; then
+        echo "✅ Ollama-tool patch verified (all five files present/wired)."
+        _ollama_log "**Verification: PASSED** (all five files present/wired)"
+    else
+        echo "⚠️  Ollama-tool patch verification found a gap — see .pi-bootstrap-patches.md in $INSTALL_PATH for details." >&2
+        _ollama_log "**Verification: FAILED** — mcp_stdio exists=${mcp_count}, index.ts ollama refs=${index_count}, container-runner.ts ollamaEnvArgs refs=${runner_count}, config.ts OLLAMA_HOST refs=${config_count}, ollama-env.ts exists=$([ -f "$ollama_env" ] && echo yes || echo no)"
+        OLLAMA_PATCH_OK=false
+    fi
+}
+
+# ---------------------------------------------------------------------------------------
+# Writes $INSTALL_PATH/.pi-bootstrap-patches.md — a status report of every
+# host-side patch this environment applies to the NanoClaw checkout
+# (mnemon, media-tools/whisper, ollama-tool), regenerated on every deploy.
+# This is how the drift-vs-upstream problem gets closed: pi-bootstrap does
+# NOT pin NanoClaw's git ref (still tracks latest `main`, same as always),
+# so an upstream change can silently break one of these text-splice patches
+# at any time. Instead of pinning, this file gives the admin `claude`
+# session (see entrypoint.sh's /root/CLAUDE.md, which points here) enough
+# detail to notice and self-diagnose that breakage from inside the
+# container — each patch's own PASSED/SKIPPED/FAILED status plus a link to
+# the real skill doc to apply the missing piece manually if needed.
+#
+# Deliberately unconditional (always overwritten): unlike the two files
+# apply_ollama_tool_patch() itself owns (ollama-mcp-stdio.ts, ollama-env.ts,
+# fill-in-if-missing so a live admin fix survives), this file is pure
+# run.sh-generated status output, nothing else ever writes to it, so
+# overwriting it every deploy is correct, not lossy.
+#
+# Deliberately NOT the same file the admin session writes fixes back into —
+# see write_patch_fixes_template() below for that one (touch-if-missing,
+# survives every redeploy) — mixing "what run.sh most recently observed"
+# with "what a human/future pi-bootstrap session still needs to read and
+# act on" in one file would make the latter easy to lose on the next CLEAN.
+# ---------------------------------------------------------------------------------------
+write_patches_manifest() {
+    local manifest="${INSTALL_PATH}/.pi-bootstrap-patches.md"
+
+    local mnemon_status media_tools_status
+    if [ "$NANOCLAW_SETUP" = "mnemon" ]; then
+        mnemon_status="${MNEMON_PATCH_LOG:-- (no status recorded — apply_mnemon_patch may not have run)
+}"
+        media_tools_status="${MEDIA_TOOLS_PATCH_LOG:-- (no status recorded — apply_media_tools_patch may not have run)
+}"
+    else
+        mnemon_status="- Not applied — NANOCLAW_SETUP=plain (mnemon patches only apply to the mnemon profile; switch profiles via a CLEAN deploy to change this)
+"
+        media_tools_status="- Not applied — NANOCLAW_SETUP=plain (media-tools/whisper patch only applies to the mnemon profile; switch profiles via a CLEAN deploy to change this)
+"
+    fi
+
+    cat > "$manifest" <<MANIFEST_EOF
+# pi-bootstrap patch manifest
+
+**Regenerated on every deploy by \`environments/nanoclaw-mnemon/run.sh\` — do
+not hand-edit, your edits will be overwritten on the next FAST/CLEAN run.**
+
+This NanoClaw install is deployed by [pi-bootstrap](https://github.com/tantimothy/pi-bootstrap),
+which tracks upstream NanoClaw's \`main\` branch (not pinned to a fixed
+commit) and applies a handful of host-side patches to it on top — adding
+mnemon persistent memory, agent-side media transcription tools, and an
+Ollama MCP integration that aren't part of stock NanoClaw. Because the
+NanoClaw ref isn't pinned, an upstream change can occasionally shift the
+exact source lines one of these patches depends on, causing it to be
+skipped (loudly, never silently) on the next deploy.
+
+**If you are the \`claude\` admin session running inside this container and
+something here looks broken** (a tool listed below as SKIPPED or FAILED, a
+feature that should exist but doesn't), you have full access to this
+install's own source tree at \`$INSTALL_PATH\` — feel free to apply the
+missing wiring by hand, following the linked skill doc for the exact
+change needed. Not required, and not necessarily easier than reporting it
+— just an option: it survives until the next CLEAN redeploy re-clones
+fresh, unless it happens to also satisfy the relevant patch's own
+idempotency check (in which case it survives that too).
+
+**Either way — whether you fix it or just diagnose it — write what you
+found (and did, if anything) into \`.pi-bootstrap-patch-fixes.md\` in this
+same directory.** That file is never overwritten by a deploy; a human (or
+a future pi-bootstrap session) reads it to decide whether to update the
+patch scripts in pi-bootstrap itself, so the fix stops being a
+container-local workaround and survives the next CLEAN/fresh install too.
+
+Last generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ") · Profile: \`NANOCLAW_SETUP=${NANOCLAW_SETUP}\`
+
+## Mnemon (persistent graph+vector memory)
+${mnemon_status}
+## Media tools (yt-dlp / ffmpeg / whisper.cpp, agent-side transcription)
+${media_tools_status}
+## Ollama MCP tool (ollama_list_models, ollama_generate, opt-in admin tools)
+${OLLAMA_PATCH_LOG:-- (no status recorded — apply_ollama_tool_patch may not have run)
+}
+MANIFEST_EOF
+
+    write_patch_fixes_template
+}
+
+# ---------------------------------------------------------------------------------------
+# Touch-creates $INSTALL_PATH/.pi-bootstrap-patch-fixes.md with an
+# instructional header — ONLY if it doesn't already exist. Never
+# overwritten on subsequent deploys (unlike .pi-bootstrap-patches.md
+# above): this file's whole purpose is to accumulate whatever the admin
+# `claude` session writes into it across the container's lifetime, closing
+# the loop back to a human — see write_patches_manifest()'s own header
+# comment for the full rationale on why these are two separate files.
+# ---------------------------------------------------------------------------------------
+write_patch_fixes_template() {
+    local fixes="${INSTALL_PATH}/.pi-bootstrap-patch-fixes.md"
+    [ -f "$fixes" ] && return 0
+
+    cat > "$fixes" <<'FIXES_EOF'
+# pi-bootstrap patch fixes — reported by the admin session
+
+This file is created once (empty template below) and then left alone by
+every deploy — nothing in pi-bootstrap overwrites or reads it back
+automatically. It exists so that if you (the `claude` admin session
+running inside this container) diagnose or fix something related to a
+patch described in the sibling `.pi-bootstrap-patches.md` — mnemon, the
+media/whisper tools, the Ollama MCP tool, or anything added after this was
+written — you have somewhere durable to record it. A human (or a future
+pi-bootstrap session working on the repo that deployed this container)
+reads this file to decide whether to update the actual patch scripts in
+pi-bootstrap, so your fix stops being a one-off, container-local
+workaround and survives the next CLEAN redeploy or a fresh install
+elsewhere too.
+
+Append a dated entry below for each thing you find or fix. There's no
+required format — plain prose is fine — but it's most useful if it
+includes: which patch broke, what NanoClaw upstream changed that broke it
+(if you could tell), and exactly what you changed to fix it (file, before/
+after, or a diff).
+
+---
+
+FIXES_EOF
 }
 
 # ---------------------------------------------------------------------------------------
@@ -632,13 +1557,20 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # text and skipped re-patching — silently keeping a stale patch (e.g. a
     # bug fix to the yt-dlp download line landing in this script) alive
     # indefinitely across CLEAN runs instead of ever picking up the update.
-    CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain -- . ':!container/Dockerfile' ':!container/entrypoint.sh' 2>/dev/null | grep -v '^??' || true)
+    # container/agent-runner/src/index.ts, src/config.ts, and
+    # src/container-runner.ts are excluded for the identical reason as the
+    # Dockerfile/entrypoint.sh pair above: they're owned and idempotently
+    # re-patched by apply_ollama_tool_patch below on every CLEAN run, so
+    # letting the generic snapshot-and-reapply mechanism also touch them
+    # risks resurrecting stale patch text that then satisfies that
+    # function's own marker-based idempotency check and never updates again.
+    CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain -- . ':!container/Dockerfile' ':!container/entrypoint.sh' ':!container/agent-runner/src/index.ts' ':!src/config.ts' ':!src/container-runner.ts' 2>/dev/null | grep -v '^??' || true)
     CHANNEL_SKILL_PATCH=""
     if [ -n "$CHANNEL_SKILL_MODS" ]; then
         echo "⚠️  CLEAN is about to discard local edits to these tracked files — likely a channel/provider skill's own wiring (e.g. /add-telegram's import in src/channels/index.ts or its package.json dependency):"
         echo "$CHANNEL_SKILL_MODS" | sed 's/^/     /'
         _tmp_patch=$(mktemp)
-        if git -C "$INSTALL_PATH" diff HEAD -- . ':!container/Dockerfile' ':!container/entrypoint.sh' > "$_tmp_patch" 2>/dev/null && [ -s "$_tmp_patch" ]; then
+        if git -C "$INSTALL_PATH" diff HEAD -- . ':!container/Dockerfile' ':!container/entrypoint.sh' ':!container/agent-runner/src/index.ts' ':!src/config.ts' ':!src/container-runner.ts' > "$_tmp_patch" 2>/dev/null && [ -s "$_tmp_patch" ]; then
             CHANNEL_SKILL_PATCH="$_tmp_patch"
             echo "   Saved a patch of these edits — will try to reapply them automatically after the sync."
         else
@@ -672,6 +1604,12 @@ else
     fi
     echo "ℹ️  Plain NanoClaw setup selected — skipping Mnemon, embeddings, and agent media-tool patches."
 fi
+
+# Applied regardless of NANOCLAW_SETUP — the Ollama MCP tool is a general
+# per-agent-group capability, not specific to the mnemon profile (see
+# .env.example's OLLAMA_ADMIN_TOOLS comment).
+apply_ollama_tool_patch
+write_patches_manifest
 
 # Group-local CLAUDE.local.md survives CLEAN and is read on every agent
 # spawn; install/update the managed policy after source sync and before any
@@ -717,6 +1655,9 @@ else
         -e CONTAINER_NAME="$CONTAINER_NAME" \
         -e TZ="$HOST_TZ" \
         -e CLAUDE_MODEL="${CLAUDE_MODEL:-}" \
+        -e OLLAMA_HOST="${OLLAMA_HOST:-}" \
+        -e OLLAMA_ADMIN_TOOLS="${OLLAMA_ADMIN_TOOLS:-}" \
+        -e OLLAMA_NO_PROXY_OVERRIDE="${OLLAMA_NO_PROXY_OVERRIDE:-}" \
         -v "$INSTALL_PATH:$INSTALL_PATH" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \

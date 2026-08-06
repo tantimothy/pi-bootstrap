@@ -122,6 +122,24 @@ deploy:
   the admin session's, so check `ncl groups config get` directly rather
   than trusting it.
 
+### 6. `apply_ollama_tool_patch()` — verified against a source snapshot, not yet a live end-to-end deploy
+
+Every `grep -n` anchor `apply_ollama_tool_patch()` depends on (in
+`container/agent-runner/src/index.ts`, `src/config.ts`,
+`src/container-runner.ts`) was confirmed to match a real, working user's
+already-patched NanoClaw checkout exactly, and the splice output it
+generates was confirmed byte-identical to that checkout's own
+already-applied equivalent sections. What has **not** yet been directly
+exercised in this repo's own workflow: a fresh deploy actually running
+`apply_ollama_tool_patch()` end-to-end against a truly stock (unpatched)
+NanoClaw clone, a container rebuild picking up the patched
+`container/agent-runner/src/*`, and a live `ollama_list_models` call
+succeeding from inside a spawned agent container. Check
+`$NANOCLAW_INSTALL_PATH/.pi-bootstrap-patches.md` inside a deployed
+container after the next real deploy for this patch's actual
+PASSED/SKIPPED/FAILED status — see
+`docs/lessons-learned/nanoclaw-mnemon.md`'s own entry for the full design.
+
 ## Refactoring Opportunities
 
 See `docs/refactoring-opportunities.md`'s "yt-dlp's arch-detection

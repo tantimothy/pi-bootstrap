@@ -54,6 +54,17 @@ sandboxes for persistent, cross-session graph memory.
   etc.), inspecting logs, or debugging.
 - \`docker logs -f ${CONTAINER_NAME:-nanoclaw-mnemon}\` (from the HOST, not
   from inside here) shows NanoClaw's own live application log.
+- \`${NANOCLAW_INSTALL_PATH}/.pi-bootstrap-patches.md\` — regenerated every
+  deploy, lists every host-side patch pi-bootstrap applies on top of
+  NanoClaw's own upstream source (mnemon, media/whisper tools, the Ollama
+  MCP tool) and each one's current PASSED/SKIPPED/FAILED status. Since
+  pi-bootstrap tracks NanoClaw's \`main\` branch rather than a pinned
+  commit, an upstream change can occasionally break one of these patches —
+  check this file first if a feature it describes seems to be missing or
+  broken. If you diagnose or fix something, record it in the sibling
+  \`${NANOCLAW_INSTALL_PATH}/.pi-bootstrap-patch-fixes.md\` (never
+  overwritten by a deploy) so a human can use it to update pi-bootstrap's
+  own patch scripts later.
 CLAUDEMD
 
 # NanoClaw's own OneCLI (its agent-key vault) can't auto-detect a bind
