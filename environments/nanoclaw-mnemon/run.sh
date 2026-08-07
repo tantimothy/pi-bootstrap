@@ -2005,9 +2005,31 @@ warn_if_ollama_is_loopback_only() {
     fi
     [ -z "$listeners" ] && return 0
 
-    # Bound anywhere non-loopback (0.0.0.0, *, a LAN IP) — containers can
-    # reach it, nothing to warn about.
-    if printf '%s\n' "$listeners" | grep -qv -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost'; then
+    local loopback non_loopback
+    loopback=$(printf '%s\n' "$listeners" | grep -c -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost' || true)
+    non_loopback=$(printf '%s\n' "$listeners" | grep -vc -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost' || true)
+
+    # Both kinds present = more than one Ollama running, one wide and one on
+    # loopback. Confirmed live: a manual restart bound *:11434 over IPv6 while
+    # a second process held 127.0.0.1:11434 over IPv4, and the container stayed
+    # refused because it dials IPv4. "Something is bound wide" is not the same
+    # as "the container can reach it", so this case gets its own warning rather
+    # than passing silently.
+    if [ "$loopback" -gt 0 ] && [ "$non_loopback" -gt 0 ]; then
+        echo "" >&2
+        echo "⚠️  Ollama has both a loopback and a non-loopback listener on 11434:" >&2
+        printf '%s\n' "$listeners" | sed 's/^/       /' >&2
+        echo "   More than one Ollama process is running. An agent container may still" >&2
+        echo "   be refused — a wide IPv6 listener doesn't help one dialling IPv4." >&2
+        echo "   Stop them all ('pkill -x ollama') and start exactly one bound to" >&2
+        echo "   0.0.0.0:11434 (the ollama environment's OLLAMA_SERVE_HOST does this)." >&2
+        echo "" >&2
+        return 0
+    fi
+
+    # Bound anywhere non-loopback (0.0.0.0, *, a LAN IP), nothing on loopback —
+    # containers can reach it, nothing to warn about.
+    if [ "$non_loopback" -gt 0 ]; then
         return 0
     fi
 
