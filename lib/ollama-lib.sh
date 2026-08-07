@@ -252,7 +252,43 @@ ollama_start() {
             # bound wide, and containers still refused because they dial the
             # loopback one.
             if _ollama_brew_service; then
-                brew services start ollama >/dev/null 2>&1 && return 0
+                brew services start ollama >/dev/null 2>&1
+                ollama_wait_healthy "$probe_url" 10 >/dev/null 2>&1 || true
+
+                # Supervised start is preferred — launchd restarts the daemon if
+                # it dies, and nothing here does. But Homebrew's service
+                # definition carries its own EnvironmentVariables, which beat
+                # `launchctl setenv`, so on some formula versions the bind
+                # address is simply not ours to set: confirmed on a real host
+                # where `launchctl setenv OLLAMA_HOST 0.0.0.0:11434` followed by
+                # `brew services start ollama` still came up on 127.0.0.1.
+                #
+                # Editing the generated plist is not a fix either — `brew
+                # services start` regenerates it from the formula every time, so
+                # the edit would be silently reverted on the next start. Exactly
+                # the stale-patch failure mode this repo keeps running into.
+                #
+                # So verify rather than assume, and only take the daemon out of
+                # supervision if supervision actually cannot honor the
+                # configuration. A host whose formula doesn't pin OLLAMA_HOST
+                # keeps launchd's restart-on-crash for free.
+                if [ -z "${OLLAMA_SERVE_HOST:-}" ] || ollama_binding_satisfies_serve_host; then
+                    return 0
+                fi
+
+                echo "⚠️  Homebrew's service definition overrides the bind address — it started Ollama on:" >&2
+                ollama_listeners | sed 's/^/       /' >&2
+                echo "   OLLAMA_SERVE_HOST=${OLLAMA_SERVE_HOST} cannot be applied through 'brew services'," >&2
+                echo "   and hand-editing the generated plist is undone the next time brew regenerates it." >&2
+                echo "   Taking Ollama out of brew's supervision and running it directly instead." >&2
+                echo "   Restart-on-crash is then covered by ollama-watchdog.sh — schedule it via the" >&2
+                echo "   'Watchdog: Schedule Automatic Checks' action if you have not already." >&2
+                echo "   To hand it back to Homebrew later: unset OLLAMA_SERVE_HOST, then 'brew services start ollama'." >&2
+                brew services stop ollama >/dev/null 2>&1 || true
+                pkill -x ollama 2>/dev/null || true
+                sleep 2
+                # falls through to the bare `ollama serve` below, which does
+                # control its own environment
             elif [ -d "/Applications/Ollama.app" ]; then
                 open -a Ollama && return 0
             fi
