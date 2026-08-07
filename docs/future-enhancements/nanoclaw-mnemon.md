@@ -175,7 +175,18 @@ See `docs/refactoring-opportunities.md`'s "yt-dlp's arch-detection
 than duplicated here, since that file is this repo's single shared home
 for refactoring opportunities across all environments.
 
-### 7. Detect a *deleted* per-group derived image (the one case the rebuild can't see)
+### 7. Detect a *deleted* per-group derived image — IMPLEMENTED 2026-08-07, kept for the reasoning
+
+**Implemented** via option 1 below (record the observed tags), after a question
+about fresh installs surfaced the scenario that made it matter: restore onto a
+new host, where the database returns with each group's stored `imageTag` but
+Docker images — never files under the install path — are not in any backup. The
+record lives at `data/pi-bootstrap-group-images.txt`, inside `data_dirs`, so it
+travels with the backup and lets the restored install notice. Options 2 and 3
+were not needed. Retained here for the reasoning about why option 1 was picked
+over the alternatives.
+
+Original writeup follows.
 
 `run.sh`'s `rebuild_stale_group_images()` (added 2026-08-07, full background in
 `docs/lessons-learned/nanoclaw-mnemon.md`, "the real cause of both symptoms was

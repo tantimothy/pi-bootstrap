@@ -112,21 +112,22 @@ the user on their own Mac. Not yet done:
   process exists yet to catch it drifting again over time. See
   `docs/future-enhancements/mac-terminal-setup.md` #3.
 
-## nanoclaw-mnemon: per-group derived agent images — stale case fixed, deleted case still open
+## nanoclaw-mnemon: per-group derived agent images — handled in code, unverified live
 
 Full account in `docs/lessons-learned/nanoclaw-mnemon.md` ("the real cause
 of both symptoms was a per-group DERIVED image nothing ever rebuilt"), the
 mechanism in `environments/nanoclaw-mnemon/README.md`'s "Per-group agent
 images" section, and the design options in
-`docs/future-enhancements/nanoclaw-mnemon.md` #7.
+`docs/future-enhancements/nanoclaw-mnemon.md` #7 (now largely implemented — see below).
 
-- **Shipped and needs a live confirmation:** `rebuild_stale_group_images()`
-  rebuilds any `nanoclaw-agent-v2-*:<group-id>` image older than the base
-  after each base rebuild. Verified only against a mocked Docker — no live
-  CLEAN has exercised it yet. What to look for: a
-  `Group '<id>' runs a derived agent image older than the base` line,
-  followed by a multi-minute package reinstall, after which `ldd` inside
-  that group's agent reports `not a dynamic executable`.
+- **Shipped and needs a live confirmation:** `refresh_group_images()`
+  rebuilds every `nanoclaw-agent-v2-*:<group-id>` image unconditionally on
+  CLEAN (by preference — not "if it looks stale"), and on any deploy where a
+  known image turns out to be missing. Verified only against a mocked Docker;
+  no live CLEAN has exercised it. What to look for: a
+  `Rebuilding group '<id>'s derived agent image` line, a multi-minute package
+  reinstall, then `🧩 Per-group derived agent images: N known, ...`, after
+  which `ldd` inside that group's agent reports `not a dynamic executable`.
 - **Now handled, needs a live confirmation:** a derived image that is
   *deleted or never built on this host* is detected via the tag list `run.sh`
   records at `data/pi-bootstrap-group-images.txt` (inside the backup, so it
