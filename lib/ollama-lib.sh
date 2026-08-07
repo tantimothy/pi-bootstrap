@@ -296,12 +296,41 @@ ollama_start() {
         Linux)
             if command -v systemctl >/dev/null 2>&1 &&
                systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
+                # Unlike Homebrew, systemd HAS a supported override that
+                # survives package upgrades: a drop-in. So on a Pi the bind
+                # address is applied properly rather than falling back to an
+                # unsupervised daemon — the unit keeps restart-on-crash, and
+                # this file is rewritten from the current value on every deploy,
+                # so it cannot go stale the way a hand-edit would.
                 if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
-                    echo "ℹ️  OLLAMA_SERVE_HOST is set, but ollama.service's environment belongs to systemd." >&2
-                    echo "   Apply it once:  sudo systemctl edit ollama" >&2
-                    echo "   adding:         Environment=\"OLLAMA_HOST=${OLLAMA_SERVE_HOST}\"" >&2
+                    if sudo mkdir -p /etc/systemd/system/ollama.service.d 2>/dev/null &&
+                       printf '# Managed by pi-bootstrap — rewritten on every deploy.\n[Service]\nEnvironment="OLLAMA_HOST=%s"\n' \
+                            "$OLLAMA_SERVE_HOST" \
+                            | sudo tee /etc/systemd/system/ollama.service.d/pi-bootstrap-bind.conf >/dev/null 2>&1; then
+                        sudo systemctl daemon-reload 2>/dev/null || true
+                        echo "🔧 Applied OLLAMA_HOST=${OLLAMA_SERVE_HOST} via a systemd drop-in (ollama.service.d/pi-bootstrap-bind.conf)."
+                    else
+                        echo "⚠️  Couldn't write the systemd drop-in for OLLAMA_HOST — is sudo available?" >&2
+                        echo "   Apply it by hand:  sudo systemctl edit ollama" >&2
+                        echo "   adding:            Environment=\"OLLAMA_HOST=${OLLAMA_SERVE_HOST}\"" >&2
+                    fi
                 fi
-                sudo systemctl enable --now ollama && return 0
+                sudo systemctl enable --now ollama >/dev/null 2>&1 || true
+                ollama_wait_healthy "$probe_url" 10 >/dev/null 2>&1 || true
+
+                # Same verify-then-fall-back shape as the macOS branch above:
+                # supervision is preferred, but only if it can actually honor
+                # the configured binding.
+                if [ -z "${OLLAMA_SERVE_HOST:-}" ] || ollama_binding_satisfies_serve_host; then
+                    return 0
+                fi
+                echo "⚠️  ollama.service started, but not on the configured bind address:" >&2
+                ollama_listeners | sed 's/^/       /' >&2
+                echo "   Running Ollama directly instead; ollama-watchdog.sh covers restarts." >&2
+                sudo systemctl stop ollama 2>/dev/null || true
+                pkill -x ollama 2>/dev/null || true
+                sleep 2
+                # falls through to the bare `ollama serve` below
             fi
             ;;
     esac
