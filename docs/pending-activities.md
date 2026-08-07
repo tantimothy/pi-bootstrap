@@ -136,12 +136,14 @@ images" section, and the design options in
   stored `imageTag`, but Docker images are never in a backup, so the image has
   never existed there. Previously that failed silently — spawn retried every
   60s, exit 125, empty stderr, no WARN. Verified against a mocked Docker only.
-- **Also unverified:** whether mnemon's `ollama_available` actually flips to
-  true once a group runs a derived image rebuilt on the current base. The
-  live proxy diagnostic (direct connection refused, via-proxy HTTP 200, both
-  `HTTP_PROXY` and `http_proxy` set) confirms the current `https://`-only
-  `NO_PROXY` scheme-gating is correct, so this is expected to resolve with
-  the image — but it has not been observed resolving.
+- **Resolved, pending one live confirmation:** `ollama_available: false` was
+  `host.docker.internal` resolving, inside the container, to an address nothing
+  listens on — not mnemon, not `NO_PROXY`, not the bind address. Full account in
+  `docs/lessons-learned/nanoclaw-mnemon.md`. `ensure_ollama_ready()` now probes
+  from inside a throwaway container and recommends a working endpoint. What
+  remains is to watch `mnemon embed --status` flip to `true` after the operator
+  points `MNEMON_EMBED_ENDPOINT` at the host's LAN IP and runs a CLEAN. If the
+  recommended address is a DHCP lease, it wants a static reservation.
 
 ## Known, deliberately-deferred code quality items
 

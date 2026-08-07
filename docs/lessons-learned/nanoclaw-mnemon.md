@@ -2289,3 +2289,88 @@ against real `lsof` output rather than eyeballing the parse.
 - **Test a parser against real output, not imagined output.** The `$NF` bug
   was invisible by inspection and obvious the moment real `lsof` output went
   through it.
+
+## Follow-up (2026-08-07): `ollama_available: false` was `host.docker.internal` resolving to a dead address — and nothing ever tested reachability from a container
+
+**Status:** root cause confirmed on the live host, after five rounds of proxy
+theories, a bind-address fix, a supervisor fight and an IPv6 red herring. This
+supersedes every earlier explanation of this symptom in this file.
+
+**The measurements that ended it:**
+
+```
+host:      curl --ipv4 http://192.168.1.50:11434/api/tags   -> 200
+container: getent hosts host.docker.internal                -> 192.168.215.1
+container: curl --noproxy '*' http://192.168.215.1:11434    -> 000  (refused)
+host:      curl http://192.168.215.1:11434                  -> 000
+container: curl --noproxy '*' http://192.168.1.50:11434     -> 200
+```
+
+`host.docker.internal` resolved to an address nothing listens on. The Mac's own
+interface on that bridge was `.0`, containers were handed `.1`, and the only
+address reachable from inside a container was the host's plain LAN IP.
+
+**Not a new class of problem for this repo.** The README already documented
+"OrbStack's `host.docker.internal`/`host-gateway` resolving to a different
+address than the one its own port-publishing actually uses", from an earlier
+session. That note existed the whole time and nobody connected it, because the
+symptom presented as a mnemon problem rather than a networking one.
+
+**Why it survived so long.** Every check this environment had ran on the host.
+`ensure_ollama_ready()` even rewrites `host.docker.internal` to `localhost` so
+its probe works from a bare host shell — a correct fix for an earlier bug, which
+also guaranteed it could never detect this one. So "is Ollama running?" was
+asked repeatedly and "can an agent reach it?" was never asked at all.
+
+Two false signals kept the wrong theories alive:
+
+- **A container-side `curl` appeared to succeed** — but only through a host-side
+  HTTP proxy, which can reach the daemon over loopback. `--noproxy '*'` is the
+  difference between testing the path your application uses and testing a path
+  that happens to exist. The entire "curl works, Go doesn't" signature that
+  anchored four rounds of proxy analysis was two different network paths, not
+  two HTTP clients disagreeing.
+- **`*:11434` looked like a fix.** It was an IPv6 dual-stack listener, which is
+  fine, and it was reported as success by a check that only asked "is anything
+  bound non-loopback?" The binding was never the remaining problem.
+
+**Fix:** `ollama_reachable_from_container()` runs `curl` inside a throwaway
+container from the orchestrator image, against the endpoint agents are actually
+configured to use, with `--noproxy '*'`. On failure it derives the host's LAN
+address (macOS-capable, unlike `lib/info-lib.sh`'s Linux-only `HOST_IP` logic),
+tests whether a container can reach Ollama there, and prints the exact
+`MNEMON_EMBED_ENDPOINT` to set. Three outcomes are distinguished — reachable,
+unreachable, and not-testable — so a first deploy with no image built yet does
+not report a false problem. Everything is recorded into
+`pi-bootstrap-patches.md`, because the admin session cannot run any host-side
+command from inside its own container.
+
+**A reporting failure worth recording separately.** Three consecutive smoke
+tests concluded `ollama_available: false` was "an ongoing known issue, no
+practical impact, likely a bug in mnemon 0.1.17's live-probe path". All three
+were wrong on both counts: mnemon's probe was accurate every time, and "100%
+coverage" meant no new insights had needed embedding — not that embedding
+worked. A correct fault was progressively reframed as a known quirk across
+successive reports, which is worse than not noticing it.
+
+### General Lessons
+
+- **Test reachability from where the code runs, not from where you are.** Every
+  probe here ran on the host; the consumer is a container. That single mismatch
+  survived five rounds, a repo-wide refactor, and several correct-but-irrelevant
+  fixes. When a service is consumed from inside a container, the only
+  meaningful check runs inside a container.
+- **A fix that makes a check pass can be the thing that blinds it.** Rewriting
+  `host.docker.internal` to `localhost` was correct for the bug it addressed and
+  is why this one was undetectable. When you adjust a check to make it work,
+  write down what it stopped covering.
+- **`curl` succeeding proves a path exists, not that it is *your* path.** A
+  host-side proxy silently supplied a route the application did not have. Use
+  `--noproxy '*'` when the question is "can this reach it directly".
+- **Repeating a benign explanation across reports converts a fault into
+  furniture.** "Known issue, no practical impact" appeared three times for a
+  live, unresolved defect. A recurring finding should get *more* scrutiny each
+  time it recurs, not less.
+- **The answer was already in the repo.** A README line documenting OrbStack's
+  address-resolution quirk predated this entire investigation. Searching your
+  own docs for the *mechanism* — not the symptom — is cheap and was never done.

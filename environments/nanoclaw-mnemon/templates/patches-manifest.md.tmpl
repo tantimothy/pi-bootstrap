@@ -37,7 +37,7 @@ container-local workaround and survives the next CLEAN/fresh install too.
 
 ## Before you conclude a patch is broken
 
-Three checks, in this order. They rule out the ways a *correctly applied* patch
+Four checks, in this order. They rule out the ways a *correctly applied* patch
 still looks broken from inside a container — each has previously sent a session
 off diagnosing patch logic that was already right:
 
@@ -53,7 +53,18 @@ off diagnosing patch logic that was already right:
    image are replaced. Compare them directly — if a fresh
    `docker run --rm <agent-image> ...` passes a check that the live agent
    container fails, the patch is fine and the container is simply stale.
-3. **Is the patch block stale rather than absent?** Each Dockerfile patch is
+3. **Is a host service the patch depends on actually reachable FROM A
+   CONTAINER?** Not "is it running" — every check that runs on the host answers
+   that, and all of them can pass while no container can reach the service at
+   all. `host.docker.internal` is not a dependable route to the host on every
+   platform: on a real install it resolved to an address that refused
+   connections, and `ollama_available: false` was correctly reported for days
+   while every host-side probe said healthy. The "Host Ollama daemon" section
+   below records what the deploy measured from both sides — read it before
+   concluding a patch is at fault. And beware `curl` succeeding for the wrong
+   reason: a host-side HTTP proxy can reach a service your container has no
+   direct route to, so test with `--noproxy '*'`.
+4. **Is the patch block stale rather than absent?** Each Dockerfile patch is
    wrapped in `# >>> pi-bootstrap:<id> v<N> >>>` markers. A block whose
    version is older than the one this deploy wanted is reported as UPDATED
    or STALE below, not as applied. A block with no markers at all predates
