@@ -415,6 +415,54 @@ MENU_OPTIONS+=( "U" "[Desktop] Uninstall Desktop Entries" )
 MENU_OPTIONS+=( "B" "[Backup] Create Backup Archive" )
 MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
 
+# Which commit of pi-bootstrap is actually running, shown on the main menu.
+# Normally this just echoes master, because startup hard-resets to
+# origin/master and re-execs before reaching here — the value is entirely in
+# the cases where it does NOT: a `--updated` re-run, a checkout deliberately
+# parked on a feature branch, an interrupted sync, or a tarball with no .git.
+# Purely local; the fetch already happened above, so nothing here touches the
+# network (and the ahead/behind counts below are as fresh as that fetch).
+REPO_VERSION="not a git checkout"
+if command -v git >/dev/null 2>&1 &&
+   git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    _repo_sha=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null)
+    _repo_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    _repo_date=$(git -C "$PROJECT_DIR" log -1 --date=format:'%Y-%m-%d %H:%M' \
+        --format=%cd 2>/dev/null)
+    [ "$_repo_branch" = "HEAD" ] && _repo_branch="detached"
+
+    # Deliberately ASCII-only, unlike most output in this repo: this string
+    # lands in a dialog --menu prompt, whose width dialog computes itself, and
+    # the comment at the top of this file records a real macOS session where
+    # multibyte text in dialog produced "Text has extra characters".
+    if [ -n "$_repo_sha" ]; then
+        REPO_VERSION="${_repo_branch} @ ${_repo_sha}"
+        [ -n "$_repo_date" ] && REPO_VERSION="${REPO_VERSION} | ${_repo_date}"
+
+        # Only meaningful for tracked files: an untracked scratch file says
+        # nothing about which code is running, but a modified one does.
+        if [ -n "$(git -C "$PROJECT_DIR" status --porcelain \
+                   --untracked-files=no 2>/dev/null)" ]; then
+            REPO_VERSION="${REPO_VERSION} | LOCAL CHANGES"
+        fi
+
+        # Drift from origin/master, using the remote-tracking ref as it stands
+        # — no fetch of its own. Silent when in sync, which is the normal case.
+        if git -C "$PROJECT_DIR" rev-parse --verify --quiet \
+               origin/master >/dev/null 2>&1; then
+            _repo_counts=$(git -C "$PROJECT_DIR" rev-list --left-right --count \
+                HEAD...origin/master 2>/dev/null)
+            _repo_ahead=$(echo "$_repo_counts" | awk '{print $1}')
+            _repo_behind=$(echo "$_repo_counts" | awk '{print $2}')
+            [ "${_repo_ahead:-0}" -gt 0 ] 2>/dev/null &&
+                REPO_VERSION="${REPO_VERSION} | ${_repo_ahead} ahead"
+            [ "${_repo_behind:-0}" -gt 0 ] 2>/dev/null &&
+                REPO_VERSION="${REPO_VERSION} | ${_repo_behind} behind origin/master"
+        fi
+    fi
+    unset _repo_sha _repo_branch _repo_date _repo_counts _repo_ahead _repo_behind
+fi
+
 # Remember the menu level that launched an action. A bare `continue` still
 # restarts this one outer loop, but MENU_CONTEXT makes it reopen that same
 # submenu instead of unconditionally rebuilding the top-level menu. Cancelling
@@ -451,7 +499,7 @@ case "$MENU_CONTEXT" in
         TEMP_FILE=$(mktemp)
         dialog --clear \
             --title " Raspberry Pi Deployment Center " \
-            --menu "Choose an action:" 15 60 6 \
+            --menu "Running: ${REPO_VERSION}\n\nChoose an action:" 17 74 6 \
             "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
         EXIT_STATUS=$?

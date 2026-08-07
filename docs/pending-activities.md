@@ -112,38 +112,33 @@ the user on their own Mac. Not yet done:
   process exists yet to catch it drifting again over time. See
   `docs/future-enhancements/mac-terminal-setup.md` #3.
 
-## nanoclaw-mnemon: per-group derived agent images — handled in code, unverified live
+## nanoclaw-mnemon: per-group derived agent images — one restore path still unverified
 
 Full account in `docs/lessons-learned/nanoclaw-mnemon.md` ("the real cause
 of both symptoms was a per-group DERIVED image nothing ever rebuilt"), the
 mechanism in `environments/nanoclaw-mnemon/README.md`'s "Per-group agent
 images" section, and the design options in
-`docs/future-enhancements/nanoclaw-mnemon.md` #7 (now largely implemented — see below).
+`docs/future-enhancements/nanoclaw-mnemon.md` #7 (now implemented).
 
-- **Shipped and needs a live confirmation:** `refresh_group_images()`
-  rebuilds every `nanoclaw-agent-v2-*:<group-id>` image unconditionally on
-  CLEAN (by preference — not "if it looks stale"), and on any deploy where a
-  known image turns out to be missing. Verified only against a mocked Docker;
-  no live CLEAN has exercised it. What to look for: a
-  `Rebuilding group '<id>'s derived agent image` line, a multi-minute package
-  reinstall, then `🧩 Per-group derived agent images: N known, ...`, after
-  which `ldd` inside that group's agent reports `not a dynamic executable`.
-- **Now handled, needs a live confirmation:** a derived image that is
-  *deleted or never built on this host* is detected via the tag list `run.sh`
-  records at `data/pi-bootstrap-group-images.txt` (inside the backup, so it
-  survives a restore) and rebuilt automatically. This matters most for
-  **restore onto a new host**: the database comes back with each group's
-  stored `imageTag`, but Docker images are never in a backup, so the image has
-  never existed there. Previously that failed silently — spawn retried every
-  60s, exit 125, empty stderr, no WARN. Verified against a mocked Docker only.
-- **Resolved, pending one live confirmation:** `ollama_available: false` was
-  `host.docker.internal` resolving, inside the container, to an address nothing
-  listens on — not mnemon, not `NO_PROXY`, not the bind address. Full account in
-  `docs/lessons-learned/nanoclaw-mnemon.md`. `ensure_ollama_ready()` now probes
-  from inside a throwaway container and recommends a working endpoint. What
-  remains is to watch `mnemon embed --status` flip to `true` after the operator
-  points `MNEMON_EMBED_ENDPOINT` at the host's LAN IP and runs a CLEAN. If the
-  recommended address is a DHCP lease, it wants a static reservation.
+- **Still unverified live:** a derived image that is *deleted or never built
+  on this host* is detected via the tag list `run.sh` records at
+  `data/pi-bootstrap-group-images.txt` (inside the backup, so it survives a
+  restore) and rebuilt automatically. This matters most for **restore onto a
+  new host**: the database comes back with each group's stored `imageTag`, but
+  Docker images are never in a backup, so the image has never existed there.
+  Previously that failed silently — spawn retried every 60s, exit 125, empty
+  stderr, no WARN. Verified against a mocked Docker only; the normal
+  CLEAN path below never exercises it, so it needs an actual restore onto a
+  host that has no `nanoclaw-agent-v2-*:<group-id>` image.
+
+Confirmed live on 2026-08-07 and no longer pending: `refresh_group_images()`
+rebuilding every derived image on CLEAN (the deploy reported the group's image
+REBUILT on the current base, timestamped after it, with `whisper-cli` reporting
+no `libwhisper.so.1`/`libggml*.so` dynamic deps); mnemon's Ollama reachability
+(`ollama_available: true` once `MNEMON_EMBED_ENDPOINT` pointed at the host's
+LAN IP instead of `host.docker.internal` — and that host holds a static
+address, so there is no lease to expire); and mnemon's own data surviving the
+rebuild (345 insights / 4,020 edges, read from a live agent container).
 
 ## Known, deliberately-deferred code quality items
 
