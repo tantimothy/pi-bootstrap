@@ -248,6 +248,16 @@ case "${1:-}" in
     --check)
         if is_healthy; then
             echo "✅ Ollama is responsive at $OLLAMA_HOST"
+            # "Responsive" here means responsive AT THE PROBE URL, which is
+            # localhost — and that succeeds whether or not anything in a
+            # container can reach it. Reporting the actual listen address
+            # alongside it is the difference between a health check and a
+            # false all-clear: a loopback-bound daemon passes this check on
+            # every run while every containerised consumer is refused. That
+            # exact false-clear is what kept `ollama_available: false`
+            # misdiagnosed through five rounds — see
+            # docs/lessons-learned/nanoclaw-mnemon.md.
+            ollama_report_binding
             exit 0
         else
             echo "❌ Ollama is NOT responding at $OLLAMA_HOST within ${TIMEOUT}s"
