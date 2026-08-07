@@ -2379,3 +2379,76 @@ successive reports, which is worse than not noticing it.
 - **The answer was already in the repo.** A README line documenting OrbStack's
   address-resolution quirk predated this entire investigation. Searching your
   own docs for the *mechanism* — not the symptom — is cheap and was never done.
+
+---
+
+## Follow-up (2026-08-07): "Shell into Most Recent Agent Container" opened a working shell that rendered nothing
+
+**Status:** fixed, reported the first time the action was used on a real host.
+
+### Summary
+
+The new `custom_actions` entry printed its container banner and hints, then sat
+there. No prompt, no response to typing, no error. It read as a hang in
+`docker exec`.
+
+It was not hung. The shell was running the whole time and executing what was
+typed — it was simply invisible.
+
+### Root cause
+
+The handoff was written as the obvious one-liner:
+
+```sh
+exec bash 2>/dev/null || exec sh
+```
+
+`2>/dev/null` was intended to suppress a *lookup* failure. It does not do that.
+The redirect is applied before `exec` replaces the process, so it silences the
+resulting shell for its entire lifetime — and **bash writes its prompt, and
+readline's echo of each keystroke, to stderr, not stdout.** Discarding stderr
+therefore discards exactly the two things that make a terminal look alive.
+
+Confirmed directly rather than reasoned about, by running both forms under a
+real pty:
+
+```
+$ printf 'echo MARKER\nexit\n' | script -qec 'sh -c "exec bash 2>/dev/null"' /dev/null
+echo MARKER
+exit
+MARKER                      <- the command ran; no prompt ever appeared
+
+$ printf 'echo MARKER\nexit\n' | script -qec 'sh -c "exec bash"' /dev/null
+...root@vm:/tmp# echo MARKER
+MARKER
+root@vm:/tmp# exit          <- prompt present
+```
+
+### The second bug in the same line
+
+`|| exec sh` could never have run. When `exec` cannot find its command, a
+non-interactive POSIX shell **exits** rather than returning a status for `||`
+to test. On an image without bash this would have dropped the connection
+outright, and the fallback that existed specifically to prevent that would
+have been bypassed. The fix probes with `command -v` instead, which tests
+without replacing the process, so the redirect stays on the probe and the
+fallback is actually reachable. Both branches were then exercised — bash
+present, and bash removed from `PATH` — and each produces a visible prompt.
+
+### General Lessons
+
+- **`2>/dev/null` on an `exec` mutes the process you are launching, not the
+  launch.** The redirect outlives the `exec` by definition. Any `exec cmd
+  2>/dev/null` is silencing `cmd` forever, which for an interactive program is
+  almost never what was meant.
+- **A silent terminal is not the same as a stuck one.** "It just waits there"
+  was read as a blocked `docker exec`; the process was fine and only its output
+  path was broken. Before diagnosing a hang, check whether anything typed into
+  it actually takes effect.
+- **`||` after `exec` is dead code.** A fallback written that way looks like
+  defensive coding and provides nothing. Probe first, then `exec` once.
+- **This repo already had the near-identical lesson.** "Open a Claude Session
+  Opened Plain Bash" earlier in this file is the same shape — an interactive
+  handoff whose failure mode was invisible rather than loud. The pattern to
+  generalize is that interactive handoffs must be tested interactively, under a
+  real pty, not just syntax-checked.
