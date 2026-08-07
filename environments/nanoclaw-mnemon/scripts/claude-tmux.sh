@@ -1,6 +1,20 @@
 #!/bin/sh
-# Backs "Open a Claude Session" (info.yaml's custom_actions) — invoked via
-# `docker exec -it <container> bash -lc "cd /root && nanoclaw-claude-tmux.sh"`.
+# Backs the "Open a Claude Session ..." actions (info.yaml's custom_actions) —
+# invoked via `docker exec -it <container> bash -lc "nanoclaw-claude-tmux.sh [session] [workdir]"`.
+#
+#   $1  tmux session name  (default: claude)
+#   $2  working directory  (default: /root)
+#
+# Both default to the original hardcoded values, so any existing invocation
+# keeps working unchanged.
+#
+# The session NAME has to differ per working directory, and that is the whole
+# point rather than a detail: Claude Code scopes its own conversation
+# continuity to the exact launch directory, so a session opened in /root and
+# one opened in the NanoClaw install path are deliberately separate
+# conversations. Sharing one tmux session name between them would defeat that —
+# the second connection would just group onto the first session's existing
+# window and land in the wrong directory, with the wrong history, silently.
 #
 # Opens (or joins) a persistent, detachable tmux "claude" session inside
 # this container's own /root — same grouped-session pattern as the
@@ -40,10 +54,18 @@
 # connections are grouping onto it, not relaunching `claude` with different
 # flags. Change CLAUDE_MODEL and it takes effect on the next container
 # recreation (see scripts/choose-model.sh).
+SESSION="${1:-claude}"
+WORKDIR="${2:-/root}"
+
+if [ ! -d "$WORKDIR" ]; then
+    echo "❌ $WORKDIR does not exist inside this container — nothing to open a session in." >&2
+    exit 1
+fi
+
 MODEL_ARGS=""
 [ -n "$CLAUDE_MODEL" ] && MODEL_ARGS="--model $CLAUDE_MODEL"
-if tmux has-session -t claude 2>/dev/null; then
-    tmux new-session -t claude -s "client_$$" \; set-option destroy-unattached on
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+    tmux new-session -t "$SESSION" -s "client_$$" \; set-option destroy-unattached on
 else
     # `claude --continue` exits outright ("No conversation found to
     # continue") rather than falling back to a fresh conversation itself,
@@ -61,5 +83,5 @@ else
     # tried first, since a conversation CAN exist within the same
     # container's lifetime if `claude` was exited and this session
     # relaunched without the container itself being recreated.
-    tmux new-session -s claude -c /root sh -c "claude --continue $MODEL_ARGS || claude $MODEL_ARGS"
+    tmux new-session -s "$SESSION" -c "$WORKDIR" sh -c "claude --continue $MODEL_ARGS || claude $MODEL_ARGS"
 fi
