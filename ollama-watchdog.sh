@@ -16,6 +16,7 @@
 #   ./ollama-watchdog.sh --status     # bind address, schedule, health, listeners
 #   ./ollama-watchdog.sh --install    # schedule this to run automatically (launchd/cron)
 #   ./ollama-watchdog.sh --uninstall  # remove the scheduled job
+#   ./ollama-watchdog.sh --stop       # kill any in-flight run AND unschedule
 #
 # Env vars (export before invoking; --install bakes the values active at
 # install time into the scheduled job, so set them before running --install
@@ -216,6 +217,33 @@ uninstall_linux() {
     fi
 }
 
+# Stops the watchdog outright: kills anything in flight, then removes the
+# schedule so it does not simply come back on the next tick.
+#
+# Both halves are needed. This script is one-shot rather than a daemon — it
+# checks, acts, and exits — so most of the time there is no process to kill and
+# the schedule IS the watchdog. But a run can be mid-restart when you decide to
+# stop it, and on macOS launchd's RunAtLoad fires one immediately at load, so
+# killing without unscheduling achieves nothing and unscheduling without
+# killing can still leave a restart in progress.
+stop_watchdog() {
+    local pids
+    # Exclude our own PID and our parent's: `pgrep -f` matches the very process
+    # running this function, so a naive kill would take out the stop command
+    # itself before it ever reached the unschedule below.
+    pids=$(pgrep -f 'ollama-watchdog\.sh' 2>/dev/null | grep -v "^$$\$" | grep -v "^${PPID}\$" || true)
+    if [ -n "$pids" ]; then
+        echo "🛑 Stopping watchdog run(s) already in flight: $(echo $pids | tr '\n' ' ')"
+        echo "$pids" | xargs kill 2>/dev/null || true
+    else
+        echo "ℹ️  No watchdog run currently in flight."
+    fi
+
+    if [ "$OS_TYPE" = "macos" ]; then uninstall_macos; else uninstall_linux; fi
+    echo "✅ Watchdog stopped. Ollama itself is untouched and still running."
+    echo "   Re-enable later with the 'Watchdog: Schedule Automatic Checks' action."
+}
+
 case "${1:-}" in
     --check)
         if is_healthy; then
@@ -238,6 +266,9 @@ case "${1:-}" in
         ;;
     --uninstall)
         [ "$OS_TYPE" = "macos" ] && uninstall_macos || uninstall_linux
+        ;;
+    --stop)
+        stop_watchdog
         ;;
     --status)
         echo "Probe URL:     $OLLAMA_HOST"
@@ -270,7 +301,7 @@ case "${1:-}" in
         ;;
     *)
         echo "Unknown argument: $1" >&2
-        echo "Usage: $0 [--check|--restart|--status|--install|--uninstall]" >&2
+        echo "Usage: $0 [--check|--restart|--status|--install|--uninstall|--stop]" >&2
         exit 1
         ;;
 esac
