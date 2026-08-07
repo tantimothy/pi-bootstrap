@@ -9,6 +9,19 @@
 # process would have missed exactly this, since the process WAS running;
 # it's the daemon's own API that had stopped responding, not its existence.
 #
+# "Isn't launchd/systemd/brew services already doing this?" — no, and the
+# distinction is the whole reason this exists. A service supervisor restarts a
+# process that EXITED. The incident above had the process very much alive: it
+# was the daemon's own HTTP API that had stopped answering, which no KeepAlive
+# or Restart= directive can detect. The two are complementary, not redundant —
+# the supervisor owns the process lifecycle, this owns API health.
+#
+# What HAS changed is that this script now drives the supervisor rather than
+# fighting it: where Homebrew or systemd manages the daemon, restarts go through
+# `brew services` / `systemctl` (see lib/ollama-lib.sh). Before that, a `pkill`
+# here was undone by launchd within seconds, which looked exactly like the
+# restart having silently failed.
+#
 # Usage:
 #   ./ollama-watchdog.sh              # one-shot: check, restart if unhealthy, exit
 #   ./ollama-watchdog.sh --check      # one-shot: check only, never restarts (exit 0/1)

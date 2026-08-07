@@ -129,6 +129,14 @@ an interactive chat choice.
 bash environments/ollama/scripts/manage-models.sh
 bash environments/ollama/scripts/manage-models.sh --resources
 bash environments/ollama/scripts/manage-models.sh --pull phi4-mini
+**Why a watchdog when Homebrew/systemd already supervises Ollama?** Because
+they catch different failures. A service supervisor restarts a process that
+*exited*; the incident this was built for had the process alive and only its
+HTTP API wedged, which no `KeepAlive` can see. They compose: the supervisor owns
+the process, the watchdog owns API health, and the watchdog now restarts through
+`brew services`/`systemctl` where those manage the daemon rather than `pkill`-ing
+something the supervisor immediately brings back.
+
 bash ollama-watchdog.sh --check     # is it responding right now?
 bash ollama-watchdog.sh --status    # bind address, schedule, health, listeners
 bash ollama-watchdog.sh --install   # schedule automatic checks
