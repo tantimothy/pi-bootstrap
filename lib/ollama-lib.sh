@@ -245,7 +245,13 @@ ollama_start() {
 
     case "$(uname -s)" in
         Darwin)
-            if command -v brew >/dev/null 2>&1 && brew list ollama >/dev/null 2>&1; then
+            # Same correction as ollama_stop: ask whether a brew SERVICE
+            # exists, not whether `brew list` recognizes the name. Starting a
+            # bare `ollama serve` beside a launchd-managed one is how a host
+            # ends up with two daemons — the supervised one on loopback, ours
+            # bound wide, and containers still refused because they dial the
+            # loopback one.
+            if _ollama_brew_service; then
                 brew services start ollama >/dev/null 2>&1 && return 0
             elif [ -d "/Applications/Ollama.app" ]; then
                 open -a Ollama && return 0
@@ -289,14 +295,47 @@ ollama_wait_healthy() {
 
 # Stops whichever way it's running. Tries every mechanism rather than guessing
 # one, because the thing that started it may not be the thing calling this.
+# Is Ollama registered as a Homebrew *service*? This is the question that
+# matters, and `brew list ollama` is not it — that check fails for a CASK
+# install even when Homebrew is very much managing the daemon. A real host hit
+# exactly that: `command -v ollama` resolved to /opt/homebrew/bin/ollama, yet
+# every brew-aware branch was skipped, so `brew services stop` never ran, the
+# launchd job stayed loaded, and Ollama respawned within two seconds of every
+# `pkill` — loopback-bound, forever. `brew services list` covers formula and
+# cask alike.
+_ollama_brew_service() {
+    command -v brew >/dev/null 2>&1 || return 1
+    brew services list 2>/dev/null | awk 'NR > 1 && $1 == "ollama" { found = 1 } END { exit !found }'
+}
+
 ollama_stop() {
     if [[ "$(uname)" == "Darwin" ]]; then
-        command -v brew >/dev/null 2>&1 && brew list ollama >/dev/null 2>&1 &&
-            { brew services stop ollama >/dev/null 2>&1 || true; }
+        # Unload the launchd job FIRST. Killing the process while its service
+        # is still loaded just invites launchd to start it straight back up,
+        # which is indistinguishable from the stop having silently failed.
+        _ollama_brew_service && { brew services stop ollama >/dev/null 2>&1 || true; }
         pgrep -x "Ollama" >/dev/null 2>&1 && { killall Ollama 2>/dev/null || true; }
     elif command -v systemctl >/dev/null 2>&1 &&
          systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
         sudo systemctl stop ollama 2>/dev/null || true
     fi
     pkill -x ollama 2>/dev/null || true
+
+    # Verify it actually stayed down. A supervisor we did not recognize will
+    # respawn it within a second or two, and every caller of this function then
+    # proceeds on the false premise that the port is free — starting a second
+    # daemon beside the first rather than replacing it. Saying so here turns a
+    # silent respawn into a visible one.
+    sleep 2
+    if [ -n "$(ollama_listeners)" ]; then
+        echo "⚠️  Ollama is still listening after being stopped — something is supervising and restarting it:" >&2
+        ollama_listeners | sed 's/^/       /' >&2
+        echo "   Starting another one now would leave TWO daemons on this port, which is worse" >&2
+        echo "   than the original problem. Find the supervisor before continuing:" >&2
+        echo "     brew services list | grep -i ollama" >&2
+        echo "     launchctl list | grep -i ollama" >&2
+        echo "     ps -o pid,ppid,command -p \$(pgrep -x ollama | head -1)" >&2
+        return 1
+    fi
+    return 0
 }
