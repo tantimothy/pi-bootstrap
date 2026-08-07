@@ -503,3 +503,59 @@ bash 3.2 macOS still ships, which this repo has to keep working.
   a regression test at the value level (`&`, `*`, `[`, backslash, multi-line
   defaults) rather than trusting that whatever the current YAML files happen
   to contain is representative.
+
+## `ollama-watchdog.sh` forced Ollama to bind loopback, via a variable-name collision (2026-08-07)
+
+**Status:** fixed. Found while diagnosing why an operator's manual rebinding of
+Ollama kept reverting.
+
+`OLLAMA_HOST` means two different things depending on who reads it:
+
+- to a **client** (this repo's watchdog, `environments/ollama/run.sh`, `curl`),
+  it is the API base URL to talk to — `http://localhost:11434`;
+- to **`ollama serve`**, it is the address to **bind**.
+
+`ollama-watchdog.sh` used it in the first sense, and both its `--install` paths
+exported that value into the scheduled job's environment (the launchd plist's
+`EnvironmentVariables`, the cron line's inline assignment). Its
+`restart_ollama()` then ran a bare `nohup ollama serve`, which **inherited it**
+— so every watchdog-initiated restart bound Ollama to `http://localhost:11434`,
+i.e. loopback.
+
+Consequences, neither of which produced any error:
+
+- Ollama became unreachable from every container on the host, since traffic via
+  `host.docker.internal` arrives as external and a loopback listener refuses
+  it. Host-side health checks kept passing, because they probe `localhost`.
+- An operator who rebound Ollama by hand had it silently reverted on the
+  watchdog's next tick — which is exactly how this was found: after a manual
+  restart, `lsof` showed *two* `ollama` processes, one on `*:11434` (the
+  operator's) and one on `127.0.0.1:11434` (the watchdog's), with the
+  container still refused because it connects over IPv4 and the only IPv4
+  listener was loopback.
+
+**Fix:** `restart_ollama()` never passes its own probe URL to a server it
+starts. It uses a new, separate `OLLAMA_SERVE_HOST` when the operator sets one,
+and otherwise strips `OLLAMA_HOST` from the child environment entirely
+(`env -u`) so Ollama falls back to its own default rather than to ours.
+`OLLAMA_SERVE_HOST` is persisted into both the plist and the cron line so a
+scheduled restart keeps the operator's binding. It defaults to unset — binding
+`0.0.0.0` exposes Ollama to the local network, which is the operator's
+decision to make.
+
+### General Lessons
+
+- **A variable named the same as a third-party tool's own variable is a
+  hazard, not a convenience.** Reusing `OLLAMA_HOST` for "the URL I probe" read
+  naturally everywhere it was used, and became a bug the moment the script
+  spawned the very tool that reads it differently. If you must share the name,
+  never let it cross into the child process.
+- **Exported environment is an implicit argument to everything you spawn.**
+  The plist and cron line were written to configure *the watchdog*; nothing
+  signalled that they were also configuring a server it would later start.
+  Scrub, or explicitly set, the environment of any long-lived process you
+  launch.
+- **A self-healing mechanism that reverts a correct manual fix is worse than
+  no automation.** The watchdog exists to keep Ollama up, and it did — in a
+  configuration that made it useless to the containers that needed it, while
+  reporting success every cycle.

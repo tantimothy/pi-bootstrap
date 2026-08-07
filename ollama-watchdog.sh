@@ -19,7 +19,20 @@
 # Env vars (export before invoking; --install bakes the values active at
 # install time into the scheduled job, so set them before running --install
 # specifically if you want non-default values on every future scheduled run):
-#   OLLAMA_HOST               Ollama's own API base. Default: http://localhost:11434
+#   OLLAMA_HOST               Ollama's own API base, used by THIS SCRIPT to
+#                             probe it. Default: http://localhost:11434
+#                             NOTE the name collision: `ollama serve` reads
+#                             OLLAMA_HOST as its own BIND ADDRESS, a different
+#                             meaning entirely. This script never leaks its
+#                             probe URL into a server it starts — see
+#                             restart_ollama() for why that matters.
+#   OLLAMA_SERVE_HOST         Bind address to start `ollama serve` with, e.g.
+#                             0.0.0.0:11434. Default: unset (let Ollama use its
+#                             own default, 127.0.0.1:11434). Set this if
+#                             containers need to reach Ollama via
+#                             host.docker.internal — a loopback bind refuses
+#                             those connections. Binding 0.0.0.0 also exposes
+#                             Ollama to your local network, so it's opt-in.
 #   OLLAMA_WATCHDOG_TIMEOUT   Seconds before a health check counts as failed. Default: 10
 #   OLLAMA_WATCHDOG_INTERVAL  Seconds between scheduled runs, --install only. Default: 300
 #   OLLAMA_WATCHDOG_LOG       Log file path. Default: ~/.ollama-watchdog.log
@@ -48,6 +61,7 @@ OS_TYPE="linux"
 [[ "$(uname)" == "Darwin" ]] && OS_TYPE="macos"
 
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
+OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
 TIMEOUT="${OLLAMA_WATCHDOG_TIMEOUT:-10}"
 INTERVAL="${OLLAMA_WATCHDOG_INTERVAL:-300}"
 LOG_FILE="${OLLAMA_WATCHDOG_LOG:-$HOME/.ollama-watchdog.log}"
@@ -94,7 +108,30 @@ restart_ollama() {
     else
         _log "🔄 No existing Ollama process found — starting fresh..."
     fi
-    nohup ollama serve >> "$LOG_FILE" 2>&1 &
+    # OLLAMA_HOST means two different things depending on who reads it: to
+    # this script it's the URL to PROBE, to `ollama serve` it's the address to
+    # BIND. Both --install paths export our probe value into the scheduled
+    # job's environment (the launchd plist's EnvironmentVariables, the cron
+    # line's inline assignment), so a bare `nohup ollama serve` here inherits
+    # it and binds to whatever we were probing.
+    #
+    # That is not hypothetical: with the default OLLAMA_HOST of
+    # http://localhost:11434, every watchdog-initiated restart bound Ollama to
+    # loopback — which silently makes it unreachable from every container on
+    # the host, since traffic via host.docker.internal arrives as external.
+    # It also silently undid an operator's own rebinding on the next tick.
+    # Diagnosing that took five rounds; see
+    # docs/lessons-learned/nanoclaw-mnemon.md.
+    #
+    # So: pass OLLAMA_SERVE_HOST if the operator set one, and otherwise strip
+    # OLLAMA_HOST entirely so Ollama falls back to its own default rather than
+    # to our probe URL.
+    if [ -n "$OLLAMA_SERVE_HOST" ]; then
+        _log "   Binding to OLLAMA_SERVE_HOST=${OLLAMA_SERVE_HOST}"
+        OLLAMA_HOST="$OLLAMA_SERVE_HOST" nohup ollama serve >> "$LOG_FILE" 2>&1 &
+    else
+        env -u OLLAMA_HOST nohup ollama serve >> "$LOG_FILE" 2>&1 &
+    fi
     disown
 }
 
@@ -158,6 +195,8 @@ install_macos() {
     <dict>
         <key>OLLAMA_HOST</key>
         <string>${OLLAMA_HOST}</string>
+        <key>OLLAMA_SERVE_HOST</key>
+        <string>${OLLAMA_SERVE_HOST}</string>
         <key>OLLAMA_WATCHDOG_TIMEOUT</key>
         <string>${TIMEOUT}</string>
         <key>OLLAMA_WATCHDOG_LOG</key>
@@ -188,7 +227,7 @@ uninstall_macos() {
 install_linux() {
     local cron_minutes=$(( (INTERVAL + 59) / 60 ))
     [ "$cron_minutes" -lt 1 ] && cron_minutes=1
-    local cron_line="*/${cron_minutes} * * * * OLLAMA_HOST='${OLLAMA_HOST}' OLLAMA_WATCHDOG_TIMEOUT='${TIMEOUT}' OLLAMA_WATCHDOG_LOG='${LOG_FILE}' ${REPO_DIR}/ollama-watchdog.sh >> ${LOG_FILE} 2>&1 ${CRON_MARKER}"
+    local cron_line="*/${cron_minutes} * * * * OLLAMA_HOST='${OLLAMA_HOST}' OLLAMA_SERVE_HOST='${OLLAMA_SERVE_HOST}' OLLAMA_WATCHDOG_TIMEOUT='${TIMEOUT}' OLLAMA_WATCHDOG_LOG='${LOG_FILE}' ${REPO_DIR}/ollama-watchdog.sh >> ${LOG_FILE} 2>&1 ${CRON_MARKER}"
     ( crontab -l 2>/dev/null | grep -vF "$CRON_MARKER"; echo "$cron_line" ) | crontab -
     echo "✅ Installed — runs every ${cron_minutes} minute(s) via cron. Logs: $LOG_FILE"
     echo "   Edit with: crontab -e"
