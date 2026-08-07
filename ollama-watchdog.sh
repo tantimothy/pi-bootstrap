@@ -56,6 +56,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Force a UTF-8 locale before any emoji-laden output below prints — see
 # lib/locale-lib.sh's own comment for why.
 source "$REPO_DIR/lib/locale-lib.sh" || true
+# Shared with environments/ollama and nanoclaw-mnemon so all three manage the
+# same single native daemon identically. See lib/ollama-lib.sh.
+source "$REPO_DIR/lib/ollama-lib.sh"
 
 OS_TYPE="linux"
 [[ "$(uname)" == "Darwin" ]] && OS_TYPE="macos"
@@ -81,58 +84,15 @@ is_healthy() {
     curl -sf -m "$TIMEOUT" "$OLLAMA_HOST/api/tags" >/dev/null 2>&1
 }
 
-# macOS: prefer the menu-bar app (killall + reopen) if that's how it's
-# running — that's the default install method and what actually owns the
-# embedded server process in that case. Linux: prefer the official
-# installer's systemd unit. Both fall back to a bare `ollama serve`
-# process if neither of those applies.
+# Fully delegated to lib/ollama-lib.sh, which owns every platform path
+# (Ollama.app, brew services, systemd unit, bare `ollama serve`) for stopping
+# and starting. Keeping a second copy here is what let this script drift into
+# binding loopback on every restart while the other two callers did not.
 restart_ollama() {
-    if [ "$OS_TYPE" = "macos" ] && pgrep -x "Ollama" >/dev/null 2>&1; then
-        _log "🔄 Restarting Ollama.app..."
-        killall Ollama 2>/dev/null
-        sleep 2
-        open -a Ollama
-        return
-    fi
-
-    if [ "$OS_TYPE" = "linux" ] && systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
-        _log "🔄 Restarting ollama.service via systemctl..."
-        sudo systemctl restart ollama
-        return
-    fi
-
-    if pgrep -x "ollama" >/dev/null 2>&1; then
-        _log "🔄 Restarting bare 'ollama serve' process..."
-        pkill -x ollama 2>/dev/null
-        sleep 2
-    else
-        _log "🔄 No existing Ollama process found — starting fresh..."
-    fi
-    # OLLAMA_HOST means two different things depending on who reads it: to
-    # this script it's the URL to PROBE, to `ollama serve` it's the address to
-    # BIND. Both --install paths export our probe value into the scheduled
-    # job's environment (the launchd plist's EnvironmentVariables, the cron
-    # line's inline assignment), so a bare `nohup ollama serve` here inherits
-    # it and binds to whatever we were probing.
-    #
-    # That is not hypothetical: with the default OLLAMA_HOST of
-    # http://localhost:11434, every watchdog-initiated restart bound Ollama to
-    # loopback — which silently makes it unreachable from every container on
-    # the host, since traffic via host.docker.internal arrives as external.
-    # It also silently undid an operator's own rebinding on the next tick.
-    # Diagnosing that took five rounds; see
-    # docs/lessons-learned/nanoclaw-mnemon.md.
-    #
-    # So: pass OLLAMA_SERVE_HOST if the operator set one, and otherwise strip
-    # OLLAMA_HOST entirely so Ollama falls back to its own default rather than
-    # to our probe URL.
-    if [ -n "$OLLAMA_SERVE_HOST" ]; then
-        _log "   Binding to OLLAMA_SERVE_HOST=${OLLAMA_SERVE_HOST}"
-        OLLAMA_HOST="$OLLAMA_SERVE_HOST" nohup ollama serve >> "$LOG_FILE" 2>&1 &
-    else
-        env -u OLLAMA_HOST nohup ollama serve >> "$LOG_FILE" 2>&1 &
-    fi
-    disown
+    _log "🔄 Restarting Ollama..."
+    ollama_stop
+    sleep 2
+    ollama_start "$OLLAMA_HOST"
 }
 
 notify() {

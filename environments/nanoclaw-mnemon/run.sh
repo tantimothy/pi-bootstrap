@@ -37,6 +37,10 @@ AGENT_IMAGE_NEEDS_REBUILD=false
 # entry point, invoked directly rather than through deploy.sh's menu, which
 # is the only other place this got sourced).
 source "$REPO_DIR/lib/locale-lib.sh" || true
+# Shared Ollama lifecycle — this environment can start the one native daemon
+# (ensure_ollama_ready below), and must do it the same way environments/ollama
+# and ollama-watchdog.sh do, or a host ends up running two.
+source "$REPO_DIR/lib/ollama-lib.sh"
 # _yaml_expand — resolves `${VAR}`/`${VAR:-default}` markers against real
 # bash variables already in scope, safely (plain-name expansion only, no
 # command substitution/arbitrary code). Despite the name, it's a generic
@@ -2197,11 +2201,13 @@ ensure_ollama_ready() {
 
         if command -v ollama >/dev/null 2>&1 && ! curl -fsS "${probe_endpoint}/api/tags" >/dev/null 2>&1; then
             echo "🚀 Starting Ollama..."
-            if [[ "$(uname)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
-                brew services start ollama >/dev/null 2>&1 || (nohup ollama serve >/dev/null 2>&1 &)
-            else
-                (nohup ollama serve >/dev/null 2>&1 &)
-            fi
+            # Shared implementation (lib/ollama-lib.sh) rather than a third
+            # private copy: it is a no-op when Ollama already answers, so this
+            # deploy cannot start a second daemon alongside the one the
+            # `ollama` environment or the watchdog started, and it never lets
+            # an OLLAMA_HOST from this environment's own .env (a URL, exported
+            # by `set -a` above) become Ollama's bind address.
+            ollama_start "$probe_endpoint"
             local tries=0
             while [ "$tries" -lt 10 ] && ! curl -fsS "${probe_endpoint}/api/tags" >/dev/null 2>&1; do
                 sleep 1

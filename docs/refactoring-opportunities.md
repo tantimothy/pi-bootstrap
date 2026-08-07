@@ -257,3 +257,21 @@ fixing in more than one place at once — at that point, extract the launch
 directory and the invocation wrapper as parameters to a single shared
 `lib/claude-tmux-lib.sh` function, sourced by all copies instead of
 pasted into each.
+
+## Ollama lifecycle — RESOLVED 2026-08-07 (kept briefly, delete once settled live)
+
+Three separate implementations of "install/start/stop/probe the one native
+Ollama daemon" existed: `environments/ollama/run.sh`,
+`environments/nanoclaw-mnemon/run.sh`'s `ensure_ollama_ready()`, and
+`ollama-watchdog.sh`. Consolidated into `lib/ollama-lib.sh`.
+
+This was not cosmetic duplication. Three copies meant three chances to start
+the same daemon differently, and a real host ended up running **two** Ollama
+processes — one on `*:11434` over IPv6, one on `127.0.0.1:11434` over IPv4 —
+with containers still refused, because they dial IPv4 and the only IPv4
+listener was the loopback one. Two behaviours now live in exactly one place:
+`ollama_start()` is a no-op when the daemon already answers (the anti-duplicate
+guard), and it never lets a caller's `OLLAMA_HOST` — a *probe URL* to every
+caller, a *bind address* to `ollama serve` — reach the server it launches.
+
+Delete this entry once a live deploy has exercised all three callers.
