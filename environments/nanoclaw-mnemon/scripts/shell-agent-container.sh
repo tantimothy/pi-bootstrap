@@ -103,5 +103,24 @@ echo "     env | grep -i -E 'proxy|ollama|mnemon' # what this image actually bak
 echo "     curl -s -o /dev/null -w '%{http_code}\\n' --noproxy '*' \"\$MNEMON_EMBED_ENDPOINT/api/tags\""
 echo ""
 
-exec $DOCKER exec -it "$TARGET_ID" sh -c \
-    "cd /workspace/agent 2>/dev/null || cd /workspace/group 2>/dev/null || cd /; exec bash 2>/dev/null || exec sh"
+# The shell is PROBED for, never exec'd speculatively. Two separate traps live
+# in the obvious one-liner `exec bash 2>/dev/null || exec sh`, and this ran into
+# the first of them on a real host:
+#
+#   1. `2>/dev/null` on the exec'd shell silences the shell ITSELF, not just the
+#      lookup — and bash writes its prompt, and readline's echo of what you
+#      type, to stderr. The result is a live shell that renders nothing at all:
+#      no prompt, no echoed keystrokes, commands running invisibly. It looks
+#      exactly like a hang, which is how it was reported.
+#   2. The `|| exec sh` fallback never runs anyway. When `exec` cannot find its
+#      command, a non-interactive POSIX shell exits then and there rather than
+#      returning a status for `||` to test — so on an image without bash this
+#      would have dropped the connection instead of falling back.
+#
+# `command -v` tests without replacing the process, so the redirect stays on the
+# probe where it belongs and the fallback is reachable.
+exec $DOCKER exec -it "$TARGET_ID" sh -c '
+cd /workspace/agent 2>/dev/null || cd /workspace/group 2>/dev/null || cd /
+if command -v bash >/dev/null 2>&1; then exec bash; fi
+exec sh
+'
