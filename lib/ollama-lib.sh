@@ -35,6 +35,34 @@
 
 OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 
+# Derived from this file's own location rather than trusting a caller to have
+# set REPO_DIR — this is sourced by scripts at the repo root and by environment
+# run.sh files two levels down.
+_OLLAMA_LIB_REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# ONE source of truth for the bind address: environments/ollama/.env.
+#
+# That environment owns the daemon's lifecycle, so its .env owns the daemon's
+# configuration. The alternative — each caller keeping its own copy — is how
+# configuration drifts apart, and drift between things managing one daemon is
+# the entire reason this library exists. A nanoclaw-mnemon deploy that starts
+# Ollama must not bind it differently from the way the ollama environment
+# would, and neither must the watchdog's scheduled restart.
+#
+# Read with grep rather than `source`: callers include a root-level script, and
+# executing another environment's .env to pull one value is a much larger
+# action than reading one. Anything already set wins, so an explicit
+# OLLAMA_SERVE_HOST on the command line still overrides the file.
+ollama_resolve_serve_host() {
+    local f="${_OLLAMA_LIB_REPO_DIR}/environments/ollama/.env"
+    [ -n "${OLLAMA_SERVE_HOST:-}" ] && return 0
+    OLLAMA_SERVE_HOST=""
+    [ -f "$f" ] || return 0
+    OLLAMA_SERVE_HOST="$(grep -E '^[[:space:]]*OLLAMA_SERVE_HOST=' "$f" 2>/dev/null \
+        | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
+}
+
 # Address of every listener on Ollama's port, one per line, empty if none.
 # lsof on macOS, ss on modern Linux, netstat as a last resort — if none of the
 # three exists we return nothing rather than guessing, since a false claim here
@@ -117,6 +145,10 @@ ollama_installed() {
 ollama_start() {
     local probe_url="${1:-http://localhost:${OLLAMA_PORT}}"
     local cmd="${OLLAMA_CMD:-ollama}"
+
+    # Every caller gets the same bind address without having to know where it
+    # lives, and without keeping its own copy of it.
+    ollama_resolve_serve_host
 
     if ollama_healthy "$probe_url"; then
         return 0
