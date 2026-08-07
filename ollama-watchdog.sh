@@ -13,6 +13,7 @@
 #   ./ollama-watchdog.sh              # one-shot: check, restart if unhealthy, exit
 #   ./ollama-watchdog.sh --check      # one-shot: check only, never restarts (exit 0/1)
 #   ./ollama-watchdog.sh --restart    # force a restart regardless of health
+#   ./ollama-watchdog.sh --status     # bind address, schedule, health, listeners
 #   ./ollama-watchdog.sh --install    # schedule this to run automatically (launchd/cron)
 #   ./ollama-watchdog.sh --uninstall  # remove the scheduled job
 #
@@ -65,6 +66,19 @@ OS_TYPE="linux"
 
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
+
+# The `ollama` environment owns this daemon's configuration, and this script
+# restarts it on a schedule — so without reading that config, a scheduled
+# restart would quietly revert the operator's bind address, which is exactly
+# what happened before. Read with grep rather than `source`: this is a
+# root-level script and .env is not ours to execute. Anything already exported
+# wins, so an explicit value on the command line still overrides the file.
+_OLLAMA_ENV_FILE="$REPO_DIR/environments/ollama/.env"
+if [ -z "$OLLAMA_SERVE_HOST" ] && [ -f "$_OLLAMA_ENV_FILE" ]; then
+    OLLAMA_SERVE_HOST="$(grep -E '^[[:space:]]*OLLAMA_SERVE_HOST=' "$_OLLAMA_ENV_FILE" 2>/dev/null \
+        | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
+fi
 TIMEOUT="${OLLAMA_WATCHDOG_TIMEOUT:-10}"
 INTERVAL="${OLLAMA_WATCHDOG_INTERVAL:-300}"
 LOG_FILE="${OLLAMA_WATCHDOG_LOG:-$HOME/.ollama-watchdog.log}"
@@ -225,12 +239,38 @@ case "${1:-}" in
     --uninstall)
         [ "$OS_TYPE" = "macos" ] && uninstall_macos || uninstall_linux
         ;;
+    --status)
+        echo "Probe URL:     $OLLAMA_HOST"
+        # No apostrophe in this default value: a single quote inside a
+        # ${VAR:-word} default is a quoting character to bash even within
+        # double quotes, and silently swallows the rest of the file.
+        echo "Bind address:  ${OLLAMA_SERVE_HOST:-<unset — Ollama default, 127.0.0.1:11434>}"
+        echo "Log file:      $LOG_FILE"
+        if [ "$OS_TYPE" = "macos" ]; then
+            if [ -f "$PLIST_PATH" ]; then
+                echo "Schedule:      installed (launchd, every ${INTERVAL}s)"
+                echo "Plist:         $PLIST_PATH"
+            else
+                echo "Schedule:      NOT installed — use 'Watchdog: Schedule Automatic Checks'"
+            fi
+        else
+            if crontab -l 2>/dev/null | grep -qF "$CRON_MARKER"; then
+                echo "Schedule:      installed (cron)"
+                crontab -l 2>/dev/null | grep -F "$CRON_MARKER" | sed 's/^/               /'
+            else
+                echo "Schedule:      NOT installed — use 'Watchdog: Schedule Automatic Checks'"
+            fi
+        fi
+        echo ""
+        is_healthy && echo "Health:        ✅ responding" || echo "Health:        ❌ not responding"
+        ollama_report_binding
+        ;;
     "")
         do_check_and_restart
         ;;
     *)
         echo "Unknown argument: $1" >&2
-        echo "Usage: $0 [--check|--restart|--install|--uninstall]" >&2
+        echo "Usage: $0 [--check|--restart|--status|--install|--uninstall]" >&2
         exit 1
         ;;
 esac
