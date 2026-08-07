@@ -79,15 +79,47 @@ _teardown_ollama() {
     _stop_ollama
     case "$(uname -s)" in
         Darwin)
-            if command -v brew >/dev/null 2>&1 && brew list ollama >/dev/null 2>&1; then
-                brew uninstall ollama
+            # Four recognized macOS install methods, not two. The original pair
+            # (brew formula, /Applications/Ollama.app) missed both a Homebrew
+            # *cask* install and a plain binary dropped on PATH — and a real
+            # host running the latter had its CLEAN abort outright, since the
+            # unrecognized branch returned 1 straight into `|| exit 1`.
+            if command -v brew >/dev/null 2>&1 && brew list --formula ollama >/dev/null 2>&1; then
+                brew uninstall --formula ollama
+            elif command -v brew >/dev/null 2>&1 && brew list --cask ollama >/dev/null 2>&1; then
+                brew uninstall --cask ollama
             elif [ -d "/Applications/Ollama.app" ]; then
                 sudo rm -rf -- "/Applications/Ollama.app"
                 [ -L "/usr/local/bin/ollama" ] && sudo rm -f -- "/usr/local/bin/ollama"
             else
-                echo "⚠️  Ollama's install method is not recognized; the stopped runtime was not removed." >&2
-                echo "   The shared model cache remains untouched." >&2
-                return 1
+                # A bare binary, wherever it landed. Same allow-list approach as
+                # the Linux branch below — remove only paths we recognize, never
+                # whatever `command -v` happens to resolve to.
+                ollama_bin="${OLLAMA_TEARDOWN_BIN:-$(command -v ollama 2>/dev/null || true)}"
+                case "$ollama_bin" in
+                    /usr/local/bin/ollama|/opt/homebrew/bin/ollama)
+                        sudo rm -f -- "$ollama_bin"
+                        ;;
+                    *)
+                        # Stopped, but not removed. Deliberately NOT a hard
+                        # failure: CLEAN can still reinstall over the top and
+                        # start the daemon correctly, which is what the operator
+                        # actually wants, and refusing to continue leaves them
+                        # with no path forward at all. TEARDOWN does treat this
+                        # as a failure — see the policy dispatch below — because
+                        # there "remove it" was the entire request.
+                        echo "⚠️  Ollama's install method is not recognized, so the runtime was stopped but not removed." >&2
+                        if [ -n "$ollama_bin" ]; then
+                            echo "   Found the binary at: $ollama_bin" >&2
+                            echo "   Recognized locations are /usr/local/bin/ollama and /opt/homebrew/bin/ollama," >&2
+                            echo "   a Homebrew formula or cask, or /Applications/Ollama.app." >&2
+                        else
+                            echo "   No 'ollama' binary is on PATH at all." >&2
+                        fi
+                        echo "   The shared model cache is untouched either way." >&2
+                        return 2
+                        ;;
+                esac
             fi
             ;;
         Linux)
@@ -143,7 +175,18 @@ case "$POLICY" in
         ;;
     CLEAN)
         echo "🧹 Reinstalling Ollama while preserving the shared model cache..."
-        _teardown_ollama || exit 1
+        # Exit 2 means "stopped, but the runtime could not be removed because
+        # the install method isn't recognized". That is not a reason to abort a
+        # CLEAN: the reinstall and the start below still run, and the operator
+        # ends up with a correctly-bound daemon, which is the point. Only a
+        # genuine teardown error (1) stops the deploy.
+        _teardown_ollama
+        _teardown_rc=$?
+        if [ "$_teardown_rc" -eq 1 ]; then
+            exit 1
+        elif [ "$_teardown_rc" -eq 2 ]; then
+            echo "   Continuing anyway — CLEAN will reinstall over the existing runtime and restart it." >&2
+        fi
         ;;
     FAST) ;;
     *)
