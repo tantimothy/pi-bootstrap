@@ -19,6 +19,21 @@ survives until the next CLEAN (which hard-resets the file to upstream and
 re-applies this patch) — a FAST deploy will leave it alone as long as the
 version number still matches.
 
+If the status above reports **SKIPPED**, the upstream file or anchor this
+patch depends on has moved. Apply it by hand from
+<https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw>.
+
+**The pre-marker era (a STALE status).** Blocks written before this script
+tracked patch versions carry no markers, and an unmarked block has no reliable
+end boundary — so it cannot be replaced in place and is deliberately left
+alone rather than mangled. Only a CLEAN clears it: CLEAN hard-resets
+`container/Dockerfile` to upstream, after which this patch re-applies at the
+current version. Until then the install keeps running whatever that old block
+said, which is not necessarily what this document describes. This is a real
+state, not a theoretical one — the content-blind "already applied?" check of
+that era is why a fixed patch could report success for weeks while the image
+kept building from stale text.
+
 **The shape a correct fix has to have** — the three things that have each
 been gotten wrong at least once here, so check these first:
 

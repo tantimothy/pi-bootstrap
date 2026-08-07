@@ -12,6 +12,21 @@ back. Stock NanoClaw's agent sandbox has none of these binaries.
 The whole block sits inside `# >>> pi-bootstrap:media-tools vN >>>` /
 `# <<< pi-bootstrap:media-tools <<<` markers.
 
+If the status above reports **SKIPPED**, the `# ---- Bun runtime` anchor this
+patch splices at has moved upstream; apply the block by hand per this
+environment's README.
+
+**The pre-marker era (a STALE status).** Blocks written before this script
+tracked patch versions carry no markers, and an unmarked block has no reliable
+end boundary — so it cannot be replaced in place and is left alone rather than
+mangled. Only a CLEAN clears it, by hard-resetting `container/Dockerfile` to
+upstream so this patch re-applies at the current version. **The symptom while
+stale is specifically item 1 below:** `whisper-cli` fails with
+`libwhisper.so.1: cannot open shared object file`, because the old block
+predates `-DBUILD_SHARED_LIBS=OFF`. That is exactly how this went unnoticed —
+the content-blind check of that era saw `yt-dlp` in the file, called the patch
+applied, and never looked at the cmake line again.
+
 **The shape a correct fix has to have.** Each of these three was a real
 build or runtime failure, and each is easy to regress by writing the
 "obvious" version of the line:
