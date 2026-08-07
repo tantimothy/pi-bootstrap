@@ -23,9 +23,9 @@ than its own port-publishing uses.
 
 The deploy now tests this directly — it runs curl inside a throwaway container
 against the configured endpoint, and if that fails but the host's LAN IP works,
-the status above names the exact `MNEMON_EMBED_ENDPOINT` to switch to. Note a
-LAN IP is usually DHCP: if it changes, this breaks again, so it is worth a
-static reservation.
+the status above names the exact `MNEMON_EMBED_ENDPOINT` to switch to. If that
+LAN IP is a DHCP lease rather than a static address, pin it — a new lease would
+silently break embeddings again in exactly the same way.
 
 **(b) Ollama's default bind is `127.0.0.1:11434` —
 loopback only. A container reaching `host.docker.internal:11434` arrives at the

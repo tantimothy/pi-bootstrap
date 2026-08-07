@@ -2294,7 +2294,12 @@ against real `lsof` output rather than eyeballing the parse.
 
 **Status:** root cause confirmed on the live host, after five rounds of proxy
 theories, a bind-address fix, a supervisor fight and an IPv6 red herring. This
-supersedes every earlier explanation of this symptom in this file.
+supersedes every earlier explanation of this symptom in this file. **Closed
+same day:** with `MNEMON_EMBED_ENDPOINT` pointed at the host's LAN IP, mnemon
+reports `ollama_available: true`, and a live agent container reports 345
+insights / 4,020 edges — so the memory graph survived the whole episode
+intact. That host holds its address statically, so the endpoint has no lease
+to expire; an install whose LAN IP comes from DHCP needs it pinned.
 
 **The measurements that ended it:**
 
