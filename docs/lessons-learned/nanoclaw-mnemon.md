@@ -2216,3 +2216,76 @@ image a group actually runs *before* testing anything inside it.
   NanoClaw at any level. The deploy script cannot fix upstream's silence,
   but it can refuse to leave the situation undetectable — which is what the
   manifest section and the checklist step now do.
+
+## Follow-up (2026-08-07): `ollama_available: false` was Ollama bound to loopback — five rounds of proxy theories, none of them the cause
+
+**Status:** root cause confirmed on the live host. One command settled what
+four previous rounds of `NO_PROXY` reasoning could not:
+
+```
+$ lsof -nP -iTCP:11434 -sTCP:LISTEN
+COMMAND PID  USER   FD   TYPE  DEVICE  SIZE/OFF NODE NAME
+ollama  986 homer    3u  IPv4  0x...        0t0  TCP 127.0.0.1:11434 (LISTEN)
+```
+
+Ollama's default bind address is `127.0.0.1:11434` — loopback only. An agent
+container reaching `host.docker.internal:11434` arrives at the host as
+external traffic and is refused. It was never reachable from a container at
+any point.
+
+**Why five rounds missed it.** Two independent checks both said "reachable",
+and neither was testing what it appeared to test:
+
+- `ensure_ollama_ready()` deliberately rewrites `host.docker.internal` →
+  `localhost` so its probe works from a bare host shell. That rewrite is
+  correct for what it was added to fix, but it means the probe answers "is
+  Ollama running?" and structurally cannot answer "can a container reach it?"
+  It passed every deploy.
+- `curl` from *inside* the agent container also succeeded — but only via the
+  platform's HTTP proxy, which runs on the host and can therefore reach
+  loopback. mnemon's Go client goes direct, so it saw the refusal that curl
+  never did. The whole "curl works, Go doesn't" signature that anchored four
+  rounds of proxy analysis was two different network paths, not two HTTP
+  clients disagreeing.
+
+Every `NO_PROXY` change — adding it, removing it, scheme-gating it — was
+tuning how requests route to an endpoint that would not accept them either
+way. The scheme-gating that shipped is still correct on its own merits; it
+just never had anything to do with this symptom.
+
+**Fix:** `warn_if_ollama_is_loopback_only()` runs after the reachability probe
+succeeds, and only when the endpoint uses `host.docker.internal` (a
+`localhost` endpoint is the orchestrator's own business, where a loopback bind
+is correct). It reads the actual listen address via `lsof`, `ss`, or `netstat`
+— whichever exists — and if every listener is loopback, warns with the exact
+symptom to expect and the platform-specific fix.
+
+It only warns. Rebinding to `0.0.0.0` exposes Ollama to the local network,
+which is an operator's security decision, not something a deploy script should
+make on their behalf.
+
+**A bug the test caught before it shipped.** The first version extracted the
+address with `awk '{print $NF}'`. lsof's NAME column is
+`TCP 127.0.0.1:11434 (LISTEN)` — three whitespace-separated fields — so `$NF`
+is `(LISTEN)`, which passes every address check downstream. The function would
+have run on every deploy and never warned once. Found only by running it
+against real `lsof` output rather than eyeballing the parse.
+
+### General Lessons
+
+- **A probe that had to be adjusted to work is a probe worth re-reading.**
+  The `host.docker.internal` → `localhost` rewrite was a correct fix for a
+  real bug, and it quietly narrowed what the check could ever detect. When a
+  check is modified to make it pass, note what it stopped covering.
+- **Two clients disagreeing about the same URL may not be disagreeing about
+  HTTP at all.** curl and mnemon were taking different network paths — one
+  through a host-side proxy, one direct. Everything downstream of "curl works
+  so the endpoint is fine" was reasoning from a false premise.
+- **Check the listener before debugging the route.** Four rounds went into
+  proxy semantics — Go's `httpproxy` rules, curl's uppercase/lowercase
+  handling, `applyContainerConfig()` ordering — all of it downstream of
+  whether anything was accepting the connection. `lsof -iTCP:<port>` is one
+  command and should have been round one.
+- **Test a parser against real output, not imagined output.** The `$NF` bug
+  was invisible by inspection and obvious the moment real `lsof` output went
+  through it.

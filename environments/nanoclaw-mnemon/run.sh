@@ -1951,6 +1951,86 @@ FIXES_EOF
 # Installation is gated behind an explicit y/N prompt; pulling a model is
 # not (lower-risk, and mirrors mnemon's own binary being auto-downloaded).
 # ---------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------
+# The gap ensure_ollama_ready()'s own probe structurally cannot see.
+#
+# That probe rewrites host.docker.internal -> localhost so it works from a
+# bare host shell (see its own comment for why that rewrite is correct). The
+# consequence is that it answers "is Ollama running?" and never "can a
+# CONTAINER reach it?" — and those differ in one specific, easy-to-hit way:
+# Ollama's default bind address is 127.0.0.1:11434, loopback only. A host-side
+# curl to localhost succeeds; an agent container reaching
+# host.docker.internal:11434 arrives as external traffic and is refused.
+#
+# Confirmed on a live install, after four separate rounds of NO_PROXY theories
+# had chased the routing layer instead:
+#     lsof -nP -iTCP:11434 -sTCP:LISTEN
+#     ollama 986 homer 3u IPv4 ... TCP 127.0.0.1:11434 (LISTEN)
+# mnemon reported ollama_available:false the entire time. `curl` from inside
+# the same container appeared to succeed, which is what kept sending the
+# diagnosis in the wrong direction — but only because it went through the
+# platform's own HTTP proxy, which runs ON the host and therefore can reach
+# loopback. mnemon's Go client goes direct, so it saw the refusal.
+#
+# This only warns. Rebinding Ollama to 0.0.0.0 exposes it to the local
+# network, which is a security decision for the operator to make deliberately,
+# not something a deploy script should do on their behalf.
+# ---------------------------------------------------------------------------------------
+warn_if_ollama_is_loopback_only() {
+    local endpoint="$1" listeners=""
+
+    # Only matters when a container will reach Ollama via host.docker.internal.
+    # A localhost/127.0.0.1 endpoint is the orchestrator's own business and a
+    # loopback bind is fine — and correct — there.
+    case "$endpoint" in
+        *host.docker.internal*) ;;
+        *) return 0 ;;
+    esac
+
+    # lsof on macOS, ss on most modern Linux, netstat as the last resort.
+    # Whichever answers first wins; if none is installed we say nothing rather
+    # than guessing, since a false alarm here would send the next person
+    # chasing a non-problem.
+    if command -v lsof >/dev/null 2>&1; then
+        # Pick the field that actually holds the address, not $NF: lsof's NAME
+        # column is "TCP 127.0.0.1:11434 (LISTEN)", three whitespace-separated
+        # fields, so $NF is "(LISTEN)" and every address check downstream would
+        # silently pass. Caught by a test against real lsof output.
+        listeners=$(lsof -nP -iTCP:11434 -sTCP:LISTEN 2>/dev/null \
+            | awk 'NR>1 { for (i = 1; i <= NF; i++) if ($i ~ /[.:]11434$/) print $i }')
+    elif command -v ss >/dev/null 2>&1; then
+        listeners=$(ss -ltnH 2>/dev/null | awk '{print $4}' | grep ':11434$' || true)
+    elif command -v netstat >/dev/null 2>&1; then
+        listeners=$(netstat -an 2>/dev/null | awk '/LISTEN/ {print $4}' | grep '[.:]11434$' || true)
+    fi
+    [ -z "$listeners" ] && return 0
+
+    # Bound anywhere non-loopback (0.0.0.0, *, a LAN IP) — containers can
+    # reach it, nothing to warn about.
+    if printf '%s\n' "$listeners" | grep -qv -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost'; then
+        return 0
+    fi
+
+    echo "" >&2
+    echo "⚠️  Ollama is listening on loopback only:" >&2
+    printf '%s\n' "$listeners" | sed 's/^/       /' >&2
+    echo "   It answers on this host, but an agent container reaching it via" >&2
+    echo "   host.docker.internal:11434 arrives as external traffic and will be REFUSED." >&2
+    echo "   Expect mnemon to report 'ollama_available: false' while this is the case," >&2
+    echo "   even though every host-side check here passes." >&2
+    echo "" >&2
+    echo "   Fix on the host, then restart Ollama (this exposes it to your local" >&2
+    echo "   network — a deliberate security tradeoff, which is why this only warns):" >&2
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "     launchctl setenv OLLAMA_HOST \"0.0.0.0:11434\"      # Ollama.app: then quit and reopen it" >&2
+        echo "     OLLAMA_HOST=0.0.0.0:11434 brew services restart ollama" >&2
+    else
+        echo "     sudo systemctl edit ollama    # add: Environment=\"OLLAMA_HOST=0.0.0.0:11434\"" >&2
+    fi
+    echo "   Verify: lsof -nP -iTCP:11434 -sTCP:LISTEN   # should no longer say 127.0.0.1" >&2
+    echo "" >&2
+}
+
 ensure_ollama_ready() {
     [ -z "$MNEMON_EMBED_ENDPOINT" ] && return 0
 
@@ -2043,6 +2123,7 @@ ensure_ollama_ready() {
     fi
 
     echo "✅ Ollama is reachable."
+    warn_if_ollama_is_loopback_only "$endpoint"
 
     if curl -fsS "${probe_endpoint}/api/tags" 2>/dev/null | grep -q "\"name\":\"${model}"; then
         echo "✅ Model '$model' already pulled."
