@@ -240,19 +240,31 @@ _record_group_image_tags() {
     local tags="$1" dir
     dir="$(dirname "$GROUP_IMAGE_STATE_FILE")"
     [ -d "$dir" ] || return 0
-    printf '%s\n' "$tags" | grep -v '^$' | sort -u > "$GROUP_IMAGE_STATE_FILE" 2>/dev/null || true
+    printf '%s\n' "$tags" | { grep -v '^$' || true; } | sort -u > "$GROUP_IMAGE_STATE_FILE" 2>/dev/null || true
 }
 
 # Every derived-image tag this install is believed to need: the ones Docker
 # currently has, plus the ones a previous deploy recorded. The union is the
 # point — present-only misses a deleted or never-built image, recorded-only
 # misses one created since the last deploy.
+# Every trailing `|| true` here is load-bearing under `set -euo pipefail`, not
+# defensive noise. "No derived images and no recorded tags" is the NORMAL state
+# — it is what every install without custom packages looks like — and it makes
+# `grep -v` exit 1 (nothing selected), which `pipefail` promotes to the
+# function's status, which `set -e` turns into a dead deploy. The bare
+# `[ -f ... ] && cat` had the same problem: a missing state file left the group
+# with a non-zero status.
+#
+# Shipped exactly that way once and killed a real CLEAN at
+# "No agent containers found", one line before this function runs. Same bug
+# class as the telegram patch's `return 1` aborting a whole deploy — an empty
+# result is not an error.
 _known_group_image_tags() {
     {
         $DOCKER images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
-            | awk -F: -v p="^${AGENT_IMAGE_REPO_PREFIX}" '$1 ~ p && $2 != "latest" && $2 != "<none>" {print}'
-        [ -f "$GROUP_IMAGE_STATE_FILE" ] && cat "$GROUP_IMAGE_STATE_FILE"
-    } 2>/dev/null | grep -v '^$' | sort -u
+            | awk -F: -v p="^${AGENT_IMAGE_REPO_PREFIX}" '$1 ~ p && $2 != "latest" && $2 != "<none>" {print}' || true
+        if [ -f "$GROUP_IMAGE_STATE_FILE" ]; then cat "$GROUP_IMAGE_STATE_FILE" || true; fi
+    } 2>/dev/null | grep -v '^$' | sort -u || true
 }
 
 # CLEAN rebuilds every per-group derived image unconditionally, by explicit
@@ -2677,10 +2689,13 @@ fi
 # images are not files and were never in it, so the group points at an image
 # that has never existed on that machine. Without this check the first symptom
 # would be a channel that silently stops answering.
+# `|| true` for the same reason every apply_*_patch call has it: this function
+# is designed to report problems and carry on, and a non-zero status from it
+# must never be the thing that ends a deploy.
 if [ "${AGENT_IMAGE_REBUILT:-false}" = "true" ]; then
-    refresh_group_images true
+    refresh_group_images true || true
 else
-    refresh_group_images false
+    refresh_group_images false || true
 fi
 
 # Refresh the manifest now that the agent-image and per-group-image work has
