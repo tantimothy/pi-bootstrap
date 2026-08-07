@@ -209,6 +209,14 @@ sweep_agent_container_ids() {
 # ---------------------------------------------------------------------------------------
 AGENT_IMAGE_REPO_PREFIX="nanoclaw-agent-v2-"
 GROUP_IMAGES_LOG=""
+# Host-side facts about the shared Ollama daemon, recorded into the manifest.
+# The admin `claude` session reads that manifest from INSIDE a container, where
+# it cannot run lsof/ss against the host at all — so unless the deploy writes
+# down what it saw, the single most useful diagnostic for `ollama_available:
+# false` is simply unavailable to the one reader most likely to need it.
+OLLAMA_DAEMON_LOG=""
+_ollama_daemon_log() { OLLAMA_DAEMON_LOG="${OLLAMA_DAEMON_LOG}- ${1}
+"; }
 # Under data/ deliberately: info.yaml lists that path under data_dirs, so this
 # file is captured by backup.sh and comes back with restore.sh — which is what
 # lets a restore onto a NEW host notice that a group's derived image was never
@@ -1961,6 +1969,9 @@ write_patches_manifest() {
     ollama_detail="$(_patch_detail ollama-tool)"
     telegram_detail="$(_patch_detail telegram-import)"
     group_images_detail="$(_patch_detail group-images)"
+    local ollama_daemon_detail; ollama_daemon_detail="$(_patch_detail ollama-daemon)"
+    local ollama_daemon_status="${OLLAMA_DAEMON_LOG:-- Not checked — MNEMON_EMBED_ENDPOINT is unset, so this deploy never probed the Ollama daemon. The Ollama MCP tool may still use it; check from inside an agent container per the section below.
+}"
 
     # Unlike the four patch statuses above, this one is only known AFTER the
     # agent-sandbox image is rebuilt, which happens later in the deploy. The
@@ -2078,7 +2089,11 @@ warn_if_ollama_is_loopback_only() {
     elif command -v netstat >/dev/null 2>&1; then
         listeners=$(netstat -an 2>/dev/null | awk '/LISTEN/ {print $4}' | grep '[.:]11434$' || true)
     fi
-    [ -z "$listeners" ] && return 0
+    if [ -z "$listeners" ]; then
+        _ollama_daemon_log "Listen address: **could not be determined** on this host (no lsof/ss/netstat available to the deploy)."
+        return 0
+    fi
+    _ollama_daemon_log "Listening on (as seen on the HOST at deploy time): \`$(printf '%s' "$listeners" | tr '\n' ' ')\`"
 
     local loopback non_loopback
     loopback=$(printf '%s\n' "$listeners" | grep -c -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost' || true)
@@ -2092,6 +2107,7 @@ warn_if_ollama_is_loopback_only() {
     # than passing silently.
     if [ "$loopback" -gt 0 ] && [ "$non_loopback" -gt 0 ]; then
         echo "" >&2
+        _ollama_daemon_log "**PROBLEM — two daemons.** Both a loopback and a non-loopback listener are present, so more than one Ollama process is running. An agent container may still be refused: it dials IPv4, and a wide IPv6 listener does not help. A human must fix this on the host."
         echo "⚠️  Ollama has both a loopback and a non-loopback listener on 11434:" >&2
         printf '%s\n' "$listeners" | sed 's/^/       /' >&2
         echo "   More than one Ollama process is running. An agent container may still" >&2
@@ -2108,6 +2124,7 @@ warn_if_ollama_is_loopback_only() {
         return 0
     fi
 
+    _ollama_daemon_log "**PROBLEM — loopback only.** No container can reach Ollama, so \`ollama_available: false\` and every agent-side Ollama tool will fail. This is a HOST-side fix and cannot be done from inside a container — see the section below."
     echo "" >&2
     echo "⚠️  Ollama is listening on loopback only:" >&2
     printf '%s\n' "$listeners" | sed 's/^/       /' >&2
@@ -2222,6 +2239,7 @@ ensure_ollama_ready() {
     fi
 
     echo "✅ Ollama is reachable."
+    _ollama_daemon_log "Endpoint agents use: \`${endpoint}\` — reachable from the host at deploy time."
     warn_if_ollama_is_loopback_only "$endpoint"
 
     if curl -fsS "${probe_endpoint}/api/tags" 2>/dev/null | grep -q "\"name\":\"${model}"; then
