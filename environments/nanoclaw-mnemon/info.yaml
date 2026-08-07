@@ -57,12 +57,13 @@ custom_actions:
     command: 'docker exec -it ${CONTAINER_NAME:-nanoclaw-mnemon} bash -lc "nanoclaw-claude-tmux.sh claude /root"'
   - label: "Open a Claude Session (NanoClaw source tree)"
     command: 'docker exec -it ${CONTAINER_NAME:-nanoclaw-mnemon} bash -lc "nanoclaw-claude-tmux.sh claude-install ${NANOCLAW_INSTALL_PATH:-$HOME/nanoclaw-mnemon}"'
-  # Runs on the HOST, not in the orchestrator: picking the target container
-  # needs `docker ps`. This is the one that reaches whisper-cli, mnemon's real
-  # data, and the baked ENVs — i.e. where nearly every investigation in this
-  # environment's history actually had to end up.
-  - label: "Open a Claude Session (most recent agent container)"
-    command: "bash ${ENV_DIR}/scripts/open-agent-session.sh"
+  # A SHELL, not a Claude session — different need entirely. Runs on the HOST,
+  # not in the orchestrator, because picking the target container needs
+  # `docker ps`. This is the one that reaches whisper-cli, mnemon's real data
+  # and the baked ENVs — where nearly every investigation in this environment's
+  # history actually had to end up.
+  - label: "Shell into Most Recent Agent Container"
+    command: "bash ${ENV_DIR}/scripts/shell-agent-container.sh"
   # Which model that admin `claude` session launches with — see
   # scripts/choose-model.sh and .env.example's own CLAUDE_MODEL comment.
   # Does NOT affect per-conversation-group agent containers (NanoClaw's own
@@ -101,17 +102,22 @@ useful_commands: |2
         the README's "Deployment Modes" section for why).
      🌐 Want a chat UI for Ollama? See the standalone `chat-frontends` environment
         instead — this environment no longer bundles one of its own.
-     🖥️ "Open a Claude Session (...)" — three of them in this environment's
-        own deploy.sh menu. /root holds the admin conversation history;
-        the NanoClaw source tree is for working on the install itself; the
-        agent-container one reaches whisper-cli, mnemon's real data and the
-        baked ENVs, which is where most debugging actually has to happen.
-        Separate directories mean separate Claude conversations, by design.
-        The first two attach to this environment's own orchestrator container
-        via `docker exec -it`, into a persistent tmux "claude" session —
-        alongside NanoClaw's own chat-platform conversation, no separate SSH
-        server needed. Multiple simultaneous connections each get their own
-        tmux window grouped onto that same session (see claude-tmux.sh).
+     🖥️ "Open a Claude Session (...)" — two of them, both attaching to this
+        environment's own orchestrator container via `docker exec -it` into a
+        persistent tmux session, alongside NanoClaw's own chat-platform
+        conversation and with no SSH server needed. /root holds the admin
+        conversation history; the NanoClaw source tree one is for working on
+        the install itself. They are separate on purpose: Claude Code scopes
+        conversation continuity to the launch directory, so these are two
+        different conversations with their own tmux sessions. Multiple
+        simultaneous connections each get their own window grouped onto the
+        relevant session (see claude-tmux.sh).
+     🐚 "Shell into Most Recent Agent Container" — a plain shell, not a Claude
+        session, and a different container: the per-group agent sandbox rather
+        than the orchestrator. That is where whisper-cli, mnemon's real data
+        and the baked ENVs live, so it is where nearly every investigation in
+        this environment's history has had to end up. `docker exec`, not ssh —
+        agent containers run no sshd and gain nothing from one.
      🧠 Which model that admin session's `claude` launches with: unset
         (default) lets Claude Code pick its own default, or pin one via
         "Choose Claude Model" above / CLAUDE_MODEL in .env. Per-conversation-

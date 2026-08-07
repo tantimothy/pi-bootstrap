@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# Backs "Open a Claude Session (most recent agent container)" — info.yaml's
-# custom_actions.
+# Backs "Shell into Most Recent Agent Container" — info.yaml's custom_actions.
 #
-# Unlike the other two session actions, this does NOT attach to the
-# orchestrator. It attaches to one of the per-conversation-group AGENT
-# sandbox containers NanoClaw spawns — a different container, a different
-# image, and the place where the things people actually debug live:
-# whisper-cli, yt-dlp, mnemon's own data, the Ollama MCP tool, and the
-# baked ENVs that decide whether any of them work.
+# Opens an interactive shell inside one of the per-conversation-group AGENT
+# sandbox containers NanoClaw spawns. Not the orchestrator: a different
+# container, a different image, and the place where the things people actually
+# debug live — whisper-cli, yt-dlp, mnemon's own data, the Ollama MCP tool, and
+# the baked ENVs that decide whether any of them work.
 #
-# That distinction is the reason this exists. Every "is it broken?" question
-# in this environment's history has eventually come down to checking inside a
-# live agent container, and doing that by hand means finding the container
-# name, remembering the mount-scope caveat, and typing a long `docker exec`.
+# That distinction is the reason this exists. Every "is it broken?" question in
+# this environment's history has eventually come down to checking inside a live
+# agent container, and doing that by hand means finding the container name,
+# remembering the mount-scope caveat, and typing a long `docker exec`.
+#
+# `docker exec`, not ssh: agent containers run no sshd, and there is nothing to
+# be gained by adding one — exec gives the same interactive shell without a
+# daemon, a port, or a key to manage.
 #
 # Runs on the HOST (not inside the orchestrator), because picking the target
 # container needs the host's Docker socket and `docker ps` output.
@@ -70,7 +72,7 @@ TARGET_NAME="$(printf '%s\n' "$mapfile_free_candidates" | head -1 | cut -d'|' -f
 TARGET_CREATED="$(printf '%s\n' "$mapfile_free_candidates" | head -1 | cut -d'|' -f3)"
 TARGET_IMAGE="$($DOCKER inspect "$TARGET_ID" --format '{{.Config.Image}}' 2>/dev/null)"
 
-echo "🤖 Opening a session in agent container:"
+echo "🐚 Opening a shell in agent container:"
 echo "     name:    $TARGET_NAME"
 echo "     image:   ${TARGET_IMAGE:-<unresolvable>}"
 echo "     started: $TARGET_CREATED"
@@ -86,33 +88,20 @@ case "$TARGET_IMAGE" in
 esac
 echo ""
 
-# Agent containers are not the orchestrator: no guarantee tmux exists, and no
-# guarantee the `claude` CLI does either (they run the Agent SDK via bun, which
-# is not the same thing). Probe rather than assume, and say plainly what you
-# are getting — a bare shell in the right container is still far more useful
-# than a failed command.
-if $DOCKER exec "$TARGET_ID" sh -c 'command -v claude' >/dev/null 2>&1; then
-    if $DOCKER exec "$TARGET_ID" sh -c 'command -v tmux' >/dev/null 2>&1; then
-        MODEL_ARGS=""
-        [ -n "${CLAUDE_MODEL:-}" ] && MODEL_ARGS="--model $CLAUDE_MODEL"
-        exec $DOCKER exec -it "$TARGET_ID" sh -c \
-            "cd /workspace/agent 2>/dev/null || cd /workspace/group 2>/dev/null || cd /; \
-             tmux has-session -t claude-agent 2>/dev/null \
-               && tmux new-session -t claude-agent -s 'client_\$\$' \; set-option destroy-unattached on \
-               || tmux new-session -s claude-agent sh -c 'claude --continue ${MODEL_ARGS} || claude ${MODEL_ARGS}'"
-    fi
-    echo "ℹ️  No tmux in this image — launching claude directly (not detachable)."
-    exec $DOCKER exec -it "$TARGET_ID" sh -c \
-        "cd /workspace/agent 2>/dev/null || cd /workspace/group 2>/dev/null || cd /; claude"
-fi
+# Land in the group's own writable folder when it exists — that is the only
+# path inside an agent container whose contents survive a respawn, so it is
+# where anything worth looking at tends to be. Falls back rather than failing
+# if the layout differs.
+#
+# bash if the image has it, sh otherwise: nothing here should assume more of
+# the agent image than it has to.
+echo "   Useful once you are in:"
+echo "     ldd \$(command -v whisper-cli)          # static build? (no libwhisper.so.1)"
+echo "     mnemon embed --status                  # insight counts are only real HERE,"
+echo "                                            # never from a throwaway container"
+echo "     env | grep -i -E 'proxy|ollama|mnemon' # what this image actually baked in"
+echo "     curl -s -o /dev/null -w '%{http_code}\\n' --noproxy '*' \"\$MNEMON_EMBED_ENDPOINT/api/tags\""
+echo ""
 
-echo "ℹ️  No 'claude' CLI in this agent image — opening a shell instead." >&2
-echo "   Agent containers run NanoClaw's Agent SDK via bun, which does not imply the" >&2
-echo "   claude CLI is installed. A shell is still what you want for checking" >&2
-echo "   whisper-cli, mnemon, yt-dlp, or the baked environment:" >&2
-echo "     ldd \$(command -v whisper-cli)        # static build?" >&2
-echo "     mnemon embed --status                # insight counts are only real HERE" >&2
-echo "     env | grep -i -E 'proxy|ollama|mnemon'" >&2
-echo "" >&2
 exec $DOCKER exec -it "$TARGET_ID" sh -c \
     "cd /workspace/agent 2>/dev/null || cd /workspace/group 2>/dev/null || cd /; exec bash 2>/dev/null || exec sh"
