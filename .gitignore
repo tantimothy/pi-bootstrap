@@ -27,5 +27,11 @@ environments/claude-cli/data/
 # openclaw's generated gateway token and Claude CLI's live single-file
 # settings bind mount. Both are created locally during deployment and can
 # contain credentials or MCP registrations.
-environments/openclaw/.env
+# Per-environment secrets. Every environment's real config lives at
+# environments/<name>/.env — API keys, channel tokens, gateway master keys,
+# UI passwords. Only openclaw's was ignored, which left every other
+# environment's secrets untracked-but-not-ignored: invisible until someone
+# runs `git add -A` in a real deployment, at which point they are staged.
+# `.env.example` is deliberately NOT matched by this and stays tracked.
+environments/*/.env
 environments/openclaw/data/
