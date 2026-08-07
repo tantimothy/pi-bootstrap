@@ -126,6 +126,23 @@ OLLAMA_LISTENERS
     echo "" >&2
 }
 
+# True when the current listeners actually satisfy OLLAMA_SERVE_HOST: at least
+# one non-loopback listener and no loopback one. A loopback listener alongside a
+# wide one means two daemons, which does not count as satisfied — containers can
+# still be refused depending on address family.
+ollama_binding_satisfies_serve_host() {
+    local listeners addr loopback=0 wide=0
+    listeners="$(ollama_listeners)"
+    [ -z "$listeners" ] && return 1
+    while IFS= read -r addr; do
+        [ -z "$addr" ] && continue
+        if _ollama_is_loopback "$addr"; then loopback=$((loopback + 1)); else wide=$((wide + 1)); fi
+    done <<OLLAMA_SATISFY
+$listeners
+OLLAMA_SATISFY
+    [ "$wide" -gt 0 ] && [ "$loopback" -eq 0 ]
+}
+
 ollama_healthy() {
     curl -fsS --max-time "${OLLAMA_PROBE_TIMEOUT:-5}" "${1}/api/tags" >/dev/null 2>&1
 }
@@ -151,7 +168,27 @@ ollama_start() {
     ollama_resolve_serve_host
 
     if ollama_healthy "$probe_url"; then
-        return 0
+        # Already running — but "running" is not the same as "running the way
+        # this host is configured to run it". The no-op-when-healthy guard
+        # above exists to stop a second daemon appearing, and on its own it
+        # also meant an already-running daemon could never be REBOUND: a deploy
+        # with OLLAMA_SERVE_HOST=0.0.0.0:11434 would find loopback-bound Ollama
+        # answering, return immediately, and report the loopback warning
+        # forever without ever fixing it. Confirmed on a live host, where the
+        # setting was correct and every redeploy still left it on 127.0.0.1.
+        #
+        # So: if a bind address is configured and the current listeners do not
+        # satisfy it, restart into the right one. With no OLLAMA_SERVE_HOST set
+        # there is nothing to compare against and a running daemon is left
+        # strictly alone.
+        if [ -z "${OLLAMA_SERVE_HOST:-}" ] || ollama_binding_satisfies_serve_host; then
+            return 0
+        fi
+        echo "♻️  Ollama is running, but not bound as configured (OLLAMA_SERVE_HOST=${OLLAMA_SERVE_HOST})."
+        ollama_listeners | sed 's/^/     currently: /'
+        echo "   Restarting it so the configured bind address takes effect..."
+        ollama_stop
+        sleep 2
     fi
 
     if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
