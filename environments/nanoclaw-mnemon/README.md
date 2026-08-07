@@ -454,7 +454,7 @@ docker exec -it nanoclaw-mnemon bash -lc \
 
 Note `pnpm ncl`, not bare `ncl` — in the orchestrator container `ncl` is a pnpm script alias inside NanoClaw's source tree, so it needs both the `cd` and the `pnpm` prefix. (A bare `/usr/local/bin/ncl` does exist inside *agent* containers; different image, different story.)
 
-**Known gap:** a derived image that has been *deleted* can't be detected automatically — there's nothing left for `docker images` to enumerate, and the dangling tag lives in NanoClaw's own database. Recovery is the manual rebuild above. Tracked in `docs/future-enhancements/nanoclaw-mnemon.md` #7.
+**Closed:** a deleted or never-built derived image is now detected via the tag list `run.sh` records under `data/`, and rebuilt automatically — on CLEAN unconditionally, and on any deploy where the image turns out to be missing. If the rebuild itself fails, the manifest and the deploy output both say the group is silently down and give the one-line `docker tag` unblock.
 
 ---
 

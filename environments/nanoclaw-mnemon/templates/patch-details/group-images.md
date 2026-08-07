@@ -80,3 +80,32 @@ Note `pnpm ncl`, not bare `ncl`: in the orchestrator container `ncl` is a
 pnpm script alias inside NanoClaw's source tree, not a global binary, so it
 needs both the `cd` and the `pnpm` prefix. (Bare `/usr/local/bin/ncl` does
 exist inside *agent* containers — different image, different story.)
+
+**What the deploy does about all this now.** A CLEAN rebuilds every per-group
+derived image unconditionally — not "if it looks stale", always — so a CLEAN
+ends with every group running an image built from that deploy's source. It
+rebuilds rather than deleting first: `ncl groups restart --rebuild` replaces
+the tag itself, and deleting first would turn any build failure into the
+silent-retry outage above.
+
+`run.sh` also records the set of derived-image tags under
+`data/pi-bootstrap-group-images.txt`. That file lives inside the backup
+(`info.yaml` lists `data/` under `data_dirs`), which is what makes a *missing*
+image detectable: once the image is gone there is nothing in `docker images`
+to enumerate, and the tag NanoClaw still expects lives only in its own
+database. Any deploy — CLEAN or not — that finds a recorded tag with no image
+behind it rebuilds it and says so loudly.
+
+**Fresh install vs restore — these differ, and the difference is why that
+record exists:**
+
+- **Genuinely fresh install on a new host**: no `data/`, no database, no
+  groups, therefore no derived images and nothing to go wrong. A new group has
+  no custom packages and runs the base image directly. This is the healthiest
+  state to be in, and worth staying in if you can.
+- **Restore onto a new host** (`restore.sh`): the database comes back, and
+  with it every group's stored `imageTag` — but Docker images are not files
+  under the install path and are never in a backup, so the image that tag
+  names has *never existed* on the new machine. Without detection the first
+  symptom is a channel that silently stops answering. With the recorded tag
+  list, the first deploy after the restore notices and rebuilds.

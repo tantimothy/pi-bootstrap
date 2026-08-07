@@ -127,13 +127,14 @@ images" section, and the design options in
   `Group '<id>' runs a derived agent image older than the base` line,
   followed by a multi-minute package reinstall, after which `ldd` inside
   that group's agent reports `not a dynamic executable`.
-- **Still open, no code:** a derived image that has been *deleted* is not
-  detected at all — nothing left for `docker images` to enumerate, and the
-  dangling tag lives in NanoClaw's own database. The group then fails
-  completely silently (spawn retried every 60s, exit 125, empty stderr, no
-  WARN, no "Container exited"), which is how it went unnoticed for days.
-  Recovery is manual: `pnpm ncl groups restart --id <group-id> --rebuild`.
-  Detection matters more than automatic repair here.
+- **Now handled, needs a live confirmation:** a derived image that is
+  *deleted or never built on this host* is detected via the tag list `run.sh`
+  records at `data/pi-bootstrap-group-images.txt` (inside the backup, so it
+  survives a restore) and rebuilt automatically. This matters most for
+  **restore onto a new host**: the database comes back with each group's
+  stored `imageTag`, but Docker images are never in a backup, so the image has
+  never existed there. Previously that failed silently — spawn retried every
+  60s, exit 125, empty stderr, no WARN. Verified against a mocked Docker only.
 - **Also unverified:** whether mnemon's `ollama_available` actually flips to
   true once a group runs a derived image rebuilt on the current base. The
   live proxy diagnostic (direct connection refused, via-proxy HTTP 200, both
