@@ -63,24 +63,14 @@ cat /home/node/.claude/settings.json   # hooks registered GLOBALLY, not in /work
 env | grep -i -E 'mnemon|no_proxy'     # what the image actually baked in
 ```
 
-**`ollama_available: false` — check Ollama's bind address FIRST.** This was
-the answer, after four rounds of proxy theories. Ollama's default bind is
-`127.0.0.1:11434`, loopback only. A host-side `curl` to `localhost` succeeds,
-and so does a container-side `curl` that happens to route through a host-side
-HTTP proxy — but mnemon's Go client goes direct, arrives as external traffic,
-and is refused. On the host:
+**`ollama_available: false` — this is almost never a mnemon problem.** It has
+been misdiagnosed four times in both directions, and the cause each time was the
+host Ollama daemon being bound to loopback, where no container can reach it.
 
-```
-lsof -nP -iTCP:11434 -sTCP:LISTEN
-```
-
-`127.0.0.1:11434` means containers cannot reach it at all, no matter what any
-proxy variable says. Fix by rebinding Ollama (`OLLAMA_HOST=0.0.0.0:11434`,
-then restart it) — note that exposes it to the local network, so it is a
-deliberate choice. `run.sh` warns about this at deploy time now, but only
-warns, for that reason.
-
-Everything below still applies once the endpoint is genuinely reachable.
+Do not reach for `lsof` here: you are inside a container and cannot see the
+host's listeners. The deploy records them for you — see the **Host Ollama
+daemon** section at the end of this file, and use the container-side test given
+there before concluding anything.
 
 **If the bind address is fine and it still fails**, then and only then look
 at routing — and do not guess, because this has already been misdiagnosed in
@@ -107,6 +97,8 @@ curl -s -o /dev/null -w '%{http_code}\n' --proxy "$HTTP_PROXY" http://host.docke
   and the scheme-gating in item 2 would be wrong for this platform.
 - **both work** → the probe itself is the problem, not connectivity.
 
-Write which of the three you got into `pi-bootstrap-patch-fixes.md`, with the
-literal `env | grep -i proxy` output and the `lsof` line from the host. Those
-two together are what every previous round was missing.
+Write which of the three you got into `pi-bootstrap-patch-fixes.md`, together
+with the literal `env | grep -i proxy` output and the recorded listen address
+from the **Host Ollama daemon** section. Those two together are what every
+previous round was missing — and note the listen address comes from that
+section, not from running `lsof` yourself, which you cannot do from in here.

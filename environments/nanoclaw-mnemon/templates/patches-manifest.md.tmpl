@@ -37,9 +37,9 @@ container-local workaround and survives the next CLEAN/fresh install too.
 
 ## Before you conclude a patch is broken
 
-Two checks, in this order. They rule out the two ways a *correctly applied*
-patch still looks broken from inside a container, and both have previously
-sent sessions off diagnosing patch logic that was already right:
+Three checks, in this order. They rule out the ways a *correctly applied* patch
+still looks broken from inside a container — each has previously sent a session
+off diagnosing patch logic that was already right:
 
 1. **Is this group even running the base image?** A group with custom
    packages runs its own *derived* image that nothing in pi-bootstrap used
@@ -109,3 +109,12 @@ ${telegram_detail}
 
 ${group_images_status}
 ${group_images_detail}
+
+---
+
+## Host Ollama daemon (shared, outside every container)
+
+**Status this deploy:**
+
+${ollama_daemon_status}
+${ollama_daemon_detail}
