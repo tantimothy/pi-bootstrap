@@ -184,6 +184,48 @@ OLLAMA_SATISFY
     [ "$wide" -gt 0 ] && [ "$loopback" -eq 0 ]
 }
 
+# The host's real LAN address. Needed because `host.docker.internal` is not
+# dependably a working route to the host: on one real OrbStack install it
+# resolved to an address that REFUSED connections, while the Mac itself sat on
+# a different address on that bridge and the LAN address worked fine from
+# inside containers. lib/info-lib.sh's own HOST_IP logic is Linux-only
+# (`ip route`, `hostname -I`), so macOS gets its own path here.
+ollama_host_lan_ip() {
+    local ip="" iface=""
+    if [[ "$(uname)" == "Darwin" ]]; then
+        iface=$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')
+        [ -n "$iface" ] && ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+    else
+        ip=$( { ip route get 1.1.1.1 2>/dev/null || true; } \
+            | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i+1); exit}}')
+        [ -z "$ip" ] && ip=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
+    fi
+    printf '%s' "$ip"
+}
+
+# Can a CONTAINER reach this endpoint directly? This is the question every
+# host-side check structurally cannot answer, and not asking it is what let a
+# real install spend days on `ollama_available: false`: the daemon was running,
+# the host could reach it, every probe passed — and no container could reach it
+# at all, because `host.docker.internal` pointed somewhere that refused.
+#
+# --noproxy '*' is essential. A host-side HTTP proxy can reach the daemon over
+# loopback and will happily return 200 for a container that has no direct route
+# whatsoever, which is exactly the false success that made this take so long.
+#
+# Returns: 0 reachable, 1 not reachable, 2 could not test (no usable image).
+ollama_reachable_from_container() {
+    local endpoint="$1" image="$2"
+    [ -z "$endpoint" ] && return 2
+    [ -z "$image" ] && return 2
+    [ -z "$($DOCKER images -q "$image" 2>/dev/null)" ] && return 2
+    if $DOCKER run --rm --entrypoint sh "$image" -c \
+        "curl -fsS --max-time 5 --noproxy '*' '${endpoint}/api/tags' >/dev/null 2>&1" >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
 ollama_healthy() {
     curl -fsS --max-time "${OLLAMA_PROBE_TIMEOUT:-5}" "${1}/api/tags" >/dev/null 2>&1
 }
