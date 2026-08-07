@@ -68,18 +68,12 @@ OS_TYPE="linux"
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
 
-# The `ollama` environment owns this daemon's configuration, and this script
-# restarts it on a schedule — so without reading that config, a scheduled
-# restart would quietly revert the operator's bind address, which is exactly
-# what happened before. Read with grep rather than `source`: this is a
-# root-level script and .env is not ours to execute. Anything already exported
-# wins, so an explicit value on the command line still overrides the file.
-_OLLAMA_ENV_FILE="$REPO_DIR/environments/ollama/.env"
-if [ -z "$OLLAMA_SERVE_HOST" ] && [ -f "$_OLLAMA_ENV_FILE" ]; then
-    OLLAMA_SERVE_HOST="$(grep -E '^[[:space:]]*OLLAMA_SERVE_HOST=' "$_OLLAMA_ENV_FILE" 2>/dev/null \
-        | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
-    OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
-fi
+# Bind address comes from environments/ollama/.env via the shared resolver —
+# that environment owns this daemon's configuration, and this script restarts it
+# on a schedule, so a scheduled restart must not revert the operator's binding.
+# Resolved here too (not only inside ollama_start) so --status can report it.
+ollama_resolve_serve_host
+
 TIMEOUT="${OLLAMA_WATCHDOG_TIMEOUT:-10}"
 INTERVAL="${OLLAMA_WATCHDOG_INTERVAL:-300}"
 LOG_FILE="${OLLAMA_WATCHDOG_LOG:-$HOME/.ollama-watchdog.log}"
