@@ -160,6 +160,17 @@ check, don't guess at results you didn't actually observe):
      the agent image *before* restarting NanoClaw and then discards
      containers spawned from the pre-rebuild image, so a CLEAN on current
      pi-bootstrap should resolve it on its own.
+2b. **Never read mnemon's insight counts from a throwaway container.**
+   \`mnemon embed --status\` run via \`docker run --rm\` against an image always
+   reports \`total_insights: 0\`, because a group's memory lives in that group's
+   BIND-MOUNTED folder, not in the image — an unmounted container has nothing to
+   count. A real smoke test recorded 0/0 and explained it as "expected on a
+   fresh install"; the install had 345 insights at the time. That reasoning is
+   dangerous in both directions: the same sentence would have explained away
+   genuine data loss. Insight counts are only meaningful from a LIVE agent
+   container. \`ollama_available\` IS meaningful from a throwaway container,
+   since it tests the network rather than the data.
+
 3. Mnemon and the Ollama MCP tool both need a *live* agent container to
    test for real — check \`docker ps --filter "name=nanoclaw-v2-"\` first.
    **Zero containers is the expected, normal state on a genuinely fresh
