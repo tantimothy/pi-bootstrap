@@ -80,6 +80,29 @@ already exists, skip this and stay in the reactive mode described above.
 **Smoke-test checklist** (best-effort — record what you could and couldn't
 check, don't guess at results you didn't actually observe):
 
+0. **Establish which image each group actually runs, before testing anything
+   in it.** NanoClaw gives any group with custom packages its own *derived*
+   image (\`nanoclaw-agent-v2-<slug>:<group-id>\`) built FROM the base
+   \`:latest\`. Nothing rebuilt those derived images until recently, so a
+   group can be weeks behind the base while every base-level check passes —
+   this exact gap produced days of chasing patch code that was correct the
+   whole time. Run:
+   \`\`\`
+   docker images --format '{{.Repository}}:{{.Tag}}\\t{{.CreatedAt}}' | grep nanoclaw-agent-v2-
+   docker ps --filter 'name=nanoclaw-v2-' --format '{{.Names}}\\t{{.Image}}\\t{{.CreatedAt}}'
+   \`\`\`
+   If a running agent's image is NOT the \`:latest\` base, every check below
+   is a statement about that derived image and must say so. If that derived
+   image is older than \`:latest\`, it is stale — report it as such and do
+   not conclude anything about the patches themselves. Fix with
+   \`cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups restart --id <group-id> --rebuild\`.
+   Also: **a group whose derived image was deleted fails silently** — spawns
+   retry every 60s with no error, no WARN, and no "Container exited" line,
+   while pending messages pile up. If a channel is unresponsive and the logs
+   only show repeating \`Spawning container\`, check the image exists at all
+   before anything else. See the "Per-group derived agent images" section of
+   \`pi-bootstrap-patches.md\` for the full mechanism.
+
 1. Read \`pi-bootstrap-patches.md\` first — confirm every patch listed
    shows PASSED. Anything SKIPPED/FAILED there is already-diagnosed
    evidence of upstream drift; report it rather than re-deriving it. **Do

@@ -129,7 +129,10 @@ an interactive chat choice.
 bash environments/ollama/scripts/manage-models.sh
 bash environments/ollama/scripts/manage-models.sh --resources
 bash environments/ollama/scripts/manage-models.sh --pull phi4-mini
-bash ollama-watchdog.sh --check
+bash ollama-watchdog.sh --check     # is it responding right now?
+bash ollama-watchdog.sh --status    # bind address, schedule, health, listeners
+bash ollama-watchdog.sh --install   # schedule automatic checks
+bash ollama-watchdog.sh --stop      # kill any in-flight run and unschedule
 ```
 
 Exit an interactive model chat with `/exit` or `Ctrl+D`.

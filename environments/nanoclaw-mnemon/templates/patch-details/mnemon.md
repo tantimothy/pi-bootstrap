@@ -30,20 +30,24 @@ been gotten wrong at least once here, so check these first:
    So the command succeeds and the hooks still never load. `--global`
    is what targets `~/.claude/settings.json`. Do not "fix" this by adding
    `--target claude-code` — auto-detection was never the failing part.
-2. **`NO_PROXY` must not contain `host.docker.internal`.** On the platform
-   this environment is usually deployed to, `host.docker.internal:11434`
-   is *not* a direct socket — it is reachable only because `HTTPS_PROXY`
-   routes it through the platform's own gateway. Putting
-   `host.docker.internal` in `NO_PROXY` bypasses that routing and the
-   connection fails outright. This patch therefore emits `ENV NO_PROXY` /
-   `ENV no_proxy` **only** when `MNEMON_EMBED_ENDPOINT` is an `https://`
-   URL (where a proxy genuinely would interfere), and never for the
-   `http://` default this environment ships. An earlier version emitted it
-   unconditionally "as a harmless no-op" — that was the direct cause of
-   `ollama_available: false`. Unlike the Ollama MCP patch, mnemon has no
-   per-container-spawn re-assertion to correct a bad value later; this
+2. **`NO_PROXY` is scheme-gated, and it is not the thing you are looking
+   for.** This patch emits `ENV NO_PROXY` / `ENV no_proxy` only when
+   `MNEMON_EMBED_ENDPOINT` is an `https://` URL — where a proxy genuinely
+   would interfere — and never for the `http://` default this environment
+   ships. That gating is correct and should stay.
+
+   What it is *not*: the cause of `ollama_available: false`. An earlier
+   version of this document claimed it was, and that claim survived four
+   rounds of changes in both directions. The real cause was Ollama bound
+   to loopback (see the bind-address section below), which no proxy
+   setting on either side could have fixed. If you are here because of
+   `ollama_available: false`, check the bind address first and come back
+   to this item only if that turns out to be fine.
+
+   Worth knowing regardless: unlike the Ollama MCP patch, mnemon has no
+   per-container-spawn re-assertion to correct a bad value later — this
    baked image-level ENV is the only value mnemon's Go HTTP client ever
-   sees.
+   sees, so a wrong value here has no second chance to be overridden.
 3. **It is an image-level ENV, so it only changes when the image is
    rebuilt.** Editing `container/Dockerfile` alone changes nothing that is
    running. The image has to be rebuilt (`container/build.sh`) *and* the
@@ -59,26 +63,36 @@ cat /home/node/.claude/settings.json   # hooks registered GLOBALLY, not in /work
 env | grep -i -E 'mnemon|no_proxy'     # what the image actually baked in
 ```
 
-**`ollama_available: false` while `curl` to the same URL succeeds — do not
-guess at this one.** It has been misdiagnosed in both directions already
-(once as cosmetic, once as `NO_PROXY` needing to contain
-`host.docker.internal`, once as it needing to *not* contain it), and each
-wrong answer looked entirely reasonable. curl succeeding is not evidence
-that mnemon's request is taking the same route, because **curl and Go
-disagree about which proxy variables they honor**:
+**`ollama_available: false` — check Ollama's bind address FIRST.** This was
+the answer, after four rounds of proxy theories. Ollama's default bind is
+`127.0.0.1:11434`, loopback only. A host-side `curl` to `localhost` succeeds,
+and so does a container-side `curl` that happens to route through a host-side
+HTTP proxy — but mnemon's Go client goes direct, arrives as external traffic,
+and is refused. On the host:
 
-- curl deliberately ignores the uppercase `HTTP_PROXY` for `http://` URLs
-  (it would collide with the CGI `HTTP_*` header namespace); it honors only
-  lowercase `http_proxy`. For `https://` it honors either case.
-- Go's `net/http` proxy resolution honors both cases.
+```
+lsof -nP -iTCP:11434 -sTCP:LISTEN
+```
 
-So on a container with `HTTP_PROXY` set but no lowercase `http_proxy`, curl
-goes **direct** and mnemon goes **through the proxy** — same URL, same
-environment, two different network paths, and only one of them working
-tells you nothing about the other.
+`127.0.0.1:11434` means containers cannot reach it at all, no matter what any
+proxy variable says. Fix by rebinding Ollama (`OLLAMA_HOST=0.0.0.0:11434`,
+then restart it) — note that exposes it to the local network, so it is a
+deliberate choice. `run.sh` warns about this at deploy time now, but only
+warns, for that reason.
 
-Settle it with one experiment before changing anything, run inside the
-affected agent container:
+Everything below still applies once the endpoint is genuinely reachable.
+
+**If the bind address is fine and it still fails**, then and only then look
+at routing — and do not guess, because this has already been misdiagnosed in
+both directions (once as cosmetic, once as `NO_PROXY` needing to contain
+`host.docker.internal`, once as it needing to *not* contain it). A container
+can reach the same URL by two different paths, so `curl` succeeding proves
+nothing about mnemon's request on its own: `curl` may be routing through a
+host-side HTTP proxy that can see loopback, while mnemon's Go client goes
+direct. That single fact accounted for the entire "curl works, Go doesn't"
+signature that anchored four wrong rounds.
+
+Run this in the affected agent container and record all three outputs:
 
 ```
 env | grep -i proxy                                   # note the CASE of each var
@@ -86,16 +100,13 @@ curl -s -o /dev/null -w '%{http_code}\n' --noproxy '*' http://host.docker.intern
 curl -s -o /dev/null -w '%{http_code}\n' --proxy "$HTTP_PROXY" http://host.docker.internal:11434/api/tags
 ```
 
-- direct works, proxied fails → mnemon must bypass the proxy for this host,
-  i.e. `NO_PROXY` **should** contain it, and the scheme-gating in item 2 is
-  wrong for this platform.
-- proxied works, direct fails → mnemon must use the proxy, the current
-  gating is right, and the fault is elsewhere (check that
-  `MNEMON_EMBED_ENDPOINT` is what mnemon actually reads, and that the proxy
-  forwards to a non-`https` upstream at all).
-- both work → the probe itself is the problem, not connectivity.
+- **direct refused, proxied 200** → the endpoint is not reachable without a
+  proxy. On a default Ollama install that means the loopback bind above, not
+  a proxy misconfiguration.
+- **direct 200, proxied fails** → mnemon must bypass the proxy for this host,
+  and the scheme-gating in item 2 would be wrong for this platform.
+- **both work** → the probe itself is the problem, not connectivity.
 
-Record which of the three you got in `pi-bootstrap-patch-fixes.md`,
-including the literal `env | grep -i proxy` output. That output is the
-single piece of evidence every previous round was missing, and it is what
-turns this from a fourth guess into a fix.
+Write which of the three you got into `pi-bootstrap-patch-fixes.md`, with the
+literal `env | grep -i proxy` output and the `lsof` line from the host. Those
+two together are what every previous round was missing.

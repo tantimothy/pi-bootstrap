@@ -37,6 +37,10 @@ AGENT_IMAGE_NEEDS_REBUILD=false
 # entry point, invoked directly rather than through deploy.sh's menu, which
 # is the only other place this got sourced).
 source "$REPO_DIR/lib/locale-lib.sh" || true
+# Shared Ollama lifecycle — this environment can start the one native daemon
+# (ensure_ollama_ready below), and must do it the same way environments/ollama
+# and ollama-watchdog.sh do, or a host ends up running two.
+source "$REPO_DIR/lib/ollama-lib.sh"
 # _yaml_expand — resolves `${VAR}`/`${VAR:-default}` markers against real
 # bash variables already in scope, safely (plain-name expansion only, no
 # command substitution/arbitrary code). Despite the name, it's a generic
@@ -161,6 +165,166 @@ sweep_agent_container_ids() {
             echo "ℹ️  Agent container $id looks like NanoClaw's but has no bind mount under $INSTALL_PATH — leaving it alone (another NanoClaw install on this host?). If this install's own agents keep surviving CLEAN, this line is the reason to look at." >&2
         fi
     done
+}
+
+# ---------------------------------------------------------------------------------------
+# Per-group DERIVED agent images — the layer of this system that neither this
+# script nor its docs knew existed until a live install spent days broken by it.
+#
+# NanoClaw does not always run agents from the base agent-sandbox image. A
+# conversation group that installs custom packages (its own `install_packages`
+# self-modification flow, or `ncl groups add-package`) gets its own image,
+# built FROM the base and tagged `nanoclaw-agent-v2-<slug>:<group-id>`. The tag
+# is stored in NanoClaw's own container_configs table, and container-runner.ts
+# passes it straight to `docker run` on every spawn for that group.
+#
+# Two consequences, both of which bit a real deployment:
+#
+#   1. **A derived image is never rebuilt by anything in this repo.** CLEAN
+#      rebuilds the BASE image (container/build.sh) and stops there — upstream
+#      treats derived images as operator-managed, rebuilt only via
+#      `ncl groups restart --rebuild`. So every patch this script applies to
+#      container/Dockerfile — the statically-linked whisper-cli, the
+#      scheme-gated mnemon NO_PROXY ENV — lands in the base and never reaches
+#      a group that has one. That group keeps running whatever the base looked
+#      like on the day its derived image was built, indefinitely. A live
+#      install ran a 2026-07-21 derived image against a 2026-08-06 base for
+#      over two weeks, which is the actual reason `whisper-cli` stayed
+#      dynamically linked and mnemon kept reporting ollama_available:false
+#      through repeated CLEAN deploys. Replacing the CONTAINER does not help:
+#      it just respawns from the same stale derived image.
+#   2. **Deleting a derived image breaks that group silently and completely.**
+#      The tag stays in NanoClaw's database, `docker run` fails instantly
+#      (exit 125, nothing on the captured stderr), and NanoClaw's close
+#      handler emits nothing at INFO — so the only visible symptom is that
+#      messages queue forever while a spawn is retried every 60s. Anyone
+#      cleaning up "old nanoclaw images" by hand will hit this.
+#
+# So: after the base image is rebuilt, any derived image older than it is
+# stale by construction, and is rebuilt here. The group ID needed to do that
+# is the image tag itself — verified against a real install, where image
+# `nanoclaw-agent-v2-91b144eb:ag-1783945827013-hhyk7w` corresponded to group
+# `ag-1783945827013-hhyk7w`. That means this needs no database access and no
+# parsing of `ncl groups list` output, only Docker's own image list.
+# ---------------------------------------------------------------------------------------
+AGENT_IMAGE_REPO_PREFIX="nanoclaw-agent-v2-"
+GROUP_IMAGES_LOG=""
+# Under data/ deliberately: info.yaml lists that path under data_dirs, so this
+# file is captured by backup.sh and comes back with restore.sh — which is what
+# lets a restore onto a NEW host notice that a group's derived image was never
+# built there. Docker images are not files under the install path and are never
+# in a backup, so without this record the restored install would point at an
+# image that has never existed on that machine, and fail silently.
+GROUP_IMAGE_STATE_FILE="${INSTALL_PATH}/data/pi-bootstrap-group-images.txt"
+
+_group_images_log() { GROUP_IMAGES_LOG="${GROUP_IMAGES_LOG}- ${1}
+"; }
+
+# Records every derived-image tag seen, inside the install path so it is
+# covered by this environment's own backup (info.yaml lists .../data under
+# data_dirs) and therefore travels with a restore. That is what makes a
+# MISSING derived image detectable at all: once the image is gone there is
+# nothing left in `docker images` to enumerate, and the tag NanoClaw still
+# expects lives only in its own database. A tag recorded by a previous deploy
+# — or by a deploy on the host this install was restored from — is the one
+# durable trace that survives.
+_record_group_image_tags() {
+    local tags="$1" dir
+    dir="$(dirname "$GROUP_IMAGE_STATE_FILE")"
+    [ -d "$dir" ] || return 0
+    printf '%s\n' "$tags" | grep -v '^$' | sort -u > "$GROUP_IMAGE_STATE_FILE" 2>/dev/null || true
+}
+
+# Every derived-image tag this install is believed to need: the ones Docker
+# currently has, plus the ones a previous deploy recorded. The union is the
+# point — present-only misses a deleted or never-built image, recorded-only
+# misses one created since the last deploy.
+_known_group_image_tags() {
+    {
+        $DOCKER images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+            | awk -F: -v p="^${AGENT_IMAGE_REPO_PREFIX}" '$1 ~ p && $2 != "latest" && $2 != "<none>" {print}'
+        [ -f "$GROUP_IMAGE_STATE_FILE" ] && cat "$GROUP_IMAGE_STATE_FILE"
+    } 2>/dev/null | grep -v '^$' | sort -u
+}
+
+# CLEAN rebuilds every per-group derived image unconditionally, by explicit
+# preference: a CLEAN should end with every group running an image built from
+# this deploy's source, not one that merely looks new enough. That removes the
+# entire class of "is it stale?" judgement — and with it the failure mode where
+# a subtle timestamp equality left a group on a pre-patch image.
+#
+# Rebuild, never delete-then-rebuild. `ncl groups restart --rebuild` replaces
+# the tag itself, so dropping the image first buys nothing and turns any build
+# failure into the silent-retry-loop outage described in
+# templates/patch-details/group-images.md — NanoClaw would be left pointing at
+# a tag with no image behind it. Docker's own `image prune -f` (already run by
+# CLEAN) reclaims whatever the rebuild orphans.
+#
+# On FAST this only runs when the base image was actually rebuilt, or when a
+# recorded image has gone missing — a multi-minute package reinstall on every
+# routine redeploy would be indefensible.
+refresh_group_images() {
+    local always_rebuild="$1" repo_tag group_id present total=0 rebuilt=0 failed=0 missing=0
+    local tags; tags="$(_known_group_image_tags)"
+
+    if [ -z "$tags" ]; then
+        _group_images_log "No per-group derived images — every group runs the base image directly, which is the simplest state to be in."
+        _record_group_image_tags ""
+        return 0
+    fi
+
+    while IFS= read -r repo_tag; do
+        [ -z "$repo_tag" ] && continue
+        total=$((total + 1))
+        group_id="${repo_tag##*:}"
+        present=true
+        $DOCKER image inspect "$repo_tag" >/dev/null 2>&1 || present=false
+
+        if [ "$present" != "true" ]; then
+            missing=$((missing + 1))
+            echo "❗ Group '${group_id}' expects derived image '${repo_tag}', which does not exist on this host." >&2
+            echo "   Left alone, NanoClaw retries that spawn every 60s forever with no error in its logs" >&2
+            echo "   — the channel just stops replying. Rebuilding it now." >&2
+        elif [ "$always_rebuild" != "true" ]; then
+            continue
+        fi
+
+        echo "♻️  Rebuilding group '${group_id}''s derived agent image on the current base..."
+        echo "   (reinstalls that group's own custom packages — can take several minutes)"
+        if $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm ncl groups restart --id '$group_id' --rebuild"; then
+            rebuilt=$((rebuilt + 1))
+            _group_images_log "Group \`${group_id}\`: derived image **REBUILT** on the current base."
+        else
+            failed=$((failed + 1))
+            echo "⚠️  Couldn't rebuild group '${group_id}''s derived image automatically." >&2
+            if [ "$present" != "true" ]; then
+                echo "   This group is currently BROKEN — its image does not exist and could not be built." >&2
+                echo "   Until this succeeds it will not answer messages at all, silently." >&2
+                echo "   As an immediate unblock, point the tag at the base image:" >&2
+                echo "     docker tag \$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '${AGENT_IMAGE_REPO_PREFIX}.*:latest' | head -1) '${repo_tag}'" >&2
+                echo "   That loses the group's custom packages but gets it answering again." >&2
+                _group_images_log "Group \`${group_id}\`: derived image is **MISSING and the rebuild FAILED — this group is silently down.** It will retry a spawn every 60s and never succeed. Run \`pnpm ncl groups restart --id ${group_id} --rebuild\`, or \`docker tag <base>:latest ${repo_tag}\` to get it answering immediately without its custom packages."
+            else
+                echo "   It keeps running its existing image, which predates this deploy's patches." >&2
+                _group_images_log "Group \`${group_id}\`: rebuild **FAILED**; still running an image that predates this deploy. Run \`pnpm ncl groups restart --id ${group_id} --rebuild\` by hand."
+            fi
+            echo "   Run by hand inside the orchestrator container:" >&2
+            echo "     cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups restart --id '${group_id}' --rebuild" >&2
+        fi
+    done <<GROUP_IMAGE_TAGS
+$tags
+GROUP_IMAGE_TAGS
+
+    if [ "$rebuilt" -eq 0 ] && [ "$failed" -eq 0 ]; then
+        _group_images_log "${total} per-group derived image(s) known, none rebuilt this deploy (base image unchanged and none missing)."
+    else
+        echo "🧩 Per-group derived agent images: ${total} known, ${missing} missing, ${rebuilt} rebuilt, ${failed} failed."
+    fi
+
+    # Re-record AFTER rebuilding: a rebuild can change the tag set, and a tag
+    # that no longer exists and could not be rebuilt must stay recorded so the
+    # next deploy tries again rather than forgetting it ever existed.
+    _record_group_image_tags "$tags"
 }
 
 remove_agent_containers() {
@@ -1791,11 +1955,20 @@ write_patches_manifest() {
     # container, it's the longest prose this environment produces, and
     # burying it in a shell heredoc made it effectively unreviewable — a
     # doc change looked like a code change in every diff.
-    local mnemon_detail media_tools_detail ollama_detail telegram_detail
+    local mnemon_detail media_tools_detail ollama_detail telegram_detail group_images_detail
     mnemon_detail="$(_patch_detail mnemon)"
     media_tools_detail="$(_patch_detail media-tools)"
     ollama_detail="$(_patch_detail ollama-tool)"
     telegram_detail="$(_patch_detail telegram-import)"
+    group_images_detail="$(_patch_detail group-images)"
+
+    # Unlike the four patch statuses above, this one is only known AFTER the
+    # agent-sandbox image is rebuilt, which happens later in the deploy. The
+    # manifest is therefore written once here (so a deploy that fails midway
+    # still leaves a usable one) and refreshed after the image work — see the
+    # second write_patches_manifest call further down.
+    local group_images_status="${GROUP_IMAGES_LOG:-- Not checked yet — this deploy had not reached the agent-image rebuild step when this manifest was written. If this line survives to the end of a deploy, the rebuild step did not run at all (it only runs on CLEAN, or on FAST when a patch changed container/Dockerfile).
+}"
 
     # $(...) strips the template file's trailing newline; printf's own
     # trailing \n restores a normal, single newline-terminated text file.
@@ -1853,6 +2026,108 @@ FIXES_EOF
 # Installation is gated behind an explicit y/N prompt; pulling a model is
 # not (lower-risk, and mirrors mnemon's own binary being auto-downloaded).
 # ---------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------
+# The gap ensure_ollama_ready()'s own probe structurally cannot see.
+#
+# That probe rewrites host.docker.internal -> localhost so it works from a
+# bare host shell (see its own comment for why that rewrite is correct). The
+# consequence is that it answers "is Ollama running?" and never "can a
+# CONTAINER reach it?" — and those differ in one specific, easy-to-hit way:
+# Ollama's default bind address is 127.0.0.1:11434, loopback only. A host-side
+# curl to localhost succeeds; an agent container reaching
+# host.docker.internal:11434 arrives as external traffic and is refused.
+#
+# Confirmed on a live install, after four separate rounds of NO_PROXY theories
+# had chased the routing layer instead:
+#     lsof -nP -iTCP:11434 -sTCP:LISTEN
+#     ollama 986 homer 3u IPv4 ... TCP 127.0.0.1:11434 (LISTEN)
+# mnemon reported ollama_available:false the entire time. `curl` from inside
+# the same container appeared to succeed, which is what kept sending the
+# diagnosis in the wrong direction — but only because it went through the
+# platform's own HTTP proxy, which runs ON the host and therefore can reach
+# loopback. mnemon's Go client goes direct, so it saw the refusal.
+#
+# This only warns. Rebinding Ollama to 0.0.0.0 exposes it to the local
+# network, which is a security decision for the operator to make deliberately,
+# not something a deploy script should do on their behalf.
+# ---------------------------------------------------------------------------------------
+warn_if_ollama_is_loopback_only() {
+    local endpoint="$1" listeners=""
+
+    # Only matters when a container will reach Ollama via host.docker.internal.
+    # A localhost/127.0.0.1 endpoint is the orchestrator's own business and a
+    # loopback bind is fine — and correct — there.
+    case "$endpoint" in
+        *host.docker.internal*) ;;
+        *) return 0 ;;
+    esac
+
+    # lsof on macOS, ss on most modern Linux, netstat as the last resort.
+    # Whichever answers first wins; if none is installed we say nothing rather
+    # than guessing, since a false alarm here would send the next person
+    # chasing a non-problem.
+    if command -v lsof >/dev/null 2>&1; then
+        # Pick the field that actually holds the address, not $NF: lsof's NAME
+        # column is "TCP 127.0.0.1:11434 (LISTEN)", three whitespace-separated
+        # fields, so $NF is "(LISTEN)" and every address check downstream would
+        # silently pass. Caught by a test against real lsof output.
+        listeners=$(lsof -nP -iTCP:11434 -sTCP:LISTEN 2>/dev/null \
+            | awk 'NR>1 { for (i = 1; i <= NF; i++) if ($i ~ /[.:]11434$/) print $i }')
+    elif command -v ss >/dev/null 2>&1; then
+        listeners=$(ss -ltnH 2>/dev/null | awk '{print $4}' | grep ':11434$' || true)
+    elif command -v netstat >/dev/null 2>&1; then
+        listeners=$(netstat -an 2>/dev/null | awk '/LISTEN/ {print $4}' | grep '[.:]11434$' || true)
+    fi
+    [ -z "$listeners" ] && return 0
+
+    local loopback non_loopback
+    loopback=$(printf '%s\n' "$listeners" | grep -c -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost' || true)
+    non_loopback=$(printf '%s\n' "$listeners" | grep -vc -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost' || true)
+
+    # Both kinds present = more than one Ollama running, one wide and one on
+    # loopback. Confirmed live: a manual restart bound *:11434 over IPv6 while
+    # a second process held 127.0.0.1:11434 over IPv4, and the container stayed
+    # refused because it dials IPv4. "Something is bound wide" is not the same
+    # as "the container can reach it", so this case gets its own warning rather
+    # than passing silently.
+    if [ "$loopback" -gt 0 ] && [ "$non_loopback" -gt 0 ]; then
+        echo "" >&2
+        echo "⚠️  Ollama has both a loopback and a non-loopback listener on 11434:" >&2
+        printf '%s\n' "$listeners" | sed 's/^/       /' >&2
+        echo "   More than one Ollama process is running. An agent container may still" >&2
+        echo "   be refused — a wide IPv6 listener doesn't help one dialling IPv4." >&2
+        echo "   Stop them all ('pkill -x ollama') and start exactly one bound to" >&2
+        echo "   0.0.0.0:11434 (the ollama environment's OLLAMA_SERVE_HOST does this)." >&2
+        echo "" >&2
+        return 0
+    fi
+
+    # Bound anywhere non-loopback (0.0.0.0, *, a LAN IP), nothing on loopback —
+    # containers can reach it, nothing to warn about.
+    if [ "$non_loopback" -gt 0 ]; then
+        return 0
+    fi
+
+    echo "" >&2
+    echo "⚠️  Ollama is listening on loopback only:" >&2
+    printf '%s\n' "$listeners" | sed 's/^/       /' >&2
+    echo "   It answers on this host, but an agent container reaching it via" >&2
+    echo "   host.docker.internal:11434 arrives as external traffic and will be REFUSED." >&2
+    echo "   Expect mnemon to report 'ollama_available: false' while this is the case," >&2
+    echo "   even though every host-side check here passes." >&2
+    echo "" >&2
+    echo "   Fix on the host, then restart Ollama (this exposes it to your local" >&2
+    echo "   network — a deliberate security tradeoff, which is why this only warns):" >&2
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "     launchctl setenv OLLAMA_HOST \"0.0.0.0:11434\"      # Ollama.app: then quit and reopen it" >&2
+        echo "     OLLAMA_HOST=0.0.0.0:11434 brew services restart ollama" >&2
+    else
+        echo "     sudo systemctl edit ollama    # add: Environment=\"OLLAMA_HOST=0.0.0.0:11434\"" >&2
+    fi
+    echo "   Verify: lsof -nP -iTCP:11434 -sTCP:LISTEN   # should no longer say 127.0.0.1" >&2
+    echo "" >&2
+}
+
 ensure_ollama_ready() {
     [ -z "$MNEMON_EMBED_ENDPOINT" ] && return 0
 
@@ -1926,11 +2201,13 @@ ensure_ollama_ready() {
 
         if command -v ollama >/dev/null 2>&1 && ! curl -fsS "${probe_endpoint}/api/tags" >/dev/null 2>&1; then
             echo "🚀 Starting Ollama..."
-            if [[ "$(uname)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
-                brew services start ollama >/dev/null 2>&1 || (nohup ollama serve >/dev/null 2>&1 &)
-            else
-                (nohup ollama serve >/dev/null 2>&1 &)
-            fi
+            # Shared implementation (lib/ollama-lib.sh) rather than a third
+            # private copy: it is a no-op when Ollama already answers, so this
+            # deploy cannot start a second daemon alongside the one the
+            # `ollama` environment or the watchdog started, and it never lets
+            # an OLLAMA_HOST from this environment's own .env (a URL, exported
+            # by `set -a` above) become Ollama's bind address.
+            ollama_start "$probe_endpoint"
             local tries=0
             while [ "$tries" -lt 10 ] && ! curl -fsS "${probe_endpoint}/api/tags" >/dev/null 2>&1; do
                 sleep 1
@@ -1945,6 +2222,7 @@ ensure_ollama_ready() {
     fi
 
     echo "✅ Ollama is reachable."
+    warn_if_ollama_is_loopback_only "$endpoint"
 
     if curl -fsS "${probe_endpoint}/api/tags" 2>/dev/null | grep -q "\"name\":\"${model}"; then
         echo "✅ Model '$model' already pulled."
@@ -2333,6 +2611,10 @@ if [ "$POLICY" = "CLEAN" ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
             # running containers would buy nothing and just drop live state.
             echo "🐳 Discarding any agent container spawned from the pre-rebuild image..."
             remove_agent_containers
+            # Sweeping containers is not enough for a group that runs its own
+            # derived image — it would just respawn from that same stale
+            # image. Handled by the single refresh_group_images call below.
+            AGENT_IMAGE_REBUILT=true
         fi
     else
         if [ "$NANOCLAW_INSTALL_CODEX" = "true" ]; then
@@ -2357,6 +2639,7 @@ if [ "$POLICY" != "CLEAN" ] && [ "${AGENT_IMAGE_NEEDS_REBUILD:-false}" = "true" 
         if $DOCKER exec -e DOCKER_BUILDKIT=1 "$CONTAINER_NAME" bash -lc "bash '$INSTALL_PATH/container/build.sh'"; then
             echo "🐳 Discarding any agent container still running the pre-rebuild image..."
             remove_agent_containers
+            AGENT_IMAGE_REBUILT=true
         else
             echo "⚠️  Agent-sandbox image rebuild failed — the updated patch won't take effect until this succeeds. See the build output above." >&2
         fi
@@ -2364,6 +2647,29 @@ if [ "$POLICY" != "CLEAN" ] && [ "${AGENT_IMAGE_NEEDS_REBUILD:-false}" = "true" 
         echo "⚠️  ${INSTALL_PATH}/container/build.sh not found — the updated container/Dockerfile patch won't take effect until the agent-sandbox image is rebuilt." >&2
     fi
 fi
+
+# Per-group derived images. Passing "true" rebuilds every one of them, which is
+# what a base-image rebuild requires: they are all built FROM that base, so
+# they are all now behind it.
+#
+# The "false" branch still runs on an ordinary deploy that rebuilt nothing, and
+# it is not a no-op — it checks that every derived image this install expects
+# still EXISTS. That is the case a restore onto a new host lands in: the
+# database and the recorded tag list both come back from the backup, but Docker
+# images are not files and were never in it, so the group points at an image
+# that has never existed on that machine. Without this check the first symptom
+# would be a channel that silently stops answering.
+if [ "${AGENT_IMAGE_REBUILT:-false}" = "true" ]; then
+    refresh_group_images true
+else
+    refresh_group_images false
+fi
+
+# Refresh the manifest now that the agent-image and per-group-image work has
+# run — that section was written as "not checked yet" earlier, because its
+# status doesn't exist until this point in the deploy. Everything else in the
+# manifest re-renders identically from the same status variables.
+write_patches_manifest
 
 if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway and/or approval-delivery fix)..."

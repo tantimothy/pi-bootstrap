@@ -21,6 +21,22 @@ custom_actions:
     command: "bash ${ENV_DIR}/scripts/manage-models.sh --run"
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
+  # Watchdog management. The watchdog restarts this daemon on its own schedule,
+  # so it has to agree with this environment about the bind address — it reads
+  # OLLAMA_SERVE_HOST from this environment's own .env, which is why these live
+  # here rather than being invoked ad hoc from a shell.
+  - label: "Watchdog: Health Check Only (no restart)"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh --check"
+  - label: "Watchdog: Force Restart Ollama Now"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh --restart"
+  - label: "Watchdog: Schedule Automatic Checks"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh --install"
+  - label: "Watchdog: Stop It (kill in-flight run + unschedule)"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh --stop"
+  - label: "Watchdog: Show Schedule Status"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh --status"
+  - label: "Watchdog: View Log"
+    command: "tail -n 60 \"${OLLAMA_WATCHDOG_LOG:-$HOME/.ollama-watchdog.log}\" 2>/dev/null || echo 'No watchdog log yet — it is written on the first check.'"
 useful_commands: |2
      ollama list                                                        # Models installed on disk
      ollama ps                                                          # Models currently loaded in RAM

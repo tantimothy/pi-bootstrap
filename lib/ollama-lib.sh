@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------------------
+# Shared lifecycle for the ONE native Ollama daemon this repo manages.
+#
+# Ollama is not containerized here — it's a single native process on the host,
+# on port 11434, shared by every AI environment in this repo (nanoclaw-mnemon's
+# mnemon embeddings and Ollama MCP tool, chat-frontends, llm-gateways). But
+# three separate things could start it, each with their own copy of the logic:
+#
+#     environments/ollama/run.sh              the environment that owns it
+#     environments/nanoclaw-mnemon/run.sh     ensure_ollama_ready(), if it finds
+#                                             nothing answering
+#     ollama-watchdog.sh                      restart-on-unhealthy
+#
+# Three implementations of "start Ollama" meant three chances to start it
+# differently, and that is not theoretical: a real host ended up running TWO
+# ollama processes at once — one bound to *:11434 over IPv6 and one to
+# 127.0.0.1:11434 over IPv4 — with containers still refused, because they
+# connect over IPv4 and the only IPv4 listener was the loopback one. This file
+# exists so there is exactly one implementation for all three to call.
+#
+# Two rules it enforces that each caller previously got wrong:
+#
+#   1. **Starting is idempotent.** ollama_start() returns immediately if the
+#      daemon already answers. That is what prevents a second process, which is
+#      how the duplicate above happened.
+#   2. **OLLAMA_HOST never leaks into `ollama serve`.** The name means two
+#      different things: to a client it is the URL to talk to, to the server it
+#      is the address to BIND. Callers source .env with `set -a`, so a probe URL
+#      of http://localhost:11434 would otherwise become the bind address — which
+#      is exactly how ollama-watchdog.sh silently forced loopback on every
+#      restart. The bind address comes only from OLLAMA_SERVE_HOST; otherwise
+#      OLLAMA_HOST is stripped so Ollama uses its own default.
+# ---------------------------------------------------------------------------------------
+
+OLLAMA_PORT="${OLLAMA_PORT:-11434}"
+
+# Address of every listener on Ollama's port, one per line, empty if none.
+# lsof on macOS, ss on modern Linux, netstat as a last resort — if none of the
+# three exists we return nothing rather than guessing, since a false claim here
+# would send someone chasing a problem that isn't there.
+ollama_listeners() {
+    if command -v lsof >/dev/null 2>&1; then
+        # Pick the field holding the address, NOT $NF: lsof's NAME column is
+        # "TCP 127.0.0.1:11434 (LISTEN)" — three whitespace-separated fields —
+        # so $NF is "(LISTEN)" and every address test downstream silently
+        # passes. That exact bug shipped once and was caught only by running it
+        # against real lsof output.
+        lsof -nP -iTCP:"$OLLAMA_PORT" -sTCP:LISTEN 2>/dev/null \
+            | awk -v p="[.:]${OLLAMA_PORT}$" 'NR>1 { for (i = 1; i <= NF; i++) if ($i ~ p) print $i }'
+    elif command -v ss >/dev/null 2>&1; then
+        ss -ltnH 2>/dev/null | awk '{print $4}' | grep ":${OLLAMA_PORT}$" || true
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -an 2>/dev/null | awk '/LISTEN/ {print $4}' | grep "[.:]${OLLAMA_PORT}$" || true
+    fi
+}
+
+_ollama_is_loopback() {
+    printf '%s' "$1" | grep -q -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost'
+}
+
+# Prints what Ollama is actually listening on, and warns about the two states
+# that break containerized consumers while every host-side check still passes.
+ollama_report_binding() {
+    local listeners loopback=0 wide=0 addr
+    listeners="$(ollama_listeners)"
+    [ -z "$listeners" ] && return 0
+
+    while IFS= read -r addr; do
+        [ -z "$addr" ] && continue
+        if _ollama_is_loopback "$addr"; then loopback=$((loopback + 1)); else wide=$((wide + 1)); fi
+    done <<OLLAMA_LISTENERS
+$listeners
+OLLAMA_LISTENERS
+
+    echo "🔌 Ollama is listening on:"
+    printf '%s\n' "$listeners" | sed 's/^/     /'
+
+    if [ "$loopback" -gt 0 ] && [ "$wide" -gt 0 ]; then
+        echo "" >&2
+        echo "⚠️  Both a loopback and a non-loopback listener are present — more than one" >&2
+        echo "   Ollama process is running. Containers may still be refused: a wide IPv6" >&2
+        echo "   listener does not help one dialling IPv4." >&2
+        echo "   Fix: pkill -x ollama, then redeploy the 'ollama' environment." >&2
+        echo "" >&2
+        return 0
+    fi
+    [ "$wide" -gt 0 ] && return 0
+
+    echo "" >&2
+    echo "⚠️  Loopback only — this host reaches Ollama, containers cannot." >&2
+    echo "   Traffic arriving via host.docker.internal:${OLLAMA_PORT} is external as far as a" >&2
+    echo "   loopback listener is concerned, and is refused. Symptoms: mnemon reporting" >&2
+    echo "   'ollama_available: false', agent-side Ollama tools failing — with nothing" >&2
+    echo "   failing on this side to point at the cause." >&2
+    echo "   Fix: set OLLAMA_SERVE_HOST=0.0.0.0:${OLLAMA_PORT} in the 'ollama' environment's" >&2
+    echo "   .env and redeploy it. Note that also exposes Ollama to your local network." >&2
+    echo "" >&2
+}
+
+ollama_healthy() {
+    curl -fsS --max-time "${OLLAMA_PROBE_TIMEOUT:-5}" "${1}/api/tags" >/dev/null 2>&1
+}
+
+ollama_installed() {
+    command -v "${OLLAMA_CMD:-ollama}" >/dev/null 2>&1
+}
+
+# Starts the daemon, or does nothing if it already answers.
+#
+# $1 = probe URL (e.g. http://localhost:11434) so the idempotency check can
+#      confirm "already running" before starting anything.
+#
+# The no-op-when-healthy check is the whole anti-duplicate guard: every caller
+# used to decide independently whether to start, and two of them deciding yes
+# at once is how a host ends up with two daemons fighting over one port.
+ollama_start() {
+    local probe_url="${1:-http://localhost:${OLLAMA_PORT}}"
+    local cmd="${OLLAMA_CMD:-ollama}"
+
+    if ollama_healthy "$probe_url"; then
+        return 0
+    fi
+
+    if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
+        # brew services and Ollama.app both launch via launchd, which does not
+        # inherit this shell's environment — launchctl's session environment is
+        # the only supported way to reach them. This is Ollama's own documented
+        # macOS procedure. It is session-wide, hence announced rather than silent.
+        if [[ "$(uname)" == "Darwin" ]]; then
+            echo "🔧 Setting OLLAMA_HOST=${OLLAMA_SERVE_HOST} in the launchd session so Ollama binds there."
+            launchctl setenv OLLAMA_HOST "$OLLAMA_SERVE_HOST" 2>/dev/null || true
+        fi
+    fi
+
+    case "$(uname -s)" in
+        Darwin)
+            if command -v brew >/dev/null 2>&1 && brew list ollama >/dev/null 2>&1; then
+                brew services start ollama >/dev/null 2>&1 && return 0
+            elif [ -d "/Applications/Ollama.app" ]; then
+                open -a Ollama && return 0
+            fi
+            ;;
+        Linux)
+            if command -v systemctl >/dev/null 2>&1 &&
+               systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
+                if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
+                    echo "ℹ️  OLLAMA_SERVE_HOST is set, but ollama.service's environment belongs to systemd." >&2
+                    echo "   Apply it once:  sudo systemctl edit ollama" >&2
+                    echo "   adding:         Environment=\"OLLAMA_HOST=${OLLAMA_SERVE_HOST}\"" >&2
+                fi
+                sudo systemctl enable --now ollama && return 0
+            fi
+            ;;
+    esac
+
+    # Bare `ollama serve` — the one path where this shell's environment is
+    # inherited directly, so it is the one that must be scrubbed. See this
+    # file's header for why leaking OLLAMA_HOST here is a real bug and not a
+    # theoretical one.
+    if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
+        OLLAMA_HOST="$OLLAMA_SERVE_HOST" nohup "$cmd" serve >> "${OLLAMA_SERVE_LOG:-$HOME/.ollama-server.log}" 2>&1 &
+    else
+        env -u OLLAMA_HOST nohup "$cmd" serve >> "${OLLAMA_SERVE_LOG:-$HOME/.ollama-server.log}" 2>&1 &
+    fi
+    disown 2>/dev/null || true
+}
+
+# Waits up to $2 seconds (default 15) for the daemon to answer at $1.
+ollama_wait_healthy() {
+    local probe_url="${1:-http://localhost:${OLLAMA_PORT}}" limit="${2:-15}" tries=0
+    while [ "$tries" -lt "$limit" ]; do
+        ollama_healthy "$probe_url" && return 0
+        sleep 1
+        tries=$((tries + 1))
+    done
+    ollama_healthy "$probe_url"
+}
+
+# Stops whichever way it's running. Tries every mechanism rather than guessing
+# one, because the thing that started it may not be the thing calling this.
+ollama_stop() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        command -v brew >/dev/null 2>&1 && brew list ollama >/dev/null 2>&1 &&
+            { brew services stop ollama >/dev/null 2>&1 || true; }
+        pgrep -x "Ollama" >/dev/null 2>&1 && { killall Ollama 2>/dev/null || true; }
+    elif command -v systemctl >/dev/null 2>&1 &&
+         systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
+        sudo systemctl stop ollama 2>/dev/null || true
+    fi
+    pkill -x ollama 2>/dev/null || true
+}

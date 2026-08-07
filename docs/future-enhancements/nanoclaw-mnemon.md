@@ -174,3 +174,72 @@ See `docs/refactoring-opportunities.md`'s "yt-dlp's arch-detection
 `case` block is duplicated across three files" entry — kept there rather
 than duplicated here, since that file is this repo's single shared home
 for refactoring opportunities across all environments.
+
+### 7. Detect a *deleted* per-group derived image — IMPLEMENTED 2026-08-07, kept for the reasoning
+
+**Implemented** via option 1 below (record the observed tags), after a question
+about fresh installs surfaced the scenario that made it matter: restore onto a
+new host, where the database returns with each group's stored `imageTag` but
+Docker images — never files under the install path — are not in any backup. The
+record lives at `data/pi-bootstrap-group-images.txt`, inside `data_dirs`, so it
+travels with the backup and lets the restored install notice. Options 2 and 3
+were not needed. Retained here for the reasoning about why option 1 was picked
+over the alternatives.
+
+Original writeup follows.
+
+`run.sh`'s `rebuild_stale_group_images()` (added 2026-08-07, full background in
+`docs/lessons-learned/nanoclaw-mnemon.md`, "the real cause of both symptoms was
+a per-group DERIVED image nothing ever rebuilt") handles a derived image that
+is **stale** — it enumerates `nanoclaw-agent-v2-*` images tagged other than
+`latest`, compares each one's `.Created` against the base, and rebuilds those
+that are older.
+
+It cannot handle a derived image that has been **deleted**, and that is the
+more damaging of the two states:
+
+- there is no image left for `docker images` to enumerate, so nothing in the
+  Docker-only approach can notice it;
+- the tag survives in NanoClaw's own `container_configs` table, so NanoClaw
+  keeps trying to use it;
+- `docker run` against a tag with no image and no registry exits 125 with an
+  empty captured stderr, and NanoClaw's close handler emits nothing at INFO —
+  so the group simply stops replying, retrying every 60s forever, with no error
+  anywhere.
+
+An operator cleaning up "old nanoclaw images" by hand lands here, which is
+exactly how it was found.
+
+**What a fix would need.** The missing piece is the set of image tags NanoClaw
+*expects* to exist, which lives in its database rather than in Docker. Three
+approaches, roughly in increasing order of how much they depend on NanoClaw
+internals this repo cannot see:
+
+1. **Record what we saw.** Write the derived-image tags observed during each
+   deploy to a small state file under `data/`. A later deploy that finds a tag
+   recorded previously but absent from `docker images` reports it and offers
+   the rebuild. Needs nothing from NanoClaw at all, and degrades gracefully —
+   but can't help on the first deploy after the deletion if no prior deploy
+   ever recorded that tag.
+2. **Ask `ncl`.** Enumerate groups via `pnpm ncl groups list` and read each
+   one's configured image tag via `pnpm ncl groups config get --id <id>`, then
+   check each against `docker image inspect`. Authoritative, but requires
+   parsing CLI output whose format lives in NanoClaw's repo, not this one —
+   **verify both commands' actual output against a live install before
+   building on them.** Guessing at a third-party CLI's output shape is
+   precisely the class of mistake this environment's patch functions exist to
+   avoid (see `CLAUDE.md`'s "Anchors are checked before use, never guessed").
+3. **Read the database directly.** Most precise, most brittle, and couples this
+   repo to a schema upstream is free to change without notice. Not recommended
+   unless 1 and 2 both prove unworkable.
+
+Option 1 is the obvious first move: it is self-contained, cheap, and closes the
+"an operator deleted an image" case specifically, which is the one actually
+observed. Option 2 is worth doing on top if someone has a live install to
+verify the output formats against.
+
+Whatever the mechanism, the **detection** matters more than the automatic
+repair. A loud line in the deploy output and a row in
+`pi-bootstrap-patches.md` saying "group X references an image that does not
+exist — run `pnpm ncl groups restart --id X --rebuild`" would have turned a
+multi-day silent outage into a one-command fix.

@@ -7,15 +7,28 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+[ -f "$SCRIPT_DIR/.env" ] && { set -a; source "$SCRIPT_DIR/.env"; set +a; }
+
+# Two different meanings, one variable name — the distinction is the whole
+# point of keeping these separate, and conflating them was a real bug (see
+# ollama-watchdog.sh's restart_ollama() and
+# docs/lessons-learned/general.md):
+#   OLLAMA_HOST       what THIS SCRIPT probes — a full URL.
+#   OLLAMA_SERVE_HOST what `ollama serve` BINDS to — a host:port, no scheme.
+# Ollama's own default bind is 127.0.0.1:11434, which answers on this host and
+# refuses every container: traffic arriving via host.docker.internal is
+# external as far as a loopback listener is concerned. Set OLLAMA_SERVE_HOST
+# to 0.0.0.0:11434 if anything containerised needs this daemon — that also
+# exposes it to your local network, so it stays opt-in.
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
+OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
 OLLAMA_CMD="${OLLAMA_CMD:-ollama}"
 POLICY="${REBUILD_POLICY:-FAST}"
 
 source "$REPO_DIR/lib/locale-lib.sh" || true
+source "$REPO_DIR/lib/ollama-lib.sh"
 
-_healthy() {
-    curl -fsS --max-time 5 "$OLLAMA_HOST/api/tags" >/dev/null 2>&1
-}
+_healthy() { ollama_healthy "$OLLAMA_HOST"; }
 
 _install_ollama() {
     case "$(uname -s)" in
@@ -49,54 +62,16 @@ _install_ollama() {
     esac
 }
 
-_start_ollama() {
-    case "$(uname -s)" in
-        Darwin)
-            if command -v brew >/dev/null 2>&1 && brew list ollama >/dev/null 2>&1; then
-                brew services start ollama
-            elif [ -d "/Applications/Ollama.app" ]; then
-                open -a Ollama
-            else
-                nohup "$OLLAMA_CMD" serve >> "$HOME/.ollama-server.log" 2>&1 &
-            fi
-            ;;
-        Linux)
-            if command -v systemctl >/dev/null 2>&1 &&
-               systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
-                sudo systemctl enable --now ollama
-            else
-                nohup "$OLLAMA_CMD" serve >> "$HOME/.ollama-server.log" 2>&1 &
-            fi
-            ;;
-    esac
-}
+# Install/start/stop/probe all live in lib/ollama-lib.sh so this environment,
+# nanoclaw-mnemon's ensure_ollama_ready(), and ollama-watchdog.sh cannot start
+# the one native daemon differently — or twice. ollama_start() is a no-op when
+# Ollama already answers, which is the guard against a second process.
+_start_ollama() { ollama_start "$OLLAMA_HOST"; }
 
-_stop_ollama() {
-    case "$(uname -s)" in
-        Darwin)
-            if command -v brew >/dev/null 2>&1 && brew list ollama >/dev/null 2>&1; then
-                brew services stop ollama >/dev/null 2>&1 || true
-            fi
-            pgrep -x "Ollama" >/dev/null 2>&1 && killall Ollama 2>/dev/null || true
-            pgrep -x "ollama" >/dev/null 2>&1 && pkill -x ollama 2>/dev/null || true
-            ;;
-        Linux)
-            if command -v systemctl >/dev/null 2>&1 &&
-               systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
-                sudo systemctl stop ollama
-            else
-                pgrep -x "ollama" >/dev/null 2>&1 && pkill -x ollama 2>/dev/null || true
-            fi
-            ;;
-    esac
-    echo "✅ Shared Ollama daemon stopped. Downloaded models are unchanged."
-}
+_report_bind_address() { ollama_report_binding; }
 
-# Removes the native runtime installed by this environment while deliberately
-# preserving model data (~/.ollama on macOS/user-mode Linux and
-# /usr/share/ollama for the official Linux system service). WIPE is not exposed
-# for this environment; models are removed one at a time through the Delete
-# action instead.
+_stop_ollama() { ollama_stop; }
+
 _teardown_ollama() {
     local ollama_bin=""
     local ollama_lib=""
@@ -194,6 +169,7 @@ fi
 
 if _healthy; then
     echo "✅ Ollama is already responsive at $OLLAMA_HOST"
+    _report_bind_address
 else
     echo "🔄 Starting Ollama..."
     _start_ollama || exit 1
@@ -205,6 +181,7 @@ else
     done
     if _healthy; then
         echo "✅ Ollama is responsive at $OLLAMA_HOST"
+        _report_bind_address
     else
         echo "❌ Ollama did not become responsive at $OLLAMA_HOST." >&2
         echo "   Check the service, then use the Check / Restart Ollama action." >&2

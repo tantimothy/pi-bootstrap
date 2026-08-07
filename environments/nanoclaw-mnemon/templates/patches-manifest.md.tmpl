@@ -41,13 +41,19 @@ Two checks, in this order. They rule out the two ways a *correctly applied*
 patch still looks broken from inside a container, and both have previously
 sent sessions off diagnosing patch logic that was already right:
 
-1. **Is the running agent container older than the image?** Every patch
+1. **Is this group even running the base image?** A group with custom
+   packages runs its own *derived* image that nothing in pi-bootstrap used
+   to rebuild, so it can be weeks behind the base while every base-level
+   check passes. This is the single most misleading failure mode here and
+   has burned days — read the "Per-group derived agent images" section at
+   the end of this file before anything else.
+2. **Is the running agent container older than the image?** Every patch
    below that touches `container/Dockerfile` only takes effect when the
    agent-sandbox image is rebuilt *and* the containers spawned from the old
    image are replaced. Compare them directly — if a fresh
    `docker run --rm <agent-image> ...` passes a check that the live agent
    container fails, the patch is fine and the container is simply stale.
-2. **Is the patch block stale rather than absent?** Each Dockerfile patch is
+3. **Is the patch block stale rather than absent?** Each Dockerfile patch is
    wrapped in `# >>> pi-bootstrap:<id> v<N> >>>` markers. A block whose
    version is older than the one this deploy wanted is reported as UPDATED
    or STALE below, not as applied. A block with no markers at all predates
@@ -94,3 +100,12 @@ ${ollama_detail}
 
 ${telegram_status}
 ${telegram_detail}
+
+---
+
+## Per-group derived agent images
+
+**Status this deploy:**
+
+${group_images_status}
+${group_images_detail}

@@ -13,13 +13,28 @@
 #   ./ollama-watchdog.sh              # one-shot: check, restart if unhealthy, exit
 #   ./ollama-watchdog.sh --check      # one-shot: check only, never restarts (exit 0/1)
 #   ./ollama-watchdog.sh --restart    # force a restart regardless of health
+#   ./ollama-watchdog.sh --status     # bind address, schedule, health, listeners
 #   ./ollama-watchdog.sh --install    # schedule this to run automatically (launchd/cron)
 #   ./ollama-watchdog.sh --uninstall  # remove the scheduled job
+#   ./ollama-watchdog.sh --stop       # kill any in-flight run AND unschedule
 #
 # Env vars (export before invoking; --install bakes the values active at
 # install time into the scheduled job, so set them before running --install
 # specifically if you want non-default values on every future scheduled run):
-#   OLLAMA_HOST               Ollama's own API base. Default: http://localhost:11434
+#   OLLAMA_HOST               Ollama's own API base, used by THIS SCRIPT to
+#                             probe it. Default: http://localhost:11434
+#                             NOTE the name collision: `ollama serve` reads
+#                             OLLAMA_HOST as its own BIND ADDRESS, a different
+#                             meaning entirely. This script never leaks its
+#                             probe URL into a server it starts — see
+#                             restart_ollama() for why that matters.
+#   OLLAMA_SERVE_HOST         Bind address to start `ollama serve` with, e.g.
+#                             0.0.0.0:11434. Default: unset (let Ollama use its
+#                             own default, 127.0.0.1:11434). Set this if
+#                             containers need to reach Ollama via
+#                             host.docker.internal — a loopback bind refuses
+#                             those connections. Binding 0.0.0.0 also exposes
+#                             Ollama to your local network, so it's opt-in.
 #   OLLAMA_WATCHDOG_TIMEOUT   Seconds before a health check counts as failed. Default: 10
 #   OLLAMA_WATCHDOG_INTERVAL  Seconds between scheduled runs, --install only. Default: 300
 #   OLLAMA_WATCHDOG_LOG       Log file path. Default: ~/.ollama-watchdog.log
@@ -43,11 +58,28 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Force a UTF-8 locale before any emoji-laden output below prints — see
 # lib/locale-lib.sh's own comment for why.
 source "$REPO_DIR/lib/locale-lib.sh" || true
+# Shared with environments/ollama and nanoclaw-mnemon so all three manage the
+# same single native daemon identically. See lib/ollama-lib.sh.
+source "$REPO_DIR/lib/ollama-lib.sh"
 
 OS_TYPE="linux"
 [[ "$(uname)" == "Darwin" ]] && OS_TYPE="macos"
 
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
+OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
+
+# The `ollama` environment owns this daemon's configuration, and this script
+# restarts it on a schedule — so without reading that config, a scheduled
+# restart would quietly revert the operator's bind address, which is exactly
+# what happened before. Read with grep rather than `source`: this is a
+# root-level script and .env is not ours to execute. Anything already exported
+# wins, so an explicit value on the command line still overrides the file.
+_OLLAMA_ENV_FILE="$REPO_DIR/environments/ollama/.env"
+if [ -z "$OLLAMA_SERVE_HOST" ] && [ -f "$_OLLAMA_ENV_FILE" ]; then
+    OLLAMA_SERVE_HOST="$(grep -E '^[[:space:]]*OLLAMA_SERVE_HOST=' "$_OLLAMA_ENV_FILE" 2>/dev/null \
+        | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
+fi
 TIMEOUT="${OLLAMA_WATCHDOG_TIMEOUT:-10}"
 INTERVAL="${OLLAMA_WATCHDOG_INTERVAL:-300}"
 LOG_FILE="${OLLAMA_WATCHDOG_LOG:-$HOME/.ollama-watchdog.log}"
@@ -67,35 +99,15 @@ is_healthy() {
     curl -sf -m "$TIMEOUT" "$OLLAMA_HOST/api/tags" >/dev/null 2>&1
 }
 
-# macOS: prefer the menu-bar app (killall + reopen) if that's how it's
-# running — that's the default install method and what actually owns the
-# embedded server process in that case. Linux: prefer the official
-# installer's systemd unit. Both fall back to a bare `ollama serve`
-# process if neither of those applies.
+# Fully delegated to lib/ollama-lib.sh, which owns every platform path
+# (Ollama.app, brew services, systemd unit, bare `ollama serve`) for stopping
+# and starting. Keeping a second copy here is what let this script drift into
+# binding loopback on every restart while the other two callers did not.
 restart_ollama() {
-    if [ "$OS_TYPE" = "macos" ] && pgrep -x "Ollama" >/dev/null 2>&1; then
-        _log "🔄 Restarting Ollama.app..."
-        killall Ollama 2>/dev/null
-        sleep 2
-        open -a Ollama
-        return
-    fi
-
-    if [ "$OS_TYPE" = "linux" ] && systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
-        _log "🔄 Restarting ollama.service via systemctl..."
-        sudo systemctl restart ollama
-        return
-    fi
-
-    if pgrep -x "ollama" >/dev/null 2>&1; then
-        _log "🔄 Restarting bare 'ollama serve' process..."
-        pkill -x ollama 2>/dev/null
-        sleep 2
-    else
-        _log "🔄 No existing Ollama process found — starting fresh..."
-    fi
-    nohup ollama serve >> "$LOG_FILE" 2>&1 &
-    disown
+    _log "🔄 Restarting Ollama..."
+    ollama_stop
+    sleep 2
+    ollama_start "$OLLAMA_HOST"
 }
 
 notify() {
@@ -158,6 +170,8 @@ install_macos() {
     <dict>
         <key>OLLAMA_HOST</key>
         <string>${OLLAMA_HOST}</string>
+        <key>OLLAMA_SERVE_HOST</key>
+        <string>${OLLAMA_SERVE_HOST}</string>
         <key>OLLAMA_WATCHDOG_TIMEOUT</key>
         <string>${TIMEOUT}</string>
         <key>OLLAMA_WATCHDOG_LOG</key>
@@ -188,7 +202,7 @@ uninstall_macos() {
 install_linux() {
     local cron_minutes=$(( (INTERVAL + 59) / 60 ))
     [ "$cron_minutes" -lt 1 ] && cron_minutes=1
-    local cron_line="*/${cron_minutes} * * * * OLLAMA_HOST='${OLLAMA_HOST}' OLLAMA_WATCHDOG_TIMEOUT='${TIMEOUT}' OLLAMA_WATCHDOG_LOG='${LOG_FILE}' ${REPO_DIR}/ollama-watchdog.sh >> ${LOG_FILE} 2>&1 ${CRON_MARKER}"
+    local cron_line="*/${cron_minutes} * * * * OLLAMA_HOST='${OLLAMA_HOST}' OLLAMA_SERVE_HOST='${OLLAMA_SERVE_HOST}' OLLAMA_WATCHDOG_TIMEOUT='${TIMEOUT}' OLLAMA_WATCHDOG_LOG='${LOG_FILE}' ${REPO_DIR}/ollama-watchdog.sh >> ${LOG_FILE} 2>&1 ${CRON_MARKER}"
     ( crontab -l 2>/dev/null | grep -vF "$CRON_MARKER"; echo "$cron_line" ) | crontab -
     echo "✅ Installed — runs every ${cron_minutes} minute(s) via cron. Logs: $LOG_FILE"
     echo "   Edit with: crontab -e"
@@ -201,6 +215,33 @@ uninstall_linux() {
     else
         echo "ℹ️  Not installed — nothing to do."
     fi
+}
+
+# Stops the watchdog outright: kills anything in flight, then removes the
+# schedule so it does not simply come back on the next tick.
+#
+# Both halves are needed. This script is one-shot rather than a daemon — it
+# checks, acts, and exits — so most of the time there is no process to kill and
+# the schedule IS the watchdog. But a run can be mid-restart when you decide to
+# stop it, and on macOS launchd's RunAtLoad fires one immediately at load, so
+# killing without unscheduling achieves nothing and unscheduling without
+# killing can still leave a restart in progress.
+stop_watchdog() {
+    local pids
+    # Exclude our own PID and our parent's: `pgrep -f` matches the very process
+    # running this function, so a naive kill would take out the stop command
+    # itself before it ever reached the unschedule below.
+    pids=$(pgrep -f 'ollama-watchdog\.sh' 2>/dev/null | grep -v "^$$\$" | grep -v "^${PPID}\$" || true)
+    if [ -n "$pids" ]; then
+        echo "🛑 Stopping watchdog run(s) already in flight: $(echo $pids | tr '\n' ' ')"
+        echo "$pids" | xargs kill 2>/dev/null || true
+    else
+        echo "ℹ️  No watchdog run currently in flight."
+    fi
+
+    if [ "$OS_TYPE" = "macos" ]; then uninstall_macos; else uninstall_linux; fi
+    echo "✅ Watchdog stopped. Ollama itself is untouched and still running."
+    echo "   Re-enable later with the 'Watchdog: Schedule Automatic Checks' action."
 }
 
 case "${1:-}" in
@@ -226,12 +267,41 @@ case "${1:-}" in
     --uninstall)
         [ "$OS_TYPE" = "macos" ] && uninstall_macos || uninstall_linux
         ;;
+    --stop)
+        stop_watchdog
+        ;;
+    --status)
+        echo "Probe URL:     $OLLAMA_HOST"
+        # No apostrophe in this default value: a single quote inside a
+        # ${VAR:-word} default is a quoting character to bash even within
+        # double quotes, and silently swallows the rest of the file.
+        echo "Bind address:  ${OLLAMA_SERVE_HOST:-<unset — Ollama default, 127.0.0.1:11434>}"
+        echo "Log file:      $LOG_FILE"
+        if [ "$OS_TYPE" = "macos" ]; then
+            if [ -f "$PLIST_PATH" ]; then
+                echo "Schedule:      installed (launchd, every ${INTERVAL}s)"
+                echo "Plist:         $PLIST_PATH"
+            else
+                echo "Schedule:      NOT installed — use 'Watchdog: Schedule Automatic Checks'"
+            fi
+        else
+            if crontab -l 2>/dev/null | grep -qF "$CRON_MARKER"; then
+                echo "Schedule:      installed (cron)"
+                crontab -l 2>/dev/null | grep -F "$CRON_MARKER" | sed 's/^/               /'
+            else
+                echo "Schedule:      NOT installed — use 'Watchdog: Schedule Automatic Checks'"
+            fi
+        fi
+        echo ""
+        is_healthy && echo "Health:        ✅ responding" || echo "Health:        ❌ not responding"
+        ollama_report_binding
+        ;;
     "")
         do_check_and_restart
         ;;
     *)
         echo "Unknown argument: $1" >&2
-        echo "Usage: $0 [--check|--restart|--install|--uninstall]" >&2
+        echo "Usage: $0 [--check|--restart|--status|--install|--uninstall|--stop]" >&2
         exit 1
         ;;
 esac

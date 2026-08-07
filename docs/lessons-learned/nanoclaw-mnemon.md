@@ -2118,3 +2118,174 @@ changes, all aimed at the same failure mode rather than the specific bug:
   setback.** The reorder was right; it just sat downstream of a second,
   independent bug. Reading "still broken" as "the diagnosis was wrong" would
   have reverted a correct change.
+
+## Follow-up (2026-08-07): the real cause of both symptoms was a per-group DERIVED image nothing ever rebuilt — and the two preceding entries were only half right
+
+**Status:** fixed. This supersedes the "stale agent container" conclusion in
+the two entries above. Those found real bugs and fixed them, but neither was
+the cause of the whisper-cli or mnemon symptoms, and the fixes could not have
+resolved them.
+
+**What was actually happening.** NanoClaw does not always run agents from the
+base agent-sandbox image. A conversation group that installs custom packages
+— via its own `install_packages` self-modification flow, or
+`ncl groups add-package` — gets its own **derived image**, built FROM the base
+and tagged `nanoclaw-agent-v2-<slug>:<group-id>`. That tag is stored in
+NanoClaw's `container_configs` table and `container-runner.ts` passes it
+directly to `docker run` on every spawn for that group.
+
+Nothing in pi-bootstrap ever rebuilt those. CLEAN rebuilds the base
+(`container/build.sh`) and stops; upstream treats derived images as
+operator-managed, refreshed only by `ncl groups restart --rebuild`. So every
+patch this environment applies to `container/Dockerfile` landed in the base
+and never reached the group that had one. The live install's Clawdia group
+(custom packages: `python3`, `yt-dlp`, `ffmpeg`, `cmake`, `build-essential`,
+`nodejs-whisper`) ran a **2026-07-21** derived image against a **2026-08-06**
+base for over two weeks.
+
+That is the whole explanation for both long-running symptoms:
+
+- `whisper-cli` dynamically linked against a missing `libwhisper.so.1` — the
+  derived image was built before the `-DBUILD_SHARED_LIBS=OFF` fix existed.
+- `ollama_available: false` — the derived image was built before the NO_PROXY
+  scheme-gating fix, so it still had `ENV NO_PROXY=host.docker.internal`
+  baked in, which on this platform bypasses the proxy routing that actually
+  reaches Ollama.
+
+**Where the previous two entries went wrong.** Both correctly observed that
+the base image passed every check while the running agent failed, and both
+concluded "stale container — replace it". But replacing the container
+achieves nothing here: it respawns from the *same derived image*. The
+distinguishing evidence was available and misread — the live container's
+image was reported as
+`nanoclaw-agent-v2-91b144eb:ag-1783945827013-hhyk7w`, not `:latest`, in
+every report. That tag was read as an ephemeral per-spawn tag; it was a
+per-group image with the group ID as its tag. One `docker images` listing
+would have separated the two readings at any point.
+
+The sweep bug found in the previous entry was real and is still worth having
+fixed — the matcher genuinely never matched, and a sweep that reports
+"nothing found" identically to "nothing to do" is its own hazard. It just
+wasn't this.
+
+**A second, sharper failure mode, hit while cleaning up.** Deleting a derived
+image breaks that group **silently and totally**. The tag stays in NanoClaw's
+database; `docker run` against a tag with no image and no registry fails
+instantly with exit 125; the captured stderr comes back empty, so NanoClaw's
+close handler emits nothing at INFO — no "Container exited", no WARN. The
+only visible symptom is `Spawning container` repeating every 60 seconds
+forever while the pending message count climbs. An operator tidying up "old
+nanoclaw images" by hand will hit this, and there is nothing in the logs to
+tell them what they did.
+
+**Fix:** `rebuild_stale_group_images()` runs after every base-image rebuild.
+It lists `nanoclaw-agent-v2-*` images whose tag isn't `latest`, compares each
+one's `.Created` against the base's, and rebuilds any that are older via
+`pnpm ncl groups restart --id <tag> --rebuild`. No database access and no
+parsing of `ncl groups list` output is needed, because **the image tag is the
+group ID** — verified against the live install rather than assumed. A failed
+rebuild is reported with the exact manual command and recorded in the
+manifest rather than aborting the deploy. `.Created` is compared as an RFC3339
+string, which orders correctly without `date -d` (GNU-only, unavailable on
+macOS).
+
+A new `templates/patch-details/group-images.md` documents the whole
+mechanism, and the smoke-test checklist gained a step 0: establish which
+image a group actually runs *before* testing anything inside it.
+
+### General Lessons
+
+- **"The image is healthy but the container isn't" has more than one cause,
+  and they need different fixes.** Two consecutive investigations landed on
+  "stale container, replace it" because that explanation fits the evidence —
+  it just wasn't the only thing that fits. When a diagnosis predicts a fix,
+  and the fix ships, and the symptom persists unchanged, the diagnosis is
+  the thing to re-examine, not the delivery of it a third time.
+- **An identifier you don't recognize is a question, not noise.** The tag
+  `:ag-1783945827013-hhyk7w` appeared verbatim in every report from the
+  start and was explained away twice with a guess about NanoClaw's internals
+  that nobody checked. It was in fact the group ID, which made the whole
+  mechanism discoverable from a single `docker images` listing.
+- **Patching a base image is only half a delivery path when derived images
+  exist.** Anything that builds FROM your artifact is a copy that will not
+  update itself. This is the same lesson as "rebuild before restarting",
+  one layer further out, and it will generalize to any future per-group or
+  per-tenant image NanoClaw adds.
+- **A destructive operation with no error output is worse than one that
+  fails loudly.** Deleting a derived image produced no log line anywhere in
+  NanoClaw at any level. The deploy script cannot fix upstream's silence,
+  but it can refuse to leave the situation undetectable — which is what the
+  manifest section and the checklist step now do.
+
+## Follow-up (2026-08-07): `ollama_available: false` was Ollama bound to loopback — five rounds of proxy theories, none of them the cause
+
+**Status:** root cause confirmed on the live host. One command settled what
+four previous rounds of `NO_PROXY` reasoning could not:
+
+```
+$ lsof -nP -iTCP:11434 -sTCP:LISTEN
+COMMAND PID  USER   FD   TYPE  DEVICE  SIZE/OFF NODE NAME
+ollama  986 homer    3u  IPv4  0x...        0t0  TCP 127.0.0.1:11434 (LISTEN)
+```
+
+Ollama's default bind address is `127.0.0.1:11434` — loopback only. An agent
+container reaching `host.docker.internal:11434` arrives at the host as
+external traffic and is refused. It was never reachable from a container at
+any point.
+
+**Why five rounds missed it.** Two independent checks both said "reachable",
+and neither was testing what it appeared to test:
+
+- `ensure_ollama_ready()` deliberately rewrites `host.docker.internal` →
+  `localhost` so its probe works from a bare host shell. That rewrite is
+  correct for what it was added to fix, but it means the probe answers "is
+  Ollama running?" and structurally cannot answer "can a container reach it?"
+  It passed every deploy.
+- `curl` from *inside* the agent container also succeeded — but only via the
+  platform's HTTP proxy, which runs on the host and can therefore reach
+  loopback. mnemon's Go client goes direct, so it saw the refusal that curl
+  never did. The whole "curl works, Go doesn't" signature that anchored four
+  rounds of proxy analysis was two different network paths, not two HTTP
+  clients disagreeing.
+
+Every `NO_PROXY` change — adding it, removing it, scheme-gating it — was
+tuning how requests route to an endpoint that would not accept them either
+way. The scheme-gating that shipped is still correct on its own merits; it
+just never had anything to do with this symptom.
+
+**Fix:** `warn_if_ollama_is_loopback_only()` runs after the reachability probe
+succeeds, and only when the endpoint uses `host.docker.internal` (a
+`localhost` endpoint is the orchestrator's own business, where a loopback bind
+is correct). It reads the actual listen address via `lsof`, `ss`, or `netstat`
+— whichever exists — and if every listener is loopback, warns with the exact
+symptom to expect and the platform-specific fix.
+
+It only warns. Rebinding to `0.0.0.0` exposes Ollama to the local network,
+which is an operator's security decision, not something a deploy script should
+make on their behalf.
+
+**A bug the test caught before it shipped.** The first version extracted the
+address with `awk '{print $NF}'`. lsof's NAME column is
+`TCP 127.0.0.1:11434 (LISTEN)` — three whitespace-separated fields — so `$NF`
+is `(LISTEN)`, which passes every address check downstream. The function would
+have run on every deploy and never warned once. Found only by running it
+against real `lsof` output rather than eyeballing the parse.
+
+### General Lessons
+
+- **A probe that had to be adjusted to work is a probe worth re-reading.**
+  The `host.docker.internal` → `localhost` rewrite was a correct fix for a
+  real bug, and it quietly narrowed what the check could ever detect. When a
+  check is modified to make it pass, note what it stopped covering.
+- **Two clients disagreeing about the same URL may not be disagreeing about
+  HTTP at all.** curl and mnemon were taking different network paths — one
+  through a host-side proxy, one direct. Everything downstream of "curl works
+  so the endpoint is fine" was reasoning from a false premise.
+- **Check the listener before debugging the route.** Four rounds went into
+  proxy semantics — Go's `httpproxy` rules, curl's uppercase/lowercase
+  handling, `applyContainerConfig()` ordering — all of it downstream of
+  whether anything was accepting the connection. `lsof -iTCP:<port>` is one
+  command and should have been round one.
+- **Test a parser against real output, not imagined output.** The `$NF` bug
+  was invisible by inspection and obvious the moment real `lsof` output went
+  through it.
