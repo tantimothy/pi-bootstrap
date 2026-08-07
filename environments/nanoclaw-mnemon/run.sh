@@ -323,10 +323,10 @@ refresh_group_images() {
                 echo "   As an immediate unblock, point the tag at the base image:" >&2
                 echo "     docker tag \$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '${AGENT_IMAGE_REPO_PREFIX}.*:latest' | head -1) '${repo_tag}'" >&2
                 echo "   That loses the group's custom packages but gets it answering again." >&2
-                _group_images_log "Group \`${group_id}\`: derived image is **MISSING and the rebuild FAILED — this group is silently down.** It will retry a spawn every 60s and never succeed. Run \`pnpm ncl groups restart --id ${group_id} --rebuild\`, or \`docker tag <base>:latest ${repo_tag}\` to get it answering immediately without its custom packages."
+                _group_images_log "Group \`${group_id}\`: derived image **MISSING and the rebuild FAILED — this group is silently down.** See \"the second failure mode\" below for the symptom and both recovery routes."
             else
                 echo "   It keeps running its existing image, which predates this deploy's patches." >&2
-                _group_images_log "Group \`${group_id}\`: rebuild **FAILED**; still running an image that predates this deploy. Run \`pnpm ncl groups restart --id ${group_id} --rebuild\` by hand."
+                _group_images_log "Group \`${group_id}\`: rebuild **FAILED**; still running an image that predates this deploy."
             fi
             echo "   Run by hand inside the orchestrator container:" >&2
             echo "     cd \$NANOCLAW_INSTALL_PATH && pnpm ncl groups restart --id '${group_id}' --rebuild" >&2
@@ -513,7 +513,7 @@ apply_mnemon_patch() {
         echo "⚠️  Couldn't find container/Dockerfile or container/entrypoint.sh under $INSTALL_PATH" >&2
         echo "   — NanoClaw's own layout may have changed upstream. Skipping the mnemon patch;" >&2
         echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
-        _mnemon_log "**SKIPPED (whole patch)** — container/Dockerfile or container/entrypoint.sh missing; NanoClaw's own layout may have changed. Apply manually: https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw"
+        _mnemon_log "**SKIPPED (whole patch)** — container/Dockerfile or container/entrypoint.sh missing."
         MNEMON_PATCH_OK=false
         return 1
     fi
@@ -529,7 +529,7 @@ apply_mnemon_patch() {
         stale-marked)
             echo "♻️  container/Dockerfile has an OLDER mnemon patch block — replacing it with v${MNEMON_PATCH_VERSION}..."
             _strip_patch_block "$dockerfile" mnemon
-            _mnemon_log "container/Dockerfile: **UPDATED** — an older mnemon patch block was replaced with v${MNEMON_PATCH_VERSION}. The agent-sandbox image is rebuilt below so this actually takes effect."
+            _mnemon_log "container/Dockerfile: **UPDATED** — older block replaced with v${MNEMON_PATCH_VERSION}; agent image rebuilt this deploy."
             AGENT_IMAGE_NEEDS_REBUILD=true
             ;;
         stale-unmarked)
@@ -542,7 +542,7 @@ apply_mnemon_patch() {
             echo "   It can't be replaced in place (an unmarked block has no reliable end boundary), so it is being left alone." >&2
             echo "   Run a CLEAN deploy to fix it: CLEAN hard-resets container/Dockerfile to upstream, and this patch then re-applies at v${MNEMON_PATCH_VERSION}." >&2
             echo "   Until then, mnemon may keep reporting ollama_available:false — the old block bakes an unconditional NO_PROXY=host.docker.internal into the image, which breaks the very routing mnemon needs to reach Ollama." >&2
-            _mnemon_log "container/Dockerfile: **STALE (needs CLEAN)** — an unversioned, pre-marker mnemon block is present and cannot be replaced in place. Run a CLEAN deploy to reset container/Dockerfile to upstream and re-apply at v${MNEMON_PATCH_VERSION}. Symptom while stale: \`ollama_available: false\`, because the old block bakes an unconditional \`ENV NO_PROXY=host.docker.internal\` into the agent image and that bypasses the proxy routing that actually reaches Ollama."
+            _mnemon_log "container/Dockerfile: **STALE (needs CLEAN)** — an unversioned, pre-marker block is present; wanted v${MNEMON_PATCH_VERSION}. See \"The pre-marker era\" below."
             MNEMON_PATCH_OK=false
             do_splice=false
             ;;
@@ -556,7 +556,7 @@ apply_mnemon_patch() {
             echo "❌ Couldn't find the '# ---- Bun runtime' anchor in container/Dockerfile." >&2
             echo "   NanoClaw's Dockerfile may have changed upstream — skipping the mnemon patch;" >&2
             echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
-            _mnemon_log "container/Dockerfile: **SKIPPED** — '# ---- Bun runtime' anchor not found, upstream layout may have changed. Apply manually: https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw"
+            _mnemon_log "container/Dockerfile: **SKIPPED** — '# ---- Bun runtime' anchor not found."
             MNEMON_PATCH_OK=false
             return 1
         fi
@@ -647,7 +647,7 @@ MNEMON_DOCKER_BLOCK
         if [ -z "$anchor" ]; then
             echo "❌ Couldn't find 'set -e' in container/entrypoint.sh — skipping the mnemon patch;" >&2
             echo "   apply it manually per https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw" >&2
-            _mnemon_log "container/entrypoint.sh: **SKIPPED** — 'set -e' anchor not found, upstream layout may have changed. Apply manually: https://github.com/mnemon-dev/mnemon/blob/master/README.md#nanoclaw"
+            _mnemon_log "container/entrypoint.sh: **SKIPPED** — 'set -e' anchor not found."
             MNEMON_PATCH_OK=false
             return 1
         fi
@@ -818,7 +818,7 @@ apply_telegram_import_patch() {
             ln -s "../.pnpm/${telegram_store_name}/node_modules/@chat-adapter/telegram" "$telegram_link"
             dep_present=true
             echo "🔗 Recreated missing node_modules/@chat-adapter/telegram symlink — package.json no longer lists it, but it's still present in pnpm's virtual store (see pi-bootstrap-patch-fixes.md 2026-08-06 entry)." >&2
-            _telegram_import_log "node_modules/@chat-adapter/telegram: **RESTORED** — symlink recreated pointing at pnpm's virtual store (${telegram_store_name}); package.json listing was stale/absent but the store still had it."
+            _telegram_import_log "node_modules/@chat-adapter/telegram: **RESTORED** — symlink recreated against pnpm's store (${telegram_store_name})."
         fi
     fi
     if [ "$dep_present" = false ] && [ -f "$pkg_json" ] && grep -q '"@chat-adapter/telegram"' "$pkg_json"; then
@@ -835,21 +835,21 @@ apply_telegram_import_patch() {
             if [ -f "$tgt" ]; then
                 mv "$tgt" "${tgt}.orphaned-by-pi-bootstrap"
                 echo "🧹 Quarantined orphaned ${orphan} (its own @chat-adapter/telegram dependency is gone; tsc would otherwise fail on it regardless of the barrel import — see this function's own header comment)." >&2
-                _telegram_import_log "${orphan}: **QUARANTINED** — renamed to ${orphan}.orphaned-by-pi-bootstrap (dependency missing from package.json; tsconfig's include: [\"src/**/*\"] would otherwise fail the build on this file alone). Restore it manually once @chat-adapter/telegram is available again."
+                _telegram_import_log "${orphan}: **QUARANTINED** — renamed to ${orphan}.orphaned-by-pi-bootstrap. Restore it once @chat-adapter/telegram resolves again; see failure 2 below."
             fi
         done
     fi
 
     if [ ! -f "$pkg_json" ]; then
         echo "⚠️  Couldn't find package.json under $INSTALL_PATH — skipping the telegram-import patch (can't verify its dependency is installable)." >&2
-        _telegram_import_log "**SKIPPED (barrel import)** — package.json missing, can't verify @chat-adapter/telegram is still a listed dependency."
+        _telegram_import_log "**SKIPPED (barrel import)** — package.json missing; could not verify the dependency."
         TELEGRAM_IMPORT_PATCH_OK=false
         return 1
     fi
     if [ "$dep_present" = false ]; then
         echo "⚠️  telegram.ts's own dependency (@chat-adapter/telegram) is no longer in package.json — skipping the telegram-import patch." >&2
         echo "   Restoring the barrel import would break the build (Cannot find module '@chat-adapter/telegram'); NanoClaw dropped this dependency in commit 25687dc, after cleanly removing telegram.ts itself in 675a6d87." >&2
-        _telegram_import_log "**SKIPPED (barrel import)** — @chat-adapter/telegram missing from package.json (dropped upstream in commit 25687dc); restoring the import would break the build. See pi-bootstrap-patch-fixes.md."
+        _telegram_import_log "**SKIPPED (barrel import)** — @chat-adapter/telegram missing from package.json. Expected upstream; see failure 2 below before treating this as a fault."
         # Strip a STALE barrel import too, not just skip adding a new one —
         # the quarantine pass above just renamed telegram.ts/telegram.js out
         # from under any import that already points at it (e.g. left behind
@@ -893,7 +893,7 @@ apply_telegram_import_patch() {
         f="${INSTALL_PATH}/${rel}"
         if [ ! -f "$f" ]; then
             echo "⚠️  Couldn't find ${rel} under $INSTALL_PATH — skipping the telegram-import patch for it." >&2
-            _telegram_import_log "${rel}: **SKIPPED** — file missing, NanoClaw's own layout may have changed."
+            _telegram_import_log "${rel}: **SKIPPED** — file missing."
             TELEGRAM_IMPORT_PATCH_OK=false
             continue
         fi
@@ -907,7 +907,7 @@ apply_telegram_import_patch() {
         if [ -z "$anchor" ]; then
             echo "❌ Couldn't find the \"import './cli.js';\" anchor in ${rel} — skipping the telegram-import patch." >&2
             echo "   NanoClaw's channels barrel may have changed upstream; add \"import './telegram.js';\" manually." >&2
-            _telegram_import_log "${rel}: **SKIPPED** — \"import './cli.js';\" anchor not found, upstream layout may have changed. Add \"import './telegram.js';\" manually."
+            _telegram_import_log "${rel}: **SKIPPED** — \"import './cli.js';\" anchor not found."
             TELEGRAM_IMPORT_PATCH_OK=false
             continue
         fi
@@ -959,7 +959,7 @@ apply_media_tools_patch() {
 
     if [ ! -f "$dockerfile" ]; then
         echo "⚠️  Couldn't find container/Dockerfile under $INSTALL_PATH — skipping the media-tools patch." >&2
-        _media_tools_log "**SKIPPED (whole patch)** — container/Dockerfile missing; NanoClaw's own layout may have changed."
+        _media_tools_log "**SKIPPED (whole patch)** — container/Dockerfile missing."
         MEDIA_TOOLS_PATCH_OK=false
         return 1
     fi
@@ -975,7 +975,7 @@ apply_media_tools_patch() {
         stale-marked)
             echo "♻️  container/Dockerfile has an OLDER media-tools patch block — replacing it with v${MEDIA_TOOLS_PATCH_VERSION}..."
             _strip_patch_block "$dockerfile" media-tools
-            _media_tools_log "container/Dockerfile: **UPDATED** — an older media-tools patch block was replaced with v${MEDIA_TOOLS_PATCH_VERSION}. The agent-sandbox image is rebuilt below so this actually takes effect."
+            _media_tools_log "container/Dockerfile: **UPDATED** — older block replaced with v${MEDIA_TOOLS_PATCH_VERSION}; agent image rebuilt this deploy."
             AGENT_IMAGE_NEEDS_REBUILD=true
             ;;
         stale-unmarked)
@@ -987,7 +987,7 @@ apply_media_tools_patch() {
             echo "   It can't be replaced in place (an unmarked block has no reliable end boundary), so it is being left alone." >&2
             echo "   Run a CLEAN deploy to fix it: CLEAN hard-resets container/Dockerfile to upstream, and this patch then re-applies at v${MEDIA_TOOLS_PATCH_VERSION}." >&2
             echo "   Until then, whisper-cli in the agent sandbox may still be the older dynamically-linked build (fails with 'libwhisper.so.1: cannot open shared object file')." >&2
-            _media_tools_log "container/Dockerfile: **STALE (needs CLEAN)** — an unversioned, pre-marker media-tools block is present and cannot be replaced in place. Run a CLEAN deploy to reset container/Dockerfile to upstream and re-apply at v${MEDIA_TOOLS_PATCH_VERSION}. Symptom while stale: whisper-cli fails with \`libwhisper.so.1: cannot open shared object file\` because the old block linked it dynamically against libs deleted from the image."
+            _media_tools_log "container/Dockerfile: **STALE (needs CLEAN)** — an unversioned, pre-marker block is present; wanted v${MEDIA_TOOLS_PATCH_VERSION}. See \"The pre-marker era\" below."
             MEDIA_TOOLS_PATCH_OK=false
             return 0
             ;;
@@ -1000,7 +1000,7 @@ apply_media_tools_patch() {
         echo "❌ Couldn't find the '# ---- Bun runtime' anchor in container/Dockerfile." >&2
         echo "   NanoClaw's Dockerfile may have changed upstream — skipping the media-tools patch;" >&2
         echo "   apply it manually per this environment's README." >&2
-        _media_tools_log "container/Dockerfile: **SKIPPED** — '# ---- Bun runtime' anchor not found, upstream layout may have changed. Apply manually per this environment's README."
+        _media_tools_log "container/Dockerfile: **SKIPPED** — '# ---- Bun runtime' anchor not found."
         MEDIA_TOOLS_PATCH_OK=false
         return 1
     fi
@@ -2119,7 +2119,7 @@ warn_if_ollama_is_loopback_only() {
     # than passing silently.
     if [ "$loopback" -gt 0 ] && [ "$non_loopback" -gt 0 ]; then
         echo "" >&2
-        _ollama_daemon_log "**PROBLEM — two daemons.** Both a loopback and a non-loopback listener are present, so more than one Ollama process is running. An agent container may still be refused: it dials IPv4, and a wide IPv6 listener does not help. A human must fix this on the host."
+        _ollama_daemon_log "**PROBLEM — two daemons.** Both a loopback and a non-loopback listener are present. Host-side fix; see the two-listener note below."
         echo "⚠️  Ollama has both a loopback and a non-loopback listener on 11434:" >&2
         printf '%s\n' "$listeners" | sed 's/^/       /' >&2
         echo "   More than one Ollama process is running. An agent container may still" >&2
@@ -2136,7 +2136,7 @@ warn_if_ollama_is_loopback_only() {
         return 0
     fi
 
-    _ollama_daemon_log "**PROBLEM — loopback only.** No container can reach Ollama, so \`ollama_available: false\` and every agent-side Ollama tool will fail. This is a HOST-side fix and cannot be done from inside a container — see the section below."
+    _ollama_daemon_log "**PROBLEM — loopback only.** No container can reach Ollama. Host-side fix; see failure (b) below."
     echo "" >&2
     echo "⚠️  Ollama is listening on loopback only:" >&2
     printf '%s\n' "$listeners" | sed 's/^/       /' >&2
@@ -2271,7 +2271,7 @@ ensure_ollama_ready() {
             _ollama_daemon_log "Reachable from inside a CONTAINER at that endpoint — verified this deploy."
             ;;
         2)
-            _ollama_daemon_log "Container-side reachability: not tested (the orchestrator image isn't built yet, so there was nothing to probe from)."
+            _ollama_daemon_log "Container-side reachability: not tested (no image built yet to probe from)."
             ;;
         1)
             local lan_ip alt=""
@@ -2283,7 +2283,7 @@ ensure_ollama_ready() {
             echo "   Agents run in containers, so this is the reachability that actually matters —" >&2
             echo "   and every other check above passes regardless, which is why this is easy to miss." >&2
             echo "   Expect: mnemon reporting 'ollama_available: false', agent-side Ollama tools failing." >&2
-            _ollama_daemon_log "**PROBLEM — unreachable from containers.** Ollama answers on the host but NOT from inside a container at \`${endpoint}\`. Agents run in containers, so this is the reachability that matters. Expect \`ollama_available: false\`."
+            _ollama_daemon_log "**PROBLEM — unreachable from containers.** Answers on the host, but not from inside a container at \`${endpoint}\`. See failure (a) below."
 
             if [ -n "$alt" ] && ollama_reachable_from_container "$alt" "$IMAGE_TAG"; then
                 echo "   A container CAN reach it at ${alt} (this host's own LAN address)." >&2
@@ -2291,13 +2291,13 @@ ensure_ollama_ready() {
                 echo "   it can resolve to an address that refuses connections. Set this in .env and redeploy:" >&2
                 echo "     MNEMON_EMBED_ENDPOINT=${alt}" >&2
                 echo "   (baked into the agent image, so it needs a CLEAN to take effect)" >&2
-                _ollama_daemon_log "**Working alternative found:** a container CAN reach \`${alt}\`. Set \`MNEMON_EMBED_ENDPOINT=${alt}\` in this environment's .env and CLEAN — the endpoint is a baked image ENV, so a rebuild is required."
+                _ollama_daemon_log "**Working alternative found:** a container CAN reach \`${alt}\`. Set \`MNEMON_EMBED_ENDPOINT=${alt}\` in .env and CLEAN (baked image ENV)."
             else
                 echo "   No working alternative found automatically — a container could not reach" >&2
                 echo "   ${endpoint}${alt:+ or $alt} directly. This is host networking, not a pi-bootstrap" >&2
                 echo "   setting: check what host.docker.internal resolves to inside a container and" >&2
                 echo "   whether anything is listening on that address." >&2
-                _ollama_daemon_log "No working alternative found automatically${alt:+ (also tried \`${alt}\`)}. This is host/container networking rather than a pi-bootstrap setting — check what \`host.docker.internal\` resolves to inside a container, and whether anything listens on that address."
+                _ollama_daemon_log "No working alternative found automatically${alt:+ (also tried \`${alt}\`)}. Host/container networking, not a pi-bootstrap setting — see failure (a) below."
             fi
             echo "" >&2
             ;;

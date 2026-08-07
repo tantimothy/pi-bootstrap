@@ -81,6 +81,18 @@ pnpm script alias inside NanoClaw's source tree, not a global binary, so it
 needs both the `cd` and the `pnpm` prefix. (Bare `/usr/local/bin/ncl` does
 exist inside *agent* containers — different image, different story.)
 
+**If that rebuild fails and the group is down right now**, there is a second,
+cruder route that gets it answering again in seconds — point the missing tag
+at the base image, on the host:
+
+```
+docker tag <agent-image>:latest nanoclaw-agent-v2-<slug>:<group-id>
+```
+
+The group loses its custom packages until a real rebuild succeeds, but it
+stops being silently dead. Prefer the rebuild; reach for this when the rebuild
+is failing for a reason you cannot fix immediately.
+
 **What the deploy does about all this now.** A CLEAN rebuilds every per-group
 derived image unconditionally — not "if it looks stale", always — so a CLEAN
 ends with every group running an image built from that deploy's source. It

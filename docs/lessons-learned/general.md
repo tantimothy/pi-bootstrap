@@ -559,3 +559,64 @@ decision to make.
   no automation.** The watchdog exists to keep Ollama up, and it did — in a
   configuration that made it useless to the containers that needed it, while
   reporting success every cycle.
+
+---
+
+## Per-deploy status strings grew into documentation, and one of them contradicted the doc it duplicated (2026-08-07)
+
+**Status:** trimmed. Noticed by the operator reading `run.sh`, not by any check.
+
+### Summary
+
+`environments/nanoclaw-mnemon/run.sh` produces two kinds of prose, and only one
+of them had been moved out of the script:
+
+| | Where it lives | Why |
+|---|---|---|
+| Per-patch reference documentation — what a patch changes, its anchors, what shape a correct fix has | `templates/patch-details/<id>.md`, read by `_patch_detail()` | static, long, and reviewable as a doc diff |
+| Per-deploy status — what actually happened this run | inline `_<patch>_log` calls in `run.sh` | interpolates runtime values (`${orphan}`, `${group_id}`, a discovered endpoint); cannot be a static file |
+
+The split is correct. What had drifted is that **static explanation leaked into
+the status strings**. 22 of 58 status calls carried a paragraph; the longest was
+470 characters, restating material the adjacent detail file already covered in
+more depth — and the manifest renders status and detail in the same section, so
+a reader had both on screen.
+
+### The part that made it more than cosmetic
+
+`_mnemon_log`'s stale-block status asserted that an old patch block's
+`ENV NO_PROXY=host.docker.internal` "bypasses the proxy routing that actually
+reaches Ollama" — i.e. that `NO_PROXY` caused `ollama_available: false`.
+
+`patch-details/mnemon.md` item 2 **explicitly retracts that claim**, at length,
+noting it survived four rounds of changes in both directions before the real
+cause (the daemon's bind address, later `host.docker.internal` resolving to a
+dead address) was found.
+
+So the manifest rendered a retracted diagnosis directly above the retraction.
+Anyone reading top-down would have acted on the wrong one. That is the concrete
+cost of the duplication, not a style objection: a correction applied in one copy
+does not reach the other, and nothing flags the disagreement.
+
+### The rule now
+
+A status line states **what happened** and, where useful, points at the section
+below. It does not explain. Explanation lives in the detail file, which is where
+someone repairing the patch is already looking. Console `echo ... >&2` output is
+judged separately — its audience is the operator watching the deploy scroll past,
+who does not have the manifest open — but it is not licence for a paragraph.
+
+### General Lessons
+
+- **Duplicated prose does not merely go stale, it goes contradictory.** The
+  second copy is not "slightly out of date"; it can assert the opposite of the
+  corrected one, with equal confidence and no marker.
+- **A convention applied to one category silently exempts its neighbours.**
+  "Keep prose in the template files" was followed for documentation and never
+  considered for status strings, which then absorbed the prose instead. When
+  introducing a rule, name what it does *not* cover.
+- **Rendered adjacency is duplication.** Two texts that always appear together
+  on screen should not both explain the same thing, whatever files they live in.
+- **This was found by a human reading the source, not by any check.** Nothing
+  syntactic distinguishes a status line from an essay. The cheap guard is a
+  length ceiling on generated status strings; there is currently none.

@@ -49,6 +49,8 @@ Every environment gets a `REBUILD_POLICY` of `FAST` (default — reconcile/reatt
 
 Each patch's user-facing documentation — what it changes, which anchors it depends on, and what shape a correct fix has to have — lives in `environments/nanoclaw-mnemon/templates/patch-details/<id>.md`, not inline in `run.sh`. `write_patches_manifest()` renders those plus per-deploy status into `pi-bootstrap-patches.md` inside the container, for the admin `claude` session to read when something looks broken. Keep prose in the template files: burying it in a shell heredoc made every doc change look like a code change in the diff.
 
+That applies to the `_<patch>_log` **status** strings too, which are the other prose in `run.sh` and are easy to treat as exempt because they legitimately can't be static (they interpolate `${orphan}`, `${group_id}`, a discovered endpoint). A status line says *what happened* and, where useful, points at the detail section — it does not explain, because the manifest renders status and detail in the same section and the reader has both on screen. Letting explanation accumulate there once produced a status line asserting a diagnosis that the detail file immediately below it explicitly retracts; see `docs/lessons-learned/general.md`.
+
 ### The `lib/` dispatcher layer
 
 Two YAML files exist per environment for data that's needed regardless of which deploy archetype it uses — **every caller goes through a dispatcher**, never a per-environment path directly:
