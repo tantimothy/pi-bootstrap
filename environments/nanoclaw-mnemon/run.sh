@@ -2251,8 +2251,57 @@ ensure_ollama_ready() {
     fi
 
     echo "✅ Ollama is reachable."
-    _ollama_daemon_log "Endpoint agents use: \`${endpoint}\` — reachable from the host at deploy time."
+    _ollama_daemon_log "Endpoint agents use: \`${endpoint}\` — reachable from the HOST at deploy time."
     warn_if_ollama_is_loopback_only "$endpoint"
+
+    # The check every host-side probe structurally cannot make. Everything
+    # above answers "is Ollama running?"; this answers "can a CONTAINER reach
+    # it at the endpoint agents are configured to use?" — which is the only
+    # question that matters, and the one whose absence cost days.
+    #
+    # It is not hypothetical that these differ. On a real OrbStack install
+    # `host.docker.internal` resolved to an address that REFUSED connections
+    # while the Mac sat elsewhere on that bridge; every host-side check passed,
+    # mnemon reported ollama_available:false throughout, and the actual working
+    # address turned out to be the host's plain LAN IP.
+    ollama_reachable_from_container "$endpoint" "$IMAGE_TAG"
+    case $? in
+        0)
+            echo "✅ Reachable from inside a container too (this is what agents actually need)."
+            _ollama_daemon_log "Reachable from inside a CONTAINER at that endpoint — verified this deploy."
+            ;;
+        2)
+            _ollama_daemon_log "Container-side reachability: not tested (the orchestrator image isn't built yet, so there was nothing to probe from)."
+            ;;
+        1)
+            local lan_ip alt=""
+            lan_ip="$(ollama_host_lan_ip)"
+            [ -n "$lan_ip" ] && alt="http://${lan_ip}:11434"
+
+            echo "" >&2
+            echo "❌ Ollama answers on this host, but a CONTAINER cannot reach it at ${endpoint}." >&2
+            echo "   Agents run in containers, so this is the reachability that actually matters —" >&2
+            echo "   and every other check above passes regardless, which is why this is easy to miss." >&2
+            echo "   Expect: mnemon reporting 'ollama_available: false', agent-side Ollama tools failing." >&2
+            _ollama_daemon_log "**PROBLEM — unreachable from containers.** Ollama answers on the host but NOT from inside a container at \`${endpoint}\`. Agents run in containers, so this is the reachability that matters. Expect \`ollama_available: false\`."
+
+            if [ -n "$alt" ] && ollama_reachable_from_container "$alt" "$IMAGE_TAG"; then
+                echo "   A container CAN reach it at ${alt} (this host's own LAN address)." >&2
+                echo "   host.docker.internal is not a dependable route to the host on every platform —" >&2
+                echo "   it can resolve to an address that refuses connections. Set this in .env and redeploy:" >&2
+                echo "     MNEMON_EMBED_ENDPOINT=${alt}" >&2
+                echo "   (baked into the agent image, so it needs a CLEAN to take effect)" >&2
+                _ollama_daemon_log "**Working alternative found:** a container CAN reach \`${alt}\`. Set \`MNEMON_EMBED_ENDPOINT=${alt}\` in this environment's .env and CLEAN — the endpoint is a baked image ENV, so a rebuild is required."
+            else
+                echo "   No working alternative found automatically — a container could not reach" >&2
+                echo "   ${endpoint}${alt:+ or $alt} directly. This is host networking, not a pi-bootstrap" >&2
+                echo "   setting: check what host.docker.internal resolves to inside a container and" >&2
+                echo "   whether anything is listening on that address." >&2
+                _ollama_daemon_log "No working alternative found automatically${alt:+ (also tried \`${alt}\`)}. This is host/container networking rather than a pi-bootstrap setting — check what \`host.docker.internal\` resolves to inside a container, and whether anything listens on that address."
+            fi
+            echo "" >&2
+            ;;
+    esac
 
     if curl -fsS "${probe_endpoint}/api/tags" 2>/dev/null | grep -q "\"name\":\"${model}"; then
         echo "✅ Model '$model' already pulled."
