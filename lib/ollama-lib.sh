@@ -63,6 +63,47 @@ ollama_resolve_serve_host() {
     OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
 }
 
+# ---------------------------------------------------------------------------------------
+# Maintenance lock — keeps the scheduled watchdog out of a deploy's way.
+#
+# The `ollama` environment's STOP/TEARDOWN/CLEAN policies all stop the daemon
+# on purpose, and a CLEAN then uninstalls and reinstalls it. The watchdog runs
+# on its own schedule (every 5 minutes by default) and exists precisely to
+# restart a daemon that is not answering — so a tick landing inside that window
+# sees exactly what it is built to fix and "fixes" it: restarting Ollama in the
+# middle of its own teardown, potentially while the binary is being removed,
+# and firing a spurious "Ollama is back up" notification.
+#
+# Nothing coordinated the two. This is the same three-managers-of-one-daemon
+# problem this library exists for, except across time rather than across code.
+#
+# The lock goes stale on its own: a deploy that crashes without cleaning up
+# must not disable the watchdog forever, which would be a far worse failure
+# than the race it prevents. `find -mmin` is used for the age check because it
+# behaves the same on BSD/macOS and GNU, unlike `stat`.
+# ---------------------------------------------------------------------------------------
+OLLAMA_MAINTENANCE_LOCK="${OLLAMA_MAINTENANCE_LOCK:-$HOME/.pi-bootstrap-ollama-maintenance.lock}"
+OLLAMA_MAINTENANCE_MAX_AGE_MIN="${OLLAMA_MAINTENANCE_MAX_AGE_MIN:-30}"
+
+ollama_begin_maintenance() {
+    printf '%s pid=%s\n' "${1:-maintenance}" "$$" > "$OLLAMA_MAINTENANCE_LOCK" 2>/dev/null || true
+}
+
+ollama_end_maintenance() {
+    rm -f "$OLLAMA_MAINTENANCE_LOCK" 2>/dev/null || true
+}
+
+ollama_maintenance_active() {
+    [ -f "$OLLAMA_MAINTENANCE_LOCK" ] || return 1
+    # Present but older than the cutoff: treat as abandoned and clear it, so a
+    # crashed deploy self-heals rather than silently muting the watchdog.
+    if [ -z "$(find "$OLLAMA_MAINTENANCE_LOCK" -mmin "-${OLLAMA_MAINTENANCE_MAX_AGE_MIN}" 2>/dev/null)" ]; then
+        ollama_end_maintenance
+        return 1
+    fi
+    return 0
+}
+
 # Address of every listener on Ollama's port, one per line, empty if none.
 # lsof on macOS, ss on modern Linux, netstat as a last resort — if none of the
 # three exists we return nothing rather than guessing, since a false claim here

@@ -162,6 +162,14 @@ _teardown_ollama() {
     echo "✅ Ollama runtime removed; shared downloaded models were preserved."
 }
 
+# Hold the maintenance lock for the whole deploy: STOP/TEARDOWN/CLEAN all stop
+# the daemon deliberately, and a scheduled watchdog tick would otherwise see an
+# unhealthy Ollama and restart it mid-teardown. Released on every exit path,
+# including failure — a lock left behind would mute the watchdog, and the trap
+# is what stops the abandoned-lock timeout from ever being load-bearing.
+ollama_begin_maintenance "deploy:${POLICY}"
+trap ollama_end_maintenance EXIT INT TERM
+
 echo "🦙 Setting up the shared native Ollama service..."
 
 case "$POLICY" in

@@ -117,6 +117,15 @@ do_check_and_restart() {
     if is_healthy; then
         return 0
     fi
+    # A deploy is deliberately holding Ollama down (STOP/TEARDOWN/CLEAN).
+    # Restarting here would fight it — potentially starting the daemon while
+    # its binary is being removed — and would report a "recovery" that is
+    # really interference. The lock expires on its own, so a crashed deploy
+    # cannot mute this permanently.
+    if ollama_maintenance_active; then
+        _log "⏸️  Ollama is down, but a pi-bootstrap deploy holds the maintenance lock — leaving it alone."
+        return 0
+    fi
     _log "⚠️  Ollama not responding at $OLLAMA_HOST/api/tags within ${TIMEOUT}s"
     notify "Ollama wasn't responding — restarting it now."
     restart_ollama
