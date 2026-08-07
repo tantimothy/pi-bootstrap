@@ -26,6 +26,22 @@ The `-f` flag matters either way: without it, curl treats any HTTP error respons
 that 429 page — as "success" and pipes its body straight into `bash`, which executes it as
 garbled commands instead of failing cleanly.
 
+### Which commit you're running
+
+The main menu's first line reports it — branch, short SHA, and commit date:
+
+```
+Running: master @ c790912 | 2026-08-07 07:53
+```
+
+`deploy.sh` fetches and hard-resets to `origin/master` before re-executing itself on every
+normal start, so this is usually just "master, as of a few seconds ago". It earns its place in
+the cases where it *isn't*: a checkout parked on a feature branch, an interrupted sync, or a
+copy with no `.git` at all (`not a git checkout`). Two suffixes appear only when they apply —
+`LOCAL CHANGES` when tracked files differ from the commit, and `N behind origin/master` /
+`N ahead` when `HEAD` has drifted from the remote-tracking ref. Nothing here touches the
+network; the ahead/behind counts are as fresh as the fetch that already ran at startup.
+
 ---
 
 ## 🗂️ Environments
