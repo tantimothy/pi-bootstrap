@@ -1,3 +1,6 @@
+custom_actions:
+  - label: "Set Resolution to 1920x1080 (Console + X11)"
+    command: "bash ${SCRIPT_DIR}/scripts/set-resolution.sh"
 data_dirs: []
 install_dirs: []
 named_volumes: []
@@ -21,3 +24,9 @@ useful_commands: |2
      tmux ls                                                         # List active tmux sessions
      tmux attach                                                     # Attach to most recent tmux session
      sudo systemctl restart vncserver@1.service          # Restart VNC server (apply config changes)
+     xscreensaver-demo                                               # Configure screensaver timeout/lock (X11 only)
+
+  📌 Notes:
+     🖥️ First physical/HDMI connect too big or off-screen? Use the "Set
+        Resolution to 1920x1080 (Console + X11)" action above, then
+        `sudo reboot` to apply it.
