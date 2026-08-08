@@ -13,6 +13,8 @@ This is not a Docker environment — it runs directly on the host and has no con
 - **`apt-get install`** of packages listed in `packages.txt` — direct host package management, not a container image build.
 - **Idempotent `.bashrc` injection** — two independently-positioned marker-delimited blocks (tmux auto-attach, fastfetch on login), carefully ordered so other environments (e.g. `pihole-wireguard`'s PADD launcher) can insert their own block in between without disturbing tmux-first/fastfetch-last ordering. No Docker archetype has any notion of "edit the host user's shell rc file."
 - **TigerVNC install and systemd service setup** — installs `tigervnc-standalone-server`, resolves a Debian-version-dependent password utility (`vncpasswd` vs `tigervncpasswd`), writes `/etc/tigervnc/vncserver.users` and a `vncserver@.service` unit file, then enables/starts it via `systemctl`. This is host-level remote-desktop infrastructure, not something expressible as a container at all.
+- **xscreensaver autostart** — writes an XDG autostart entry under `~/.config/autostart` so `xscreensaver` launches whenever the X11 desktop session starts (VNC or physical). Again, no Docker archetype has any notion of a per-user desktop autostart directory.
+- **Display resolution / X11 custom action** — the "Set Resolution to 1920x1080 (Console + X11)" menu action shells out to `raspi-config nonint`, which touches `/boot/firmware/config.txt` and the boot cmdline directly; this is host firmware configuration, well outside anything Docker can reach.
 
 Since there's no `Dockerfile`/`docker-compose.yml` for this environment, `deploy.sh` has literally nothing to fall back to without `run.sh` — it's the only archetype that fits.
 
@@ -25,6 +27,7 @@ Since there's no `Dockerfile`/`docker-compose.yml` for this environment, `deploy
 | tmux | [github.com/tmux/tmux](https://github.com/tmux/tmux) | Terminal multiplexer — persists sessions across SSH disconnects and splits one terminal into panes/windows |
 | fastfetch | [github.com/fastfetch-cli/fastfetch](https://github.com/fastfetch-cli/fastfetch) | Fast system info display (OS, CPU, RAM, uptime) shown on login — neofetch replacement written in C |
 | TigerVNC | [tigervnc.org](https://tigervnc.org) | High-performance VNC server — streams the full Pi desktop to any VNC client at 1920×1080, auto-starts on boot via systemd |
+| xscreensaver | [jwz.org/xscreensaver](https://www.jwz.org/xscreensaver/) | X11 screensaver/locker daemon, autostarted on desktop login |
 
 Note: [PADD](https://github.com/pi-hole/PADD) (Pi-hole's terminal stats dashboard) is wired up by the `pihole-wireguard` environment, not this one — see its README.
 
@@ -40,8 +43,22 @@ Note: [PADD](https://github.com/pi-hole/PADD) (Pi-hole's terminal stats dashboar
 
    For example, `pihole-wireguard`'s PADD launcher block inserts itself between these two, so the login sequence is always tmux → PADD → fastfetch regardless of which environment you deploy first.
 4. **Installs and configures TigerVNC** — see below
+5. **Wires up xscreensaver autostart** — writes `~/.config/autostart/xscreensaver.desktop` (idempotent — overwritten, not appended, on re-run) so the screensaver daemon launches under any X11 desktop session (VNC or physical monitor)
 
 The `.bashrc` injections use marker comments so re-running the script cleanly replaces the previous blocks rather than appending duplicate lines.
+
+---
+
+## 🖥️ Display Resolution (Console + X11)
+
+If the first physical/HDMI connect renders too big or off-screen — common when the Pi auto-negotiates a mode the monitor/capture device can't actually show correctly — use the **"Set Resolution to 1920x1080 (Console + X11)"** action from `deploy.sh`'s menu for this environment (or run `scripts/set-resolution.sh` directly). It:
+
+1. Forces the desktop session to X11 via `raspi-config nonint do_wayland W1` (Raspberry Pi OS Bookworm defaults to Wayland/labwc, which xscreensaver and this fixed-resolution mode don't work under)
+2. Forces console framebuffer + X11 desktop resolution to 1920x1080 (DMT mode 82) via `raspi-config nonint do_resolution 2 82`
+
+**Requires a reboot** (`sudo reboot`) to take effect — both are firmware/boot-config changes.
+
+This is independent of the VNC session's own resolution, which is set separately by `geometry=1920x1080` in `~/.vnc/config` (see below) and already defaults to 1920x1080.
 
 ---
 
@@ -53,6 +70,7 @@ Edit `packages.txt` to add or remove packages. One package name per line, commen
 # Terminal utilities
 tmux
 fastfetch
+xscreensaver
 
 # Networking tools
 nmap
@@ -193,4 +211,10 @@ vncpasswd
 
 # View VNC server log
 cat ~/.vnc/*.log
+
+# Force console + X11 to 1920x1080 (also available as a deploy.sh menu action)
+bash scripts/set-resolution.sh
+
+# Configure screensaver timeout/lock (X11 only)
+xscreensaver-demo
 ```

@@ -221,6 +221,24 @@ else
     sudo systemctl start "vncserver@${VNC_DISPLAY}.service"
 fi
 
+# --- STEP 5: X11 SCREENSAVER AUTOSTART ---
+# xscreensaver only runs under X11 (not Wayland/labwc), which is what both
+# the TigerVNC session above and the "Set Resolution" custom action force.
+# Written as a standard XDG autostart entry (rather than a systemd --user
+# unit) since that's what lightdm-xsession itself respects on login.
+echo ""
+echo "🔒 Wiring up xscreensaver autostart for X11..."
+sudo -u "$VNC_USER" mkdir -p "$VNC_HOME/.config/autostart"
+sudo tee "$VNC_HOME/.config/autostart/xscreensaver.desktop" > /dev/null << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=XScreenSaver
+Comment=Launch XScreenSaver daemon (X11 only)
+Exec=xscreensaver -no-splash
+X-GNOME-Autostart-enabled=true
+EOF
+sudo chown "$VNC_USER:$VNC_USER" "$VNC_HOME/.config/autostart/xscreensaver.desktop"
+
 # Best-effort — a no-op today (this environment has no install-desktop.sh),
 # kept for consistency with every other environment in case one is added later.
 bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
