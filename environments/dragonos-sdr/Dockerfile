@@ -122,11 +122,13 @@ while true; do
                   3>&1 1>&2 2>&3)
 
   if [ $? -ne 0 ] || [ -z "$CHOICE" ]; then
-    # Cancel/ESC (or, defensively, an empty choice for any other reason) —
-    # redraw rather than exiting the whole session; only an explicit
-    # "Exit" selection (tag K below) should actually end this script and
-    # return to the host.
-    continue
+    # Cancel/ESC on this, the top-level menu, has nowhere else to bounce
+    # back to — same as picking "Exit" (tag K) explicitly, so treat it
+    # the same way, matching how a nested dialog's own Cancel returns to
+    # its caller (here, that caller is the host).
+    clear
+    echo "🚪 Detached (Cancel/Esc). Container remains running headlessly in the background."
+    exit 0
   fi
 
   # Re-highlight whatever was just picked (header or leaf) on the next
