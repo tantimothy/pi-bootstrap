@@ -51,7 +51,17 @@ show_menu() {
 
 while true; do
     show_menu
+    menu_status=$?
     choice=$(cat /tmp/menu_choice)
+
+    # dialog writes nothing to /tmp/menu_choice on Cancel/ESC, so $choice
+    # comes back empty — without this check that empty value falls through
+    # to the catch-all "4|*)" arm below, which is Detach, silently exiting
+    # the whole container session back to the host on a stray ESC/cancel.
+    # Redraw instead; only an explicit "4" selection should ever detach.
+    if [ "$menu_status" -ne 0 ]; then
+        continue
+    fi
 
     case $choice in
         1)
@@ -67,9 +77,14 @@ while true; do
             clear
             echo "Dropping to container Bash. Type 'exit' to return to menu."
             /bin/bash ;;
-        4|*)
+        4)
             clear
             echo "🚪 Detached. Container remains running headlessly in the background."
             exit 0 ;;
+        *)
+            # Unrecognized/empty tag — the menu_status check above already
+            # catches a genuine Cancel/ESC, but treat anything else the same
+            # way defensively: redraw rather than falling through to Detach.
+            continue ;;
     esac
 done
