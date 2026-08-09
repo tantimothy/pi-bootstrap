@@ -102,8 +102,10 @@ while true; do
                   3>&1 1>&2 2>&3)
 
   if [ $? -ne 0 ]; then
-    echo "Menu canceled. Exiting..."
-    break
+    # Cancel/ESC on the treeview itself — redraw rather than exiting the
+    # whole session; only an explicit "Exit" selection (option 20 below)
+    # should actually end this script and return to the host.
+    continue
   fi
 
   clear
@@ -245,9 +247,14 @@ INFOEOF
     19)
       echo "Dropping into Bash. Type 'exit' to return to the menu."
       /bin/bash ;;
-    20|*)
+    20)
       echo "Exiting DragonOS SDR launcher."
       break ;;
+    *)
+      # Unrecognized/empty tag — the cancel check above already handles a
+      # genuine ESC/Cancel, but treat anything else the same way
+      # defensively: redraw rather than falling through to Exit.
+      continue ;;
   esac
 done
 EOF
