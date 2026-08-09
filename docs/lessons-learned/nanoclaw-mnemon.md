@@ -902,6 +902,35 @@ of this started.
   upstream `dockerd` in exactly the corners (volume type auto-detection)
   that are least likely to be covered by day-to-day testing.
 
+### Follow-up: Persistence Re-Requested, Shipped via the Structural Fix Designed (Not Retested) Above
+
+**Status:** shipped, not yet retested live. A later session explicitly asked
+for the admin `claude` session to keep its memory across a rebuild —
+directly superseding the earlier "I'm ok if history is lost" stance that
+led to the revert above, so this isn't the scope-creep case the lessons
+above warn about; it's the same feature being requested on its own merits.
+
+Implemented using the bind-mount design from "Why This Was Reverted" above
+that was designed but never actually retested before the revert:
+`$NANOCLAW_INSTALL_PATH/.claude-admin/home` bind-mounted to `/root/.claude`,
+`.claude-admin/claude.json` to `/root/.claude.json` — both pre-created
+(`mkdir -p` / `echo '{}' >`) on the host before `docker run`, same as every
+other volume path in this repo's own convention, rather than a named
+volume. Since a bind mount's source must already exist as the real type
+before the mount happens, there's no type to guess the way OrbStack's
+volume driver had to — the specific bug class this hit before is
+structurally not reachable here.
+
+**Not yet confirmed against a real OrbStack deploy** — the previous
+`--mount` vs `-v` "fix" in this same file is the standing reminder of why
+that matters: a plausible mechanism plus a cited upstream issue isn't
+confirmation, a clean live retest is. If a real deploy reproduces the
+`is not directory` error (or any other failure) against this bind-mount
+version, that would mean the bug class is broader than "named-volume
+single-file mounts specifically," and this section needs updating with
+whatever that retest actually shows — not silently believed to work
+because the reasoning sounds right.
+
 ## "Open a Claude Session" Opened Plain Bash, and a Freshly-Picked Model Never Took Effect
 
 **Status:** fixed and confirmed live on `nanoclaw-mnemon` (user confirmed

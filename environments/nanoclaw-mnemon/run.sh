@@ -376,9 +376,10 @@ remove_agent_containers() {
         echo "     docker ps --filter 'name=nanoclaw-v2-' --format '{{.Names}}\t{{.Image}}\t{{.CreatedAt}}'"
     fi
     # Every caller of this function has just invalidated whatever the last
-    # smoke test observed: TEARDOWN and CLEAN destroy the orchestrator's own
-    # ephemeral state (including /root/.claude, per entrypoint.sh's own
-    # comment) plus every agent container, and the two post-image-rebuild
+    # smoke test observed: TEARDOWN and CLEAN recreate the orchestrator
+    # container (its own admin /root/.claude session state now survives
+    # this, via the bind mount above — only the container itself is new)
+    # plus every agent container, and the two post-image-rebuild
     # sweeps further below replace every agent container with one built from
     # a different image. In all four cases a prior smoke-test record is no
     # longer evidence about the environment that exists now. Deleting it here
@@ -2543,6 +2544,22 @@ elif $DOCKER ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     $DOCKER start "$CONTAINER_NAME" >/dev/null
 else
     echo "🚀 Launching the NanoClaw+Mnemon orchestrator container..."
+    # Persists the admin `claude` session (/root/.claude conversation
+    # history, /root/.claude.json OAuth/MCP/onboarding state) across
+    # container recreation, via a real bind mount to files that already
+    # exist on the host — NOT a named volume. A named-volume version of
+    # this was tried before, shipped, and reverted after a real CLEAN
+    # deploy failed outright ("source .../merged/root/.claude.json is not
+    # directory") on OrbStack, whose volume driver doesn't reliably
+    # auto-detect file-vs-directory destination type the way real dockerd's
+    # copy-up does (see docs/lessons-learned/nanoclaw-mnemon.md's
+    # "~/.claude.json Volume Mount Failure" entry for the full three-round
+    # investigation). A bind mount has no such ambiguity to trip over: its
+    # source must already exist as the real type before the mount even
+    # happens, so mkdir -p / a pre-seeded file below make that type
+    # unambiguous rather than asking Docker to guess it.
+    mkdir -p "$INSTALL_PATH/.claude-admin/home"
+    [ -f "$INSTALL_PATH/.claude-admin/claude.json" ] || echo '{}' > "$INSTALL_PATH/.claude-admin/claude.json"
     # /tmp:/tmp — same reasoning as NANOCLAW_INSTALL_PATH's identical-path
     # bind mount above (see the README's "Deployment Modes" section): any
     # path this container passes as a bind-mount *source* when spawning its
@@ -2567,6 +2584,8 @@ else
         -e OLLAMA_ADMIN_TOOLS="${OLLAMA_ADMIN_TOOLS:-}" \
         -e OLLAMA_NO_PROXY_OVERRIDE="${OLLAMA_NO_PROXY_OVERRIDE:-}" \
         -v "$INSTALL_PATH:$INSTALL_PATH" \
+        -v "$INSTALL_PATH/.claude-admin/home:/root/.claude" \
+        -v "$INSTALL_PATH/.claude-admin/claude.json:/root/.claude.json" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \
         -v /etc/localtime:/etc/localtime:ro \

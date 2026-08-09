@@ -73,15 +73,13 @@ else
     # against a real deploy: the whole tmux window (and, since it's the
     # only one, the session and the `docker exec -it` connection along
     # with it) closed the instant that happened, dropping straight back to
-    # deploy.sh's menu with no usable session at all. Since this
-    # environment has no persisted `~/.claude` state across container
-    # recreation by design (see docs/lessons-learned/nanoclaw-mnemon.md's
-    # "Ultimately reverted, not shipped" entry), that's the case on every
-    # single first launch after a recreation, not a rare edge case — so
-    # `|| claude $MODEL_ARGS` isn't a defensive nicety here, it's required
-    # for this to ever work at all post-recreation. `--continue` is still
-    # tried first, since a conversation CAN exist within the same
-    # container's lifetime if `claude` was exited and this session
-    # relaunched without the container itself being recreated.
+    # deploy.sh's menu with no usable session at all. `/root` (this
+    # WORKDIR) now has persisted `~/.claude` state across container
+    # recreation, bind-mounted from $NANOCLAW_INSTALL_PATH/.claude-admin/
+    # (see run.sh's own comment on that mount), so `--continue` succeeds
+    # here in the common case — but `|| claude $MODEL_ARGS` stays as the
+    # fallback for the genuinely-nothing-to-resume case (a fresh install's
+    # very first launch, or WORKDIR set to some other directory with no
+    # history of its own).
     tmux new-session -s "$SESSION" -c "$WORKDIR" sh -c "claude --continue $MODEL_ARGS || claude $MODEL_ARGS"
 fi
