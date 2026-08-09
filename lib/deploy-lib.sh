@@ -11,8 +11,17 @@
 #
 # deploy_environment <env_dir> <policy> [docker_cmd]
 #   env_dir    — absolute path to the environment directory
-#   policy     — FAST | STOP | TEARDOWN | CLEAN
+#   policy     — FAST | STOP | TEARDOWN | CLEAN | REBUILD
 #   docker_cmd — defaults to "docker" (pass "sudo docker" etc. as needed)
+#
+# REBUILD (docker-compose.yml/Dockerfile archetypes only) is a normal
+# cached `docker build`/`compose build` — no --no-cache, no pull — so
+# Docker only replays layers whose own instruction text changed. Cheaper
+# than CLEAN for a Dockerfile-only edit (an ARG, a COPYed script); reach
+# for CLEAN when the actual package list changed. run.sh environments get
+# REBUILD passed straight through as $policy same as any other value —
+# whether a given run.sh actually implements it is up to that script (see
+# deploy.sh's own REBUILD-menu-visibility gating for how that's detected).
 #
 # Prints progress to stdout as it goes (and durably records the whole
 # session to environments/<env>/logs/ — see _run_logged below). Returns 0
@@ -113,9 +122,9 @@ _deploy_environment_body() {
 
     # Pre-create data directories (as the invoking user) before Docker
     # ever touches them as a bind-mount target — generic fallback only
-    # (no run.sh), since every run.sh already does this itself, and
-    # only for FAST/CLEAN, since STOP/TEARDOWN never create anything.
-    if [ ! -f "run.sh" ] && { [ -f "info.sh" ] || [ -f "info.yaml" ]; } && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ]; }; then
+    # (no run.sh), since every run.sh already does this itself, and only
+    # for FAST/CLEAN/REBUILD, since STOP/TEARDOWN never create anything.
+    if [ ! -f "run.sh" ] && { [ -f "info.sh" ] || [ -f "info.yaml" ]; } && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ] || [ "$policy" = "REBUILD" ]; }; then
         while IFS= read -r dir; do
             [ -n "$dir" ] && mkdir -p "$dir"
         done < <(bash "$repo_dir/lib/run-info.sh" "$env_dir" list-dirs 2>/dev/null)
@@ -135,8 +144,8 @@ _deploy_environment_body() {
     # instead: at least one Docker implementation (OrbStack, confirmed
     # directly) doesn't reliably auto-detect file-vs-directory type for a
     # *named volume* attached to a single-file destination either. Same
-    # FAST/CLEAN-only gating as the data-dirs pre-creation above.
-    if [ ! -f "run.sh" ] && [ -f "pre-deploy.sh" ] && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ]; }; then
+    # FAST/CLEAN/REBUILD gating as the data-dirs pre-creation above.
+    if [ ! -f "run.sh" ] && [ -f "pre-deploy.sh" ] && { [ "$policy" = "FAST" ] || [ "$policy" = "CLEAN" ] || [ "$policy" = "REBUILD" ]; }; then
         chmod +x pre-deploy.sh
         ./pre-deploy.sh
     fi
@@ -179,6 +188,30 @@ _deploy_environment_body() {
                     return 1
                 fi
                 ;;
+            REBUILD)
+                # A normal cached `docker compose build` (no --no-cache, no
+                # pull) — Docker only replays layers whose own instruction
+                # text changed, so a Dockerfile-only edit (an ARG, a COPYed
+                # script) picks up without re-downloading every apt package
+                # the image installs. For a locally-built service (has its
+                # own `build:` in docker-compose.yml, e.g. pihole-wireguard's
+                # darkstat/nettools) this actually rebuilds something; for a
+                # service that's just a pulled `image:` with no `build:` key,
+                # `compose build` is a silent no-op for it — harmless, since
+                # there's nothing local to rebuild there in the first place.
+                echo "🐳 Docker Compose file detected [REBUILD]! Rebuilding with Docker's layer cache (no image pull)..."
+                if $docker_cmd compose build; then
+                    echo "🛑 Rebuilt images ready — tearing down and relaunching..."
+                    $docker_cmd compose down 2>/dev/null || true
+                    $docker_cmd compose up -d
+                    rc=$?
+                    $docker_cmd image prune -f >/dev/null 2>&1 || true
+                    return $rc
+                else
+                    echo "❌ Build failed — leaving the existing stack untouched."
+                    return 1
+                fi
+                ;;
             *)
                 echo "🐳 Docker Compose file detected [FAST]! Synchronizing stack changes using cached layer parameters..."
                 $docker_cmd compose up -d
@@ -203,6 +236,28 @@ _deploy_environment_body() {
                 echo "🛠️ Raw Dockerfile detected [CLEAN]! Building fresh image before touching the running container..."
                 if $docker_cmd build --no-cache -t "${env_name}:latest" .; then
                     echo "🛑 Fresh image ready — tearing down previous container..."
+                    $docker_cmd stop "$tracking_name" 2>/dev/null || true
+                    $docker_cmd rm   "$tracking_name" 2>/dev/null || true
+                    env_flags=""
+                    [ -f ".env" ] && env_flags="--env-file .env"
+                    $docker_cmd run -d --name "$tracking_name" $env_flags --restart unless-stopped -p 80:80 "${env_name}:latest"
+                    rc=$?
+                    $docker_cmd image prune -f >/dev/null 2>&1 || true
+                    return $rc
+                else
+                    return 1
+                fi
+                ;;
+            REBUILD)
+                # Cached `docker build` (no --no-cache) — see the
+                # docker-compose.yml REBUILD case above for why this is
+                # cheaper than CLEAN. Always rebuilds (unlike FAST's
+                # start-if-exists shortcut below), since REBUILD's whole
+                # point is picking up an edit that FAST would otherwise
+                # never notice.
+                echo "🔧 Raw Dockerfile detected [REBUILD]! Rebuilding with Docker's layer cache..."
+                if $docker_cmd build -t "${env_name}:latest" .; then
+                    echo "🛑 Rebuilt image ready — tearing down previous container..."
                     $docker_cmd stop "$tracking_name" 2>/dev/null || true
                     $docker_cmd rm   "$tracking_name" 2>/dev/null || true
                     env_flags=""
