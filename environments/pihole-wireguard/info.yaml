@@ -1,3 +1,8 @@
+custom_actions:
+  - label: "iftop (Top Talkers)"
+    command: 'docker exec -it ${NETTOOLS_CONTAINER_NAME:-nettools} iftop -i ${NETTOOLS_INTERFACE:-eth0}'
+  - label: "nethogs (Bandwidth by Process)"
+    command: 'docker exec -it ${NETTOOLS_CONTAINER_NAME:-nettools} nethogs ${NETTOOLS_INTERFACE:-eth0}'
 data_dirs:
   - path: "${SCRIPT_DIR}/etc-pihole"
     description: "Pi-hole config, gravity database, custom blocklists, local DNS records"

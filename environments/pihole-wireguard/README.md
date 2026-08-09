@@ -323,6 +323,8 @@ Every entry above is also mirrored onto your Desktop as a clickable icon, not ju
 
 **iftop and nethogs** open in a terminal, same as `docker exec -it nettools iftop -i eth0` run by hand. **EtherApe** uses the same X11 forwarding pattern as `kali-pentest`'s GUI launchers: it grants the container's local root identity access to the host's X11/XWayland display only while it's running, and revokes it on exit. The Pi host needs the `xhost` command (`x11-xserver-utils` on Raspberry Pi OS) for EtherApe; all three need the `nettools` container running (deploy this environment with `FAST` first) and, for a fresh deploy, one `CLEAN` so the image with `iftop`/`nethogs`/`etherape` installed actually exists.
 
+**iftop and nethogs are also reachable without a desktop** — since they're plain CLI tools, they're wired up as `custom_actions` in `info.yaml` too, so they show up directly in `deploy.sh`'s own deployment-policy menu for this environment (alongside FAST/CLEAN/etc.), for headless/SSH-only Pis with no desktop session to launch a `.desktop` entry from. EtherApe has no CLI equivalent (it's GUI-only), so it stays desktop-only.
+
 The script checks whether the stack is deployed before registering entries — it prints a warning and exits cleanly if the `pihole` container doesn't exist yet, and removes any previously-installed entries if the stack has since been torn down. Deploy first, then re-run to install the entries.
 
 ---
