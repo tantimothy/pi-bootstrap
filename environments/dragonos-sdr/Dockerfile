@@ -63,29 +63,42 @@ if [ ! -t 0 ]; then
 fi
 
 while true; do
+  # Real dialog --treeview nesting (category headers at depth 0, tools
+  # indented under them at depth 1) instead of a flat numbered list with
+  # no grouping at all — same pattern as kali-pentest's own menu. Category
+  # header tags ("hdr_*") are handled below by just looping back to
+  # redraw, same as a real tool would return to the menu.
   CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \
                   --title " Select an SDR Tool " \
-                  --menu "Choose a tool to launch:" 32 80 20 \
-                  1  "Info              — Environment info: data dirs, useful commands" \
-                  2  "GQRX              — Graphical spectrum analyzer / FM/AM/SSB receiver" \
-                  3  "GNU Radio         — Visual signal processing flowgraph editor" \
-                  4  "rtl_test          — Benchmark & verify RTL-SDR dongle" \
-                  5  "rtl_fm            — FM/AM/SSB demodulator → audio via aplay" \
-                  6  "rtl_tcp           — Network SDR server (connect from GQRX/SDR# remotely)" \
-                  7  "rtl_power         — Wideband spectrum power scan across a frequency range" \
-                  8  "hackrf_info       — Read HackRF firmware version & hardware registers" \
-                  9  "hackrf_sweep      — Fast full-spectrum scan (1 MHz – 6 GHz)" \
-                  10 "hackrf_transfer   — Receive or transmit raw IQ data to/from file" \
-                  11 "dump1090          — ADS-B aircraft tracker (1090 MHz, interactive table)" \
-                  12 "readsb            — ADS-B decoder with MLAT & web map (port 8080)" \
-                  13 "rtl_433           — Decode 433/868/915 MHz sensors, remotes & meters" \
-                  14 "multimon-ng       — Decode pagers, EAS weather alerts & DTMF from FM" \
-                  15 "direwolf          — APRS packet radio decoder / TNC (144.390/144.800 MHz)" \
-                  16 "acarsdec          — ACARS aircraft data-link messages (129-131 MHz)" \
-                  17 "SoapySDRUtil      — Probe all connected SDR hardware (any vendor)" \
-                  18 "lsusb             — List physical USB connections on the host" \
-                  19 "Bash Shell        — Drop to a raw terminal inside the container" \
-                  20 "Exit" \
+                  --treeview "Choose a tool to launch:" 36 80 28 \
+                  hdr_info     "[Info]"                    off 0 \
+                  1            "Environment info: data dirs, useful commands" off 1 \
+                  hdr_recv     "[SDR Receivers]"            off 0 \
+                  2            "GQRX — Graphical spectrum analyzer / FM/AM/SSB receiver" off 1 \
+                  3            "GNU Radio — Visual signal processing flowgraph editor" off 1 \
+                  hdr_rtlsdr   "[RTL-SDR Utilities]"        off 0 \
+                  4            "rtl_test — Benchmark & verify RTL-SDR dongle" off 1 \
+                  5            "rtl_fm — FM/AM/SSB demodulator to audio via aplay" off 1 \
+                  6            "rtl_tcp — Network SDR server (connect from GQRX/SDR# remotely)" off 1 \
+                  7            "rtl_power — Wideband spectrum power scan across a frequency range" off 1 \
+                  hdr_hackrf   "[HackRF Utilities]"         off 0 \
+                  8            "hackrf_info — Read HackRF firmware version & hardware registers" off 1 \
+                  9            "hackrf_sweep — Fast full-spectrum scan (1 MHz - 6 GHz)" off 1 \
+                  10           "hackrf_transfer — Receive or transmit raw IQ data to/from file" off 1 \
+                  hdr_adsb     "[ADS-B Aircraft Tracking]"  off 0 \
+                  11           "dump1090 — ADS-B aircraft tracker (1090 MHz, interactive table)" off 1 \
+                  12           "readsb — ADS-B decoder with MLAT & web map (port 8080)" off 1 \
+                  hdr_decoders "[Signal Decoders]"          off 0 \
+                  13           "rtl_433 — Decode 433/868/915 MHz sensors, remotes & meters" off 1 \
+                  14           "multimon-ng — Decode pagers, EAS weather alerts & DTMF from FM" off 1 \
+                  15           "direwolf — APRS packet radio decoder / TNC (144.390/144.800 MHz)" off 1 \
+                  16           "acarsdec — ACARS aircraft data-link messages (129-131 MHz)" off 1 \
+                  hdr_sysutil  "[System Utilities]"         off 0 \
+                  17           "SoapySDRUtil — Probe all connected SDR hardware (any vendor)" off 1 \
+                  18           "lsusb — List physical USB connections on the host" off 1 \
+                  hdr_session  "[Session]"                  off 0 \
+                  19           "Bash Shell — Drop to a raw terminal inside the container" off 1 \
+                  20           "Exit"                       off 1 \
                   3>&1 1>&2 2>&3)
 
   if [ $? -ne 0 ]; then
@@ -95,6 +108,9 @@ while true; do
 
   clear
   case "$CHOICE" in
+    hdr_*)
+      # A category header row was selected — nothing to launch, redraw the tree.
+      continue ;;
     1)
       cat <<INFOEOF | less -r
 ${BOLD}📡 DragonOS SDR — Environment Info${RESET}
