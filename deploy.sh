@@ -735,11 +735,12 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
             IREPO=$(echo "$line" | awk -F'\t' '{print $1}')
             ITAG=$(echo "$line"  | awk -F'\t' '{print $2}')
             ISIZE=$(echo "$line" | awk -F'\t' '{print $3}')
-            IID=$(echo "$line"   | awk -F'\t' '{print $4}')
+            IAGE=$(echo "$line"  | awk -F'\t' '{print $4}')
+            IID=$(echo "$line"   | awk -F'\t' '{print $5}')
             [ -z "$IID" ] && continue
             LABEL="${IREPO}:${ITAG}"
-            IMAGE_LIST+=( "$IID" "$LABEL  ($ISIZE)" "off" )
-        done < <($DOCKER_CMD images --format '{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.ID}}' 2>/dev/null)
+            IMAGE_LIST+=( "$IID" "$LABEL  ($ISIZE, $IAGE)" "off" )
+        done < <($DOCKER_CMD images --format '{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}\t{{.ID}}' 2>/dev/null)
 
         if [ ${#IMAGE_LIST[@]} -eq 0 ]; then
             dialog --clear --title " Image Manager " \
