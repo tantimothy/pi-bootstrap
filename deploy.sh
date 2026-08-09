@@ -967,6 +967,28 @@ if [ -f "$ENV_RUN_SH" ] && ! grep -q "POLICY" "$ENV_RUN_SH"; then
     POLICY_HAS_LIFECYCLE=false
 fi
 
+# REBUILD (a cached `docker build`/`compose build`, cheaper than CLEAN's
+# --no-cache — see lib/deploy-lib.sh's own header comment) is implemented
+# centrally in lib/deploy-lib.sh for the generic docker-compose.yml/
+# Dockerfile archetypes, so it's safe to offer for any environment that
+# doesn't have its own run.sh at all. An environment WITH a run.sh only
+# gets it if that script explicitly branches on `"$POLICY" = "REBUILD"` (or
+# equivalent) itself — most custom run.sh scripts today either hard-error
+# on an unrecognized policy or would silently treat REBUILD as a no-op
+# otherwise, exactly the failure mode that sank an earlier attempt to add
+# this repo-wide unconditionally. Detected the same way POLICY_HAS_LIFECYCLE
+# is above: by grepping the script's own text, not a hardcoded allowlist,
+# so a run.sh gains this automatically the day it actually implements
+# REBUILD.
+POLICY_HAS_REBUILD=false
+if [ -f "$ENV_RUN_SH" ]; then
+    if grep -q '"REBUILD"' "$ENV_RUN_SH"; then
+        POLICY_HAS_REBUILD=true
+    fi
+elif [ "$POLICY_HAS_LIFECYCLE" = "true" ]; then
+    POLICY_HAS_REBUILD=true
+fi
+
 # WIPE is independently meaningless for an environment that declares no
 # data at all to delete (info.yaml's data_dirs/install_dirs/named_volumes
 # all empty, per pi-barebones' info.yaml) — checked separately from the
@@ -1031,6 +1053,9 @@ if [ "$POLICY_HAS_LIFECYCLE" = "true" ]; then
         "TEARDOWN" "Stop & remove containers — no reinstall"
         "CLEAN"    "Stop, remove, and reinstall from scratch"
     )
+    if [ "$POLICY_HAS_REBUILD" = "true" ]; then
+        POLICY_MENU_ITEMS+=( "REBUILD" "Rebuild with Docker's cache (script/config edits, not new packages)" )
+    fi
 else
     POLICY_MENU_ITEMS+=(
         "FAST"     "Run/re-run setup (always idempotent — safe to repeat)"
@@ -1087,6 +1112,9 @@ case "$REBUILD_POLICY" in
         ;;
     CLEAN)
         CONFIRM_MSG="Stop, remove, and reinstall [$ENV_NAME] from scratch?\n\nThe current container(s) will be replaced with freshly built/pulled ones. A failed build leaves the existing setup untouched, but a successful one does briefly interrupt service."
+        ;;
+    REBUILD)
+        CONFIRM_MSG="Rebuild [$ENV_NAME] using Docker's build cache?\n\nOnly layers whose own instructions changed are reinstalled — much faster than CLEAN, but the container is still replaced, so a successful rebuild does briefly interrupt service. A failed build leaves the existing setup untouched."
         ;;
     WIPE)
         CONFIRM_MSG="⚠️  PERMANENTLY DELETE [$ENV_NAME]'s persisted data directories?\n\nThis cannot be undone. Make sure you've backed up first (./backup.sh) if you need this data."
