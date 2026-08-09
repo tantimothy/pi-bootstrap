@@ -50,6 +50,11 @@ RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
 RUN cat << 'EOF' > /usr/local/bin/sdr-menu.sh
 #!/bin/bash
 
+BOLD=$'\033[1m'
+CYAN=$'\033[36m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
+
 # Check if standard input is attached to an active terminal socket
 if [ ! -t 0 ]; then
   echo "[DAEMON] Running in non-interactive pipeline context. Initializing background core engines safely..."
@@ -59,26 +64,27 @@ fi
 while true; do
   CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \
                   --title " Select an SDR Tool " \
-                  --menu "Choose a tool to launch:" 30 80 19 \
-                  1  "GQRX              — Graphical spectrum analyzer / FM/AM/SSB receiver" \
-                  2  "GNU Radio         — Visual signal processing flowgraph editor" \
-                  3  "rtl_test          — Benchmark & verify RTL-SDR dongle" \
-                  4  "rtl_fm            — FM/AM/SSB demodulator → audio via aplay" \
-                  5  "rtl_tcp           — Network SDR server (connect from GQRX/SDR# remotely)" \
-                  6  "rtl_power         — Wideband spectrum power scan across a frequency range" \
-                  7  "hackrf_info       — Read HackRF firmware version & hardware registers" \
-                  8  "hackrf_sweep      — Fast full-spectrum scan (1 MHz – 6 GHz)" \
-                  9  "hackrf_transfer   — Receive or transmit raw IQ data to/from file" \
-                  10 "dump1090          — ADS-B aircraft tracker (1090 MHz, interactive table)" \
-                  11 "readsb            — ADS-B decoder with MLAT & web map (port 8080)" \
-                  12 "rtl_433           — Decode 433/868/915 MHz sensors, remotes & meters" \
-                  13 "multimon-ng       — Decode pagers, EAS weather alerts & DTMF from FM" \
-                  14 "direwolf          — APRS packet radio decoder / TNC (144.390/144.800 MHz)" \
-                  15 "acarsdec          — ACARS aircraft data-link messages (129-131 MHz)" \
-                  16 "SoapySDRUtil      — Probe all connected SDR hardware (any vendor)" \
-                  17 "lsusb             — List physical USB connections on the host" \
-                  18 "Bash Shell        — Drop to a raw terminal inside the container" \
-                  19 "Exit" \
+                  --menu "Choose a tool to launch:" 32 80 20 \
+                  1  "Info              — Environment info: data dirs, useful commands" \
+                  2  "GQRX              — Graphical spectrum analyzer / FM/AM/SSB receiver" \
+                  3  "GNU Radio         — Visual signal processing flowgraph editor" \
+                  4  "rtl_test          — Benchmark & verify RTL-SDR dongle" \
+                  5  "rtl_fm            — FM/AM/SSB demodulator → audio via aplay" \
+                  6  "rtl_tcp           — Network SDR server (connect from GQRX/SDR# remotely)" \
+                  7  "rtl_power         — Wideband spectrum power scan across a frequency range" \
+                  8  "hackrf_info       — Read HackRF firmware version & hardware registers" \
+                  9  "hackrf_sweep      — Fast full-spectrum scan (1 MHz – 6 GHz)" \
+                  10 "hackrf_transfer   — Receive or transmit raw IQ data to/from file" \
+                  11 "dump1090          — ADS-B aircraft tracker (1090 MHz, interactive table)" \
+                  12 "readsb            — ADS-B decoder with MLAT & web map (port 8080)" \
+                  13 "rtl_433           — Decode 433/868/915 MHz sensors, remotes & meters" \
+                  14 "multimon-ng       — Decode pagers, EAS weather alerts & DTMF from FM" \
+                  15 "direwolf          — APRS packet radio decoder / TNC (144.390/144.800 MHz)" \
+                  16 "acarsdec          — ACARS aircraft data-link messages (129-131 MHz)" \
+                  17 "SoapySDRUtil      — Probe all connected SDR hardware (any vendor)" \
+                  18 "lsusb             — List physical USB connections on the host" \
+                  19 "Bash Shell        — Drop to a raw terminal inside the container" \
+                  20 "Exit" \
                   3>&1 1>&2 2>&3)
 
   if [ $? -ne 0 ]; then
@@ -89,40 +95,57 @@ while true; do
   clear
   case "$CHOICE" in
     1)
+      cat <<INFOEOF | less -r
+${BOLD}📡 DragonOS SDR — Environment Info${RESET}
+
+${BOLD}Data directories${RESET} (persisted on the host):
+  ${CYAN}/workspace/captures${RESET}   ${DIM}—${RESET} SDR captures, signal recordings, analysis outputs
+  ${CYAN}/workspace/msf_data${RESET}   ${DIM}—${RESET} Metasploit Framework data — workspace, loot, credentials
+
+${BOLD}Useful commands${RESET} (run these on the HOST, not in this container):
+  ${DIM}docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} /usr/local/bin/sdr-menu.sh${RESET}
+  ${DIM}docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} bash${RESET}
+  ${DIM}docker logs ${CONTAINER_NAME:-sdr-dragonos-core}${RESET}
+
+Full tool reference and deployment policies (FAST/CLEAN/etc.):
+  environments/dragonos-sdr/README.md in the pi-bootstrap repo.
+INFOEOF
+      ;;
+    2)
       echo "Launching GQRX..."
       gqrx ;;
-    2)
+    3)
       echo "Launching GNU Radio Companion..."
       gnuradio-companion ;;
-    3)
+    4)
       echo "Testing RTL-SDR dongle..."
       rtl_test -t
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    4)
+    5)
       read -p "Center frequency (e.g. 100.1M for 100.1 MHz FM): " freq
       echo "Demodulating $freq — piping audio to aplay. Press Ctrl+C to stop."
       rtl_fm -f "$freq" -M wbfm -s 200000 -r 48000 - 2>/dev/null | aplay -r 48000 -f S16_LE 2>/dev/null
       read -p "Press Enter to return to menu..." ;;
-    5)
+    6)
       read -p "Listen port [default 1234]: " port
       port=${port:-1234}
       echo "Starting RTL-TCP server on 0.0.0.0:$port"
       echo "Point GQRX or SDR# at this host:$port — press Ctrl+C to stop."
       rtl_tcp -a 0.0.0.0 -p "$port" ;;
-    6)
+    7)
       read -p "Start frequency (e.g. 88M): " start_freq
       read -p "End  frequency  (e.g. 108M): " end_freq
       echo "Scanning $start_freq:$end_freq — Ctrl+C to stop."
       rtl_power -f "$start_freq:$end_freq:100k" -g 50 -i 1 -1 /tmp/power_scan.csv
       head -30 /tmp/power_scan.csv
       read -p "Press Enter to return to menu..." ;;
-    7)
+    8)
       echo "Reading HackRF hardware info..."
       hackrf_info
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    8)
+    9)
       read -p "Min frequency in MHz [default 100]: " min_f
       min_f=${min_f:-100}
       read -p "Max frequency in MHz [default 500]: " max_f
@@ -130,7 +153,7 @@ while true; do
       echo "Sweeping ${min_f}M–${max_f}M — Ctrl+C to stop."
       hackrf_sweep -f "${min_f}:${max_f}" -g 20 -l 32 2>&1 | head -50
       read -p "Press Enter to return to menu..." ;;
-    9)
+    10)
       dialog --title "HackRF Transfer" --menu "Mode:" 10 55 2 \
           "rx" "Receive IQ samples from RF to file" \
           "tx" "Transmit IQ samples from file to RF" 2>/tmp/hrf_mode
@@ -150,14 +173,14 @@ while true; do
           hackrf_transfer -t "$iqfile" -f "$freq" -s "$srate" -x 47
       fi
       read -p "Press Enter to return to menu..." ;;
-    10)
+    11)
       echo "Starting dump1090 ADS-B receiver (interactive table view)..."
       echo "Listening on 1090 MHz for aircraft position broadcasts."
       echo "HTTP map available at http://localhost:8080 if the port is published."
       echo "Ctrl+C to stop."
       dump1090 --interactive --net --net-http-port 8080 --net-beast-output-port 30005
       read -p "Press Enter to return to menu..." ;;
-    11)
+    12)
       read -p "Your latitude  (optional, enables map range rings): " lat
       read -p "Your longitude (optional, enables map range rings): " lon
       args="--net --interactive"
@@ -166,18 +189,18 @@ while true; do
       echo "Starting readsb — web map at http://localhost:8080 — Ctrl+C to stop."
       readsb $args
       read -p "Press Enter to return to menu..." ;;
-    12)
+    13)
       echo "Starting rtl_433 — decoding 433/868/915 MHz sensors, remotes, meters..."
       echo "Ctrl+C to stop."
       rtl_433
       read -p "Press Enter to return to menu..." ;;
-    13)
+    14)
       echo "Common frequencies: 152.240M (POCSAG pager), 162.400M (NOAA Weather/EAS)"
       read -p "Frequency to monitor: " freq
       echo "Decoding all digital modes from $freq — Ctrl+C to stop."
       rtl_fm -f "$freq" -s 22050 - 2>/dev/null | multimon-ng -t raw -a ALL -
       read -p "Press Enter to return to menu..." ;;
-    14)
+    15)
       dialog --title "direwolf APRS" --menu "Select APRS frequency:" 10 60 2 \
           "144390k" "144.390 MHz — North America" \
           "144800k" "144.800 MHz — Europe / rest of world" 2>/tmp/dw_freq
@@ -187,25 +210,25 @@ while true; do
       echo "Starting direwolf APRS decoder on ${dw_freq} — Ctrl+C to stop."
       rtl_fm -f "$dw_freq" -s 24000 - 2>/dev/null | direwolf -r 24000 -D 1 -
       read -p "Press Enter to return to menu..." ;;
-    15)
+    16)
       echo "ACARS frequencies: 129.125 130.025 130.450 131.550 MHz (scanning all)"
       echo "Ctrl+C to stop."
       acarsdec -r 0 129.125 130.025 130.450 131.550
       read -p "Press Enter to return to menu..." ;;
-    16)
+    17)
       echo "Probing connected SDR hardware via SoapySDR..."
       SoapySDRUtil --find
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    17)
+    18)
       echo "USB devices attached to the host:"
       lsusb
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    18)
+    19)
       echo "Dropping into Bash. Type 'exit' to return to the menu."
       /bin/bash ;;
-    19|*)
+    20|*)
       echo "Exiting DragonOS SDR launcher."
       break ;;
   esac
