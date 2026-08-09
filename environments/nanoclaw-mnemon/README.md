@@ -387,6 +387,19 @@ Copy `transcript.txt` into whichever group's `sources/` you want it in (`$NANOCL
 
 ---
 
+## 🖼️ Reading Images/PDFs (`tesseract-ocr` + `poppler-utils`)
+
+Same two-image split as the media tools above:
+
+- **The orchestrator image** — `tesseract` (OCR) and `pdftoppm`/`pdftotext` (from `poppler-utils`) for you to run by hand, e.g. to pull text out of a scanned document before dropping it into a group's `sources/` folder.
+- **The agent sandbox image** — patched in by the same `apply_media_tools_patch()` in `run.sh` that adds `yt-dlp`/`ffmpeg`/`whisper-cli`, so the **agent itself** can OCR an image or extract/render a PDF directly from its own Bash tool when you send one in chat, no manual steps needed. Both are plain apt packages (unlike `whisper.cpp`, nothing has to be built from source).
+
+Typical agent-side use: `tesseract image.png stdout` for a straight image, or for a PDF, `pdftoppm -png source.pdf page` to rasterize pages first (PDFs aren't images `tesseract` can read directly) and then OCR each `page-N.png` — or `pdftotext source.pdf -` directly, for a PDF that already has a text layer rather than being a scan.
+
+**If you already had this install running before adding this patch**, the same rule as the media tools above applies: `CLEAN` is what actually rebuilds the agent-sandbox image with these tools baked in — a plain `FAST` redeploy won't.
+
+---
+
 ## Security Notes
 
 The orchestrator image has no `USER` directive, so NanoClaw's first-run "you are running as root" warning is expected in this container deployment. Docker socket access is already root-equivalent on the host.

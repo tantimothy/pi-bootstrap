@@ -458,7 +458,7 @@ stamp_upgrade_state() {
 # whole mechanism; an edit without a bump is invisible to an existing
 # install, which is the bug this exists to prevent.
 # ---------------------------------------------------------------------------------------
-MEDIA_TOOLS_PATCH_VERSION=2
+MEDIA_TOOLS_PATCH_VERSION=3
 MNEMON_PATCH_VERSION=2
 
 # Deletes a marked block (any version) for one patch id, in place. awk rather
@@ -929,7 +929,7 @@ apply_telegram_import_patch() {
 }
 
 # ---------------------------------------------------------------------------------------
-# yt-dlp/ffmpeg/whisper.cpp patch — gives the AGENT itself (not just the
+# yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils patch — gives the AGENT itself (not just the
 # orchestrator, which already has these — see the Dockerfile in this
 # directory) the ability to pull down and transcribe a video when a user
 # just pastes a URL in chat, via its own Bash tool. Same idempotent
@@ -968,8 +968,8 @@ apply_media_tools_patch() {
     state=$(_patch_block_state "$dockerfile" media-tools "$MEDIA_TOOLS_PATCH_VERSION" 'yt-dlp')
     case "$state" in
         current)
-            echo "✅ yt-dlp/ffmpeg/whisper.cpp already patched into container/Dockerfile (v${MEDIA_TOOLS_PATCH_VERSION}, current)."
-            _media_tools_log "container/Dockerfile: already patched, current (yt-dlp/ffmpeg/whisper.cpp v${MEDIA_TOOLS_PATCH_VERSION})"
+            echo "✅ yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils already patched into container/Dockerfile (v${MEDIA_TOOLS_PATCH_VERSION}, current)."
+            _media_tools_log "container/Dockerfile: already patched, current (yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils v${MEDIA_TOOLS_PATCH_VERSION})"
             return 0
             ;;
         stale-marked)
@@ -993,7 +993,7 @@ apply_media_tools_patch() {
             ;;
     esac
 
-    echo "🎙️  Patching yt-dlp/ffmpeg/whisper.cpp into container/Dockerfile (agent sandbox)..."
+    echo "🎙️  Patching yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils into container/Dockerfile (agent sandbox)..."
     local anchor
     anchor=$(grep -n '^# ---- Bun runtime' "$dockerfile" | head -1 | cut -d: -f1)
     if [ -z "$anchor" ]; then
@@ -1014,9 +1014,10 @@ apply_media_tools_patch() {
 # >>> pi-bootstrap:media-tools v${MEDIA_TOOLS_PATCH_VERSION} >>>
 MEDIA_TOOLS_MARKER_BEGIN
         cat <<'MEDIA_TOOLS_DOCKER_BLOCK'
-# ---- media tools — yt-dlp / ffmpeg / whisper.cpp, so the agent itself can
-# transcribe video/audio when given a URL, via its own Bash tool -----------
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+# ---- media tools — yt-dlp / ffmpeg / whisper.cpp / tesseract-ocr /
+# poppler-utils, so the agent itself can transcribe video/audio and read
+# text out of images/PDFs when given a URL or file, via its own Bash tool -
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # whisper.cpp (whisper-cli) — no Debian package exists, built from source.
@@ -1075,7 +1076,7 @@ MEDIA_TOOLS_DOCKER_BLOCK
         tail -n "+${anchor}" "$dockerfile"
     } > "$tmp"
     mv "$tmp" "$dockerfile"
-    _media_tools_log "container/Dockerfile: patched (yt-dlp/ffmpeg/whisper.cpp v${MEDIA_TOOLS_PATCH_VERSION} added)"
+    _media_tools_log "container/Dockerfile: patched (yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils v${MEDIA_TOOLS_PATCH_VERSION} added)"
     # container/Dockerfile changed on disk — inert until the agent-sandbox
     # image is rebuilt from it. CLEAN always rebuilds; FAST only does when
     # this flag says a patch actually wrote something.
