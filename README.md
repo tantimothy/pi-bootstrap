@@ -351,6 +351,7 @@ Key rules:
 - Source `.env` with `set -a; source "$SCRIPT_DIR/.env"; set +a`
 - Create volume paths with `mkdir -p` *before* `docker run` — otherwise Docker creates them as root
 - Re-bind TTY with `exec 0</dev/tty` before any `-it` container so it works when invoked via `curl | bash`
+- If the environment drops the user into an in-container, multi-tool `dialog`/numbered menu (e.g. `kali-pentest`, `dragonos-sdr`) rather than a single tool, that menu's **first option must be "Info"** — a summary of relevant runtime config, data directory paths, and useful host-side reattach commands, built from values already available inside the container (env vars, mounted paths). `info.yaml` isn't copied into any image, so `deploy.sh`'s outer `INFO` policy (`lib/run-info.sh`) is otherwise completely unreachable once you're attached inside that menu.
 
 ```bash
 #!/bin/bash
