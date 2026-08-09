@@ -216,6 +216,26 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:9798/ || exit 1"]
 
+  # iftop, nethogs, EtherApe — interactive traffic-inspection tools with no
+  # background/always-on role, unlike darkstat/NetAlertX above. This
+  # container just idles; scripts/launch-*.sh and the desktop entries below
+  # `docker exec` into it on demand. Runs on host network (same requirement
+  # as darkstat/NetAlertX) so it sees the real host interfaces, and the X11
+  # socket is mounted unconditionally so EtherApe's GUI launcher never needs
+  # to recreate the container just to add a mount.
+  nettools:
+    container_name: ${NETTOOLS_CONTAINER_NAME:-nettools}
+    build: ./nettools
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      - '${HOST_X11_UNIX_PATH:-/tmp/.X11-unix}:/tmp/.X11-unix'
+    restart: unless-stopped
+
   # HTTP / ICMP / DNS probing for service health and latency
   blackbox-exporter:
     container_name: ${CONTAINER_NAME:+${CONTAINER_NAME}-}blackbox-exporter

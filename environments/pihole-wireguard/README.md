@@ -45,6 +45,7 @@ None of the host-level items above are things `docker-compose.yml` — or any ge
 | [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | `blackbox-exporter` | *(internal)* | HTTP health checks, ICMP ping latency, and DNS resolution probes for all local services |
 | [Dozzle](https://dozzle.dev) | `dozzle` | 8888 (web) | Real-time log viewer for every container on this host — read-only, no start/stop/exec capability |
 | [NetAlertX](https://netalertx.com) | `netalertx` | 20211 (web) | Network presence scanner — ARP-based device discovery, new/unknown device alerts, online/offline history |
+| [iftop](https://github.com/nzkyle/iftop) / [nethogs](https://github.com/raboof/nethogs) / [EtherApe](https://etherape.sourceforge.io) | `nettools` | *(no web UI — interactive only)* | Live traffic-inspection tools: iftop (per-connection bandwidth), nethogs (bandwidth by process), EtherApe (graphical live traffic map). Attached to on demand via desktop entries or `docker exec`, not always-on dashboards. |
 
 ---
 
@@ -309,13 +310,20 @@ bash lib/run-install-desktop.sh environments/pihole-wireguard
 | **darkstat** | `http://localhost:<DARKSTAT_PORT>` in default browser |
 | **Dozzle** | `http://localhost:<DOZZLE_PORT>` in default browser |
 | **NetAlertX** | `http://localhost:<NETALERTX_PORT>` in default browser |
+| **iftop (Top Talkers)** | Opens a terminal attached to `iftop -i <NETTOOLS_INTERFACE>` in the `nettools` container |
+| **nethogs (Bandwidth by Process)** | Opens a terminal attached to `nethogs <NETTOOLS_INTERFACE>` in the `nettools` container |
+| **EtherApe** | Launches EtherApe's graphical live traffic map on the host's X11/XWayland display, from the `nettools` container |
 | **Pi-hole + WireGuard Info** | This environment's generated `post-deploy-info.html` in default browser |
 
 The application menu entry and the Desktop icon for each of these are two different desktop-entry flavors: the menu entry tries `xdg-open`, then falls back through `x-www-browser`, `sensible-browser`, `chromium-browser`, `chromium`, `firefox-esr`, and `firefox`, since the app menu here only lists `Type=Application` entries. The Desktop icon is a simpler `Type=Link` entry, opened directly by the default URL handler — `Type=Link` works fine as a Desktop icon but is silently filtered out of the application menu.
 
 Port values are read from your `.env` at install time. Re-run the script if you change ports.
 
-Every entry above is also mirrored onto your Desktop as a clickable icon, not just the application menu, and all seven are grouped into their own "Pi-hole + WireGuard" submenu in the application menu rather than scattering into Internet/System Tools.
+Every entry above is also mirrored onto your Desktop as a clickable icon, not just the application menu, and all ten are grouped into their own "Pi-hole + WireGuard" submenu in the application menu rather than scattering into Internet/System Tools.
+
+**iftop and nethogs** open in a terminal, same as `docker exec -it nettools iftop -i eth0` run by hand. **EtherApe** uses the same X11 forwarding pattern as `kali-pentest`'s GUI launchers: it grants the container's local root identity access to the host's X11/XWayland display only while it's running, and revokes it on exit. The Pi host needs the `xhost` command (`x11-xserver-utils` on Raspberry Pi OS) for EtherApe; all three need the `nettools` container running (deploy this environment with `FAST` first) and, for a fresh deploy, one `CLEAN` so the image with `iftop`/`nethogs`/`etherape` installed actually exists.
+
+**iftop and nethogs are also reachable without a desktop** — since they're plain CLI tools, they're wired up as `custom_actions` in `info.yaml` too, so they show up directly in `deploy.sh`'s own deployment-policy menu for this environment (alongside FAST/CLEAN/etc.), for headless/SSH-only Pis with no desktop session to launch a `.desktop` entry from. EtherApe has no CLI equivalent (it's GUI-only), so it stays desktop-only.
 
 The script checks whether the stack is deployed before registering entries — it prints a warning and exits cleanly if the `pihole` container doesn't exist yet, and removes any previously-installed entries if the stack has since been torn down. Deploy first, then re-run to install the entries.
 
@@ -353,6 +361,10 @@ docker compose ps
 
 # Uptime Kuma logs
 docker logs -f uptime-kuma
+
+# iftop / nethogs (interactive — same commands the desktop entries run)
+docker exec -it nettools iftop -i eth0
+docker exec -it nettools nethogs eth0
 ```
 
 ---
