@@ -1,13 +1,14 @@
 **What this patch is for.** It gives the *agent itself* — not just the
-orchestrator — the ability to fetch and transcribe audio/video through its
-own Bash tool, so a user can paste a URL into chat and get a transcript
-back. Stock NanoClaw's agent sandbox has none of these binaries.
+orchestrator — the ability to fetch/transcribe audio/video and read text
+out of images/PDFs through its own Bash tool, so a user can paste a URL
+or send a file into chat and get a transcript or extracted text back.
+Stock NanoClaw's agent sandbox has none of these binaries.
 
 **Files it changes, and where.**
 
 | File | Anchor it splices at | What it adds |
 |---|---|---|
-| `container/Dockerfile` | the line `# ---- Bun runtime` | `ffmpeg` (apt), `whisper-cli` (whisper.cpp, built from source), `yt-dlp` (release binary) |
+| `container/Dockerfile` | the line `# ---- Bun runtime` | `ffmpeg`, `tesseract-ocr`, `poppler-utils` (apt), `whisper-cli` (whisper.cpp, built from source), `yt-dlp` (release binary) |
 
 The whole block sits inside `# >>> pi-bootstrap:media-tools vN >>>` /
 `# <<< pi-bootstrap:media-tools <<<` markers.
@@ -82,6 +83,8 @@ the compile flags again, which were already correct.
 whisper-cli --help
 yt-dlp --version
 ffmpeg -version
+tesseract --version
+pdftoppm -v
 ```
 
 Note that no whisper *model* file is baked into the image (they run

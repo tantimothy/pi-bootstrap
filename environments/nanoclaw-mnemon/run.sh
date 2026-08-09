@@ -376,9 +376,10 @@ remove_agent_containers() {
         echo "     docker ps --filter 'name=nanoclaw-v2-' --format '{{.Names}}\t{{.Image}}\t{{.CreatedAt}}'"
     fi
     # Every caller of this function has just invalidated whatever the last
-    # smoke test observed: TEARDOWN and CLEAN destroy the orchestrator's own
-    # ephemeral state (including /root/.claude, per entrypoint.sh's own
-    # comment) plus every agent container, and the two post-image-rebuild
+    # smoke test observed: TEARDOWN and CLEAN recreate the orchestrator
+    # container (its own admin /root/.claude session state now survives
+    # this, via the bind mount above — only the container itself is new)
+    # plus every agent container, and the two post-image-rebuild
     # sweeps further below replace every agent container with one built from
     # a different image. In all four cases a prior smoke-test record is no
     # longer evidence about the environment that exists now. Deleting it here
@@ -458,7 +459,7 @@ stamp_upgrade_state() {
 # whole mechanism; an edit without a bump is invisible to an existing
 # install, which is the bug this exists to prevent.
 # ---------------------------------------------------------------------------------------
-MEDIA_TOOLS_PATCH_VERSION=2
+MEDIA_TOOLS_PATCH_VERSION=3
 MNEMON_PATCH_VERSION=2
 
 # Deletes a marked block (any version) for one patch id, in place. awk rather
@@ -929,7 +930,7 @@ apply_telegram_import_patch() {
 }
 
 # ---------------------------------------------------------------------------------------
-# yt-dlp/ffmpeg/whisper.cpp patch — gives the AGENT itself (not just the
+# yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils patch — gives the AGENT itself (not just the
 # orchestrator, which already has these — see the Dockerfile in this
 # directory) the ability to pull down and transcribe a video when a user
 # just pastes a URL in chat, via its own Bash tool. Same idempotent
@@ -968,8 +969,8 @@ apply_media_tools_patch() {
     state=$(_patch_block_state "$dockerfile" media-tools "$MEDIA_TOOLS_PATCH_VERSION" 'yt-dlp')
     case "$state" in
         current)
-            echo "✅ yt-dlp/ffmpeg/whisper.cpp already patched into container/Dockerfile (v${MEDIA_TOOLS_PATCH_VERSION}, current)."
-            _media_tools_log "container/Dockerfile: already patched, current (yt-dlp/ffmpeg/whisper.cpp v${MEDIA_TOOLS_PATCH_VERSION})"
+            echo "✅ yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils already patched into container/Dockerfile (v${MEDIA_TOOLS_PATCH_VERSION}, current)."
+            _media_tools_log "container/Dockerfile: already patched, current (yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils v${MEDIA_TOOLS_PATCH_VERSION})"
             return 0
             ;;
         stale-marked)
@@ -993,7 +994,7 @@ apply_media_tools_patch() {
             ;;
     esac
 
-    echo "🎙️  Patching yt-dlp/ffmpeg/whisper.cpp into container/Dockerfile (agent sandbox)..."
+    echo "🎙️  Patching yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils into container/Dockerfile (agent sandbox)..."
     local anchor
     anchor=$(grep -n '^# ---- Bun runtime' "$dockerfile" | head -1 | cut -d: -f1)
     if [ -z "$anchor" ]; then
@@ -1014,9 +1015,10 @@ apply_media_tools_patch() {
 # >>> pi-bootstrap:media-tools v${MEDIA_TOOLS_PATCH_VERSION} >>>
 MEDIA_TOOLS_MARKER_BEGIN
         cat <<'MEDIA_TOOLS_DOCKER_BLOCK'
-# ---- media tools — yt-dlp / ffmpeg / whisper.cpp, so the agent itself can
-# transcribe video/audio when given a URL, via its own Bash tool -----------
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+# ---- media tools — yt-dlp / ffmpeg / whisper.cpp / tesseract-ocr /
+# poppler-utils, so the agent itself can transcribe video/audio and read
+# text out of images/PDFs when given a URL or file, via its own Bash tool -
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # whisper.cpp (whisper-cli) — no Debian package exists, built from source.
@@ -1075,7 +1077,7 @@ MEDIA_TOOLS_DOCKER_BLOCK
         tail -n "+${anchor}" "$dockerfile"
     } > "$tmp"
     mv "$tmp" "$dockerfile"
-    _media_tools_log "container/Dockerfile: patched (yt-dlp/ffmpeg/whisper.cpp v${MEDIA_TOOLS_PATCH_VERSION} added)"
+    _media_tools_log "container/Dockerfile: patched (yt-dlp/ffmpeg/whisper.cpp/tesseract-ocr/poppler-utils v${MEDIA_TOOLS_PATCH_VERSION} added)"
     # container/Dockerfile changed on disk — inert until the agent-sandbox
     # image is rebuilt from it. CLEAN always rebuilds; FAST only does when
     # this flag says a patch actually wrote something.
@@ -2542,6 +2544,22 @@ elif $DOCKER ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     $DOCKER start "$CONTAINER_NAME" >/dev/null
 else
     echo "🚀 Launching the NanoClaw+Mnemon orchestrator container..."
+    # Persists the admin `claude` session (/root/.claude conversation
+    # history, /root/.claude.json OAuth/MCP/onboarding state) across
+    # container recreation, via a real bind mount to files that already
+    # exist on the host — NOT a named volume. A named-volume version of
+    # this was tried before, shipped, and reverted after a real CLEAN
+    # deploy failed outright ("source .../merged/root/.claude.json is not
+    # directory") on OrbStack, whose volume driver doesn't reliably
+    # auto-detect file-vs-directory destination type the way real dockerd's
+    # copy-up does (see docs/lessons-learned/nanoclaw-mnemon.md's
+    # "~/.claude.json Volume Mount Failure" entry for the full three-round
+    # investigation). A bind mount has no such ambiguity to trip over: its
+    # source must already exist as the real type before the mount even
+    # happens, so mkdir -p / a pre-seeded file below make that type
+    # unambiguous rather than asking Docker to guess it.
+    mkdir -p "$INSTALL_PATH/.claude-admin/home"
+    [ -f "$INSTALL_PATH/.claude-admin/claude.json" ] || echo '{}' > "$INSTALL_PATH/.claude-admin/claude.json"
     # /tmp:/tmp — same reasoning as NANOCLAW_INSTALL_PATH's identical-path
     # bind mount above (see the README's "Deployment Modes" section): any
     # path this container passes as a bind-mount *source* when spawning its
@@ -2566,6 +2584,8 @@ else
         -e OLLAMA_ADMIN_TOOLS="${OLLAMA_ADMIN_TOOLS:-}" \
         -e OLLAMA_NO_PROXY_OVERRIDE="${OLLAMA_NO_PROXY_OVERRIDE:-}" \
         -v "$INSTALL_PATH:$INSTALL_PATH" \
+        -v "$INSTALL_PATH/.claude-admin/home:/root/.claude" \
+        -v "$INSTALL_PATH/.claude-admin/claude.json:/root/.claude.json" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /tmp:/tmp \
         -v /etc/localtime:/etc/localtime:ro \

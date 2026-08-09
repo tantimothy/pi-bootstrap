@@ -44,6 +44,12 @@ COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec
 # into every later step of the skill (restart, pairing) getting skipped too,
 # since they depend on it completing. Confirmed directly against a live
 # /add-telegram run.
+#
+# tesseract-ocr / poppler-utils: same "read what a user sends" role ffmpeg
+# plays for audio (see whisper.cpp below) — tesseract-ocr extracts text from
+# images, poppler-utils (pdftoppm/pdftotext) renders/extracts PDF pages so
+# they can be OCR'd or read directly. Both have plain Debian packages, no
+# build-from-source needed unlike whisper.cpp.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         procps \
@@ -52,6 +58,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         iproute2 \
         jq \
         ffmpeg \
+        tesseract-ocr \
+        poppler-utils \
         tmux \
     && rm -rf /var/lib/apt/lists/* \
     && corepack enable \

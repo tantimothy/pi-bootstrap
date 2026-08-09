@@ -46,6 +46,8 @@ A quick reference for "which of these lives on my Mac, and which is inside a con
 | **Ollama** | Native host process — **not** containerized, deliberately (see "Mnemon Integration" above) | Reached from inside containers via `host.docker.internal:11434` |
 | **mnemon** | Compiled into and running inside every per-group **agent** container (never the orchestrator itself) | One mnemon process per active conversation group, each scoped to that group's own memory graph |
 
+**The orchestrator's own admin `claude` session persists too** — `/root/.claude` (conversation history) and `/root/.claude.json` (OAuth/MCP/onboarding state) are bind-mounted from `$NANOCLAW_INSTALL_PATH/.claude-admin/`, so "Open a Claude Session (/root — admin history)" (see below) survives `CLEAN`/`TEARDOWN`+redeploy/"Choose Claude Model" the same way `/workspace/agent` does for a group's own agent. Deliberately a bind mount to real pre-existing files, not a named volume — see `run.sh`'s own comment on that mount and `docs/lessons-learned/nanoclaw-mnemon.md`'s "~/.claude.json Volume Mount Failure" entry for why (a named-volume version of this broke deploys outright on OrbStack). **Upgrading an existing install**: this only applies to a container *created* with the new mount — run `TEARDOWN` then `FAST` (or `CLEAN`) once to pick it up; a plain restart of an already-running container doesn't add the mount retroactively.
+
 ### What Are the Spawned Agent Containers Actually Doing?
 
 The orchestrator itself never has a conversation — it's a router. The moment a message arrives for a conversation group with no live agent container yet, its `container-runner.ts` builds/starts one (image `nanoclaw-agent:latest`, name pattern `nanoclaw-agent-v2-*`), bind-mounted to that group's own folder under `groups/<group>/`. Inside, a real Claude Agent SDK session (this environment's patched image also carries mnemon and its Claude Code hooks) reads the incoming message, does whatever the conversation calls for, calls mnemon's `remember`/`recall`/`link` along the way, and replies — the orchestrator then delivers that reply back out over the original channel. Idle agent containers are eventually stopped/reaped by NanoClaw itself; the next message to that group just spins one back up. Each group gets its own container, so groups can't see each other's memory, files, or history.
@@ -387,6 +389,19 @@ Copy `transcript.txt` into whichever group's `sources/` you want it in (`$NANOCL
 
 ---
 
+## 🖼️ Reading Images/PDFs (`tesseract-ocr` + `poppler-utils`)
+
+Same two-image split as the media tools above:
+
+- **The orchestrator image** — `tesseract` (OCR) and `pdftoppm`/`pdftotext` (from `poppler-utils`) for you to run by hand, e.g. to pull text out of a scanned document before dropping it into a group's `sources/` folder.
+- **The agent sandbox image** — patched in by the same `apply_media_tools_patch()` in `run.sh` that adds `yt-dlp`/`ffmpeg`/`whisper-cli`, so the **agent itself** can OCR an image or extract/render a PDF directly from its own Bash tool when you send one in chat, no manual steps needed. Both are plain apt packages (unlike `whisper.cpp`, nothing has to be built from source).
+
+Typical agent-side use: `tesseract image.png stdout` for a straight image, or for a PDF, `pdftoppm -png source.pdf page` to rasterize pages first (PDFs aren't images `tesseract` can read directly) and then OCR each `page-N.png` — or `pdftotext source.pdf -` directly, for a PDF that already has a text layer rather than being a scan.
+
+**If you already had this install running before adding this patch**, the same rule as the media tools above applies: `CLEAN` is what actually rebuilds the agent-sandbox image with these tools baked in — a plain `FAST` redeploy won't.
+
+---
+
 ## Security Notes
 
 The orchestrator image has no `USER` directive, so NanoClaw's first-run "you are running as root" warning is expected in this container deployment. Docker socket access is already root-equivalent on the host.
@@ -579,6 +594,7 @@ Persistent data lives inside the install path and survives `TEARDOWN` **and** `C
 | `$NANOCLAW_INSTALL_PATH/.env` | Anthropic/channel credentials NanoClaw's own wizard collected |
 | `$NANOCLAW_INSTALL_PATH/store/` | Channel session state (e.g. WhatsApp pairing) |
 | `$NANOCLAW_INSTALL_PATH/models/` | Whisper model file(s), if you've set up transcription (see "Transcribing Audio/Video" above) — untracked by git same as everything else here, so it survives `CLEAN` too; safe to skip backing up since it's just a re-downloadable model file |
+| `$NANOCLAW_INSTALL_PATH/.claude-admin/` | The orchestrator's own admin `claude` session — `home/` is bind-mounted to `/root/.claude` (conversation history), `claude.json` to `/root/.claude.json` (OAuth/MCP/onboarding state). See "🧩 What Runs Where" above. |
 
 > **Fixed bug, worth knowing about if you deployed before this fix**: `CLEAN` used to `rm -rf` the entire install path and re-clone from scratch, destroying `groups/`, `data/`, `store/`, and `.env` right along with it — including any scaffolded wiki. That's since been fixed (`run.sh` now hard-resets NanoClaw's git-tracked source with `git reset --hard` instead of deleting the directory, which by construction never touches the paths above — they're all in NanoClaw's own `.gitignore`, so `.env`/`groups/`/`data/`/`store/`/`dist/` are simply invisible to git operations). If you hit the old behavior and lost data, there's no recovery path here — this note is so it doesn't happen again, not a way to undo it.
 

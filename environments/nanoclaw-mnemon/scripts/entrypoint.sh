@@ -26,10 +26,12 @@ cd "$INSTALL_DIR"
 # right after a CLEAN, or the first time this admin session is ever used)
 # has no way to know it's running inside this container at all, and will
 # say so plainly if asked. Conversation history itself is NOT recreated by
-# this file — /root/.claude lives only on the container's own ephemeral
-# writable layer (no dedicated named volume), so it doesn't survive CLEAN,
-# TEARDOWN+redeploy, or "Choose Claude Model"'s own stop+rm+relaunch. This
-# file gives a brand-new session basic self-awareness regardless.
+# this file — it's read from /root/.claude and /root/.claude.json, both
+# bind-mounted from $NANOCLAW_INSTALL_PATH/.claude-admin/ (see run.sh's own
+# comment on that mount for why a bind mount, not a named volume) so it
+# now DOES survive CLEAN, TEARDOWN+redeploy, and "Choose Claude Model"'s
+# own stop+rm+relaunch — this file's self-awareness content is what a
+# genuinely brand-new session (no prior history at all) still needs.
 cat > /root/CLAUDE.md <<CLAUDEMD
 # Context for the admin \`claude\` session inside this container
 

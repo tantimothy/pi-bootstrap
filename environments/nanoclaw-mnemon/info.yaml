@@ -3,13 +3,15 @@ data_dirs:
     description: "Per-group files: conversation history, transcripts, and CLAUDE.md; Mnemon memory graphs are also here when NANOCLAW_SETUP=mnemon"
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}/data"
     description: "Sessions, message DB, task scheduler DB, IPC streams"
+  - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}/.claude-admin"
+    description: "Admin claude session — /root/.claude conversation history and /root/.claude.json OAuth/MCP/onboarding state, bind-mounted into the orchestrator container"
 install_dirs:
   - path: "${NANOCLAW_INSTALL_PATH:-/home/pi/nanoclaw-mnemon}"
     description: "NanoClaw repo/binaries (groups/ and data/ live inside here)"
 data_dirs_label: "📁 Persistent Data Directories (back these up):"
 install_dirs_label: "📂 Install Directories (can be re-cloned by CLEAN):"
 delete_install_dirs: false
-delete_confirm_msg: "All conversation history and any Mnemon persistent memory graph will be lost."
+delete_confirm_msg: "All conversation history (including the admin claude session's own OAuth/onboarding state) and any Mnemon persistent memory graph will be lost."
 # NanoClaw itself still has no default web interface of its own — its own
 # README says so directly ("Beyond setup there's no monitoring dashboard or
 # debugging UI either: describe the problem in chat"). NANOCLAW_PORT exists
