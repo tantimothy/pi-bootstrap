@@ -195,7 +195,7 @@ chmod +x run.sh
 
 ## 5. Using the Interactive Menu
 
-Upon launching, a blue screen TUI will load in your terminal. It's a real `dialog --treeview` — category headers (`[SDR Receivers]`, `[ADS-B Aircraft Tracking]`, etc.) as parent nodes, tools indented underneath as children, rather than one flat undifferentiated list. Use the arrow keys to expand/select a tool and press Enter to launch it. Press `q` or select the exit option to return to the menu.
+Upon launching, a blue screen TUI will load in your terminal. It's a single `dialog --menu` with category headers (`[SDR Receivers]`, `[ADS-B Aircraft Tracking]`, etc.) shown alongside their tools, each indented underneath its category with manual tree-branch markers (`├──`/`└──`) rather than one flat undifferentiated list — everything's visible on one screen. (An earlier version used `dialog --treeview` for this; that was reverted since `--treeview`'s rendering depends on the installed `dialog` build actually supporting it, and a build that doesn't can silently show every row — including category headers — with a selectable marker that looks like multi-select. A plain `--menu` has no such ambiguity.) Use the arrow keys to select a tool and press Enter to launch it; selecting a category header just redraws the menu with a reminder to pick one of its tools instead. Cancel/Esc also just redraws the menu — it never exits — only the explicit "Exit" option does that.
 
 | Option | Category | Tool | What it does |
 |:---|:---|:---|:---|
