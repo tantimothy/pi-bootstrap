@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Target Image Assignment
-IMAGE_NAME="pi-pentest:latest"
+IMAGE_NAME="pi-metasploit:latest"
 
 # Marks that this environment has actually been launched at least once.
 # A lingering docker image alone (e.g. left over from a one-off build/test,
@@ -34,12 +34,12 @@ fi
 
 # Ensure CONTAINER_NAME variable was correctly ingested from workspace settings
 if [ -z "$CONTAINER_NAME" ]; then
-    CONTAINER_NAME="running-pentest-rig"
+    CONTAINER_NAME="running-metasploit-rig"
 fi
 
 # Resolved early (rather than just before the docker run below) so the config
 # drift fingerprint further down can include them.
-FINAL_CAPTURES_PATH="${HOST_CAPTURES_PATH:-$SCRIPT_DIR/captures}"
+FINAL_MSF_DATA_PATH="${HOST_MSF_DATA_PATH:-$SCRIPT_DIR/.msf4}"
 DISPLAY="${DISPLAY:-:0}"
 HOST_X11_UNIX_PATH="${HOST_X11_UNIX_PATH:-/tmp/.X11-unix}"
 
@@ -47,11 +47,10 @@ HOST_X11_UNIX_PATH="${HOST_X11_UNIX_PATH:-/tmp/.X11-unix}"
 # Fingerprints the values that feed into the `docker run` invocation at the
 # bottom of this script. FAST's shortcut below reattaches to an already-
 # running container without recreating it — if one of these values changed
-# since that container was created (a different wireless interface, GPS
-# device path, etc.), the existing container would otherwise silently keep
-# running with stale config. This hash lets FAST notice that.
+# since that container was created, the existing container would otherwise
+# silently keep running with stale config. This hash lets FAST notice that.
 CONFIG_HASH_FILE="$SCRIPT_DIR/.container-config-hash"
-CONFIG_FINGERPRINT="${IMAGE_NAME}|${WIRELESS_INTERFACE:-wlan1}|${GPS_DEVICE_PATH:-/dev/ttyUSB0}|${FINAL_CAPTURES_PATH}|${DISPLAY}|${HOST_X11_UNIX_PATH}"
+CONFIG_FINGERPRINT="${IMAGE_NAME}|${START_METASPLOIT_DB:-true}|${FINAL_MSF_DATA_PATH}|${DISPLAY}|${HOST_X11_UNIX_PATH}"
 CONFIG_HASH=$(printf '%s' "$CONFIG_FINGERPRINT" | sha256sum | awk '{print $1}')
 CONFIG_DRIFTED=false
 if [ -f "$CONFIG_HASH_FILE" ] && [ "$(cat "$CONFIG_HASH_FILE")" != "$CONFIG_HASH" ]; then
@@ -98,28 +97,28 @@ IMAGE_EXISTS=$($DOCKER images -q "$IMAGE_NAME" 2>/dev/null)
 # POLICY CHOICE: FAST optimization shortcut (Container actively alive)
 if [ "$POLICY" = "FAST" ] && [ -n "$CONTAINER_RUNNING" ]; then
     if [ "$CONFIG_DRIFTED" = "true" ]; then
-        echo "⚠️  [DRIFT] run.sh config (wireless interface, GPS path, etc.) has changed since this container was created."
+        echo "⚠️  [DRIFT] run.sh config (DISPLAY, X11 socket path, etc.) has changed since this container was created."
         echo "   Not killing your active session automatically — run TEARDOWN then FAST (or CLEAN) to pick up the new config."
     fi
     echo "✅ [FAST Policy] Container '$CONTAINER_NAME' is already running active in this terminal layout."
     echo "🔄 Attaching standard streams to foreground instance..."
-    
+
     # Force terminal re-binding before attaching to bypass pipeline blockades
     exec 0< /dev/tty
     exec 1> /dev/tty
     exec 2> /dev/tty
-    
+
     $DOCKER exec -it "$CONTAINER_NAME" /usr/local/bin/entrypoint.sh
     exit 0
 fi
 
 # ==============================================================================
-# DEPLOYMENT TEARDOWN LAYER (non-CLEAN only)
+# DEPLOYMENT TEARDOWN LAYER (non-CLEAN/REBUILD only)
 # ==============================================================================
-# For CLEAN this is deferred until after a successful rebuild below, so a
-# failed build doesn't leave nothing running at all — the previous working
-# container stays up until the replacement is actually ready.
-if [ "$POLICY" != "CLEAN" ] && [ -n "$CONTAINER_EXISTS" ]; then
+# For CLEAN and REBUILD this is deferred until after a successful build
+# below, so a failed build doesn't leave nothing running at all — the
+# previous working container stays up until the replacement is ready.
+if [ "$POLICY" != "CLEAN" ] && [ "$POLICY" != "REBUILD" ] && [ -n "$CONTAINER_EXISTS" ]; then
     echo "🛑 Tearing down conflicting container instances of $CONTAINER_NAME..."
     $DOCKER stop "$CONTAINER_NAME" >/dev/null 2>&1
     $DOCKER rm "$CONTAINER_NAME" >/dev/null 2>&1
@@ -131,9 +130,19 @@ cd "$SCRIPT_DIR" || exit 1
 # ==============================================================================
 # ADVANCED SYSTEM COMPILATION BRANCHING
 # ==============================================================================
-if [ "$POLICY" = "CLEAN" ]; then
-    echo "🛠️ [CLEAN Policy] Triggering pristine, zero-cache structural compilation..."
-    $DOCKER build --no-cache -t "$IMAGE_NAME" .
+# REBUILD sits between FAST (never builds once an image exists) and CLEAN
+# (--no-cache, reinstalls every apt package from scratch): it's a normal
+# cached `docker build`, so Docker only replays layers from the first
+# changed instruction onward. Use it for entrypoint.sh/run.sh edits; reach
+# for CLEAN only when the Dockerfile's own package list changed.
+if [ "$POLICY" = "CLEAN" ] || [ "$POLICY" = "REBUILD" ]; then
+    if [ "$POLICY" = "CLEAN" ]; then
+        echo "🛠️ [CLEAN Policy] Triggering pristine, zero-cache structural compilation..."
+        $DOCKER build --no-cache -t "$IMAGE_NAME" .
+    else
+        echo "🔧 [REBUILD Policy] Rebuilding with Docker's layer cache (menu/script edits only)..."
+        $DOCKER build -t "$IMAGE_NAME" .
+    fi
     BUILD_STATUS=$?
 
     if [ "$BUILD_STATUS" -eq 0 ] && [ -n "$CONTAINER_EXISTS" ]; then
@@ -167,19 +176,14 @@ fi
 # ==============================================================================
 # PRE-EMPTIVE USER VOLUME STORAGE PROVISIONING
 # ==============================================================================
-# (FINAL_CAPTURES_PATH was already resolved earlier, for the config drift
-# fingerprint above)
 echo "📁 Pre-emptively provisioning host volume directories to preserve local permissions..."
-mkdir -p "$FINAL_CAPTURES_PATH"
+mkdir -p "$FINAL_MSF_DATA_PATH"
 
 # ==============================================================================
 # INTERACTIVE FOREGROUND RUNTIME INITIALIZATION
 # ==============================================================================
 echo "⚡ Handing execution context to container interactive loop..."
 
-# 🚨 CRITICAL FIX: The Global Terminal Re-Bind
-# This forces the script to drop the background pipe connections inherited from
-# curl | bash and explicitly maps stdin, stdout, and stderr to the physical screen.
 exec 0< /dev/tty
 exec 1> /dev/tty
 exec 2> /dev/tty
@@ -198,29 +202,17 @@ bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || tru
 echo "$CONFIG_HASH" > "$CONFIG_HASH_FILE"
 
 # Start detached on the image's real ENTRYPOINT (the sleep loop in the
-# Dockerfile) rather than overriding --entrypoint to entrypoint.sh directly —
-# if the TUI script itself were PID1, exiting it (e.g. menu option "Detach
-# and Return to Host OS") would kill PID1 and tear the container down
-# instead of leaving it running headlessly as advertised.
-#
-# No --rm here: this container is meant to persist across detach/reattach,
-# and its removal is already handled explicitly by the STOP/TEARDOWN/CLEAN
-# policies above. --rm on a long-lived container actively causes bugs:
-# `docker stop` on a --rm container schedules async auto-removal, which
-# both silently deletes it under STOP (breaking "resumable with FAST") and
-# races the explicit `stop && rm` in the CLEAN teardown block above against
-# this run's own `--name` — losing that race surfaces as "Conflict...
-# already in use" here even though teardown appeared to succeed.
+# Dockerfile), not --entrypoint overridden to entrypoint.sh directly — see
+# kali-pentest/run.sh's identical comment for the full reasoning (exiting
+# the menu would otherwise kill PID1 and tear the container down). No --rm
+# for the same reason: this container persists across detach/reattach, and
+# STOP/TEARDOWN/CLEAN already manage its removal explicitly.
 $DOCKER run -d \
-  --privileged \
   --net=host \
-  --pid=host \
-  -v /dev:/dev \
   -e DISPLAY="${DISPLAY}" \
   -v "${HOST_X11_UNIX_PATH}:/tmp/.X11-unix" \
-  -v "$FINAL_CAPTURES_PATH:/root/captures" \
-  -e WIRELESS_INTERFACE="${WIRELESS_INTERFACE:-wlan1}" \
-  -e GPS_DEVICE_PATH="${GPS_DEVICE_PATH:-/dev/ttyUSB0}" \
+  -v "$FINAL_MSF_DATA_PATH:/root/.msf4" \
+  -e START_METASPLOIT_DB="${START_METASPLOIT_DB:-true}" \
   --name "$CONTAINER_NAME" \
   "$IMAGE_NAME" >/dev/null
 START_STATUS=$?
@@ -230,7 +222,7 @@ if [ "$START_STATUS" -ne 0 ]; then
     exit "$START_STATUS"
 fi
 
-# Attach to the TUI via exec — exiting the menu (option 11) only ends this
+# Attach to the TUI via exec — exiting the menu (option 4) only ends this
 # exec session; the container's real PID1 (the sleep loop) keeps running.
 $DOCKER exec -it "$CONTAINER_NAME" /usr/local/bin/entrypoint.sh
 

@@ -1,0 +1,28 @@
+menu:
+  id: kali-metasploit
+  name: "Kali Metasploit"
+  icon: security-high
+deployed_check:
+  # A lingering image alone doesn't prove the environment was ever launched
+  # (e.g. a one-off build/test). run.sh touches .deployed right before it
+  # runs the container instead.
+  kind: marker
+  value: "${ENV_DIR}/.deployed"
+entries:
+  - id: pi-bootstrap-kali-metasploit
+    name: "Kali Metasploit Terminal"
+    comment: "Kali Linux environment — Metasploit Framework console"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash -c "cd ''${ENV_DIR}'' && REBUILD_POLICY=FAST ./run.sh"'
+    terminal: true
+  - id: pi-bootstrap-kali-armitage
+    name: "Armitage"
+    comment: "Graphical front-end for Metasploit from the Kali Metasploit container"
+    icon: applications-security
+    kind: exec
+    target: 'bash "${ENV_DIR}/scripts/launch-armitage.sh"'
+    terminal: false
+info:
+  id: pi-bootstrap-kali-metasploit-info
+  name: "Kali Metasploit Info"
