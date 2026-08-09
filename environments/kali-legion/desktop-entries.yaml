@@ -10,11 +10,11 @@ deployed_check:
   value: "${ENV_DIR}/.deployed"
 entries:
   - id: pi-bootstrap-kali-legion-terminal
-    name: "Kali Legion Terminal"
-    comment: "Kali Linux environment — Legion automated recon"
+    name: "Kali Legion Bash Shell"
+    comment: "Shell inside the running Kali Legion container"
     icon: utilities-terminal
     kind: exec
-    target: 'bash -c "cd ''${ENV_DIR}'' && REBUILD_POLICY=FAST ./run.sh"'
+    target: 'bash -c "docker exec -it ${CONTAINER_NAME:-running-legion-rig} bash"'
     terminal: true
   - id: pi-bootstrap-kali-legion
     name: "Legion"

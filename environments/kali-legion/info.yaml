@@ -1,11 +1,12 @@
 custom_actions:
-  - label: "Reopen tool menu"
-    command: 'docker exec -it ${CONTAINER_NAME:-running-legion-rig} /usr/local/bin/entrypoint.sh'
+  - label: "Open Bash Shell"
+    command: 'docker exec -it ${CONTAINER_NAME:-running-legion-rig} bash'
+  - label: "Launch Legion (GUI)"
+    command: 'bash ${ENV_DIR}/scripts/launch-legion.sh'
 data_dirs: []
 install_dirs: []
 named_volumes: []
 delete_confirm_msg: "This environment has no persisted data — WIPE is a no-op."
 useful_commands: |2
-     docker exec -it ${CONTAINER_NAME:-running-legion-rig} bash                          # Open shell in running container
-     docker exec -it ${CONTAINER_NAME:-running-legion-rig} /usr/local/bin/entrypoint.sh  # Re-launch entrypoint
-     docker logs ${CONTAINER_NAME:-running-legion-rig}                                   # Container logs
+     docker exec -it ${CONTAINER_NAME:-running-legion-rig} bash  # Open shell in running container
+     docker logs ${CONTAINER_NAME:-running-legion-rig}           # Container logs

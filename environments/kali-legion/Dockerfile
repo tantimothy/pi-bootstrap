@@ -19,17 +19,17 @@ ENV DEBIAN_FRONTEND=noninteractive
 # --no-install-recommends: legion otherwise pulls a larger
 # recommended-but-not-required dependency tree on top of its already
 # sizable hard dependencies.
+#
+# No `dialog`/`less`: Legion is GUI-only, with no CLI/TUI of its own to
+# put behind an in-container menu — this environment has none, unlike
+# kali-pentest/kali-metasploit. Shell access is the "Open Bash Shell"
+# custom_action; Legion itself is the "Launch Legion (GUI)" custom_action
+# / desktop entry, both going straight through `docker exec`.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    dialog \
-    less \
     legion \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /root
-
-# Copy structural entrypoint scripts for manual subshell calls
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ARCHETYPE REQUIREMENT: Keep background runtime loop alive non-interactively
 ENTRYPOINT ["/bin/bash", "-c", "while true; do sleep 30; done"]
