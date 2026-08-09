@@ -1,6 +1,6 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-08-07**. GitHub itself (PR/issue
+A snapshot of open follow-ups as of **2026-08-09**. GitHub itself (PR/issue
 state) is always the authoritative source for anything below that
 references a PR — this file is a convenience index, not a system of
 record, and goes stale the moment something merges or gets tested. Prune
@@ -139,6 +139,40 @@ no `libwhisper.so.1`/`libggml*.so` dynamic deps); mnemon's Ollama reachability
 LAN IP instead of `host.docker.internal` — and that host holds a static
 address, so there is no lease to expire); and mnemon's own data surviving the
 rebuild (345 insights / 4,020 edges, read from a live agent container).
+
+## kali-pentest / kali-metasploit / kali-legion / dragonos-sdr: menu and build-split work, live-confirmed piecemeal
+
+Full account in `docs/lessons-learned/kali-pentest.md`. Real, live
+`docker build`/`deploy.sh` runs on target hardware confirmed: the
+per-category and per-tool (Forensics) layer splits, Legion being the
+~1900s Forensics bottleneck (not Autopsy), the `--treeview` rendering bug
+(a real `( )` marker shown on category-header rows), and the Cancel/ESC
+full-detach bug (both the original silent-detach symptom and the
+over-corrected "cancel never exits" symptom). Not yet confirmed live:
+
+- **`kali-legion` and `kali-metasploit` as freshly split-off
+  environments** — both were scaffolded from `kali-pentest`'s own
+  `run.sh` pattern and pass `bash -n`/YAML validation, but neither has
+  had a live `CLEAN` deploy + attach cycle run against them yet.
+- **The flattened `dialog --menu` relabeling** (bare header-word tags, no
+  confirmation popup on header selection, `1-9` then `A, B, C, ...` leaf
+  tags, `--default-item` cursor memory) — shipped after the rendering bug
+  and the two-round Cancel/ESC fix were each individually confirmed live,
+  but this specific combination hasn't itself been re-tested end-to-end
+  since.
+- **`REBUILD` now appearing in `deploy.sh`'s menu** for `kali-pentest`/
+  `kali-metasploit` (and automatically for every `docker-compose.yml`/
+  `Dockerfile`-archetype environment) — confirmed correct by grepping
+  every `run.sh` in the repo for which ones would show it, not by
+  actually clicking it in a live `deploy.sh` session.
+- **`pihole-wireguard`'s new `nettools` service** (iftop/nethogs/EtherApe)
+  — the compose service, desktop entries, and `custom_actions` entries
+  were added and pass local validation, but the image has never actually
+  been built or attached to on real hardware.
+- **`deploy.sh`'s Docker Manager image-age column** — the format-string
+  change (`{{.CreatedSince}}`) is a one-line addition to an existing,
+  already-working code path, but hasn't been visually confirmed against a
+  real `dialog` render.
 
 ## Known, deliberately-deferred code quality items
 
