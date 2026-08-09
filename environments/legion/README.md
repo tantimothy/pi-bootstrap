@@ -1,4 +1,4 @@
-# Kali Legion
+# Legion
 
 A minimal Kali Linux container dedicated to Legion, a graphical automated
 network reconnaissance tool.
@@ -11,7 +11,7 @@ Legion alone took roughly 1900s (32+ minutes) in a real build — by far the
 single largest cost remaining in that environment, and unrelated to
 WiFi/network tooling itself (Legion's Kali package pulls a fairly heavy
 Python/Qt GUI plus a bundled recon-module dependency tree). Isolating it
-here means a `kali-pentest` CLEAN never touches Legion, a `kali-legion`
+here means a `kali-pentest` CLEAN never touches Legion, a `legion`
 CLEAN never touches `kali-pentest`'s much larger tool list, and Legion can
 be deployed standalone on its own, independent of the rest of `kali-pentest`.
 
@@ -63,7 +63,7 @@ Two `custom_actions` (`deploy.sh`'s own policy menu, alongside FAST/CLEAN/etc.):
 Two desktop entries are registered (Linux only, via
 `install-desktop-entries.sh`):
 
-- **Kali Legion Bash Shell** — opens a terminal directly into the running
+- **Legion Bash Shell** — opens a terminal directly into the running
   container (`docker exec -it ... bash`).
 - **Legion** — launches Legion directly on the host's X11/XWayland display
   via `scripts/launch-legion.sh`.

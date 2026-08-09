@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared launcher for GUI tools that run inside the Kali Metasploit container
+# Shared launcher for GUI tools that run inside the Metasploit container
 # on the host's X11/XWayland display. Sourced by scripts/launch-<tool>.sh, not
 # run directly.
 #
@@ -32,14 +32,14 @@ launch_gui_tool() {
     show_gui_error() {
         local message="$1"
         if command -v zenity >/dev/null 2>&1; then
-            zenity --error --title="Kali Metasploit $display_name" --text="$message"
+            zenity --error --title="Metasploit $display_name" --text="$message"
         else
             echo "$display_name: $message" >&2
         fi
     }
 
     if ! "$docker" ps --format '{{.Names}}' | grep -Fxq "$container_name"; then
-        show_gui_error "Container '$container_name' is not running. Launch Kali Metasploit with FAST first."
+        show_gui_error "Container '$container_name' is not running. Launch Metasploit with FAST first."
         exit 1
     fi
 

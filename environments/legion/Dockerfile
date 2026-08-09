@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # the actual culprit (Legion's Kali package pulls a fairly heavy
 # Python/Qt GUI + bundled recon-module dependency tree, unrelated to
 # WiFi/network tooling itself). Isolating it here means a kali-pentest
-# CLEAN never touches Legion, and a kali-legion CLEAN never touches
+# CLEAN never touches Legion, and a legion CLEAN never touches
 # kali-pentest's much larger tool list. Also lets Legion be deployed
 # standalone, independent of kali-pentest.
 #
@@ -22,9 +22,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 #
 # No `dialog`/`less`: Legion is GUI-only, with no CLI/TUI of its own to
 # put behind an in-container menu — this environment has none, unlike
-# kali-pentest/kali-metasploit. Shell access is the "Open Bash Shell"
-# custom_action; Legion itself is the "Launch Legion (GUI)" custom_action
-# / desktop entry, both going straight through `docker exec`.
+# kali-pentest (metasploit dropped its own in-container menu too, for the
+# same reason). Shell access is the "Open Bash Shell" custom_action;
+# Legion itself is the "Launch Legion (GUI)" custom_action / desktop
+# entry, both going straight through `docker exec`.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     legion \
     && apt-get clean && rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,35 @@
+menu:
+  id: metasploit
+  name: "Metasploit"
+  icon: security-high
+deployed_check:
+  # A lingering image alone doesn't prove the environment was ever launched
+  # (e.g. a one-off build/test). run.sh touches .deployed right before it
+  # runs the container instead.
+  kind: marker
+  value: "${ENV_DIR}/.deployed"
+entries:
+  - id: pi-bootstrap-metasploit
+    name: "Metasploit Framework Console"
+    comment: "Kali Linux environment — Metasploit Framework console"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash -c "docker exec -it ${CONTAINER_NAME:-running-metasploit-rig} /usr/local/bin/start-msfconsole.sh"'
+    terminal: true
+  - id: pi-bootstrap-metasploit-shell
+    name: "Metasploit Bash Shell"
+    comment: "Shell inside the running Metasploit container"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash -c "docker exec -it ${CONTAINER_NAME:-running-metasploit-rig} bash"'
+    terminal: true
+  - id: pi-bootstrap-armitage
+    name: "Armitage"
+    comment: "Graphical front-end for Metasploit from the Metasploit container"
+    icon: applications-security
+    kind: exec
+    target: 'bash "${ENV_DIR}/scripts/launch-armitage.sh"'
+    terminal: false
+info:
+  id: pi-bootstrap-metasploit-info
+  name: "Metasploit Info"

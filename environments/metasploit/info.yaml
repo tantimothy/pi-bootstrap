@@ -1,0 +1,17 @@
+custom_actions:
+  - label: "Metasploit Framework (Console)"
+    command: 'docker exec -it ${CONTAINER_NAME:-running-metasploit-rig} /usr/local/bin/start-msfconsole.sh'
+  - label: "Open Bash Shell"
+    command: 'docker exec -it ${CONTAINER_NAME:-running-metasploit-rig} bash'
+  - label: "Launch Armitage (GUI)"
+    command: 'bash ${ENV_DIR}/scripts/launch-armitage.sh'
+data_dirs:
+  - path: "${SCRIPT_DIR}/.msf4"
+    description: "Metasploit Framework data — workspace, loot, credentials, history"
+install_dirs: []
+named_volumes: []
+delete_confirm_msg: "All Metasploit data will be lost."
+useful_commands: |2
+     docker exec -it ${CONTAINER_NAME:-running-metasploit-rig} /usr/local/bin/start-msfconsole.sh  # Metasploit console
+     docker exec -it ${CONTAINER_NAME:-running-metasploit-rig} bash                                # Open shell in running container
+     docker logs ${CONTAINER_NAME:-running-metasploit-rig}                                         # Container logs
