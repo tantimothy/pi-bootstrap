@@ -41,44 +41,64 @@
 # before it sources this file.
 source "$REPO_DIR/lib/yaml-lib.sh"
 
+_C_BOLD=$'\033[1m'
+_C_CYAN=$'\033[36m'
+_C_GREEN=$'\033[32m'
+_C_DIM=$'\033[2m'
+_C_RESET=$'\033[0m'
+
+# Wraps $2 in color code $1 (one of the _C_* above) — unless _INFO_PLAIN=1
+# (set while run_info() builds the HTML page via _info_html, which captures
+# _info_dirs_and_volumes_text's output through command substitution and
+# HTML-escapes it; raw ANSI codes would leak into the page as garbage) or
+# stdout isn't an actual terminal (a non-interactive `curl | bash` deploy,
+# or output redirected to a file/log).
+_color() {
+    if [ "${_INFO_PLAIN:-0}" = "1" ] || [ ! -t 1 ]; then
+        printf '%s' "$2"
+    else
+        printf '%s%s%s' "$1" "$2" "$_C_RESET"
+    fi
+}
+
 # The data-dirs/install-dirs/volumes portion — factored out so _info_html
 # can reuse it in the <pre> block without also pulling in the web UIs
 # section, which it renders as a separate HTML table instead.
 _info_dirs_and_volumes_text() {
     if [ "${#DATA_DIRS[@]}" -gt 0 ]; then
-        echo "${DATA_DIRS_LABEL:-📁 Persistent Data Directories:}"
+        _color "$_C_BOLD" "${DATA_DIRS_LABEL:-📁 Persistent Data Directories:}"; echo ""
         local i
         for i in "${!DATA_DIRS[@]}"; do
             local dir="${DATA_DIRS[$i]}"
             if [ -d "$dir" ]; then
                 local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
-                echo "   $dir  ($size)"
+                printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "($size)"; echo ""
             else
-                echo "   $dir  (not yet created)"
+                printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "(not yet created)"; echo ""
             fi
-            echo "     → ${DATA_DESCRIPTIONS[$i]}"
+            printf '     → %s\n' "$(_color "$_C_GREEN" "${DATA_DESCRIPTIONS[$i]}")"
         done
         echo ""
     fi
 
     if [ "${#INSTALL_DIRS[@]}" -gt 0 ]; then
-        echo "${INSTALL_DIRS_LABEL:-📂 Install Directories:}"
+        _color "$_C_BOLD" "${INSTALL_DIRS_LABEL:-📂 Install Directories:}"; echo ""
         local i
         for i in "${!INSTALL_DIRS[@]}"; do
             local dir="${INSTALL_DIRS[$i]}"
             if [ -d "$dir" ]; then
                 local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
-                echo "   $dir  ($size)"
+                printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "($size)"; echo ""
             else
-                echo "   $dir  (not yet created)"
+                printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "(not yet created)"; echo ""
             fi
-            echo "     → ${INSTALL_DESCRIPTIONS[$i]}"
+            printf '     → %s\n' "$(_color "$_C_GREEN" "${INSTALL_DESCRIPTIONS[$i]}")"
         done
         echo ""
     fi
 
     if [ "${#NAMED_VOLUMES[@]}" -gt 0 ]; then
-        echo "🐳 Named Docker Volumes (managed by Docker):"
+        _color "$_C_BOLD" "🐳 Named Docker Volumes (managed by Docker):"; echo ""
         local i
         for i in "${!NAMED_VOLUMES[@]}"; do
             local vol="${NAMED_VOLUMES[$i]}"
@@ -87,17 +107,17 @@ _info_dirs_and_volumes_text() {
                 | xargs -I{} du -sh {} 2>/dev/null | cut -f1 || echo "unknown")
             EXISTS=$(docker volume ls -q --filter name="^${vol}$" 2>/dev/null)
             if [ -n "$EXISTS" ]; then
-                echo "   docker volume: $vol  ($SIZE)"
+                printf '   docker volume: %s  ' "$(_color "$_C_CYAN" "$vol")"; _color "$_C_DIM" "($SIZE)"; echo ""
             else
-                echo "   docker volume: $vol  (not yet created)"
+                printf '   docker volume: %s  ' "$(_color "$_C_CYAN" "$vol")"; _color "$_C_DIM" "(not yet created)"; echo ""
             fi
-            echo "     → ${NAMED_VOLUME_DESCRIPTIONS[$i]}"
+            printf '     → %s\n' "$(_color "$_C_GREEN" "${NAMED_VOLUME_DESCRIPTIONS[$i]}")"
         done
         echo ""
     fi
 
     if [ "${#DATA_DIRS[@]}" -eq 0 ] && [ "${#INSTALL_DIRS[@]}" -eq 0 ] && [ "${#NAMED_VOLUMES[@]}" -eq 0 ]; then
-        echo "📁 Persistent Data Directories:"
+        _color "$_C_BOLD" "📁 Persistent Data Directories:"; echo ""
         echo "   ${NO_DATA_MSG:-(none)}"
         echo ""
     fi
@@ -108,20 +128,29 @@ _info_dirs_and_volumes_text() {
 # hand-padded line would, just computed instead of guessed.
 _info_web_uis_text() {
     if [ -n "${WEB_UI_NAMES+x}" ] && [ "${#WEB_UI_NAMES[@]}" -gt 0 ]; then
-        echo "🌐 Web UIs:"
+        _color "$_C_BOLD" "🌐 Web UIs:"; echo ""
         local i maxlen=0
         for i in "${!WEB_UI_URLS[@]}"; do
             [ "${#WEB_UI_URLS[$i]}" -gt "$maxlen" ] && maxlen="${#WEB_UI_URLS[$i]}"
         done
         for i in "${!WEB_UI_NAMES[@]}"; do
-            printf '   %-*s   %s\n' "$maxlen" "${WEB_UI_URLS[$i]}" "${WEB_UI_NAMES[$i]}"
+            # Pad the plain URL to column width first, then color the
+            # already-padded string — coloring before padding would count
+            # the invisible escape codes toward %-*s's width and misalign
+            # the columns.
+            local padded; padded=$(printf '%-*s' "$maxlen" "${WEB_UI_URLS[$i]}")
+            printf '   %s   %s\n' "$(_color "$_C_CYAN" "$padded")" "${WEB_UI_NAMES[$i]}"
         done
         echo ""
     fi
 }
 
 _info_useful_commands_text() {
-    echo "💡 Useful Commands:"
+    _color "$_C_BOLD" "💡 Useful Commands:"; echo ""
+    # Body left uncolored: it's fed verbatim into _tag_mixed_content's
+    # indentation-sensitive prose/code detection when building the HTML
+    # page, and USEFUL_COMMANDS' own "# comment" annotations already
+    # provide enough visual separation in the terminal.
     echo "$USEFUL_COMMANDS"
     echo ""
 }
@@ -461,7 +490,7 @@ run_info() {
         # this) and every time INFO is opened from the menu — so it's never
         # stale, without needing a separate action or menu entry.
         local html_file="${SCRIPT_DIR}/post-deploy-info.html"
-        _info_html "$html_file"
+        _INFO_PLAIN=1 _info_html "$html_file"
 
         # Pipe through less so long output (many data dirs/volumes/useful
         # commands) can be scrolled instead of flying past the terminal.
@@ -470,8 +499,10 @@ run_info() {
         # isn't installed. -F: exit immediately if content fits on one
         # screen (behaves like plain output for short lists). -X: don't
         # clear the screen on exit, so the info stays visible afterward.
+        # -r: pass through raw color escape codes instead of showing them
+        # as literal control-character garbage or stripping them.
         if [ -t 1 ] && command -v less &>/dev/null; then
-            _info_list | less -FX
+            _info_list | less -FXr
         else
             _info_list
         fi

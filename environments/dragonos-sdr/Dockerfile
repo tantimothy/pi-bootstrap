@@ -50,6 +50,11 @@ RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
 RUN cat << 'EOF' > /usr/local/bin/sdr-menu.sh
 #!/bin/bash
 
+BOLD=$'\033[1m'
+CYAN=$'\033[36m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
+
 # Check if standard input is attached to an active terminal socket
 if [ ! -t 0 ]; then
   echo "[DAEMON] Running in non-interactive pipeline context. Initializing background core engines safely..."
@@ -90,22 +95,22 @@ while true; do
   clear
   case "$CHOICE" in
     1)
-      cat <<INFOEOF
-📡 DragonOS SDR — Environment Info
+      cat <<INFOEOF | less -r
+${BOLD}📡 DragonOS SDR — Environment Info${RESET}
 
-Data directories (persisted on the host):
-  /workspace/captures   — SDR captures, signal recordings, analysis outputs
-  /workspace/msf_data   — Metasploit Framework data — workspace, loot, credentials
+${BOLD}Data directories${RESET} (persisted on the host):
+  ${CYAN}/workspace/captures${RESET}   ${DIM}—${RESET} SDR captures, signal recordings, analysis outputs
+  ${CYAN}/workspace/msf_data${RESET}   ${DIM}—${RESET} Metasploit Framework data — workspace, loot, credentials
 
-Useful commands (run these on the HOST, not in this container):
-  docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} /usr/local/bin/sdr-menu.sh
-  docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} bash
-  docker logs ${CONTAINER_NAME:-sdr-dragonos-core}
+${BOLD}Useful commands${RESET} (run these on the HOST, not in this container):
+  ${DIM}docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} /usr/local/bin/sdr-menu.sh${RESET}
+  ${DIM}docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} bash${RESET}
+  ${DIM}docker logs ${CONTAINER_NAME:-sdr-dragonos-core}${RESET}
 
 Full tool reference and deployment policies (FAST/CLEAN/etc.):
   environments/dragonos-sdr/README.md in the pi-bootstrap repo.
 INFOEOF
-      read -p "Press Enter to return to menu..." ;;
+      ;;
     2)
       echo "Launching GQRX..."
       gqrx ;;

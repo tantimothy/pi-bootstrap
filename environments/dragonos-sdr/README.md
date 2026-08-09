@@ -199,7 +199,7 @@ Upon launching, a blue screen TUI will load in your terminal. Use the arrow keys
 
 | Option | Tool | What it does |
 |:---|:---|:---|
-| **1** | Info | Environment info — data directory paths and useful host-side commands, since the outer `deploy.sh` `INFO` policy isn't reachable once you're attached in here |
+| **1** | Info | Environment info — data directory paths and useful host-side commands, since the outer `deploy.sh` `INFO` policy isn't reachable once you're attached in here. Colored and paged through `less -r`, like the outer `INFO` screen. |
 | **2** | GQRX | Graphical spectrum analyzer — spectrum waterfall, FM/AM/SSB demodulation |
 | **3** | GNU Radio Companion | Visual flowgraph editor for signal processing pipelines |
 | **4** | rtl_test | Benchmark RTL-SDR dongle, test sample rates, report dropped samples |
