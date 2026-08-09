@@ -32,6 +32,7 @@ categories:
       - dragonos-sdr
       - kali-pentest
       - kali-metasploit
+      - kali-legion
   - id: management
     name: "Management"
     environments:
