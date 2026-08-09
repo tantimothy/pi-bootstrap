@@ -496,13 +496,15 @@ run_info() {
         # commands) can be scrolled instead of flying past the terminal.
         # Falls back to plain output when there's no interactive terminal to
         # scroll in (e.g. a non-interactive `curl | bash` deploy) or `less`
-        # isn't installed. -F: exit immediately if content fits on one
-        # screen (behaves like plain output for short lists). -X: don't
-        # clear the screen on exit, so the info stays visible afterward.
-        # -r: pass through raw color escape codes instead of showing them
-        # as literal control-character garbage or stripping them.
+        # isn't installed. No -F here (deliberately): -F exits less
+        # immediately when content fits on one screen, which for short
+        # output meant the screen was never actually shown before
+        # returning to the menu. -X: don't clear the screen on exit, so the
+        # info stays visible afterward. -r: pass through raw color escape
+        # codes instead of showing them as literal control-character
+        # garbage or stripping them.
         if [ -t 1 ] && command -v less &>/dev/null; then
-            _info_list | less -FXr
+            _info_list | less -Xr
         else
             _info_list
         fi
