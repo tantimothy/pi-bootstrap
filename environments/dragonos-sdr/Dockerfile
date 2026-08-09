@@ -75,58 +75,69 @@ while true; do
   # a real kali-rolling-based image). A plain --menu never renders a
   # per-row selector glyph at all, for any dialog build.
   #
-  # Category header tags ("hdr_*") stay selectable — dialog --menu has no
-  # "label-only, non-selectable" row type either — but selecting one pops
-  # a small notice and redraws, rather than silently doing nothing.
+  # Category header tags are the bare category word (info, recv, rtlsdr,
+  # ...) — no "hdr_" prefix; the case statement below lists them
+  # explicitly. dialog --menu has no "label-only, non-selectable" row type
+  # either, so these stay selectable, but choosing one is a silent no-op
+  # that just redraws (no popup).
+  #
+  # Leaf tags run 1-9, then continue A, B, C, ... rather than 10, 11, 12 —
+  # every tag stays a single keystroke for dialog's own type-ahead.
+  #
+  # --default-item re-highlights whatever was last selected instead of
+  # always resetting to the top of the list on redraw.
   CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \
                   --title " Select an SDR Tool " \
                   --visit-items \
+                  --default-item "${DEFAULT_ITEM:-1}" \
                   --menu "Choose a tool to launch (Cancel/Esc redraws this menu, it doesn't exit):" 32 82 22 \
-                  hdr_info     "[Info]" \
-                  1            " └── Environment info: data dirs, useful commands" \
-                  hdr_recv     "[SDR Receivers]" \
-                  2            " ├── GQRX — Graphical spectrum analyzer / FM/AM/SSB receiver" \
-                  3            " └── GNU Radio — Visual signal processing flowgraph editor" \
-                  hdr_rtlsdr   "[RTL-SDR Utilities]" \
-                  4            " ├── rtl_test — Benchmark & verify RTL-SDR dongle" \
-                  5            " ├── rtl_fm — FM/AM/SSB demodulator to audio via aplay" \
-                  6            " ├── rtl_tcp — Network SDR server (connect from GQRX/SDR# remotely)" \
-                  7            " └── rtl_power — Wideband spectrum power scan across a frequency range" \
-                  hdr_hackrf   "[HackRF Utilities]" \
-                  8            " ├── hackrf_info — Read HackRF firmware version & hardware registers" \
-                  9            " ├── hackrf_sweep — Fast full-spectrum scan (1 MHz - 6 GHz)" \
-                  10           " └── hackrf_transfer — Receive or transmit raw IQ data to/from file" \
-                  hdr_adsb     "[ADS-B Aircraft Tracking]" \
-                  11           " ├── dump1090 — ADS-B aircraft tracker (1090 MHz, interactive table)" \
-                  12           " └── readsb — ADS-B decoder with MLAT & web map (port 8080)" \
-                  hdr_decoders "[Signal Decoders]" \
-                  13           " ├── rtl_433 — Decode 433/868/915 MHz sensors, remotes & meters" \
-                  14           " ├── multimon-ng — Decode pagers, EAS weather alerts & DTMF from FM" \
-                  15           " ├── direwolf — APRS packet radio decoder / TNC (144.390/144.800 MHz)" \
-                  16           " └── acarsdec — ACARS aircraft data-link messages (129-131 MHz)" \
-                  hdr_sysutil  "[System Utilities]" \
-                  17           " ├── SoapySDRUtil — Probe all connected SDR hardware (any vendor)" \
-                  18           " └── lsusb — List physical USB connections on the host" \
-                  hdr_session  "[Session]" \
-                  19           " ├── Bash Shell — Drop to a raw terminal inside the container" \
-                  20           " └── Exit" \
+                  info     "[Info]" \
+                  1        " └── Environment info: data dirs, useful commands" \
+                  recv     "[SDR Receivers]" \
+                  2        " ├── GQRX — Graphical spectrum analyzer / FM/AM/SSB receiver" \
+                  3        " └── GNU Radio — Visual signal processing flowgraph editor" \
+                  rtlsdr   "[RTL-SDR Utilities]" \
+                  4        " ├── rtl_test — Benchmark & verify RTL-SDR dongle" \
+                  5        " ├── rtl_fm — FM/AM/SSB demodulator to audio via aplay" \
+                  6        " ├── rtl_tcp — Network SDR server (connect from GQRX/SDR# remotely)" \
+                  7        " └── rtl_power — Wideband spectrum power scan across a frequency range" \
+                  hackrf   "[HackRF Utilities]" \
+                  8        " ├── hackrf_info — Read HackRF firmware version & hardware registers" \
+                  9        " ├── hackrf_sweep — Fast full-spectrum scan (1 MHz - 6 GHz)" \
+                  A        " └── hackrf_transfer — Receive or transmit raw IQ data to/from file" \
+                  adsb     "[ADS-B Aircraft Tracking]" \
+                  B        " ├── dump1090 — ADS-B aircraft tracker (1090 MHz, interactive table)" \
+                  C        " └── readsb — ADS-B decoder with MLAT & web map (port 8080)" \
+                  decoders "[Signal Decoders]" \
+                  D        " ├── rtl_433 — Decode 433/868/915 MHz sensors, remotes & meters" \
+                  E        " ├── multimon-ng — Decode pagers, EAS weather alerts & DTMF from FM" \
+                  F        " ├── direwolf — APRS packet radio decoder / TNC (144.390/144.800 MHz)" \
+                  G        " └── acarsdec — ACARS aircraft data-link messages (129-131 MHz)" \
+                  sysutil  "[System Utilities]" \
+                  H        " ├── SoapySDRUtil — Probe all connected SDR hardware (any vendor)" \
+                  I        " └── lsusb — List physical USB connections on the host" \
+                  session  "[Session]" \
+                  J        " ├── Bash Shell — Drop to a raw terminal inside the container" \
+                  K        " └── Exit" \
                   3>&1 1>&2 2>&3)
 
   if [ $? -ne 0 ] || [ -z "$CHOICE" ]; then
     # Cancel/ESC (or, defensively, an empty choice for any other reason) —
     # redraw rather than exiting the whole session; only an explicit
-    # "Exit" selection (option 20 below) should actually end this script
-    # and return to the host.
+    # "Exit" selection (tag K below) should actually end this script and
+    # return to the host.
     continue
   fi
 
+  # Re-highlight whatever was just picked (header or leaf) on the next
+  # redraw, instead of always resetting to the top of the list.
+  DEFAULT_ITEM="$CHOICE"
+
   clear
   case "$CHOICE" in
-    hdr_*)
+    info|recv|rtlsdr|hackrf|adsb|decoders|sysutil|session)
       # A category header row — dialog --menu has no non-selectable row
-      # type, so this is reachable; nudge toward a real leaf instead of
-      # silently doing nothing.
-      dialog --title "Category Header" --msgbox "That's a category — pick one of its tools underneath it instead." 7 60
+      # type, so this is reachable; silently redraw.
       continue ;;
     1)
       cat <<INFOEOF | less -r
@@ -187,7 +198,7 @@ INFOEOF
       echo "Sweeping ${min_f}M–${max_f}M — Ctrl+C to stop."
       hackrf_sweep -f "${min_f}:${max_f}" -g 20 -l 32 2>&1 | head -50
       read -p "Press Enter to return to menu..." ;;
-    10)
+    A)
       dialog --title "HackRF Transfer" --menu "Mode:" 10 55 2 \
           "rx" "Receive IQ samples from RF to file" \
           "tx" "Transmit IQ samples from file to RF" 2>/tmp/hrf_mode
@@ -207,14 +218,14 @@ INFOEOF
           hackrf_transfer -t "$iqfile" -f "$freq" -s "$srate" -x 47
       fi
       read -p "Press Enter to return to menu..." ;;
-    11)
+    B)
       echo "Starting dump1090 ADS-B receiver (interactive table view)..."
       echo "Listening on 1090 MHz for aircraft position broadcasts."
       echo "HTTP map available at http://localhost:8080 if the port is published."
       echo "Ctrl+C to stop."
       dump1090 --interactive --net --net-http-port 8080 --net-beast-output-port 30005
       read -p "Press Enter to return to menu..." ;;
-    12)
+    C)
       read -p "Your latitude  (optional, enables map range rings): " lat
       read -p "Your longitude (optional, enables map range rings): " lon
       args="--net --interactive"
@@ -223,18 +234,18 @@ INFOEOF
       echo "Starting readsb — web map at http://localhost:8080 — Ctrl+C to stop."
       readsb $args
       read -p "Press Enter to return to menu..." ;;
-    13)
+    D)
       echo "Starting rtl_433 — decoding 433/868/915 MHz sensors, remotes, meters..."
       echo "Ctrl+C to stop."
       rtl_433
       read -p "Press Enter to return to menu..." ;;
-    14)
+    E)
       echo "Common frequencies: 152.240M (POCSAG pager), 162.400M (NOAA Weather/EAS)"
       read -p "Frequency to monitor: " freq
       echo "Decoding all digital modes from $freq — Ctrl+C to stop."
       rtl_fm -f "$freq" -s 22050 - 2>/dev/null | multimon-ng -t raw -a ALL -
       read -p "Press Enter to return to menu..." ;;
-    15)
+    F)
       dialog --title "direwolf APRS" --menu "Select APRS frequency:" 10 60 2 \
           "144390k" "144.390 MHz — North America" \
           "144800k" "144.800 MHz — Europe / rest of world" 2>/tmp/dw_freq
@@ -244,25 +255,25 @@ INFOEOF
       echo "Starting direwolf APRS decoder on ${dw_freq} — Ctrl+C to stop."
       rtl_fm -f "$dw_freq" -s 24000 - 2>/dev/null | direwolf -r 24000 -D 1 -
       read -p "Press Enter to return to menu..." ;;
-    16)
+    G)
       echo "ACARS frequencies: 129.125 130.025 130.450 131.550 MHz (scanning all)"
       echo "Ctrl+C to stop."
       acarsdec -r 0 129.125 130.025 130.450 131.550
       read -p "Press Enter to return to menu..." ;;
-    17)
+    H)
       echo "Probing connected SDR hardware via SoapySDR..."
       SoapySDRUtil --find
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    18)
+    I)
       echo "USB devices attached to the host:"
       lsusb
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    19)
+    J)
       echo "Dropping into Bash. Type 'exit' to return to the menu."
       /bin/bash ;;
-    20)
+    K)
       echo "Exiting DragonOS SDR launcher."
       break ;;
     *)

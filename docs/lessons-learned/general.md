@@ -690,3 +690,50 @@ runtime-configurability, just a surface resemblance between two call
 sites. A well-written, plausible-sounding generic solution is not by
 itself a reason to adopt it — ask what problem it's actually solving here,
 specifically, before generalizing.
+
+---
+
+## Flattened `dialog --menu` UI conventions for a multi-category in-container tool menu (2026-08-09)
+
+Refinements made after the `--treeview` → flattened `--menu` conversion
+above shipped (`kali-pentest`, `dragonos-sdr`) — worth stating as a
+checklist so the next environment that needs this shape of menu (or the
+next edit to these two) doesn't have to re-derive each point from
+scratch:
+
+- **Category header tags are bare category words, not prefixed.** No
+  `hdr_` (or any other) prefix — `info`, `wireless`, `forensics`, etc.
+  directly. The case statement lists the known header tags explicitly
+  (`info|setup|wireless|...)`) rather than pattern-matching a prefix like
+  `hdr_*)`. A prefix convention exists to make a tag family greppable or
+  pattern-matchable; with only 8-9 header tags known in advance and listed
+  by name anyway, the prefix bought nothing and just added visual noise to
+  every header row's tag column.
+- **Selecting a header bounces back silently — no confirmation popup.**
+  An earlier iteration added a `dialog --msgbox "That's a category..."`
+  on header selection, reasoning that a flattened list (unlike `--treeview`)
+  makes a header's role less visually obvious. In practice this is an
+  unnecessary extra keypress (dismiss the popup, then you're back where
+  you started) for something the category label text already conveys
+  clearly enough in context. Just `continue` — redraw immediately, matching
+  how header selection behaved before the flattening.
+- **Leaf tags run 1-9, then continue with letters (A, B, C, ...), never
+  two-digit numbers.** `dialog`'s own type-ahead jumps to a row by its
+  tag's first character; a two-digit tag like `10` can't be reached in one
+  keystroke (typing `1` lands on tag `1` instead). Continuing the sequence
+  as letters keeps every single tool one keystroke away, all the way up to
+  `kali-pentest`'s 25th leaf (`P`) and `dragonos-sdr`'s 20th (`K`).
+- **`--default-item "$DEFAULT_ITEM"` preserves cursor position across
+  redraws.** Without it, `dialog --menu` always re-highlights the first
+  row when the loop calls it again — so returning from a header bounce, or
+  from running a tool, put the cursor back at row 1 regardless of where
+  you actually were. Set `DEFAULT_ITEM="$choice"` right after reading the
+  selection (before the `case`), so the *next* draw re-highlights whatever
+  was just picked, whether that was a header or a leaf.
+
+None of these needed a design discussion each time — they're refinements
+on an already-agreed shape (flattened `--menu`, per-leaf letter tags for
+type-ahead), not a fork in direction like the `--treeview`-vs-`--menu`
+question or the declined generic-engine question above. Worth keeping
+this list current if a future edit finds another paper-cut in this same
+menu shape, rather than letting each one live only in a commit message.

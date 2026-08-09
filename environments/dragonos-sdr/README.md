@@ -195,9 +195,11 @@ chmod +x run.sh
 
 ## 5. Using the Interactive Menu
 
-Upon launching, a blue screen TUI will load in your terminal. It's a single `dialog --menu` with category headers (`[SDR Receivers]`, `[ADS-B Aircraft Tracking]`, etc.) shown alongside their tools, each indented underneath its category with manual tree-branch markers (`├──`/`└──`) rather than one flat undifferentiated list — everything's visible on one screen. (An earlier version used `dialog --treeview` for this; that was reverted since `--treeview`'s rendering depends on the installed `dialog` build actually supporting it, and a build that doesn't can silently show every row — including category headers — with a selectable marker that looks like multi-select. A plain `--menu` has no such ambiguity.) Use the arrow keys to select a tool and press Enter to launch it; selecting a category header just redraws the menu with a reminder to pick one of its tools instead. Cancel/Esc also just redraws the menu — it never exits — only the explicit "Exit" option does that.
+Upon launching, a blue screen TUI will load in your terminal. It's a single `dialog --menu` with category headers (`[SDR Receivers]`, `[ADS-B Aircraft Tracking]`, etc.) shown alongside their tools, each indented underneath its category with manual tree-branch markers (`├──`/`└──`) rather than one flat undifferentiated list — everything's visible on one screen. (An earlier version used `dialog --treeview` for this; that was reverted since `--treeview`'s rendering depends on the installed `dialog` build actually supporting it, and a build that doesn't can silently show every row — including category headers — with a selectable marker that looks like multi-select. A plain `--menu` has no such ambiguity.) Category header tags are the bare category word, not prefixed with anything — selecting one just silently redraws the menu, no popup. Cancel/Esc also just redraws the menu — it never exits — only the explicit "Exit" tag does that. The menu also remembers your last selection and re-highlights it on redraw, rather than always resetting to the top.
 
-| Option | Category | Tool | What it does |
+Tool tags run **1-9, then continue A, B, C, ...** rather than going to two-digit numbers — every tag stays a single keystroke for dialog's own type-ahead.
+
+| Tag | Category | Tool | What it does |
 |:---|:---|:---|:---|
 | **1** | Info | Info | Environment info — data directory paths and useful host-side commands, since the outer `deploy.sh` `INFO` policy isn't reachable once you're attached in here. Colored and paged through `less -r`, like the outer `INFO` screen. |
 | **2** | SDR Receivers | GQRX | Graphical spectrum analyzer — spectrum waterfall, FM/AM/SSB demodulation |
@@ -208,17 +210,17 @@ Upon launching, a blue screen TUI will load in your terminal. It's a single `dia
 | **7** | RTL-SDR Utilities | rtl_power | Wideband power scan — prompts for frequency range, logs signal levels |
 | **8** | HackRF Utilities | hackrf_info | Read HackRF firmware version, serial number, hardware registers |
 | **9** | HackRF Utilities | hackrf_sweep | Fast spectrum scan — prompts for MHz bounds, sweeps up to 8 GHz/s |
-| **10** | HackRF Utilities | hackrf_transfer | IQ capture/replay submenu — receive to file or transmit from file |
-| **11** | ADS-B Aircraft Tracking | dump1090 | ADS-B decoder — live aircraft table in terminal + HTTP map on port 8080 |
-| **12** | ADS-B Aircraft Tracking | readsb | ADS-B decoder with MLAT — prompts for lat/lon for web map range rings |
-| **13** | Signal Decoders | rtl_433 | Decode 433/868/915 MHz devices — weather sensors, remotes, meters |
-| **14** | Signal Decoders | multimon-ng | Digital mode decoder — prompts for frequency, decodes pagers/EAS/DTMF from rtl_fm pipe |
-| **15** | Signal Decoders | direwolf | APRS decoder — submenu for NA (144.390 MHz) or EU (144.800 MHz) frequency |
-| **16** | Signal Decoders | acarsdec | ACARS decoder — scans 129.125 / 130.025 / 130.450 / 131.550 MHz simultaneously |
-| **17** | System Utilities | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
-| **18** | System Utilities | lsusb | List USB devices attached to the host |
-| **19** | Session | Bash Shell | Raw terminal inside the container — full access to all installed tools |
-| **20** | Session | Exit | Leave the menu (container keeps running in background) |
+| **A** | HackRF Utilities | hackrf_transfer | IQ capture/replay submenu — receive to file or transmit from file |
+| **B** | ADS-B Aircraft Tracking | dump1090 | ADS-B decoder — live aircraft table in terminal + HTTP map on port 8080 |
+| **C** | ADS-B Aircraft Tracking | readsb | ADS-B decoder with MLAT — prompts for lat/lon for web map range rings |
+| **D** | Signal Decoders | rtl_433 | Decode 433/868/915 MHz devices — weather sensors, remotes, meters |
+| **E** | Signal Decoders | multimon-ng | Digital mode decoder — prompts for frequency, decodes pagers/EAS/DTMF from rtl_fm pipe |
+| **F** | Signal Decoders | direwolf | APRS decoder — submenu for NA (144.390 MHz) or EU (144.800 MHz) frequency |
+| **G** | Signal Decoders | acarsdec | ACARS decoder — scans 129.125 / 130.025 / 130.450 / 131.550 MHz simultaneously |
+| **H** | System Utilities | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
+| **I** | System Utilities | lsusb | List USB devices attached to the host |
+| **J** | Session | Bash Shell | Raw terminal inside the container — full access to all installed tools |
+| **K** | Session | Exit | Leave the menu (container keeps running in background) |
 
 ---
 
