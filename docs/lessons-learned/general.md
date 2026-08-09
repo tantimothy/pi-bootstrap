@@ -730,6 +730,25 @@ scratch:
   you actually were. Set `DEFAULT_ITEM="$choice"` right after reading the
   selection (before the `case`), so the *next* draw re-highlights whatever
   was just picked, whether that was a header or a leaf.
+- **Cancel/ESC on the top-level menu detaches — it doesn't redraw.** This
+  one took two passes to get right. The original `--treeview`-era bug was
+  that *nothing* checked `dialog`'s own exit status at all, so a stray
+  empty read (leftover terminal input after a `read -p`, not an actual
+  Cancel) fell through to the same catch-all arm as the literal "Detach"
+  tag and silently ended the session on an unintended empty value. The
+  first fix over-corrected: it made *any* empty/nonzero read redraw
+  instead, including a real, deliberate Cancel keypress — which then just
+  reopened the same menu with no way to actually leave short of the
+  numbered/lettered Detach tag, reported directly as "cancel bounces me
+  back into the same menu, it should go back a level." The distinction
+  that matters: a real Cancel/ESC *is* meaningful once `dialog`'s exit
+  status is actually checked (that's what the first fix got right), and
+  the correct response to it depends on what's above the current screen —
+  a nested sub-dialog's Cancel already naturally falls back to its caller
+  (the outer loop), but the *top-level* menu has nothing above it inside
+  the container except the host, so Cancel there should detach, same as
+  the explicit Detach tag. Fixed by treating `[ "$menu_status" -ne 0 ] ||
+  [ -z "$choice" ]` at the top level as "exit," not "continue."
 
 None of these needed a design discussion each time — they're refinements
 on an already-agreed shape (flattened `--menu`, per-leaf letter tags for

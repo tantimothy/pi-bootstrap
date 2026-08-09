@@ -55,12 +55,19 @@ while true; do
     choice=$(cat /tmp/menu_choice)
 
     # dialog writes nothing to /tmp/menu_choice on Cancel/ESC, so $choice
-    # comes back empty — without this check that empty value falls through
-    # to the catch-all "4|*)" arm below, which is Detach, silently exiting
-    # the whole container session back to the host on a stray ESC/cancel.
-    # Redraw instead; only an explicit "4" selection should ever detach.
-    if [ "$menu_status" -ne 0 ]; then
-        continue
+    # comes back empty. This is genuinely a Cancel/ESC now that dialog's
+    # own exit status is actually checked (an earlier version of this
+    # script had no such check at all, so a stray empty read from
+    # leftover terminal input — not a real Cancel — could land here too;
+    # that's fixed by checking $? properly, not by what happens next).
+    # A Cancel/ESC on this, the top-level menu, has nowhere else to bounce
+    # back to — same as picking "4" (Detach) explicitly, so treat it the
+    # same way, matching how a nested dialog's own Cancel returns to its
+    # caller (here, that caller is the host).
+    if [ "$menu_status" -ne 0 ] || [ -z "$choice" ]; then
+        clear
+        echo "🚪 Detached (Cancel/Esc). Container remains running headlessly in the background."
+        exit 0
     fi
 
     case $choice in
@@ -82,9 +89,10 @@ while true; do
             echo "🚪 Detached. Container remains running headlessly in the background."
             exit 0 ;;
         *)
-            # Unrecognized/empty tag — the menu_status check above already
-            # catches a genuine Cancel/ESC, but treat anything else the same
-            # way defensively: redraw rather than falling through to Detach.
+            # Unrecognized (but non-empty) tag — the menu_status check above
+            # already catches a genuine Cancel/ESC by exiting; this arm is
+            # just defensive redraw for a value that's neither a known tag
+            # nor empty, which shouldn't happen in practice.
             continue ;;
     esac
 done
