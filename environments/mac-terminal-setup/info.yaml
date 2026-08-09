@@ -20,3 +20,10 @@ useful_commands: |2
      tmux attach                                                       # Attach to most recent tmux session
      brew list --formula                                               # All installed Homebrew packages
      ls -t ~/.pi-bootstrap-backups/ | head                             # Most recent backups from this environment
+
+  📌 Notes:
+     🔑 Host-only — installs packages/dotfiles directly on macOS, no
+        container or service runs, so there's nothing to STOP/TEARDOWN.
+     🔑 Whimsical login extras (fortune-style sign-offs) default off;
+        toggle with the action below.
+     🔑 Full details: environments/mac-terminal-setup/README.md

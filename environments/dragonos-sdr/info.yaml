@@ -16,3 +16,11 @@ useful_commands: |2
      docker exec -it ${CONTAINER_NAME:-sdr-dragonos-core} bash                          # Open shell in container
      docker logs ${CONTAINER_NAME:-sdr-dragonos-core}                                   # Container logs
      ls ${SCRIPT_DIR}/workspace/captures/                            # Browse SDR captures
+
+  📌 Notes:
+     🔑 GUI tools (GQRX, etc.) need a reachable X11/XWayland display
+        (DISPLAY=${DISPLAY:-:0}) on the host; SSH in with -X for remote use.
+     🔑 Runs --privileged for direct USB SDR device access (RTL-SDR/HackRF).
+     🔑 Metasploit Framework/Armitage and Legion live in the separate
+        metasploit and legion environments.
+     🔑 Full tool reference: environments/dragonos-sdr/README.md
