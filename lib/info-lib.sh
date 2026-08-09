@@ -145,13 +145,41 @@ _info_web_uis_text() {
     fi
 }
 
+# Dims a single "code"-mode line from USEFUL_COMMANDS — the command itself
+# (everything before a 2+-space-then-"#" comment, the established alignment
+# convention every environment's info.yaml already uses) is dimmed; the
+# comment is left plain, since coloring both would fight for attention and
+# the comment already reads fine as-is. Uses _color, so this is
+# automatically a no-op under _INFO_PLAIN (the HTML-page render pass) or a
+# non-terminal stdout — see _color's own doc comment.
+_colorize_command_line() {
+    local line="$1"
+    if [[ "$line" =~ ^(.+[^\ ])[\ ]{2,}(#.*)$ ]]; then
+        printf '%s  %s\n' "$(_color "$_C_DIM" "${BASH_REMATCH[1]}")" "${BASH_REMATCH[2]}"
+    elif [ -n "$line" ]; then
+        _color "$_C_DIM" "$line"; echo ""
+    else
+        echo ""
+    fi
+}
+
 _info_useful_commands_text() {
     _color "$_C_BOLD" "💡 Useful Commands:"; echo ""
-    # Body left uncolored: it's fed verbatim into _tag_mixed_content's
-    # indentation-sensitive prose/code detection when building the HTML
-    # page, and USEFUL_COMMANDS' own "# comment" annotations already
-    # provide enough visual separation in the terminal.
-    echo "$USEFUL_COMMANDS"
+    # Reuses _tag_mixed_content's own code/prose classification (the same
+    # indentation-sensitive rules the HTML page's rendering already
+    # depends on) so only actual command lines get dimmed — a "📌 Notes:"
+    # prose section stays plain, matching how it already reads in the
+    # HTML page. _colorize_command_line's use of _color makes this
+    # automatically plain text again under _INFO_PLAIN (the HTML pass
+    # below still re-tags this same output itself, from scratch, so
+    # nothing here needs to special-case that pass beyond staying plain).
+    printf '%s\n' "$USEFUL_COMMANDS" | _tag_mixed_content | while IFS=$'\t' read -r _mode _line; do
+        if [ "$_mode" = "code" ]; then
+            _colorize_command_line "$_line"
+        else
+            printf '%s\n' "$_line"
+        fi
+    done
     echo ""
 }
 
