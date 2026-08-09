@@ -620,3 +620,73 @@ who does not have the manifest open — but it is not licence for a paragraph.
 - **This was found by a human reading the source, not by any check.** Nothing
   syntactic distinguishes a status line from an essay. The cheap guard is a
   length ceiling on generated status strings; there is currently none.
+
+---
+
+## Rejected: a generic, config-file-driven `dialog` menu engine (2026-08-09)
+
+**Status:** considered, declined. No code changed as a result of this
+entry — it documents a decision, not a bug.
+
+### What was proposed
+
+While fixing a real `dialog --treeview` rendering bug in `kali-pentest`'s
+and `dragonos-sdr`'s in-container tool menus (some installed `dialog`
+builds silently render `--treeview` as a flat checklist, with every row —
+including category headers — showing a selectable marker; fixed by
+switching both to a flattened `dialog --menu` with manual `├──`/`└──`
+tree-branch text baked into each leaf's item), an AI-generated suggestion
+proposed generalizing further: a single reusable `run_dynamic_menu()`
+bash function, callable with any tag/label array, that infers "is this
+row a selectable leaf or an unselectable category header" by regex-testing
+whether the label text happens to contain `├──`/`└──`, plus an optional
+follow-up to move the menu structure itself out of the script entirely
+into an external pipe-delimited config file parsed at runtime.
+
+### Why it was declined
+
+- **Regex-sniffing formatting characters to infer structure is a
+  downgrade from an explicit tag.** Both menus already tag category
+  headers unambiguously (`hdr_wireless`, `hdr_forensics`, etc.) and match
+  them with `hdr_*` in the dispatch `case`. Inferring the same fact from
+  whether a label string happens to contain `├──`/`└──` is strictly
+  worse: a typo, a copy-paste that drops the branch character, or a new
+  leaf added without indentation silently misclassifies that leaf as a
+  header — permanently unselectable, with no error, just a confusing
+  "category header" message on what's actually a real tool.
+- **An external config file solves a problem neither environment has.**
+  `menu_config.txt` parsed at runtime earns its cost when menu content
+  needs to change without a code deploy — user-customizable, plugin-driven,
+  admin-editable. Neither `kali-pentest`'s nor `dragonos-sdr`'s tool list
+  is like that; it changes rarely and is reviewed as a normal PR diff.
+  Splitting the menu across a `.sh` and a `.txt` loses git-diff-ability
+  for the thing actually being reviewed, adds a new runtime failure mode
+  (missing/malformed config file), and buys nothing back.
+- **The actual complexity lives in the case bodies, not the menu-drawing
+  boilerplate.** `kali-pentest`'s case bodies call `ensure_monitor_mode`,
+  build dynamic capture-file pickers, branch on `$WIRELESS_INTERFACE`;
+  `dragonos-sdr`'s don't. A generic engine only abstracts the ~15 lines of
+  `dialog --menu` invocation — which is already a two-line copy-paste per
+  environment — while adding an indirection layer and an O(n) tag-lookup
+  loop for menus of ~20-25 items, where none of that mattered.
+- **This is the same shape of mistake as an earlier, explicitly reverted
+  attempt this same session** to make `REBUILD_POLICY` generic across
+  every environment's `run.sh`: "I thought there was a way to provide
+  this to all environments but I realised this has to be custom made to
+  the environment and layer." Both are cases where a plausible-looking
+  generic abstraction was offered for something that only *looks*
+  uniform from the outside — the moment you look at what each caller
+  actually needs to do, the abstraction either can't express the real
+  differences or has to grow enough hooks/parameters to express them that
+  it stops being simpler than the duplication it replaced.
+
+### The rule this confirms
+
+Prefer explicit, boring, copy-pasted-per-environment code over a generic
+engine when: (a) the thing being "abstracted" is a handful of lines, not
+the actual business logic, (b) the callers' real behavior differs in ways
+the generic layer doesn't touch, and (c) there's no actual requirement for
+runtime-configurability, just a surface resemblance between two call
+sites. A well-written, plausible-sounding generic solution is not by
+itself a reason to adopt it — ask what problem it's actually solving here,
+specifically, before generalizing.
