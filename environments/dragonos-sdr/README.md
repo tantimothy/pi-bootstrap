@@ -199,25 +199,26 @@ Upon launching, a blue screen TUI will load in your terminal. Use the arrow keys
 
 | Option | Tool | What it does |
 |:---|:---|:---|
-| **1** | GQRX | Graphical spectrum analyzer — spectrum waterfall, FM/AM/SSB demodulation |
-| **2** | GNU Radio Companion | Visual flowgraph editor for signal processing pipelines |
-| **3** | rtl_test | Benchmark RTL-SDR dongle, test sample rates, report dropped samples |
-| **4** | rtl_fm | FM/AM/SSB demodulator — prompts for frequency, pipes audio to `aplay` |
-| **5** | rtl_tcp | Network SDR server — exposes the dongle over TCP for remote SDR clients |
-| **6** | rtl_power | Wideband power scan — prompts for frequency range, logs signal levels |
-| **7** | hackrf_info | Read HackRF firmware version, serial number, hardware registers |
-| **8** | hackrf_sweep | Fast spectrum scan — prompts for MHz bounds, sweeps up to 8 GHz/s |
-| **9** | hackrf_transfer | IQ capture/replay submenu — receive to file or transmit from file |
-| **10** | dump1090 | ADS-B decoder — live aircraft table in terminal + HTTP map on port 8080 |
-| **11** | readsb | ADS-B decoder with MLAT — prompts for lat/lon for web map range rings |
-| **12** | rtl_433 | Decode 433/868/915 MHz devices — weather sensors, remotes, meters |
-| **13** | multimon-ng | Digital mode decoder — prompts for frequency, decodes pagers/EAS/DTMF from rtl_fm pipe |
-| **14** | direwolf | APRS decoder — submenu for NA (144.390 MHz) or EU (144.800 MHz) frequency |
-| **15** | acarsdec | ACARS decoder — scans 129.125 / 130.025 / 130.450 / 131.550 MHz simultaneously |
-| **16** | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
-| **17** | lsusb | List USB devices attached to the host |
-| **18** | Bash Shell | Raw terminal inside the container — full access to all installed tools |
-| **19** | Exit | Leave the menu (container keeps running in background) |
+| **1** | Info | Environment info — data directory paths and useful host-side commands, since the outer `deploy.sh` `INFO` policy isn't reachable once you're attached in here |
+| **2** | GQRX | Graphical spectrum analyzer — spectrum waterfall, FM/AM/SSB demodulation |
+| **3** | GNU Radio Companion | Visual flowgraph editor for signal processing pipelines |
+| **4** | rtl_test | Benchmark RTL-SDR dongle, test sample rates, report dropped samples |
+| **5** | rtl_fm | FM/AM/SSB demodulator — prompts for frequency, pipes audio to `aplay` |
+| **6** | rtl_tcp | Network SDR server — exposes the dongle over TCP for remote SDR clients |
+| **7** | rtl_power | Wideband power scan — prompts for frequency range, logs signal levels |
+| **8** | hackrf_info | Read HackRF firmware version, serial number, hardware registers |
+| **9** | hackrf_sweep | Fast spectrum scan — prompts for MHz bounds, sweeps up to 8 GHz/s |
+| **10** | hackrf_transfer | IQ capture/replay submenu — receive to file or transmit from file |
+| **11** | dump1090 | ADS-B decoder — live aircraft table in terminal + HTTP map on port 8080 |
+| **12** | readsb | ADS-B decoder with MLAT — prompts for lat/lon for web map range rings |
+| **13** | rtl_433 | Decode 433/868/915 MHz devices — weather sensors, remotes, meters |
+| **14** | multimon-ng | Digital mode decoder — prompts for frequency, decodes pagers/EAS/DTMF from rtl_fm pipe |
+| **15** | direwolf | APRS decoder — submenu for NA (144.390 MHz) or EU (144.800 MHz) frequency |
+| **16** | acarsdec | ACARS decoder — scans 129.125 / 130.025 / 130.450 / 131.550 MHz simultaneously |
+| **17** | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
+| **18** | lsusb | List USB devices attached to the host |
+| **19** | Bash Shell | Raw terminal inside the container — full access to all installed tools |
+| **20** | Exit | Leave the menu (container keeps running in background) |
 
 ---
 
