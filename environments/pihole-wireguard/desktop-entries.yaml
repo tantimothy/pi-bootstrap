@@ -55,6 +55,27 @@ entries:
     icon: network-wired
     kind: link
     target: "http://localhost:${NETALERTX_PORT:-20211}"
+  - id: pi-bootstrap-iftop
+    name: "iftop (Top Talkers)"
+    comment: "Live per-connection bandwidth usage on NETTOOLS_INTERFACE, from the nettools container"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash "${ENV_DIR}/scripts/launch-iftop.sh"'
+    terminal: true
+  - id: pi-bootstrap-nethogs
+    name: "nethogs (Bandwidth by Process)"
+    comment: "Live bandwidth usage grouped by process, from the nettools container"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash "${ENV_DIR}/scripts/launch-nethogs.sh"'
+    terminal: true
+  - id: pi-bootstrap-etherape
+    name: "EtherApe"
+    comment: "Graphical live traffic map — color-coded nodes and links sized by bandwidth, from the nettools container"
+    icon: network-wired
+    kind: exec
+    target: 'bash "${ENV_DIR}/scripts/launch-etherape.sh"'
+    terminal: false
 info:
   id: pi-bootstrap-pihole-wireguard-info
   name: "Pi-hole + WireGuard Info"

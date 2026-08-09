@@ -52,6 +52,8 @@ useful_commands: |2
      docker logs -f darkstat                                          # darkstat logs
      docker logs -f uptime-kuma                                       # Uptime Kuma live logs
      docker logs -f netalertx                                         # NetAlertX live logs
+     docker exec -it ${NETTOOLS_CONTAINER_NAME:-nettools} iftop -i ${NETTOOLS_INTERFACE:-eth0}    # Top talkers
+     docker exec -it ${NETTOOLS_CONTAINER_NAME:-nettools} nethogs ${NETTOOLS_INTERFACE:-eth0}     # Bandwidth by process
      docker compose -f ${SCRIPT_DIR}/docker-compose.yml ps           # Full stack status
 
   📌 Notes:
@@ -112,6 +114,10 @@ useful_commands: |2
         manually: Settings > Plugins > 'Pi-hole - DHCP leases import', set
         DHCPLSS_paths_to_check to ['/pihole-data/dhcp.leases'] — that only
         resolves anything if Pi-hole's own DHCP server is enabled.
+     📶 iftop/nethogs/EtherApe (nettools container) are interactive tools,
+        not always-on dashboards — attach via the desktop entries or the
+        commands above. NETTOOLS_INTERFACE picks which host interface
+        iftop/nethogs default to; EtherApe picks its own from its GUI.
 
   📊 Backup named volumes:
      docker run --rm -v pihole-wireguard_prometheus_data:/data -v $(pwd):/backup alpine tar czf /backup/prometheus_data.tar.gz /data
