@@ -69,6 +69,16 @@ mkdir -p "${HOST_MSF_DATA_PATH}"
 
 # --- ENGINE DESIGN MATRIX: POLICY AUTOMATION ROUTING ---
 POLICY="${REBUILD_POLICY:-FAST}"
+
+# deploy_environment() (lib/deploy-lib.sh) deliberately doesn't wrap run.sh
+# in its own `script`-based session logging — see that function's own
+# comment. This environment DOES hand off interactively (attach/exec into
+# the container, or its final `docker run -it`), so _selflog_stop is
+# called below, right before each such handoff, so that part still runs
+# completely raw.
+source "$REPO_DIR/lib/deploy-lib.sh"
+_selflog_start "$SCRIPT_DIR" "$POLICY"
+
 echo "[POLICY] Ingesting central orchestration lifecycle strategy: [${POLICY}]"
 
 # STOP: pause container (keep it, FAST can resume)
@@ -105,6 +115,7 @@ if [ "${POLICY}" = "FAST" ]; then
         fi
         echo "[BYPASS] FAST Policy Engaged: Container '${CONTAINER_NAME}' is currently active."
         echo "[LIFECYCLE] Attaching your session to the existing interactive container environment..."
+        _selflog_stop
         exec "${DOCKER}" exec -it "${CONTAINER_NAME}" "${CONTAINER_ENTRYPOINT_COMMAND}"
         exit 0
     fi
@@ -121,6 +132,7 @@ if [ "${POLICY}" = "FAST" ]; then
         echo "[SHORTCUT] FAST Policy Engaged: Dormant container detected with complete cache layers."
         echo "[LIFECYCLE] Executing non-destructive restoration shortcut sequence..."
         "${DOCKER}" start "${CONTAINER_NAME}" >/dev/null
+        _selflog_stop
         exec "${DOCKER}" attach "${CONTAINER_NAME}"
         exit 0
     fi
@@ -164,6 +176,7 @@ fi
 # Forcefully attach standard input streams directly back to the physical terminal socket.
 # This prevents pipeline streams (like curl | bash) from crashing interactive dialog commands.
 exec < /dev/tty
+_selflog_stop
 
 echo "[DEPLOY] Provisioning interactive foreground container environment..."
 

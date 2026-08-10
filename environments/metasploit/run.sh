@@ -59,6 +59,15 @@ fi
 
 # Determine active state processing choice (Fallback safely to FAST)
 POLICY="${REBUILD_POLICY:-FAST}"
+
+# deploy_environment() (lib/deploy-lib.sh) deliberately doesn't wrap run.sh
+# in its own `script`-based session logging — see that function's own
+# comment. This environment has no interactive attach of its own
+# (msfconsole/Armitage are each reachable via a custom_action, not from
+# here), so the whole rest of this script is safe to self-log unconditionally.
+source "$REPO_DIR/lib/deploy-lib.sh"
+_selflog_start "$SCRIPT_DIR" "$POLICY"
+
 echo "📋 Active Environment Deployment Strategy: [$POLICY]"
 
 # STOP: pause container (keep it, FAST can resume)

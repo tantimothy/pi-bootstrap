@@ -101,6 +101,44 @@ _reset_tty_input() {
     return 0
 }
 
+# Self-logging for run.sh-based environments: deploy_environment() (below)
+# deliberately does NOT wrap run.sh in _run_logged's `script` pty — some
+# run.sh's hand off to a fully-interactive sub-program that reattaches
+# directly to /dev/tty (a `docker exec -it` shell, an in-container dialog
+# menu, tmux attach), and stacking `script`'s own pty on top of that nested
+# handoff breaks both live rendering and keyboard input (confirmed against
+# a real terminal). So instead, each run.sh calls _selflog_start itself,
+# right after SCRIPT_DIR/POLICY are known, to log its own build/reconcile
+# work — then _selflog_stop right before any interactive handoff, so that
+# part still runs completely raw, exactly as it did with no logging at all.
+#
+# Unlike _run_logged (a separate `script` subprocess wrapping a whole
+# command), this redirects THIS shell's own stdout/stderr through `tee` via
+# process substitution — cheaper for a script that's going to keep running
+# and may need to stop/resume logging around an interactive section, and
+# script's own re-exec-with-sentinel-file dance for exit-code capture has
+# no equivalent purpose here (run.sh's own exit code is unaffected by
+# either wrapping approach).
+_selflog_start() {
+    local env_dir="$1" policy="$2"
+    local log_dir="$env_dir/logs"
+    mkdir -p "$log_dir"
+    _SELFLOG_FILE="$log_dir/${policy}-$(date +%Y%m%d-%H%M%S).log"
+    echo "📝 Logging this run to: $_SELFLOG_FILE"
+    exec 3>&1 4>&2
+    exec > >(tee -a "$_SELFLOG_FILE") 2>&1
+}
+
+# Restores real stdout/stderr ahead of an interactive handoff (docker exec
+# -it, an in-container dialog menu, tmux attach) — from that point on,
+# nothing is captured, same as a run.sh that never called _selflog_start at
+# all. Safe to call even if _selflog_start was never called (a no-op).
+_selflog_stop() {
+    [ -n "${_SELFLOG_FILE:-}" ] || return 0
+    exec 1>&3 2>&4 3>&- 4>&-
+    unset _SELFLOG_FILE
+}
+
 # The actual per-archetype deploy logic, split out of deploy_environment so
 # it can run inside _run_logged's own `bash -c` (a genuinely separate
 # process, spawned by `script` — local-scope closures over deploy_

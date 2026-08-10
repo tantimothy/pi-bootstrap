@@ -20,6 +20,15 @@ FASTFETCH_MARKER_END="# <<< PI FASTFETCH SETUP END <<<"
 LEGACY_MARKER_START="# >>> PI INITIAL SETUP START >>>"
 LEGACY_MARKER_END="# <<< PI INITIAL SETUP END <<<"
 
+# deploy_environment() (lib/deploy-lib.sh) deliberately doesn't wrap run.sh
+# in its own `script`-based session logging — see that function's own
+# comment. This environment has no interactive attach at all (host-only,
+# no container) — a couple of `sudo`/`vncpasswd` prompts read straight from
+# stdin/tty regardless, unaffected by this redirecting only stdout/stderr —
+# so the whole rest of this script is safe to self-log unconditionally.
+source "$REPO_DIR/lib/deploy-lib.sh"
+_selflog_start "$SCRIPT_DIR" "${REBUILD_POLICY:-FAST}"
+
 echo "🔄 Starting Raspberry Pi first-time initialization..."
 
 # --- STEP 1: DEPLOY TMUX CONFIGURATION ---
