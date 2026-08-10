@@ -1,4 +1,5 @@
 .DS_Store
+__pycache__/
 
 # Marker files run.sh touches to record that an environment has been launched
 environments/*/.deployed
@@ -16,6 +17,11 @@ environments/*/post-deploy-info.html
 # not something to track in git (and .env values a run echoes back could
 # end up in here).
 environments/*/logs/
+
+# nanoclaw-mnemon's export-mnemon-graph.sh output — an HTML snapshot of a
+# real group's mnemon insight content, regenerated on demand, never
+# something to track in git.
+environments/nanoclaw-mnemon/exports/
 
 # claude-cli's ~/.claude.json bind-mount source (see pre-deploy.sh) — a
 # real, live file once deployed, holding actual MCP server registrations/

@@ -41,6 +41,12 @@ custom_actions:
     command: "bash ${ENV_DIR}/scripts/probe-mnemon-db.sh top"
   - label: "Probe Mnemon DB — Interactive sqlite3 Shell (Mnemon profile)"
     command: "bash ${ENV_DIR}/scripts/probe-mnemon-db.sh shell"
+  # Same discovery/snapshot approach as the three probe actions above, but
+  # renders an interactive HTML network (pyvis) instead of text tables —
+  # see scripts/export-mnemon-graph.sh's own header. Installs pyvis via pip
+  # on first use if missing, gated behind an explicit y/N prompt.
+  - label: "Export Mnemon Graph as Interactive HTML (Mnemon profile)"
+    command: "bash ${ENV_DIR}/scripts/export-mnemon-graph.sh"
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
   # Opens a persistent, detachable tmux "claude" session directly inside
