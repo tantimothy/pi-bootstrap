@@ -29,6 +29,18 @@ custom_actions:
     command: 'read -rp "Group folder name (under groups/): " GROUP; bash ${ENV_DIR}/scripts/scaffold-wiki.sh "$GROUP"'
   - label: "Reload Mnemon for a Group (Mnemon profile)"
     command: "bash ${ENV_DIR}/scripts/reload-mnemon.sh"
+  # Reads a group's real mnemon.db directly, read-only — see
+  # scripts/probe-mnemon-db.sh's own header for the confirmed-against-upstream
+  # schema (table `insights`, not `memories`; no separate tags table) and the
+  # real host path. Three entries rather than one with a prompt: "summary" and
+  # "top" are the two questions that come up in practice (what's here, what's
+  # heaviest), "shell" is the escape hatch for anything else.
+  - label: "Probe Mnemon DB — Summary (Mnemon profile)"
+    command: "bash ${ENV_DIR}/scripts/probe-mnemon-db.sh summary"
+  - label: "Probe Mnemon DB — Top Insights (Mnemon profile)"
+    command: "bash ${ENV_DIR}/scripts/probe-mnemon-db.sh top"
+  - label: "Probe Mnemon DB — Interactive sqlite3 Shell (Mnemon profile)"
+    command: "bash ${ENV_DIR}/scripts/probe-mnemon-db.sh shell"
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
   # Opens a persistent, detachable tmux "claude" session directly inside
