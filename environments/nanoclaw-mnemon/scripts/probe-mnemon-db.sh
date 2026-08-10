@@ -70,21 +70,37 @@ case "$MODE" in
 esac
 
 # Snapshots a live, possibly-WAL sqlite file into a throwaway copy via the
-# Online Backup API (see header) and echoes the copy's path. Caller is
-# responsible for the file existing in TMP_FILES so the EXIT trap cleans it
-# up; this function itself doesn't register the trap, since it's also used
-# for the (much smaller, less write-contended) central v2.db discovery
-# query below, and one shared trap for every snapshot this run makes is
-# simpler than a per-call one.
+# Online Backup API (see header) and echoes the copy's path. Callers use
+# this via `X="$(_snapshot ...)"` — a command substitution, which runs in a
+# subshell — so this function must never rely on mutating an array in the
+# caller's scope (that mutation would be invisible outside the subshell);
+# instead the caller derives the containing dir with `dirname` and appends
+# to TMP_DIRS itself once it has the real path back.
+#
+# Uses `mktemp -d` with a bare XXXXXX template (no dotted suffix) rather
+# than a single `mktemp template.XXXXXX.db` file — confirmed live, on a
+# real macOS host, that the dotted-suffix form makes mkstemp fail outright
+# ("File exists") there. That failure went unnoticed on the first version
+# of this script because `dst="$(mktemp ...)"` swallowed the error: mktemp
+# printed nothing to stdout, `dst` came out empty, and `.backup ''` doesn't
+# itself fail — SQLite treats an empty filename as a private, ephemeral,
+# already-empty on-disk database. Every subsequent query then correctly
+# reported "no such table" against that fresh empty db instead of ever
+# touching the real data. `[ -s "$dst" ]` below is the guard against a
+# repeat of exactly that: fail loudly if the backup didn't actually land.
 _snapshot() {
-    local src="$1" dst
-    dst="$(mktemp "${TMPDIR:-/tmp}/mnemon-probe.XXXXXX.db")"
-    sqlite3 "$src" ".backup '$dst'" 2>/dev/null || { rm -f "$dst"; return 1; }
+    local src="$1" dir dst
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/mnemon-probe.XXXXXX")" || return 1
+    dst="$dir/snapshot.db"
+    if ! sqlite3 "$src" ".backup '$dst'" 2>/dev/null || [ ! -s "$dst" ]; then
+        rm -rf "$dir"
+        return 1
+    fi
     echo "$dst"
 }
 
-TMP_FILES=()
-_cleanup() { for f in "${TMP_FILES[@]:-}"; do rm -f "$f"; done; }
+TMP_DIRS=()
+_cleanup() { for d in "${TMP_DIRS[@]:-}"; do rm -rf "$d"; done; }
 trap _cleanup EXIT
 
 # Same discovery as reload-mnemon.sh: NanoClaw's own central DB
@@ -99,7 +115,7 @@ if [ -z "$GROUP" ]; then
     if [ -f "$DB_PATH" ]; then
         V2_SNAPSHOT="$(_snapshot "$DB_PATH" || true)"
         if [ -n "${V2_SNAPSHOT:-}" ]; then
-            TMP_FILES+=("$V2_SNAPSHOT")
+            TMP_DIRS+=("$(dirname "$V2_SNAPSHOT")")
             while IFS=$'\t' read -r db_id db_name; do
                 [ -n "$db_id" ] || continue
                 GROUP_IDS+=("$db_id")
@@ -172,7 +188,7 @@ SNAPSHOT="$(_snapshot "$DB_FILE")" || {
     echo "❌ Couldn't snapshot $DB_FILE — check it exists and is readable." >&2
     exit 1
 }
-TMP_FILES+=("$SNAPSHOT")
+TMP_DIRS+=("$(dirname "$SNAPSHOT")")
 echo "   (queried from a throwaway snapshot — nothing here can touch mnemon's live data)"
 echo ""
 
