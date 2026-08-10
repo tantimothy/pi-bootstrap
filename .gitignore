@@ -23,6 +23,10 @@ environments/*/logs/
 # something to track in git.
 environments/nanoclaw-mnemon/exports/
 
+# export-mnemon-graph.sh's own private venv (holds pyvis) — created on
+# first use since Homebrew/PEP-668 Python refuses a bare `pip install`.
+environments/nanoclaw-mnemon/.venv-mnemon-graph/
+
 # claude-cli's ~/.claude.json bind-mount source (see pre-deploy.sh) — a
 # real, live file once deployed, holding actual MCP server registrations/
 # onboarding state. pre-deploy.sh creates the placeholder itself if this
