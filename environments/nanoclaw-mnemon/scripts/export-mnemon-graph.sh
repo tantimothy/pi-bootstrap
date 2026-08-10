@@ -188,10 +188,17 @@ OUTPUT_HTML="${OUTPUT_DIR}/mnemon-graph-${GROUP}-$(date +%Y%m%d-%H%M%S).html"
 
 echo ""
 echo "✅ Saved: $OUTPUT_HTML"
+# Auto-open is a nicety, not the deliverable — the file above is. Confirmed
+# live that `open` can fail even when it exists on PATH (macOS
+# RBSRequestErrorDomain "Launch failed", seen when deploy.sh's own process
+# isn't attached to a full GUI/Aqua session — e.g. driven over SSH). Under
+# `set -e`, an unguarded failure there would exit 1 and make a genuinely
+# successful export look like an error, so both branches are explicitly
+# non-fatal here regardless of whether the launch actually succeeded.
 if command -v open &>/dev/null; then
-    open "$OUTPUT_HTML"
+    open "$OUTPUT_HTML" 2>/dev/null || echo "   Couldn't auto-open it — open the path above manually."
 elif command -v xdg-open &>/dev/null; then
-    xdg-open "$OUTPUT_HTML" >/dev/null 2>&1 &
+    ( xdg-open "$OUTPUT_HTML" >/dev/null 2>&1 & ) || echo "   Couldn't auto-open it — open the path above manually."
 else
     echo "   Open it in a browser manually — no 'open'/'xdg-open' found on this host."
 fi
