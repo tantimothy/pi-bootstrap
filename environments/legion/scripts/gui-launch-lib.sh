@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared launcher for GUI tools that run inside the Kali Legion container on
+# Shared launcher for GUI tools that run inside the Legion container on
 # the host's X11/XWayland display. Sourced by scripts/launch-<tool>.sh, not
 # run directly.
 #
@@ -32,14 +32,14 @@ launch_gui_tool() {
     show_gui_error() {
         local message="$1"
         if command -v zenity >/dev/null 2>&1; then
-            zenity --error --title="Kali Legion $display_name" --text="$message"
+            zenity --error --title="Legion $display_name" --text="$message"
         else
             echo "$display_name: $message" >&2
         fi
     }
 
     if ! "$docker" ps --format '{{.Names}}' | grep -Fxq "$container_name"; then
-        show_gui_error "Container '$container_name' is not running. Launch Kali Legion with FAST first."
+        show_gui_error "Container '$container_name' is not running. Launch Legion with FAST first."
         exit 1
     fi
 

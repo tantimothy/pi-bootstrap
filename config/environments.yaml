@@ -31,8 +31,8 @@ categories:
       - internet-pi
       - dragonos-sdr
       - kali-pentest
-      - kali-metasploit
-      - kali-legion
+      - metasploit
+      - legion
   - id: management
     name: "Management"
     environments:

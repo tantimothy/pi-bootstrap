@@ -36,6 +36,13 @@ CONF_DIR="/etc/macintoshpi"
 DEPLOYED_MARKER="${SCRIPT_DIR}/.deployed"
 
 POLICY="${REBUILD_POLICY:-FAST}"
+
+# deploy_environment() (lib/deploy-lib.sh) deliberately doesn't wrap run.sh
+# in its own `script`-based session logging — see that function's own
+# comment. This environment has no interactive attach of its own, so the
+# whole rest of this script is safe to self-log unconditionally.
+source "$REPO_DIR/lib/deploy-lib.sh"
+_selflog_start "$SCRIPT_DIR" "$POLICY"
 echo "[POLICY] ${POLICY}"
 
 if [ "$(uname -s)" != "Linux" ]; then

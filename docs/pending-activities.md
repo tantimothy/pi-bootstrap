@@ -140,7 +140,7 @@ LAN IP instead of `host.docker.internal` — and that host holds a static
 address, so there is no lease to expire); and mnemon's own data surviving the
 rebuild (345 insights / 4,020 edges, read from a live agent container).
 
-## kali-pentest / kali-metasploit / kali-legion / dragonos-sdr: menu and build-split work, live-confirmed piecemeal
+## kali-pentest / metasploit / legion / dragonos-sdr: menu and build-split work, live-confirmed piecemeal
 
 Full account in `docs/lessons-learned/kali-pentest.md`. Real, live
 `docker build`/`deploy.sh` runs on target hardware confirmed: the
@@ -150,7 +150,7 @@ per-category and per-tool (Forensics) layer splits, Legion being the
 full-detach bug (both the original silent-detach symptom and the
 over-corrected "cancel never exits" symptom). Not yet confirmed live:
 
-- **`kali-legion` and `kali-metasploit` as freshly split-off
+- **`legion` and `metasploit` as freshly split-off
   environments** — both were scaffolded from `kali-pentest`'s own
   `run.sh` pattern and pass `bash -n`/YAML validation, but neither has
   had a live `CLEAN` deploy + attach cycle run against them yet.
@@ -161,7 +161,7 @@ over-corrected "cancel never exits" symptom). Not yet confirmed live:
   but this specific combination hasn't itself been re-tested end-to-end
   since.
 - **`REBUILD` now appearing in `deploy.sh`'s menu** for `kali-pentest`/
-  `kali-metasploit` (and automatically for every `docker-compose.yml`/
+  `metasploit` (and automatically for every `docker-compose.yml`/
   `Dockerfile`-archetype environment) — confirmed correct by grepping
   every `run.sh` in the repo for which ones would show it, not by
   actually clicking it in a live `deploy.sh` session.

@@ -58,6 +58,15 @@ fi
 
 # Determine active state processing choice (Fallback safely to FAST)
 POLICY="${REBUILD_POLICY:-FAST}"
+
+# deploy_environment() (lib/deploy-lib.sh) deliberately doesn't wrap run.sh
+# in its own `script`-based session logging — see that function's own
+# comment. This environment has no interactive attach of its own (Legion
+# is GUI-only, launched via a custom_action, not from here), so the whole
+# rest of this script is safe to self-log unconditionally.
+source "$REPO_DIR/lib/deploy-lib.sh"
+_selflog_start "$SCRIPT_DIR" "$POLICY"
+
 echo "📋 Active Environment Deployment Strategy: [$POLICY]"
 
 # STOP: pause container (keep it, FAST can resume)
@@ -94,20 +103,20 @@ IMAGE_EXISTS=$($DOCKER images -q "$IMAGE_NAME" 2>/dev/null)
 # ==============================================================================
 
 # POLICY CHOICE: FAST optimization shortcut (Container actively alive)
+# No interactive attach here — Legion has no CLI/TUI of its own to attach
+# to (it's GUI-only, reachable via the desktop entry or the "Launch Legion
+# (GUI)" custom_action), so this environment behaves like the generic
+# docker-compose.yml/Dockerfile fallback archetype: deploy or reconcile,
+# print the INFO summary, then return to deploy.sh's own menu — no
+# terminal handoff at all. "Open Bash Shell" is its own custom_action for
+# the rare case a real shell is actually needed.
 if [ "$POLICY" = "FAST" ] && [ -n "$CONTAINER_RUNNING" ]; then
     if [ "$CONFIG_DRIFTED" = "true" ]; then
         echo "⚠️  [DRIFT] run.sh config (DISPLAY, X11 socket path, etc.) has changed since this container was created."
         echo "   Not killing your active session automatically — run TEARDOWN then FAST (or CLEAN) to pick up the new config."
     fi
-    echo "✅ [FAST Policy] Container '$CONTAINER_NAME' is already running active in this terminal layout."
-    echo "🔄 Attaching standard streams to foreground instance..."
-
-    # Force terminal re-binding before attaching to bypass pipeline blockades
-    exec 0< /dev/tty
-    exec 1> /dev/tty
-    exec 2> /dev/tty
-
-    $DOCKER exec -it "$CONTAINER_NAME" /usr/local/bin/entrypoint.sh
+    echo "✅ [FAST Policy] Container '$CONTAINER_NAME' is already running."
+    bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
     exit 0
 fi
 
@@ -173,20 +182,15 @@ if [ "$BUILD_STATUS" -ne 0 ]; then
 fi
 
 # ==============================================================================
-# INTERACTIVE FOREGROUND RUNTIME INITIALIZATION
+# CONTAINER STARTUP (headless — no interactive attach, see the FAST
+# shortcut's own comment above for why)
 # ==============================================================================
-echo "⚡ Handing execution context to container interactive loop..."
-
-exec 0< /dev/tty
-exec 1> /dev/tty
-exec 2> /dev/tty
 
 # Record that this environment has actually been launched (see DEPLOYED_MARKER above)
 touch "$DEPLOYED_MARKER"
 
-# Refresh desktop entries now — before the blocking interactive session below,
-# not after, since that's what install-desktop.sh's deployed-check actually
-# looks for. Best-effort: never blocks the actual deploy.
+# Refresh desktop entries now that the container (and its launch-legion.sh
+# entry) is about to actually exist. Best-effort: never blocks the deploy.
 bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
 
 # Record the config this container is about to be launched with (see CONFIG
@@ -194,12 +198,11 @@ bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || tru
 # have changed since.
 echo "$CONFIG_HASH" > "$CONFIG_HASH_FILE"
 
-# Start detached on the image's real ENTRYPOINT (the sleep loop in the
-# Dockerfile), not --entrypoint overridden to entrypoint.sh directly — see
-# kali-pentest/run.sh's identical comment for the full reasoning (exiting
-# the menu would otherwise kill PID1 and tear the container down). No --rm
-# for the same reason: this container persists across detach/reattach, and
-# STOP/TEARDOWN/CLEAN already manage its removal explicitly.
+# No --rm: this container persists across FAST reconciles, and
+# STOP/TEARDOWN/CLEAN already manage its removal explicitly. Its real
+# ENTRYPOINT (the sleep loop in the Dockerfile) just keeps it alive for
+# `docker exec` (the "Open Bash Shell"/"Launch Legion (GUI)" actions) to
+# reach later.
 $DOCKER run -d \
   --net=host \
   -e DISPLAY="${DISPLAY}" \
@@ -213,16 +216,6 @@ if [ "$START_STATUS" -ne 0 ]; then
     exit "$START_STATUS"
 fi
 
-# Attach to the TUI via exec — exiting the menu (option 3) only ends this
-# exec session; the container's real PID1 (the sleep loop) keeps running.
-$DOCKER exec -it "$CONTAINER_NAME" /usr/local/bin/entrypoint.sh
-
-LAUNCH_STATUS=$?
-
-if [ "$LAUNCH_STATUS" -eq 0 ]; then
-    echo "🚀 Success: Interactive execution runtime completed cleanly."
-else
-    echo "⚠️ Container terminal runtime exited or interrupted with code $LAUNCH_STATUS"
-fi
-
-exit "$LAUNCH_STATUS"
+echo "🚀 Container '$CONTAINER_NAME' is running."
+bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
+exit 0

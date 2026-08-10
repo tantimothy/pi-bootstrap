@@ -1,6 +1,6 @@
 menu:
-  id: kali-legion
-  name: "Kali Legion"
+  id: legion
+  name: "Legion"
   icon: security-high
 deployed_check:
   # A lingering image alone doesn't prove the environment was ever launched
@@ -9,20 +9,20 @@ deployed_check:
   kind: marker
   value: "${ENV_DIR}/.deployed"
 entries:
-  - id: pi-bootstrap-kali-legion-terminal
-    name: "Kali Legion Terminal"
-    comment: "Kali Linux environment — Legion automated recon"
+  - id: pi-bootstrap-legion-terminal
+    name: "Legion Bash Shell"
+    comment: "Shell inside the running Legion container"
     icon: utilities-terminal
     kind: exec
-    target: 'bash -c "cd ''${ENV_DIR}'' && REBUILD_POLICY=FAST ./run.sh"'
+    target: 'bash -c "docker exec -it ${CONTAINER_NAME:-running-legion-rig} bash"'
     terminal: true
-  - id: pi-bootstrap-kali-legion
+  - id: pi-bootstrap-legion
     name: "Legion"
-    comment: "Graphical automated network recon from the Kali Legion container"
+    comment: "Graphical automated network recon from the Legion container"
     icon: network-workgroup
     kind: exec
     target: 'bash "${ENV_DIR}/scripts/launch-legion.sh"'
     terminal: false
 info:
-  id: pi-bootstrap-kali-legion-info
-  name: "Kali Legion Info"
+  id: pi-bootstrap-legion-info
+  name: "Legion Info"

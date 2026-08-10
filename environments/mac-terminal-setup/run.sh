@@ -16,6 +16,14 @@ ENV_FILE="$SCRIPT_DIR/.env"
 BACKUP_DIR="$HOME/.pi-bootstrap-backups/mac-terminal-setup-$(date +%Y%m%d-%H%M%S)"
 BACKUP_MADE=false
 
+# deploy_environment() (lib/deploy-lib.sh) deliberately doesn't wrap run.sh
+# in its own `script`-based session logging — see that function's own
+# comment. This environment has no interactive attach at all (host-only,
+# no container), so the whole rest of this script is safe to self-log
+# unconditionally.
+source "$REPO_DIR/lib/deploy-lib.sh"
+_selflog_start "$SCRIPT_DIR" "${REBUILD_POLICY:-FAST}"
+
 if [[ "$(uname)" != "Darwin" ]]; then
     echo "❌ mac-terminal-setup is macOS-only (found $(uname)). Nothing to do." >&2
     exit 1

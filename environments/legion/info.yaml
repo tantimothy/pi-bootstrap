@@ -1,0 +1,22 @@
+custom_actions:
+  - label: "Open Bash Shell"
+    command: 'docker exec -it ${CONTAINER_NAME:-running-legion-rig} bash'
+  - label: "Launch Legion (GUI)"
+    command: 'bash ${ENV_DIR}/scripts/launch-legion.sh'
+data_dirs: []
+install_dirs: []
+named_volumes: []
+delete_confirm_msg: "This environment has no persisted data — WIPE is a no-op."
+active_config:
+  - label: "Display"
+    value: "${DISPLAY:-:0}"
+useful_commands: |2
+     docker exec -it ${CONTAINER_NAME:-running-legion-rig} bash  # Open shell in running container
+     docker logs ${CONTAINER_NAME:-running-legion-rig}           # Container logs
+
+  📌 Notes:
+     🔑 Legion is GUI-only, with no CLI/TUI of its own — use the "Launch
+        Legion (GUI)" action below, or a desktop entry, to start it.
+     🔑 The display above must be reachable from the host; SSH in with -X
+        for remote use.
+     🔑 Full details: environments/legion/README.md

@@ -10,7 +10,7 @@ ENV START_METASPLOIT_DB=true
 # alone is ~1.5-2.5GB, by far the single largest package in that environment,
 # and forced every CLEAN there to reinstall it regardless of what actually
 # changed. Isolating it here means a kali-pentest CLEAN never touches this,
-# and a kali-metasploit CLEAN never touches kali-pentest's much larger tool
+# and a metasploit CLEAN never touches kali-pentest's much larger tool
 # list. Armitage came with it — it's Metasploit's own GUI front-end (needs
 # a local msfrpcd to connect to), so it can't usefully live anywhere else.
 #
@@ -19,9 +19,12 @@ ENV START_METASPLOIT_DB=true
 # every rebuild, unrelated to anything actually installed here.
 # --no-install-recommends: metasploit-framework and armitage both otherwise
 # pull large recommended-but-not-required dependency trees.
+#
+# No `dialog`/`less`: no in-container menu here — msfconsole (this
+# environment's only real CLI tool) is launched straight from the "Metasploit
+# Framework (Console)" custom_action via scripts/start-msfconsole.sh, and
+# Armitage is GUI-only (its own custom_action / desktop entry).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    dialog \
-    less \
     metasploit-framework \
     postgresql \
     armitage \
@@ -32,9 +35,11 @@ WORKDIR /root
 # Establish static paths for persistence hooks
 RUN mkdir -p /root/.msf4
 
-# Copy structural entrypoint scripts for manual subshell calls
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# Starts the Metasploit DB (if enabled) and execs msfconsole — see the
+# script's own comment. Copied in under the same /usr/local/bin location
+# every other environment's launcher script convention uses.
+COPY scripts/start-msfconsole.sh /usr/local/bin/start-msfconsole.sh
+RUN chmod +x /usr/local/bin/start-msfconsole.sh
 
 # ARCHETYPE REQUIREMENT: Keep background runtime loop alive non-interactively
 ENTRYPOINT ["/bin/bash", "-c", "while true; do sleep 30; done"]

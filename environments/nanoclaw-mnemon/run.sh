@@ -24,6 +24,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 POLICY="${REBUILD_POLICY:-FAST}"
+
+# deploy_environment() (lib/deploy-lib.sh) deliberately doesn't wrap run.sh
+# in its own `script`-based session logging — see that function's own
+# comment. This environment DOES hand off interactively (the NanoClaw
+# setup wizard, via `docker exec -it`), so _selflog_stop is called right
+# before that handoff, further down, so it still runs completely raw.
+source "$REPO_DIR/lib/deploy-lib.sh"
+_selflog_start "$SCRIPT_DIR" "$POLICY"
 # Set to true by any patch that actually rewrites container/Dockerfile, so a
 # non-CLEAN deploy knows it has to rebuild the agent-sandbox image for that
 # write to mean anything (CLEAN always rebuilds regardless). See the
@@ -2818,6 +2826,7 @@ if [ ! -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "   Its first build already includes mnemon, patched in above."
     echo "   iMessage isn't offered in this container-only NanoClaw setup."
     echo ""
+    _selflog_stop
     exec 0< /dev/tty
     exec 1> /dev/tty
     exec 2> /dev/tty
