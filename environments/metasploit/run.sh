@@ -116,6 +116,7 @@ if [ "$POLICY" = "FAST" ] && [ -n "$CONTAINER_RUNNING" ]; then
         echo "   Not killing your active session automatically — run TEARDOWN then FAST (or CLEAN) to pick up the new config."
     fi
     echo "✅ [FAST Policy] Container '$CONTAINER_NAME' is already running."
+    _selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
     bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
     exit 0
 fi
@@ -225,5 +226,6 @@ if [ "$START_STATUS" -ne 0 ]; then
 fi
 
 echo "🚀 Container '$CONTAINER_NAME' is running."
+_selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
 bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
 exit 0

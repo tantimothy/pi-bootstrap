@@ -62,11 +62,23 @@ _C_RESET=$'\033[0m'
 # HTML-escapes it; raw ANSI codes would leak into the page as garbage) or
 # stdout isn't an actual terminal (a non-interactive `curl | bash` deploy,
 # or output redirected to a file/log).
+#
+# `[ -t 1 ]` alone isn't enough: run_info()'s normal terminal path pipes
+# `_info_list | less -Xr` so long output can be paged — the left side of
+# that pipe runs with its OWN stdout connected to the pipe, not the real
+# terminal, so `[ -t 1 ]` inside _info_list (and everything it calls) is
+# always false there, silently disabling color on every ordinary run
+# (confirmed directly: not a hypothetical). run_info() sets
+# _INFO_FORCE_COLOR=1 on that specific invocation — from ITS OWN, still-a-
+# real-terminal context — to say "yes, this really is going to a
+# real terminal, even though you personally can't see that from here."
 _color() {
-    if [ "${_INFO_PLAIN:-0}" = "1" ] || [ ! -t 1 ]; then
+    if [ "${_INFO_PLAIN:-0}" = "1" ]; then
         printf '%s' "$2"
-    else
+    elif [ "${_INFO_FORCE_COLOR:-0}" = "1" ] || [ -t 1 ]; then
         printf '%s%s%s' "$1" "$2" "$_C_RESET"
+    else
+        printf '%s' "$2"
     fi
 }
 
@@ -570,7 +582,11 @@ run_info() {
         # codes instead of showing them as literal control-character
         # garbage or stripping them.
         if [ -t 1 ] && command -v less &>/dev/null; then
-            _info_list | less -Xr
+            # _info_list's own stdout is the pipe into less, not this real
+            # terminal — _INFO_FORCE_COLOR tells _color() (see its own
+            # comment) that this `[ -t 1 ]` check right here, still in the
+            # real terminal, already confirmed it's safe to color.
+            _INFO_FORCE_COLOR=1 _info_list | less -Xr
         else
             _info_list
         fi

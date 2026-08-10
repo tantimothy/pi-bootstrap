@@ -254,6 +254,7 @@ bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || tru
 
 # Delegates to info.sh so the "just deployed" summary and the on-demand
 # INFO menu are always the exact same content — one file, not two.
+_selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
 bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
 
 echo ""
