@@ -27,6 +27,15 @@
 #                                 terminal listing as an aligned list. Skip
 #                                 for non-http endpoints (e.g. a VNC address)
 #                                 — put those in USEFUL_COMMANDS as plain text.
+#   ACTIVE_CONFIG_LABELS + ACTIVE_CONFIG_VALUES  — parallel arrays of
+#                                 runtime-relevant settings and their
+#                                 resolved values (e.g. "Wireless interface"
+#                                 / "wlan1") — the outer-menu equivalent of
+#                                 an in-container "Active configuration"
+#                                 block. Only for values that actually vary
+#                                 per-deploy (an env var with a real
+#                                 default); a fixed architectural fact
+#                                 belongs in USEFUL_COMMANDS' Notes instead.
 #
 # Optional scalars (library provides defaults):
 #   DATA_DIRS_LABEL      — heading for the data dirs section
@@ -145,6 +154,25 @@ _info_web_uis_text() {
     fi
 }
 
+# Active-configuration list for the terminal — same right-padded-label
+# layout as the in-container "Active configuration:" blocks this mirrors
+# (see e.g. kali-pentest/entrypoint.sh's show_info), just driven by
+# ACTIVE_CONFIG_LABELS/ACTIVE_CONFIG_VALUES instead of hardcoded here.
+_info_active_config_text() {
+    if [ -n "${ACTIVE_CONFIG_LABELS+x}" ] && [ "${#ACTIVE_CONFIG_LABELS[@]}" -gt 0 ]; then
+        _color "$_C_BOLD" "⚙️  Active Configuration:"; echo ""
+        local i maxlen=0
+        for i in "${!ACTIVE_CONFIG_LABELS[@]}"; do
+            [ "${#ACTIVE_CONFIG_LABELS[$i]}" -gt "$maxlen" ] && maxlen="${#ACTIVE_CONFIG_LABELS[$i]}"
+        done
+        for i in "${!ACTIVE_CONFIG_LABELS[@]}"; do
+            local padded; padded=$(printf '%-*s' "$maxlen" "${ACTIVE_CONFIG_LABELS[$i]}")
+            printf '   %s   %s\n' "$padded" "$(_color "$_C_CYAN" "${ACTIVE_CONFIG_VALUES[$i]}")"
+        done
+        echo ""
+    fi
+}
+
 # Dims a single "code"-mode line from USEFUL_COMMANDS — the command itself
 # (everything before a 2+-space-then-"#" comment, the established alignment
 # convention every environment's info.yaml already uses) is dimmed; the
@@ -186,6 +214,7 @@ _info_useful_commands_text() {
 _info_list() {
     echo ""
     _info_dirs_and_volumes_text
+    _info_active_config_text
     _info_web_uis_text
     _info_useful_commands_text
 }
@@ -299,6 +328,9 @@ _info_html() {
 HTML
         local dirs_text; dirs_text="$(_info_dirs_and_volumes_text)"
         [ -n "$dirs_text" ] && printf '<pre>%s</pre>\n' "$(printf '%s' "$dirs_text" | _html_escape | _linkify)"
+
+        local active_config_text; active_config_text="$(_info_active_config_text)"
+        [ -n "$active_config_text" ] && printf '<pre>%s</pre>\n' "$(printf '%s' "$active_config_text" | _html_escape | _linkify)"
 
         local web_ui_text; web_ui_text="$(_info_web_uis_text)"
         [ -n "$web_ui_text" ] && printf '<pre>%s</pre>\n' "$(printf '%s' "$web_ui_text" | _html_escape | _linkify)"
@@ -442,6 +474,7 @@ _info_delete() {
 #   delete_install_dirs: true|false          (default false)
 #   delete_confirm_msg / no_data_msg / no_delete_msg: "..."
 #   web_uis: [{name, url}]
+#   active_config: [{label, value}]
 #   useful_commands: |                       block scalar
 #     ...
 #
@@ -494,6 +527,11 @@ _load_info_yaml() {
     _read_lines < <(_yq '.web_uis[].url' "$yaml"); _raw=("${_LINES[@]}")
     WEB_UI_URLS=()
     for i in "${!_raw[@]}"; do WEB_UI_URLS[i]="$(_yaml_expand "${_raw[$i]}")"; done
+
+    _read_lines < <(_yq '.active_config[].label' "$yaml"); ACTIVE_CONFIG_LABELS=("${_LINES[@]}")
+    _read_lines < <(_yq '.active_config[].value' "$yaml"); _raw=("${_LINES[@]}")
+    ACTIVE_CONFIG_VALUES=()
+    for i in "${!_raw[@]}"; do ACTIVE_CONFIG_VALUES[i]="$(_yaml_expand "${_raw[$i]}")"; done
 
     DATA_DIRS_LABEL="$(_yaml_expand "$(_yq '.data_dirs_label // ""' "$yaml")")"
     INSTALL_DIRS_LABEL="$(_yaml_expand "$(_yq '.install_dirs_label // ""' "$yaml")")"

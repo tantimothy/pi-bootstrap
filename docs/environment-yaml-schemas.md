@@ -237,6 +237,16 @@ web_uis:                        # optional, default none
   - name: <string>
     url: <string>                # typically "http://${HOST_IP}:${PORT:-<default>}"
 
+active_config:                  # optional, default none — runtime-relevant
+  - label: <string>              # settings and their resolved values (e.g.
+    value: <string>               # "Wireless interface" / "${WIRELESS_INTERFACE:-wlan1}"),
+                                   # rendered as its own bolded section. Only
+                                   # for values that actually vary per-deploy
+                                   # (an env var with a real default) — a
+                                   # fixed architectural fact (e.g. "GUI-only,
+                                   # needs X11") belongs in useful_commands'
+                                   # 📌 Notes: instead.
+
 custom_actions:                 # optional, default none — see its own
   - label: <string>              # section below
     command: <string>            # MUST be a single line — see below

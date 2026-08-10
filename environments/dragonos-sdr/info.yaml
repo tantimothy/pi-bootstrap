@@ -8,6 +8,9 @@ named_volumes: []
 wipe_parent_dirs:
   - "${SCRIPT_DIR}/workspace"
 delete_confirm_msg: "All SDR captures will be lost."
+active_config:
+  - label: "Display"
+    value: "${DISPLAY:-:0}"
 # |2 pins the strip to exactly 2 spaces — a plain "|" here would infer the
 # strip amount from this block's own uniform 3-space indent and strip ALL
 # of it, losing the leading spaces the rendered output is meant to have.
@@ -18,8 +21,8 @@ useful_commands: |2
      ls ${SCRIPT_DIR}/workspace/captures/                            # Browse SDR captures
 
   📌 Notes:
-     🔑 GUI tools (GQRX, etc.) need a reachable X11/XWayland display
-        (DISPLAY=${DISPLAY:-:0}) on the host; SSH in with -X for remote use.
+     🔑 GUI tools (GQRX, etc.) need the display above to be reachable from
+        the host; SSH in with -X for remote use.
      🔑 Runs --privileged for direct USB SDR device access (RTL-SDR/HackRF).
      🔑 Metasploit Framework/Armitage and Legion live in the separate
         metasploit and legion environments.

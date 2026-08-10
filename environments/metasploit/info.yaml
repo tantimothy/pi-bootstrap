@@ -11,14 +11,17 @@ data_dirs:
 install_dirs: []
 named_volumes: []
 delete_confirm_msg: "All Metasploit data will be lost."
+active_config:
+  - label: "Display"
+    value: "${DISPLAY:-:0}"
+  - label: "Auto-start Metasploit DB"
+    value: "${START_METASPLOIT_DB:-true}"
 useful_commands: |2
      docker exec -it ${CONTAINER_NAME:-running-metasploit-rig} /usr/local/bin/start-msfconsole.sh  # Metasploit console
      docker exec -it ${CONTAINER_NAME:-running-metasploit-rig} bash                                # Open shell in running container
      docker logs ${CONTAINER_NAME:-running-metasploit-rig}                                         # Container logs
 
   📌 Notes:
-     🔑 Metasploit's PostgreSQL database starts automatically before
-        msfconsole when START_METASPLOIT_DB=${START_METASPLOIT_DB:-true}.
-     🔑 Armitage (GUI) needs a reachable X11/XWayland display
-        (DISPLAY=${DISPLAY:-:0}) on the host; SSH in with -X for remote use.
+     🔑 Armitage (GUI) needs the display above to be reachable from the
+        host; SSH in with -X for remote use.
      🔑 Full details: environments/metasploit/README.md
