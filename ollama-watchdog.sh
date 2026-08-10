@@ -149,7 +149,24 @@ do_check_and_restart() {
     sleep 5
     if is_healthy; then
         _log "✅ Ollama responsive again after restart"
-        notify "Ollama is back up."
+        # "Responsive" is measured at the probe URL, which is localhost — and a
+        # loopback-bound daemon passes that on every run while every container
+        # is refused. --check and --status already report the real listen
+        # address for that reason; this path needs it MORE, not less, because
+        # it just restarted the daemon and the restart is the thing most likely
+        # to have changed the binding (e.g. handing Ollama off from a service
+        # supervisor that was overriding the bind address).
+        ollama_report_binding
+        # A restart whose whole purpose was the bind address, reporting success
+        # on a localhost probe, is a false all-clear. On a scheduled run this
+        # log line and the notification are the only feedback there is, so the
+        # failure has to reach both — see the note above is_healthy.
+        if [ -n "${OLLAMA_SERVE_HOST:-}" ] && ! ollama_binding_satisfies_serve_host; then
+            _log "⚠️  ...but NOT on OLLAMA_SERVE_HOST=${OLLAMA_SERVE_HOST} — containers will still be refused."
+            notify "Ollama is back up, but not bound to ${OLLAMA_SERVE_HOST} — containers still can't reach it."
+        else
+            notify "Ollama is back up."
+        fi
     else
         _log "❌ Ollama still not responding after restart — needs manual attention"
         notify "Ollama restart didn't help — check it manually."
