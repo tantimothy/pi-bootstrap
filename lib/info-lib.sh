@@ -208,14 +208,23 @@ _info_useful_commands_text() {
     # Reuses _tag_mixed_content's own code/prose classification (the same
     # indentation-sensitive rules the HTML page's rendering already
     # depends on) so only actual command lines get dimmed — a "📌 Notes:"
-    # prose section stays plain, matching how it already reads in the
-    # HTML page. _colorize_command_line's use of _color makes this
-    # automatically plain text again under _INFO_PLAIN (the HTML pass
-    # below still re-tags this same output itself, from scratch, so
+    # prose section's own bullet lines stay plain, matching how they
+    # already read in the HTML page; only the "📌 Notes:" header itself is
+    # bolded, same treatment as every other section header. Both
+    # _colorize_command_line and the bolding below go through _color, so
+    # this is automatically plain text again under _INFO_PLAIN (the HTML
+    # pass below still re-tags this same output itself, from scratch, so
     # nothing here needs to special-case that pass beyond staying plain).
     printf '%s\n' "$USEFUL_COMMANDS" | _tag_mixed_content | while IFS=$'\t' read -r _mode _line; do
         if [ "$_mode" = "code" ]; then
             _colorize_command_line "$_line"
+        elif [ "$_line" = "📌 Notes:" ]; then
+            # Same bolded-header treatment every other section gets
+            # (📁 Persistent Data Directories:, 💡 Useful Commands:, ...) —
+            # _tag_mixed_content's own prose/code split (see its comment)
+            # keys off this exact line, so the match has to stay in sync
+            # with it if that sentinel text ever changes.
+            _color "$_C_BOLD" "$_line"; echo ""
         else
             printf '%s\n' "$_line"
         fi
