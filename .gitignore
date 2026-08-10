@@ -18,9 +18,10 @@ environments/*/post-deploy-info.html
 # end up in here).
 environments/*/logs/
 
-# nanoclaw-mnemon's export-mnemon-graph.sh output — an HTML snapshot of a
-# real group's mnemon insight content, regenerated on demand, never
-# something to track in git.
+# nanoclaw-mnemon's export-mnemon-graph.sh / export-mnemon-pages.sh
+# output — an HTML snapshot (or a whole navigable-pages site) of a real
+# group's mnemon insight content, regenerated on demand, never something
+# to track in git.
 environments/nanoclaw-mnemon/exports/
 
 # export-mnemon-graph.sh's own private venv (holds pyvis) — created on

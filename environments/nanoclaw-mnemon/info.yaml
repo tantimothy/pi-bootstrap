@@ -47,6 +47,13 @@ custom_actions:
   # on first use if missing, gated behind an explicit y/N prompt.
   - label: "Export Mnemon Graph as Interactive HTML (Mnemon profile)"
     command: "bash ${ENV_DIR}/scripts/export-mnemon-graph.sh"
+  # A dense force-directed network is unreadable past a few hundred edges
+  # (confirmed live: 353 insights / 4262 edges rendered as an
+  # indecipherable tangle) — this is the alternative: a plain navigable
+  # site, one page per insight, edges as real links. No pyvis/venv needed,
+  # pure stdlib — see scripts/export-mnemon-pages.py's own header.
+  - label: "Export Mnemon Graph as Navigable Pages (Mnemon profile)"
+    command: "bash ${ENV_DIR}/scripts/export-mnemon-pages.sh"
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
   # Opens a persistent, detachable tmux "claude" session directly inside
