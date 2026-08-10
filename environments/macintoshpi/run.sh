@@ -70,6 +70,7 @@ if [ "${POLICY}" = "FAST" ] && [ -f "${DEPLOYED_MARKER}" ]; then
     echo "✅ Already deployed (${DEPLOYED_MARKER} exists) — skipping the ~2 hour build_all.sh to avoid re-downloading and overwriting your Mac OS hard disk images."
     echo "   Use a custom action below to reinstall a single component, or CLEAN to rebuild everything from scratch (this WILL overwrite your Mac OS disks)."
     bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+    _selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
     bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
     exit 0
 fi
@@ -127,4 +128,5 @@ touch "${DEPLOYED_MARKER}"
 echo "✅ MacintoshPi installed. Launch a system with: mac os9   (or: mac os8 / mac os7)"
 
 bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+_selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
 bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list

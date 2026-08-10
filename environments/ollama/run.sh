@@ -247,4 +247,5 @@ else
     fi
 fi
 
+_selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
 bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list

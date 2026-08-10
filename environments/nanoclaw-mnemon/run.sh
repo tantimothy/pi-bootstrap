@@ -2857,4 +2857,5 @@ echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat in
 echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."
 echo "=========================================================="
 bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+_selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
 bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list

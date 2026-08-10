@@ -631,4 +631,5 @@ echo "=========================================================="
 echo "🏁 Infrastructure Execution Pipeline Completed Successfully!"
 echo "=========================================================="
 bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+_selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
 bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
