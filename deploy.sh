@@ -1376,10 +1376,18 @@ if [ "$REBUILD_POLICY" = "INFO" ] || [ "$REBUILD_POLICY" = "WIPE" ]; then
     cd "$TARGET_WORKSPACE_DIR" || exit 1
     if [ -f "info.sh" ] || [ -f "info.yaml" ]; then
         ACTION=$([ "$REBUILD_POLICY" = "INFO" ] && echo "list" || echo "delete")
-        mkdir -p "$TARGET_WORKSPACE_DIR/logs"
-        LOG_FILE="$TARGET_WORKSPACE_DIR/logs/${REBUILD_POLICY}-$(date +%Y%m%d-%H%M%S).log"
-        echo "📝 Logging this run to: $LOG_FILE"
-        _run_logged "$LOG_FILE" bash "$PROJECT_DIR/lib/run-info.sh" "$TARGET_WORKSPACE_DIR" "$ACTION"
+        if [ "$REBUILD_POLICY" = "WIPE" ]; then
+            # WIPE mutates/destroys state, same as CLEAN/TEARDOWN — worth a
+            # durable log. INFO is a read-only display, re-run on every
+            # visit — logging it as a "session" just fills logs/ with
+            # noise, never anything worth reviewing after the fact.
+            mkdir -p "$TARGET_WORKSPACE_DIR/logs"
+            LOG_FILE="$TARGET_WORKSPACE_DIR/logs/${REBUILD_POLICY}-$(date +%Y%m%d-%H%M%S).log"
+            echo "📝 Logging this run to: $LOG_FILE"
+            _run_logged "$LOG_FILE" bash "$PROJECT_DIR/lib/run-info.sh" "$TARGET_WORKSPACE_DIR" "$ACTION"
+        else
+            bash "$PROJECT_DIR/lib/run-info.sh" "$TARGET_WORKSPACE_DIR" "$ACTION"
+        fi
     else
         echo "ℹ️  No info.sh or info.yaml found for [$ENV_NAME]. No data directory information available."
     fi
