@@ -11,7 +11,11 @@
 # The actual graph rendering (schema-correct: table `insights`, not
 # `memories`; `edges(edge_type, weight, metadata)`, not
 # `edges(type, description)`) lives in export-mnemon-graph.py, run against
-# the snapshot this script produces — never the live file.
+# the snapshot this script produces — never the live file. Runs inside a
+# private venv (.venv-mnemon-graph, created on first use) rather than the
+# system/user Python, since Homebrew's Python on macOS — and PEP 668 in
+# general — refuses `pip install` outright ("externally managed
+# environment") without it.
 #
 # Usage:
 #   ./export-mnemon-graph.sh                        # discover group/store, render, open
@@ -40,15 +44,30 @@ if ! command -v python3 &>/dev/null; then
     exit 1
 fi
 
+# A dedicated venv, not `pip install --user`/system pyvis — confirmed live
+# that Homebrew's Python on macOS (and PEP 668 in general, on any
+# externally-managed Python) refuses a bare `pip install`, --user included,
+# with "externally managed environment". A venv sidesteps that restriction
+# entirely rather than working around it with --break-system-packages,
+# which risks the host's actual Homebrew Python install. Persisted under
+# this environment's own dir (gitignored) so pyvis is only ever installed
+# once, not on every run.
+VENV_DIR="${ENV_DIR}/.venv-mnemon-graph"
+PYTHON="${VENV_DIR}/bin/python3"
+if [ ! -x "$PYTHON" ]; then
+    echo "Creating a private virtualenv for this script's own Python deps: $VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+fi
+
 # Gated behind an explicit y/N prompt, same shape as run.sh's own
 # ensure_ollama_ready() — this is the one script here that needs to modify
 # anything on the host beyond mnemon.db itself, and that should never
-# happen silently.
-if ! python3 -c "import pyvis" 2>/dev/null; then
+# happen silently. Installing INTO the venv, never system/user site-packages.
+if ! "$PYTHON" -c "import pyvis" 2>/dev/null; then
     echo "pyvis isn't installed — it's what actually renders the interactive HTML graph."
-    read -rp "Install it now with 'python3 -m pip install --user pyvis'? [y/N] " REPLY
+    read -rp "Install it now into ${VENV_DIR} (pip install pyvis)? [y/N] " REPLY
     if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-        python3 -m pip install --user pyvis
+        "$PYTHON" -m pip install --quiet pyvis
     else
         echo "❌ Skipping — nothing to render without pyvis." >&2
         exit 1
@@ -165,7 +184,7 @@ OUTPUT_DIR="${ENV_DIR}/exports"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_HTML="${OUTPUT_DIR}/mnemon-graph-${GROUP}-$(date +%Y%m%d-%H%M%S).html"
 
-python3 "$SCRIPT_DIR/export-mnemon-graph.py" "$SNAPSHOT" "$OUTPUT_HTML"
+"$PYTHON" "$SCRIPT_DIR/export-mnemon-graph.py" "$SNAPSHOT" "$OUTPUT_HTML"
 
 echo ""
 echo "✅ Saved: $OUTPUT_HTML"
