@@ -82,6 +82,19 @@ _color() {
     fi
 }
 
+# Prints one "path  (size or not-yet-created)" + description row — the
+# shared row format between the DATA_DIRS and INSTALL_DIRS sections below.
+_info_print_dir_row() {
+    local dir="$1" desc="$2"
+    if [ -d "$dir" ]; then
+        local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+        printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "($size)"; echo ""
+    else
+        printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "(not yet created)"; echo ""
+    fi
+    printf '     → %s\n' "$(_color "$_C_GREEN" "$desc")"
+}
+
 # The data-dirs/install-dirs/volumes portion — factored out so _info_html
 # can reuse it in the <pre> block without also pulling in the web UIs
 # section, which it renders as a separate HTML table instead.
@@ -90,14 +103,7 @@ _info_dirs_and_volumes_text() {
         _color "$_C_BOLD" "${DATA_DIRS_LABEL:-📁 Persistent Data Directories:}"; echo ""
         local i
         for i in "${!DATA_DIRS[@]}"; do
-            local dir="${DATA_DIRS[$i]}"
-            if [ -d "$dir" ]; then
-                local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
-                printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "($size)"; echo ""
-            else
-                printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "(not yet created)"; echo ""
-            fi
-            printf '     → %s\n' "$(_color "$_C_GREEN" "${DATA_DESCRIPTIONS[$i]}")"
+            _info_print_dir_row "${DATA_DIRS[$i]}" "${DATA_DESCRIPTIONS[$i]}"
         done
         echo ""
     fi
@@ -106,14 +112,7 @@ _info_dirs_and_volumes_text() {
         _color "$_C_BOLD" "${INSTALL_DIRS_LABEL:-📂 Install Directories:}"; echo ""
         local i
         for i in "${!INSTALL_DIRS[@]}"; do
-            local dir="${INSTALL_DIRS[$i]}"
-            if [ -d "$dir" ]; then
-                local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
-                printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "($size)"; echo ""
-            else
-                printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "(not yet created)"; echo ""
-            fi
-            printf '     → %s\n' "$(_color "$_C_GREEN" "${INSTALL_DESCRIPTIONS[$i]}")"
+            _info_print_dir_row "${INSTALL_DIRS[$i]}" "${INSTALL_DESCRIPTIONS[$i]}"
         done
         echo ""
     fi
@@ -375,6 +374,31 @@ _info_manifest() {
     done
 }
 
+# rm -rf's each existing dir in $@ — shared by the DATA_DIRS/INSTALL_DIRS/
+# WIPE_PARENT_DIRS deletion passes below.
+_info_rm_dirs() {
+    local dir
+    for dir in "$@"; do
+        [ -d "$dir" ] && rm -rf "$dir" && echo "🗑️  Deleted: $dir"
+    done
+}
+
+# Prints one confirmation row and marks DIRS_EXIST=true if the dir exists —
+# shared by the DATA_DIRS/INSTALL_DIRS/WIPE_PARENT_DIRS sections below.
+# Relies on bash's dynamic scoping: DIRS_EXIST is `local` in _info_delete,
+# the only caller, so it's visible here without being passed explicitly.
+_info_delete_dir_row() {
+    local dir="$1" desc="$2" extra="${3:-}"
+    if [ -d "$dir" ]; then
+        local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+        echo "   🗑️  $dir  ($size)$extra"
+        [ -n "$desc" ] && echo "       → $desc"
+        DIRS_EXIST=true
+    else
+        echo "   ⬜  $dir  (does not exist)"
+    fi
+}
+
 _info_delete() {
     echo ""
     echo "⚠️  The following will be PERMANENTLY DELETED:"
@@ -382,28 +406,12 @@ _info_delete() {
     local DIRS_EXIST=false i
 
     for i in "${!DATA_DIRS[@]}"; do
-        local dir="${DATA_DIRS[$i]}"
-        if [ -d "$dir" ]; then
-            local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
-            echo "   🗑️  $dir  ($size)"
-            echo "       → ${DATA_DESCRIPTIONS[$i]}"
-            DIRS_EXIST=true
-        else
-            echo "   ⬜  $dir  (does not exist)"
-        fi
+        _info_delete_dir_row "${DATA_DIRS[$i]}" "${DATA_DESCRIPTIONS[$i]}"
     done
 
     if [ "${DELETE_INSTALL_DIRS:-false}" = "true" ] && [ "${#INSTALL_DIRS[@]}" -gt 0 ]; then
         for i in "${!INSTALL_DIRS[@]}"; do
-            local dir="${INSTALL_DIRS[$i]}"
-            if [ -d "$dir" ]; then
-                local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
-                echo "   🗑️  $dir  ($size)"
-                echo "       → ${INSTALL_DESCRIPTIONS[$i]}"
-                DIRS_EXIST=true
-            else
-                echo "   ⬜  $dir  (does not exist)"
-            fi
+            _info_delete_dir_row "${INSTALL_DIRS[$i]}" "${INSTALL_DESCRIPTIONS[$i]}"
         done
     fi
 
@@ -423,14 +431,9 @@ _info_delete() {
     fi
 
     if [ -n "${WIPE_PARENT_DIRS+x}" ] && [ "${#WIPE_PARENT_DIRS[@]}" -gt 0 ]; then
+        local dir
         for dir in "${WIPE_PARENT_DIRS[@]}"; do
-            if [ -d "$dir" ]; then
-                local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
-                echo "   🗑️  $dir  ($size)  (including any remaining contents)"
-                DIRS_EXIST=true
-            else
-                echo "   ⬜  $dir  (does not exist)"
-            fi
+            _info_delete_dir_row "$dir" "" "  (including any remaining contents)"
         done
     fi
 
@@ -453,14 +456,9 @@ _info_delete() {
     fi
 
     if [ "$CONFIRM" -eq 0 ]; then
-        local dir
-        for dir in "${DATA_DIRS[@]}"; do
-            [ -d "$dir" ] && rm -rf "$dir" && echo "🗑️  Deleted: $dir"
-        done
+        _info_rm_dirs "${DATA_DIRS[@]}"
         if [ "${DELETE_INSTALL_DIRS:-false}" = "true" ] && [ "${#INSTALL_DIRS[@]}" -gt 0 ]; then
-            for dir in "${INSTALL_DIRS[@]}"; do
-                [ -d "$dir" ] && rm -rf "$dir" && echo "🗑️  Deleted: $dir"
-            done
+            _info_rm_dirs "${INSTALL_DIRS[@]}"
         fi
         if [ "${#NAMED_VOLUMES[@]}" -gt 0 ]; then
             local vol
@@ -470,9 +468,7 @@ _info_delete() {
             done
         fi
         if [ -n "${WIPE_PARENT_DIRS+x}" ] && [ "${#WIPE_PARENT_DIRS[@]}" -gt 0 ]; then
-            for dir in "${WIPE_PARENT_DIRS[@]}"; do
-                [ -d "$dir" ] && rm -rf "$dir" && echo "🗑️  Deleted: $dir"
-            done
+            _info_rm_dirs "${WIPE_PARENT_DIRS[@]}"
         fi
         echo "✅ Done."
     else
