@@ -118,21 +118,19 @@ if ! command -v yq &>/dev/null || ! yq --version 2>/dev/null | grep -q "mikefara
     echo "✅ yq (go-yq) successfully installed!"
 fi
 
-# 4. BULLETPROOF DOCKER PERMISSION CHECK WRAPPER
+# Fall back to sudo if the invoking user can't run docker directly.
 DOCKER_CMD="docker"
 if ! docker ps &>/dev/null; then
     echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
     DOCKER_CMD="sudo docker"
 fi
 
-# Check if CURL_USER is provided (Expected format from curl -u: "username:token")
+# CURL_USER (format "username:token", matching curl -u) rewrites github.com
+# URLs to embed the token, so `git fetch` on a pre-existing local repo
+# doesn't hang on an auth prompt. Built as an array, not a string, so no
+# eval/quoting is needed to run it later.
 if [ ! -z "$CURL_USER" ]; then
-    # 1. Prevent Git from hanging indefinitely on terminal prompts if auth fails
     export GIT_TERMINAL_PROMPT=0
-    
-    # 2. Use Bash Arrays instead of strings to eliminate 'eval' quoting bugs.
-    # Tells Git to dynamically rewrite any standard github URL to use your token on-the-fly.
-    # This solves the 'git fetch' prompt issue for pre-existing local repos.
     GIT_CMD=(git -c "url.https://${CURL_USER}@github.com/.insteadOf=https://github.com/")
 else
     GIT_CMD=(git)
