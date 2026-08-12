@@ -168,6 +168,46 @@ this verified by the admin session live, not a substitute for someone
 actually doing it once and confirming the mechanism itself works as
 designed.
 
+### 8. Docker Sandboxes (microVM per-agent isolation) — watch, not yet actionable
+
+Docker shipped a feature called "Docker Sandboxes" that runs each NanoClaw
+agent in its own dedicated microVM on top of the existing per-agent
+container, adding a second isolation layer (container + microVM) so a
+misbehaving/hallucinating agent can't reach the host even if the agent
+itself is fully compromised. Announced in NanoClaw's own blog
+(`https://nanoclaw.dev/blog/nanoclaw-docker-sandboxes`) and covered by
+Docker's blog and The Register, March 2026.
+
+**Why this isn't something to act on yet:**
+
+- **Platform gap.** At announcement, Docker Sandboxes supported macOS
+  (Apple Silicon) and Windows (x86/WSL) only, with Linux/ARM support
+  described as "rolling out in the coming weeks." This environment's
+  primary target is headless Docker Engine on Raspberry Pi (ARM, no
+  Docker Desktop) — the feature may not even be installable there yet,
+  and Docker Desktop-only features historically don't reach headless
+  Engine installs at all.
+- **Architecture mismatch with what's already here.** `run.sh` already
+  implements its own per-conversation-group isolation via derived images
+  (`nanoclaw-agent-v2-<slug>:<group-id>`, see item 7 above and
+  `templates/patch-details/group-images.md`), spawned with plain `docker
+  run` through NanoClaw's own `container-runner.ts`. Docker Sandboxes
+  would replace *how* those containers are spawned (wrapped in a microVM)
+  — adopting it means patching NanoClaw's spawn path itself, not just the
+  base `Dockerfile`, and would need the same anchor-checked,
+  version-marked patch treatment as every other splice this environment
+  makes into upstream NanoClaw source.
+- **No visible interaction with the base/derived-image drift problem**
+  this environment already has to manage — the announcement doesn't
+  describe per-tenant image lifecycle, so it neither fixes nor worsens
+  that existing complexity.
+
+**Revisit when:** Docker Sandboxes ships Linux/ARM support and can run on
+a plain (non-Desktop) Docker Engine host. At that point, evaluate whether
+patching NanoClaw's container-runner spawn call to wrap in a sandbox is
+worth the added external dependency, given this environment already
+achieves per-group isolation without it.
+
 ## Refactoring Opportunities
 
 See `docs/refactoring-opportunities.md`'s "yt-dlp's arch-detection
