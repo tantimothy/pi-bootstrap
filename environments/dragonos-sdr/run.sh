@@ -1,18 +1,9 @@
 #!/bin/bash
-# ==============================================================================
-# SUBFOLDER EXECUTION BLUEPRINT: DRAGONOS SDR CORE WORKSPACE LAYER
-# ==============================================================================
-# System Architecture Archetype: 1 (Custom Orchestration Shell)
-# Mode: Dynamic Interactive Framework / Pipeline Overridden TTY Compatible
-# Compatibility Layer: Dynamic Rebuild Strategy / TUI Secret Forms Integration
-# ==============================================================================
+# DragonOS SDR: custom docker-run archetype, no docker-compose.yml.
 
 set -eo pipefail
 
-# --- ARCHETYPE RULE 1: INHERITED WRAPPERS ---
 DOCKER="${DOCKER_CMD:-docker}"
-
-# --- ARCHETYPE RULE 3: SECRET ACQUISITION ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 if [ -f "${SCRIPT_DIR}/.env" ]; then
@@ -62,12 +53,10 @@ if [ -f "${CONFIG_HASH_FILE}" ] && [ "$(cat "${CONFIG_HASH_FILE}")" != "${CONFIG
     CONFIG_DRIFTED=true
 fi
 
-# --- ARCHITECTURAL SAFEGUARD: PRE-EMPTIVE VOLUME GENERATION ---
 echo "[PRE-FLIGHT] Applying Pre-emptive Directory Creation Constraints on volume paths..."
 mkdir -p "${HOST_CAPTURES_PATH}"
 mkdir -p "${HOST_MSF_DATA_PATH}"
 
-# --- ENGINE DESIGN MATRIX: POLICY AUTOMATION ROUTING ---
 POLICY="${REBUILD_POLICY:-FAST}"
 
 # deploy_environment() (lib/deploy-lib.sh) deliberately doesn't wrap run.sh
@@ -138,7 +127,6 @@ if [ "${POLICY}" = "FAST" ]; then
     fi
 fi
 
-# --- STATE TEARDOWN AND IMAGE COMPILE ROUTING ---
 if [ "${POLICY}" = "CLEAN" ]; then
     echo "[PURGE] CLEAN Policy Engaged: Compiling a fresh image before touching the existing container..."
     echo "[COMPILE] Triggering pristine, zero-cache compilation block across ARM layers..."
@@ -172,9 +160,8 @@ else
     exit 1
 fi
 
-# --- ARCHETYPE RULE 1: PIPELINE TTY OVERRIDE ---
-# Forcefully attach standard input streams directly back to the physical terminal socket.
-# This prevents pipeline streams (like curl | bash) from crashing interactive dialog commands.
+# Rebind stdin to the real terminal — needed when this script was itself
+# invoked via `curl | bash`, where stdin is the curl pipe, not a tty.
 exec < /dev/tty
 _selflog_stop
 
@@ -197,7 +184,9 @@ bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || tru
 # have changed since.
 echo "${CONFIG_HASH}" > "${CONFIG_HASH_FILE}"
 
-# Changed from '-d' to '-it' and removed background restart policies to allow true interaction
+# -it (not -d): this container needs a real interactive session, not a
+# detached one — see the FAST/dormant-restore paths above, which attach to
+# it directly rather than exec-ing in.
 "${DOCKER}" run -it --rm \
   --privileged \
   -v "${HOST_USB_BUS_PATH}:/dev/bus/usb" \
