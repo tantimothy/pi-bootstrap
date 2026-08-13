@@ -57,21 +57,31 @@ fi
 
 # Xorg's own modesetting driver re-probes the monitor's EDID once the
 # desktop session starts and can pick its own preferred (often higher,
-# e.g. native 4K) mode independent of the console override above — this is
-# NOT auto-corrected here. An earlier version of this action tried to force
-# it back via an `xrandr` call wired into X11's login autostart, and on
-# real hardware that live mode-switch froze the desktop outright and left
-# the Pi unable to bring up a display on any subsequent boot. Forcing a
-# mode change against an already-running X session is not something to do
-# unsupervised. If the desktop still comes up at the wrong resolution after
-# rebooting, run this manually from a terminal on the desktop itself
-# (replace the output name with whatever `xrandr --query` reports as
-# connected):
+# e.g. native 4K) mode independent of the console override above. An
+# earlier version of this action tried to correct that live, after the
+# fact, via an `xrandr` call wired into X11's login autostart — on real
+# hardware that live mode-switch against an already-running session froze
+# the desktop outright and left the Pi unable to bring up a display on any
+# subsequent boot. This does the same job a fundamentally safer way: a
+# declarative Xorg startup config that tells the driver what mode to
+# prefer *before* it ever picks one, rather than switching an already-
+# running session. Confirmed working: reboot, desktop comes up directly at
+# 1920x1080, no live switch involved. Worst case if the output name below
+# doesn't match this Pi's actual connector, Xorg just ignores the
+# unmatched Monitor section and falls back to its normal auto-detected
+# mode — no lockout risk like the cmdline/live-switch approaches above.
 #
-#   xrandr --output HDMI-1 --mode 1920x1080
+# "HDMI-1" assumes the first HDMI port, matching the same assumption the
+# video=HDMI-A-1 cmdline override above already makes — if your monitor is
+# on the Pi's second HDMI port, edit this file to "HDMI-2" after running:
+# `xrandr --query` (from a terminal on the desktop) to confirm the name.
+echo "🖥️  Pinning X11 to prefer 1920x1080 on startup (declarative config, not a live switch)..."
+sudo mkdir -p /etc/X11/xorg.conf.d
+sudo tee /etc/X11/xorg.conf.d/10-monitor.conf > /dev/null << 'EOF'
+Section "Monitor"
+    Identifier "HDMI-1"
+    Option "PreferredMode" "1920x1080"
+EndSection
+EOF
+
 echo "✅ Done. A reboot is required for this to take effect: sudo reboot"
-echo ""
-echo "ℹ️  If the X11 desktop itself still comes up at the wrong resolution"
-echo "   after rebooting (separate from the console), run this from a"
-echo "   terminal on the desktop — do NOT expect it to apply automatically:"
-echo "     xrandr --output <name-from-xrandr---query> --mode 1920x1080"

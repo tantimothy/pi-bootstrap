@@ -109,6 +109,30 @@ of clever:
   once, from a terminal on the desktop — a human present to notice if it
   goes wrong, not an unsupervised login hook.
 
+**Symptom (round 5):** The manual `xrandr` workaround from round 4 worked,
+but only for the current session — it reverted every time X restarted
+(reboot, or even just logging out and back in), same as commands the user
+had already tried before any of this. Expected: `xrandr` only sets the
+mode for the running session; it never persisted anything Xorg reads on
+its own next startup, so of course it reverted every time.
+
+**Root cause / fix (round 5):** Replaced the manual-`xrandr` guidance with
+a proper permanent fix: `set-resolution.sh` now writes
+`/etc/X11/xorg.conf.d/10-monitor.conf`, telling the `modesetting` driver
+to *prefer* 1920x1080 as its startup mode on output `HDMI-1` — configured
+*before* Xorg ever picks a mode, rather than switched after the fact
+against a running session, so it applies on every X start with no live
+mode-switch involved at all. First attempt at this (given verbally, not
+yet in the script) omitted the closing `EndSection` line — a genuinely
+malformed Xorg config, which made LightDM fall back to its failsafe xterm
+session ("boots to a plain command-line terminal instead of the desktop").
+Corrected and confirmed working live: reboot, desktop comes up directly at
+1920x1080, no manual step needed. This is meaningfully lower-risk than the
+round 4 approach it replaces — an Xorg config with an unmatched or invalid
+`Identifier` degrades gracefully to normal auto-detection (recoverable
+over SSH by deleting the file), rather than risking the boot-level lockout
+a bad `cmdline.txt`/live-mode-switch could cause.
+
 ## General Lessons
 
 - **A "fix" for a Pi's own display/boot configuration is running on
