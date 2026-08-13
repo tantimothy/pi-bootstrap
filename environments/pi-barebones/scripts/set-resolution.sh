@@ -45,4 +45,28 @@ if [ -n "$CONFIG_FILE" ] && [ -n "$CMDLINE_FILE" ] && grep -q '^dtoverlay=vc4-km
     printf '%s' "$NEW" | sudo tee "$CMDLINE_FILE" >/dev/null
 fi
 
+# Even with the KMS console override above, Xorg's own modesetting driver
+# re-probes the monitor's EDID once the desktop session starts and can pick
+# its own preferred (often higher, e.g. native 4K) mode regardless — seen
+# live via `xrandr --query` reporting the monitor's native mode active
+# despite the cmdline.txt override being in place. Pin it explicitly on
+# every X11 login via the same XDG autostart mechanism this environment
+# already uses for xscreensaver (see run.sh).
+TARGET_USER="${SUDO_USER:-$USER}"
+TARGET_HOME=$(eval echo "~$TARGET_USER")
+FORCE_RES_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/force-x11-resolution.sh"
+
+echo "🖥️  Wiring up X11 login autostart to pin 1920x1080 against EDID re-negotiation..."
+sudo -u "$TARGET_USER" mkdir -p "$TARGET_HOME/.config/autostart"
+sudo tee "$TARGET_HOME/.config/autostart/force-x11-resolution.desktop" > /dev/null << EOF
+[Desktop Entry]
+Type=Application
+Name=Force 1920x1080 resolution
+Comment=Pins X11 to 1920x1080 (Xorg re-probes EDID and ignores the KMS console override otherwise)
+Exec=$FORCE_RES_SCRIPT
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+EOF
+sudo chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config/autostart/force-x11-resolution.desktop"
+
 echo "✅ Done. A reboot is required for this to take effect: sudo reboot"
