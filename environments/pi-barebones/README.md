@@ -49,15 +49,21 @@ The `.bashrc` injections use marker comments so re-running the script cleanly re
 
 ---
 
-## 🖥️ Display Resolution (Console + X11)
+## 🖥️ Display Resolution (Console)
 
 If the first physical/HDMI connect renders too big or off-screen — common when the Pi auto-negotiates a mode the monitor/capture device can't actually show correctly — use the **"Set Resolution to 1920x1080 (Console + X11)"** action from `deploy.sh`'s menu for this environment (or run `scripts/set-resolution.sh` directly). It:
 
 1. Forces the desktop session to X11 via `raspi-config nonint do_wayland W1` (Raspberry Pi OS Bookworm defaults to Wayland/labwc, which xscreensaver and this fixed-resolution mode don't work under)
-2. Forces console framebuffer resolution to 1920x1080 (DMT mode 82) via `raspi-config nonint do_resolution 2 82`, plus an explicit `video=HDMI-A-1:1920x1080@60D` cmdline.txt override on systems using the `vc4-kms-v3d` (full KMS) driver — `do_resolution`'s own `hdmi_group`/`hdmi_mode` config.txt keys are silently ignored under KMS
-3. Wires up an XDG autostart entry (`~/.config/autostart/force-x11-resolution.desktop`) that re-pins every connected output to 1920x1080 via `xrandr` on every X11 login — Xorg's `modesetting` driver re-probes the monitor's EDID independently of the KMS console override and will otherwise pick the monitor's own preferred (often higher, e.g. native 4K) mode once the desktop session starts
+2. Forces console framebuffer resolution to 1920x1080 (DMT mode 82) via `raspi-config nonint do_resolution 2 82`, plus an explicit `video=HDMI-A-1:1920x1080@60` cmdline.txt override on systems using the `vc4-kms-v3d` (full KMS) driver — `do_resolution`'s own `hdmi_group`/`hdmi_mode` config.txt keys are silently ignored under KMS. Deliberately without the `D` ("force this timing even if the display doesn't advertise it") flag some guides use — that flag put a real Pi into a totally blank, no-signal state on every subsequent boot until the SD card was pulled and `cmdline.txt` edited by hand to recover. Without `D`, the kernel only applies the mode if the monitor's own EDID actually supports it.
 
-**Requires a reboot** (`sudo reboot`) to take effect — the console/KMS changes are firmware/boot-config changes; the X11 autostart entry applies on the next desktop login.
+**Requires a reboot** (`sudo reboot`) to take effect — this only changes the console framebuffer.
+
+**The X11 desktop session is a separate story.** Xorg's `modesetting` driver re-probes the monitor's EDID on its own once a desktop session starts and can pick its own preferred (often higher, e.g. native 4K) mode regardless of the console override above. This action does **not** try to force that automatically — an earlier version wired an `xrandr` call into X11's login autostart to fix it, and on real hardware that live mode-switch against an already-running session froze the desktop outright and bricked the display on every subsequent boot (see `docs/lessons-learned/pi-barebones.md`). If the desktop itself is still at the wrong resolution after a reboot, run this yourself from a terminal on the desktop:
+
+```bash
+xrandr --query                              # find your output's name, e.g. HDMI-1
+xrandr --output HDMI-1 --mode 1920x1080     # apply it manually, once, in a live session
+```
 
 This is independent of the VNC session's own resolution, which is set separately by `geometry=1920x1080` in `~/.vnc/config` (see below) and already defaults to 1920x1080.
 
