@@ -54,9 +54,10 @@ The `.bashrc` injections use marker comments so re-running the script cleanly re
 If the first physical/HDMI connect renders too big or off-screen — common when the Pi auto-negotiates a mode the monitor/capture device can't actually show correctly — use the **"Set Resolution to 1920x1080 (Console + X11)"** action from `deploy.sh`'s menu for this environment (or run `scripts/set-resolution.sh` directly). It:
 
 1. Forces the desktop session to X11 via `raspi-config nonint do_wayland W1` (Raspberry Pi OS Bookworm defaults to Wayland/labwc, which xscreensaver and this fixed-resolution mode don't work under)
-2. Forces console framebuffer + X11 desktop resolution to 1920x1080 (DMT mode 82) via `raspi-config nonint do_resolution 2 82`
+2. Forces console framebuffer resolution to 1920x1080 (DMT mode 82) via `raspi-config nonint do_resolution 2 82`, plus an explicit `video=HDMI-A-1:1920x1080@60D` cmdline.txt override on systems using the `vc4-kms-v3d` (full KMS) driver — `do_resolution`'s own `hdmi_group`/`hdmi_mode` config.txt keys are silently ignored under KMS
+3. Wires up an XDG autostart entry (`~/.config/autostart/force-x11-resolution.desktop`) that re-pins every connected output to 1920x1080 via `xrandr` on every X11 login — Xorg's `modesetting` driver re-probes the monitor's EDID independently of the KMS console override and will otherwise pick the monitor's own preferred (often higher, e.g. native 4K) mode once the desktop session starts
 
-**Requires a reboot** (`sudo reboot`) to take effect — both are firmware/boot-config changes.
+**Requires a reboot** (`sudo reboot`) to take effect — the console/KMS changes are firmware/boot-config changes; the X11 autostart entry applies on the next desktop login.
 
 This is independent of the VNC session's own resolution, which is set separately by `geometry=1920x1080` in `~/.vnc/config` (see below) and already defaults to 1920x1080.
 
