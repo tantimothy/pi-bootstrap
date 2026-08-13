@@ -20,4 +20,29 @@ sudo raspi-config nonint do_wayland W1
 echo "🖥️  Forcing console + X11 resolution to 1920x1080 (DMT mode 82)..."
 sudo raspi-config nonint do_resolution 2 82
 
+# do_resolution only writes the legacy hdmi_group/hdmi_mode config.txt keys.
+# Bookworm's default graphics driver (vc4-kms-v3d, full KMS) ignores those
+# in favor of a `video=` kernel cmdline override and just auto-negotiates
+# the display's native mode instead — so on a KMS system the two lines
+# above silently do nothing and the screen stays at whatever the monitor
+# advertised. Force the KMS-native override too, when that driver is active.
+CONFIG_FILE=""
+for candidate in /boot/firmware/config.txt /boot/config.txt; do
+    [ -f "$candidate" ] && { CONFIG_FILE="$candidate"; break; }
+done
+CMDLINE_FILE=""
+for candidate in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
+    [ -f "$candidate" ] && { CMDLINE_FILE="$candidate"; break; }
+done
+
+if [ -n "$CONFIG_FILE" ] && [ -n "$CMDLINE_FILE" ] && grep -q '^dtoverlay=vc4-kms-v3d' "$CONFIG_FILE"; then
+    echo "🖥️  KMS driver detected — forcing video=HDMI-A-1:1920x1080@60D on $CMDLINE_FILE..."
+    CURRENT="$(cat "$CMDLINE_FILE")"
+    # Strip any video= param this action added on a previous run first, so
+    # repeat runs stay idempotent instead of accumulating duplicates.
+    CURRENT="$(echo "$CURRENT" | sed -E 's/(^| )video=HDMI-A-1:[^ ]*//g')"
+    NEW="$(echo "$CURRENT video=HDMI-A-1:1920x1080@60D" | tr -s ' ')"
+    printf '%s' "$NEW" | sudo tee "$CMDLINE_FILE" >/dev/null
+fi
+
 echo "✅ Done. A reboot is required for this to take effect: sudo reboot"
