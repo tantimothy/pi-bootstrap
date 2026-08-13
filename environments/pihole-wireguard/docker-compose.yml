@@ -196,6 +196,7 @@ services:
     tmpfs:
       - "/tmp:mode=1700,rw,noexec,nosuid,nodev"
     environment:
+      - TZ=${TZ:-Asia/Singapore}
       - LISTEN_ADDR=0.0.0.0
       - PORT=${NETALERTX_PORT:-20211}
       - GRAPHQL_PORT=${NETALERTX_GRAPHQL_PORT:-20212}
