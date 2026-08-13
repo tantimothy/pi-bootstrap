@@ -65,7 +65,71 @@ mode via `xrandr`, and wired it up as an XDG autostart entry
 this environment already uses for xscreensaver's autostart (see `run.sh`)
 — so it reapplies on every X11 login rather than only at boot.
 
+**Symptom (round 4 — real hardware incident):** After the round 3 fix and a
+reboot, the desktop froze completely the moment the GUI session came up.
+The next reboot produced a fully blank monitor (no signal at all) and the
+Pi was unreachable over SSH too — a full lockout, not just a display glitch.
+Recovery required physically pulling the SD card, mounting its FAT32 boot
+partition on another machine, and hand-editing `cmdline.txt`/`config.txt`
+to strip the changes this action had written, before the Pi would boot
+again at all.
+
+**Root cause (round 4):** Two compounding risks, both now reverted:
+1. The `video=HDMI-A-1:1920x1080@60D` cmdline override from round 2 used
+   the `D` flag — "force this timing even if the display doesn't advertise
+   it as valid." That bypasses the kernel's own EDID-validity check
+   entirely; forcing an unvalidated mode is exactly the kind of thing that
+   can leave a display with no signal at all if anything about the forced
+   timing doesn't actually work with that display/cable/adapter.
+2. The round 3 autostart entry ran `xrandr --output ... --mode 1920x1080`
+   against an **already-running** X session on every login. Live mode
+   switches against the Broadcom/VC4 GPU driver are known to be flaky —
+   forcing one unsupervised, with no human watching to catch a bad
+   transition, is a real risk on this hardware, not a hypothetical one. It
+   coincided exactly with the freeze.
+   
+   The full-lockout-on-every-subsequent-boot part (not just one bad
+   session) most likely came from #1 — a cmdline-level kernel parameter is
+   evaluated before networking or SSH ever comes up, which is consistent
+   with "no SSH either." Recovering by editing *only* the FAT32 boot
+   partition (not the root filesystem) and having that be sufficient to
+   restore boot also rules out filesystem corruption from the unclean
+   power-cycle — this was a boot-config/KMS problem, not disk damage.
+
+**Fix (round 4):** Reworked `set-resolution.sh` to be conservative instead
+of clever:
+- Dropped the `D` flag from the `video=` override — `video=HDMI-A-1:1920x1080@60`
+  now only applies if the connected display's own EDID actually reports
+  that mode as supported. Safe by construction, at the cost of doing
+  nothing on a display that doesn't advertise 1920x1080 itself.
+- Removed `force-x11-resolution.sh` and its autostart entry entirely — no
+  more automatic mode-forcing against a live X session. If the X11 desktop
+  is still at the wrong resolution after a reboot, the README now
+  documents running `xrandr --output <name> --mode 1920x1080` manually,
+  once, from a terminal on the desktop — a human present to notice if it
+  goes wrong, not an unsupervised login hook.
+
 ## General Lessons
+
+- **A "fix" for a Pi's own display/boot configuration is running on
+  irreplaceable, physically-remote hardware with no snapshot/rollback** —
+  unlike a container or a file in this repo, a bad `cmdline.txt` or a live
+  GPU mode-switch can leave the device requiring physical access (pulling
+  the SD card) to recover at all. That changes the risk calculus
+  completely: prefer the conservative option that does less but fails
+  safe (a `video=` override without a force flag, applied only if the
+  display already claims to support it) over the more complete one that
+  can leave the device totally inaccessible if it's wrong (`D`-forced
+  modes, live unsupervised mode-switches). "It worked in my one test" is
+  not the same bar as "safe to leave running unsupervised on hardware I
+  can't immediately get physical access to."
+- Kernel/firmware-level flags with names like "force" (`D` in a `video=`
+  mode string, `hdmi_force_hotplug`, etc.) exist specifically to bypass a
+  safety/validity check — that's exactly the check that exists to prevent
+  the failure mode seen here. Treat any "force" flag on boot-critical
+  hardware config as a last resort behind a documented, deliberate
+  tradeoff, not a default to reach for to make a stubborn resolution
+  problem go away.
 
 - **A fixed resolution on a Raspberry Pi under KMS has three independent
   layers that all need to agree, not one:** the legacy `config.txt`
