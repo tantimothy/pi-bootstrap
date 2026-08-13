@@ -1409,6 +1409,7 @@ if [[ "$REBUILD_POLICY" == ACTION_* ]]; then
     ACTION_CMD_RAW="${CUSTOM_ACTION_COMMANDS[$ACTION_INDEX]}"
     cd "$TARGET_WORKSPACE_DIR" || exit 1
     ENV_DIR="$TARGET_WORKSPACE_DIR"
+    SCRIPT_DIR="$TARGET_WORKSPACE_DIR"
     [ -f ".env" ] && { set -a; source ".env"; set +a; }
     ACTION_CMD="$(_yaml_expand "$ACTION_CMD_RAW")"
     echo "🚀 [$ENV_NAME] $ACTION_LABEL"
