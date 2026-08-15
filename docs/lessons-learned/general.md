@@ -761,9 +761,10 @@ menu shape, rather than letting each one live only in a commit message.
 
 ## Ollama stayed down after a host reboot, silently, and the watchdog built to prevent that wasn't installed (2026-08-15)
 
-**Status:** service restored by hand; two follow-ups open (install the watchdog
-with the right bind address; decide whether a LaunchAgent is sufficient on a
-headless host — see `docs/future-enhancements/ollama-watchdog-boot-persistence.md`).
+**Status:** resolved. Ollama restarted and confirmed reachable from inside a
+group container, and the watchdog scheduled via the `ollama` environment's
+"Watchdog: Schedule Automatic Checks" action. The boot question below is
+answered — that host auto-logs-in, so the LaunchAgent covers it.
 
 ### Summary
 
@@ -790,18 +791,24 @@ Two things, stacked:
   `RunAtLoad`). It had simply never been run on that machine, so nothing was
   watching.
 
-### The part that isn't fixed by just installing it
+### The part that installing it might not have fixed — answered
 
-`--install` writes a **LaunchAgent** to `~/Library/LaunchAgents/`. LaunchAgents
-load at *user login*, not at boot. On a host that reboots to the login window
-and stays there, the agent never loads — so neither the watchdog nor Ollama
-comes back, and the mechanism meant to catch this is itself absent for the same
-reason the thing it watches is. A system-level LaunchDaemon in
-`/Library/LaunchDaemons` runs at boot without a login; the script doesn't write
-one today.
+`--install` writes a **LaunchAgent** to `~/Library/LaunchAgents/`, and
+LaunchAgents load at *user login*, not at boot. On a host that reboots to the
+login window and stays there, the agent never loads — so neither the watchdog
+nor Ollama comes back, and the mechanism meant to catch this is itself absent
+for the same reason as the thing it watches.
 
-Whether this matters depends on whether that host auto-logs-in, which is worth
-establishing rather than assuming.
+**Checked rather than assumed, and it doesn't apply here: that host auto-logs-in
+on reboot.** The agent loads at auto-login, `RunAtLoad` fires immediately, and
+Ollama is back within seconds. No LaunchDaemon needed.
+
+Worth recording that this makes **auto-login load-bearing and invisible**. Turn
+it off later — for a security review, a hardware change, a new operator — and
+the outage above silently becomes possible again, with nothing in this repo
+warning that a prerequisite was removed. That's the kind of dependency worth
+knowing you have, which is the reason this paragraph exists rather than a
+one-line "not applicable."
 
 ### Adjacent trap, already documented
 
@@ -872,7 +879,7 @@ on loopback forever, healthily, while refusing every container.
 **Status:** not fixed — found by inspection, not by a failure, and recorded
 before it becomes one. Operationally mitigated (re-running the install action
 overwrites the plist), with the reporting fix tracked in
-`docs/future-enhancements/ollama-watchdog-boot-persistence.md`.
+`docs/future-enhancements/ollama-watchdog-status-reporting.md`.
 
 ### Summary
 
