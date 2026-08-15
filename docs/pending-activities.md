@@ -193,20 +193,27 @@ image, all groups — so this is group-level work, no Dockerfile patch),
 and the wiki holds **632 pages**, not the ~50 originally assumed, which
 promoted `build-index.ts` from "wait" to "early". What's still open:
 
-- **The `type:` vocabulary conflict is undecided.** The corpus has an
-  emergent document-oriented taxonomy in use (`reference`, `book`,
-  `explainer`, `archive`, …) on ~120 pages; OKF's is entity-oriented.
-  Adopting the spec's verbatim would reclassify those into a taxonomy
-  that doesn't describe them. Needs a deliberate schema decision before
-  any `relations` work starts.
-- **~170 of the 291 frontmatter pages are unaccounted for** in that type
-  breakdown — long tail of one-off types, or no `type:` at all? Changes
-  whether the vocabulary needs consolidating before anything indexes it.
-- **Is `/home/node/.claude` per-group or shared across all groups?**
-  Can't be answered from inside the sandbox (the mount table shows the
-  target, not the source). If shared, a wiki-trigger `UserPromptSubmit`
-  hook registered there fires for every group, including ones with no
-  wiki. Blocks `keywords.ts`; the hook should self-gate regardless.
+A second round of answers on 2026-08-15 closed the rest of the scoping.
+The `type:` vocabulary is not the conflict it looked like — the corpus
+already splits into 153 document-typed pages and 138 untyped
+person-pages, so document types stay and OKF entity types apply only to
+the latter. Those 138 also carry `married:` fields, which are relations
+written as ad-hoc scalars, so the graph exists already and the schema
+step is formalization rather than invention. The `/home/node/.claude`
+mount is confirmed per-group, so the shared-hook risk doesn't apply.
+Ollama is reachable again. What's left:
+
+- **The wiki is not in git** (`fatal: not a git repository`). This
+  outranks every script: §5.1's strongest objection to mnemon is that
+  its store isn't git-diffable, and 632 pages of unversioned markdown
+  aren't either. Do it *before* the frontmatter backfill, so 341 pages
+  of mechanical change land as a reviewable diff. `git init` in `wiki/`
+  only, and local-only unless a remote is deliberately chosen — this
+  corpus holds family and personal-history pages, and `backup.sh`
+  already covers the offsite need via `groups/`.
+- **Are `married:` values page links or plain names?** Decides whether
+  converting them to `relations` is a rewrite or also has to create
+  entity pages for spouses who don't have one.
 - **Nothing here has been corrected at the source yet.** The Ollama
   correction in particular (the proposal treats it as an in-container
   package install; `ensure_ollama_ready()` already handles it on the
@@ -227,11 +234,11 @@ design question in
   `OLLAMA_SERVE_HOST=0.0.0.0:11434 ./ollama-watchdog.sh --install` —
   the bind address matters, since this install reaches Ollama on a LAN
   IP and Ollama's default loopback bind refuses that.
-- **Confirm the manual restart actually reached the containers**, not
-  just the host: `./ollama-watchdog.sh --status` on the host, or
-  `curl -s --noproxy '*' http://192.168.1.50:11434/api/tags` from inside
-  a group container. "Ollama is running" and "containers can reach
-  Ollama" are separate facts here.
+- ~~Confirm the manual restart reached the containers~~ — **done**,
+  confirmed 2026-08-15 from inside a group container:
+  `nomic-embed-text:latest` responding at `192.168.1.50:11434`. That's
+  the manual restart holding, not a fix; the next reboot reproduces the
+  outage unless the watchdog is installed.
 - **Does that host auto-log-in after a reboot?** Unanswered, and it
   decides whether `--install` is sufficient at all: a LaunchAgent loads
   at user login, not at boot, so on a host that reboots to the login
