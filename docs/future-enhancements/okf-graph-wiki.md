@@ -257,8 +257,11 @@ generic scripts into `environments/nanoclaw-mnemon/scripts/`, in the `scaffold-w
 when **any one** of these holds: they've stopped changing; a second group wants them or a
 fresh Pi has to reproduce them; losing them would actually cost something.
 
-**The override**: if Bun isn't on `PATH` in the agent sandbox, this is pi-bootstrap's from day
-one — it becomes a `container/Dockerfile` patch, and an agent structurally cannot durably
+**The override — checked on 2026-08-15, and it does not apply**: Bun ships in NanoClaw's own
+base image (`bun 1.3.12`, `/usr/local/bin/bun`, all groups), so group-level is confirmed and
+none of the image machinery is needed. The rule is kept because it still governs any *future*
+tool this work turns out to need. If a runtime isn't on `PATH` in the agent sandbox, that work
+is pi-bootstrap's from day one — it becomes a `container/Dockerfile` patch, and an agent structurally cannot durably
 modify the image it runs in. That case has precedent worth heeding: `GIST-PARITY.md` records
 an agent hitting exactly this wall for media tools, then installing `yt-dlp` and a rootless
 `whisper.cpp` around it through a permission gap in its own writable folder — twice,
@@ -306,6 +309,11 @@ different units, not a discrepancy.)
 the proposed tiers. Build the index and the keyword file *with* their reader, as one piece of
 work, or not yet.
 
+> **Superseded in part.** The "wait" verdict on `build-index.ts` was reasoned from an assumed
+> ~50-page corpus. The real figure is 632, and FTS5 needs no frontmatter — see
+> "[Revised ordering](#revised-ordering)" below, which promotes it. The pairing rule stands:
+> build it *with* `context-for.ts`, never alone.
+
 The hook in particular is the highest-integration-risk item and shouldn't be waved through as
 a footnote: it has to be registered in the agent's own settings inside the container, and it
 would fire on every prompt alongside mnemon's own hooks **and** the marker-delimited recall
@@ -326,18 +334,164 @@ has to graduate into a version-marked `apply_*_patch()` in `run.sh`, with the de
 sweep that implies (see the root `CLAUDE.md`). For scripts operating on group-local data,
 group-local is correct and sufficient.
 
-### Two things to confirm before starting
+### Answered by the group agent, 2026-08-15 — and two of the answers change the plan
 
-- **Is Bun actually on `PATH` in the agent sandbox?** NanoClaw's orchestrator is Bun-based,
-  but that's a different image from `container/Dockerfile`, which isn't in this repo (it's
-  cloned at deploy time), so it can't be checked from here. `bun --version` inside the
-  sandbox settles it. If it's absent, this stops being "a few hundred lines each" and becomes
-  a Dockerfile patch plus a base-and-derived-image rebuild.
-- **How many pages does the wiki have?** The five implementations surveyed in
-  `GIST-PARITY.md` converged on index-first navigation being sufficient to roughly 100
-  articles, and the OKF spec itself targets hundreds-to-low-thousands before its indexing
-  earns its keep. Under ~50 pages, `lint.ts` is worth having and the retrieval pipeline
-  solves a problem that doesn't exist yet.
+Both open questions above came back, along with the corpus shape. Recorded here because
+the second answer reverses part of the ordering that preceded it.
+
+**Bun: present, and it's free.** `bun 1.3.12` at `/usr/local/bin/bun`, a root-owned 100MB
+native binary that ships in NanoClaw's own base image — the agent runner at `/app/` is
+itself a Bun application (`bun.lock`, `"start": "bun src/index.ts"`). Not apt, not `npm -g`,
+available to every group, no per-group install. `node v22.23.1` is there too. This is the
+cleanest possible answer to the level question: **no Dockerfile patch, no image rebuild, no
+derived sweep** — these are plain files in the group folder, and later graduation into
+`environments/nanoclaw-mnemon/scripts/` is a file copy in the `scaffold-wiki.sh` mold.
+
+**Scale: 632 pages, not the ~50 the caveat above assumed.** That inverts it. 632 is six
+times past the ~100-article threshold at which every surveyed implementation says
+index-first navigation stops working, and comfortably inside the OKF spec's own
+hundreds-to-low-thousands target. Retrieval is warranted *now*; it is not premature.
+
+**Frontmatter: 291 of 632 pages have any (46%).** `relations:` appears on exactly one page,
+`nodes:` (an older format) on four. So the relation graph starts from zero.
+
+The consequence for ordering, which contradicts the "wait" verdict in the table above:
+**FTS5 indexes body text, so `build-index.ts` needs neither frontmatter nor the schema.**
+It delivers keyword search across all 632 pages immediately; only graph expansion depends
+on `relations`. The earlier table bundled `build-index.ts` with the schema-dependent work,
+which was the right call for a ~50-page corpus and the wrong one for this.
+
+`lint.ts` still goes first, but **its value is not where the proposal put it.** Relation
+symmetry has one page to check. What has real signal today: 341 pages with no frontmatter
+at all, missing `type`/`title` on the 291 that do, the 4 legacy `nodes:` pages, broken
+internal links, orphans, and the `log.md`-versus-`log/` split.
+
+### The type vocabulary already exists, and OKF's would break it
+
+"No existing schema to conform to" isn't quite right. The corpus has an emergent one, in
+use: `reference` ×68, `wiki-page` ×15, `personal-history` ×11, `archive` ×10, `explainer`
+×9, `book` ×7, plus a tail.
+
+Those don't compete with the spec's `Person`/`Organization`/`Product`/`Place`/`Country`/
+`Entity`/`Concept` — they're a different axis. **The existing types describe what a
+document *is*; OKF's describe what an entity *is*.** This corpus is a library; OKF models a
+graph. Adopting the spec's list verbatim would mean reclassifying ~120 already-typed pages
+into a taxonomy that doesn't describe them, with no correct answer for what `type: book`
+becomes.
+
+**Resolved by the full breakdown — the corpus already splits along that axis.** 25 distinct
+types across 153 pages; the other 138 frontmatter pages carry no `type:` at all and are
+person-pages with bespoke `married:`/`sport:`/`note:` fields. So:
+
+- **153 typed pages are *documents*** — `reference` ×68, `wiki-page` ×15, `explainer` ×9,
+  `book` ×7 and a long singleton tail. OKF's vocabulary genuinely doesn't fit these and
+  shouldn't be forced onto them.
+- **138 untyped pages are *entities*** — people. OKF's `type: Person` fits them exactly.
+
+What looked like a taxonomy conflict is an undeclared distinction the corpus had already
+made. Keep document types where they are, add OKF entity types to the 138, and the "no
+correct answer for what `type: book` becomes" problem never arises, because `book` never
+becomes anything. The 25-type tail is also less alarming in that light — four types cover
+the real content, and most singletons (`game`, `film`, `event`, `recipe`) read as document
+subtypes rather than a vocabulary in crisis.
+
+### The relations graph already exists, written as ad-hoc scalars
+
+`relations:` appearing on exactly one page made it look like the graph starts from zero.
+It doesn't. **`married: X` on those 138 person-pages *is* a relation** — it's
+`{predicate: married_to, object: /entities/x.md}` written as a bespoke scalar field. The
+corpus independently invented what OKF formalizes, before anyone read the spec.
+
+That changes the schema step from *invent an entity layer* to *formalize the one already
+there*, and it hands over the highest-value `relations` seed for free: 138 pages, one
+predicate, mechanically convertible. `married_to` is symmetric, which also makes it the
+cleanest possible first exercise of the bidirectional-assertion lint check that has nothing
+to check today.
+
+One thing to establish before scripting that conversion: whether `married:` values are page
+links or plain names. Plain strings need resolving to a concrete page path, and any spouse
+without a page of their own means the conversion also creates entity pages rather than just
+rewriting fields.
+
+### Put the wiki in git before anything else touches it
+
+The wiki is **not under version control** — `git rev-parse` in `wiki/` returns
+`fatal: not a git repository`. That makes the entire case for OKF over mnemon theoretical:
+§5.1's first and strongest objection is that mnemon's DB isn't git-diffable, and 632 pages
+of unversioned markdown aren't either. Whatever else happens, this outranks every script on
+the list.
+
+The sequencing argument is the non-obvious part: **do it before the frontmatter backfill,
+not after.** The backfill makes mechanical changes to 341 pages. Without git those are
+unreviewable and unrevertable; with it, every bulk change is an auditable diff and a bad
+backfill is one `git checkout` away from undone. Initialising git afterwards throws away
+exactly the safety the backfill needs.
+
+Two cautions on how:
+
+- **`git init` in `wiki/`, not the group folder.** `/workspace/agent/` also holds
+  conversation history, `CLAUDE.local.md` (which every deploy rewrites), and mnemon's
+  store. `sources/` is a sibling and wants its own decision — mirrored external material is
+  bulk, and possibly not the operator's to redistribute.
+- **Local repository, no remote**, unless that's a deliberate separate decision. This
+  corpus holds `personal-history`, family person-pages, a personal inventory. Local git
+  delivers every benefit under discussion — diff, review, revert, history. A remote adds
+  offsite copy and nothing else, at real privacy cost, and `backup.sh` already archives
+  `groups/`. Compare `docs/lessons-learned/general.md`'s "copied dotfiles carried
+  personal-identity content" entry: same failure mode, different vector.
+
+### The backfill is two jobs, both more scriptable than the raw count suggests
+
+341 pages lack frontmatter entirely, but they aren't scattered: **171 are in `recipes/`** —
+a bulk import, so one scripted `type: recipe` addition reviewable as a single diff. The
+other **170** are spread across `tech/` (31), `ai/` (30), `homelab/` (20), `history/` (18),
+`misc/` (16), `science/` (15) — substantive pages that predate the convention. Directory is
+a strong prior for type there, so it's "generate a proposed backfill, review the diff,
+adjust" rather than 170 individual judgment calls.
+
+### Index drift is fixed by construction, not by discipline
+
+`index.md` lists 396 of 632 pages — 37% unlisted, and growing with every ingest. That's the
+empirical version of "index-first navigation stops working past ~100 articles," and the
+strongest evidence for building retrieval.
+
+It's also already answered by the spec, which treats per-directory `index.md` entries as a
+regenerable build product that is never hand-edited. Once `build-index.ts` walks all 632
+pages, regenerating `index.md` from that walk is nearly free and the gap cannot reopen —
+drift stops being a maintenance burden and becomes structurally impossible. Until then it's
+a `lint.ts` finding with 236 hits waiting on day one.
+
+### The hook has a scope risk the sandbox can't see
+
+`settings.json` lives at `/home/node/.claude/settings.json`, on a virtiofs mount from the
+Mac host — so it survives container restarts, and its single current `UserPromptSubmit`
+entry is mnemon's. Adding a second entry alongside it is mechanically straightforward.
+
+**Resolved: the mount is per-group.** The worry was that a shared mount would make a
+wiki-trigger hook fire for *every* group, including ones with no wiki, where it would error
+on every prompt. Settled from inside the sandbox after all —
+`MNEMON_DATA_DIR=/home/node/.claude/mnemon`, and `ls` on its `data/` shows exactly one
+store holding only this group's memory, which is this repo's per-group
+`data/v2-sessions/<group-id>/.claude-shared/…` path. Registering a second
+`UserPromptSubmit` entry alongside mnemon's affects only this group.
+
+One habit worth keeping anyway: **the hook should self-gate** — exit 0 immediately if
+`wiki-trigger-keywords.txt` is absent. It costs nothing and makes the script safe to copy
+to a group that hasn't been scaffolded, which is exactly what graduating it into
+`environments/nanoclaw-mnemon/scripts/` would eventually do.
+
+### Revised ordering
+
+| # | Step | Status |
+|---|---|---|
+| 0 | **`git init` in `wiki/`** | **Before anything else touches the corpus**, so every bulk change below lands as a reviewable diff. Local only. |
+| 1 | **`lint.ts`** | Concrete day-one output: 341 pages with no frontmatter, 138 with frontmatter but no `type:`, 4 on the legacy `nodes:` field, 236 unlisted in `index.md`. Needs no schema and no SQLite. |
+| 2 | **`recipes/` backfill** (171 pages) | Scripted `type: recipe`, one diff. The other 170 are a directory-informed proposal to review, not 170 hand decisions. |
+| 3 | **Schema: two axes** | Keep document types on the 153; add OKF entity types to the 138. Not the open design problem it looked like — the corpus already made the split. |
+| 4 | **`married:` → `relations`** | Formalize a graph that already exists as ad-hoc scalars. Symmetric predicate, so it properly exercises the bidirectional lint check. |
+| 5 | **`build-index.ts` + `context-for.ts`** | 632 pages with 37% index drift is the case for it. Regenerating `index.md` from the same walk makes the drift structurally impossible. |
+| 6 | **Vector leg** | Unblocked — Ollama reachable again, `nomic-embed-text` responding. Worth having at this corpus size. |
+| — | `timeline.ts`, `keywords.ts` + hook | After relations exist and there's something to render/trigger on. Hook scope risk resolved (per-group mount). |
 
 ### The conventions tier is free, with one dependency worth naming
 

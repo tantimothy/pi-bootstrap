@@ -187,24 +187,64 @@ records what order to do it in, which level should own it, and three
 corrections to that proposal. Open items, in the order they need
 answering:
 
-- **Is Bun actually on `PATH` in the agent sandbox?** Unanswered, and it
-  decides everything else: with Bun present these are plain scripts in a
-  group folder; without it, it's a `container/Dockerfile` patch plus a
-  base-and-derived-image rebuild, and pi-bootstrap's from day one. Can't
-  be checked from this repo — `container/Dockerfile` is cloned at deploy
-  time — so it needs `bun --version` run inside the sandbox.
-- **How many pages does the group's wiki actually have?** Also
-  unanswered. Under roughly 50, `lint.ts` is worth having and the rest of
-  the retrieval pipeline solves a problem that doesn't exist yet.
-- **If anything gets built, `lint.ts` first, standalone.** It needs no
-  SQLite and so doesn't depend on `build-index.ts`; `build-index.ts` and
-  `keywords.ts` should wait for `context-for.ts`, their only consumer,
-  which was in none of the proposed tiers.
+Both original blocking questions came back answered on 2026-08-15 and are
+recorded in the doc: **Bun is present** (`1.3.12`, in NanoClaw's own base
+image, all groups — so this is group-level work, no Dockerfile patch),
+and the wiki holds **632 pages**, not the ~50 originally assumed, which
+promoted `build-index.ts` from "wait" to "early". What's still open:
+
+A second round of answers on 2026-08-15 closed the rest of the scoping.
+The `type:` vocabulary is not the conflict it looked like — the corpus
+already splits into 153 document-typed pages and 138 untyped
+person-pages, so document types stay and OKF entity types apply only to
+the latter. Those 138 also carry `married:` fields, which are relations
+written as ad-hoc scalars, so the graph exists already and the schema
+step is formalization rather than invention. The `/home/node/.claude`
+mount is confirmed per-group, so the shared-hook risk doesn't apply.
+Ollama is reachable again. What's left:
+
+- **The wiki is not in git** (`fatal: not a git repository`). This
+  outranks every script: §5.1's strongest objection to mnemon is that
+  its store isn't git-diffable, and 632 pages of unversioned markdown
+  aren't either. Do it *before* the frontmatter backfill, so 341 pages
+  of mechanical change land as a reviewable diff. `git init` in `wiki/`
+  only, and local-only unless a remote is deliberately chosen — this
+  corpus holds family and personal-history pages, and `backup.sh`
+  already covers the offsite need via `groups/`.
+- **Are `married:` values page links or plain names?** Decides whether
+  converting them to `relations` is a rewrite or also has to create
+  entity pages for spouses who don't have one.
 - **Nothing here has been corrected at the source yet.** The Ollama
   correction in particular (the proposal treats it as an in-container
   package install; `ensure_ollama_ready()` already handles it on the
   host) only exists in this repo's docs so far — the group agent that
   proposed it hasn't been told.
+
+## Ollama: restored by hand after a silent outage, two follow-ups open
+
+The host rebooted, Ollama didn't come back, and nothing reported it —
+mnemon ran graph-only for an unknown period. Found incidentally by a
+`curl` during unrelated scoping work. Restarted manually on 2026-08-15.
+Full account in `docs/lessons-learned/general.md`; the boot-persistence
+design question in
+`docs/future-enhancements/ollama-watchdog-boot-persistence.md`.
+
+- **`ollama-watchdog.sh` has never been installed on that host.** It
+  exists for exactly this failure. Install with
+  `OLLAMA_SERVE_HOST=0.0.0.0:11434 ./ollama-watchdog.sh --install` —
+  the bind address matters, since this install reaches Ollama on a LAN
+  IP and Ollama's default loopback bind refuses that.
+- ~~Confirm the manual restart reached the containers~~ — **done**,
+  confirmed 2026-08-15 from inside a group container:
+  `nomic-embed-text:latest` responding at `192.168.1.50:11434`. That's
+  the manual restart holding, not a fix; the next reboot reproduces the
+  outage unless the watchdog is installed.
+- **Does that host auto-log-in after a reboot?** Unanswered, and it
+  decides whether `--install` is sufficient at all: a LaunchAgent loads
+  at user login, not at boot, so on a host that reboots to the login
+  window neither Ollama nor the watchdog comes back. One reboot settles
+  it, and the answer decides whether the LaunchDaemon proposal is worth
+  building.
 
 ## Known, deliberately-deferred code quality items
 
