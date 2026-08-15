@@ -8,7 +8,7 @@ built.
 
 A partial build has since been proposed from the other direction — by an agent running
 *inside* a deployed group, for that group's own wiki, rather than as a change to this
-repo. Ordering guidance and three corrections for that case are in
+repo. Which level should own that work, ordering guidance, and three corrections are in
 "[Implementation ordering, if a group agent builds part of this](#implementation-ordering-if-a-group-agent-builds-part-of-this)"
 below. **Read the Ollama correction before starting anything**: the most likely wasted
 effort is re-solving a problem `run.sh` already solves.
@@ -213,6 +213,59 @@ That distinction sets the rules below: group-local files persist across deploys,
 inside the NanoClaw checkout does not, and nothing here goes through `run.sh`'s patch
 machinery unless it graduates into a `apply_*_patch()`. The proposal came in three tiers
 (conventions / scripts / embeddings). The tiering is sound; the contents need three fixes.
+
+### Which level owns it: build at group level, keep at pi-bootstrap level
+
+**"pi-bootstrap level" does not have to mean the patch machinery.** A version-marked
+`apply_*_patch()` on `container/Dockerfile`, with the base rebuild and derived-image sweep
+it drags along, is one tier — not the only one. `scripts/scaffold-wiki.sh` is the proof:
+a pi-bootstrap-owned script, invoked manually against one group, writing plain files into
+that group's folder. No version marker, no image rebuild, no sweep. That's the tier these
+scripts fit, and noticing it removes most of the usual cost argument for keeping generic
+tooling out of the repo.
+
+So the question isn't "repo or agent", it's which parts and when.
+
+| Piece | Belongs to | Why |
+|---|---|---|
+| `lint.ts`, `timeline.ts`, `build-index.ts`, `keywords.ts` | **pi-bootstrap, eventually** | Zero group-specific content; byte-identical for every group. Generic mechanism distributed to many groups is what this repo is for. |
+| The schema — which `type`s exist, which predicates are legitimate, what earns a page | **The group, permanently** | Domain-specific by definition. Same boundary `scaffold-wiki.sh` already documents: mechanical half scripted, schema half stays collaborative, because unattended schema design produces a generic, shallow wiki. |
+| Hook registration, if it happens | **pi-bootstrap** | Same shape as `scripts/apply-mnemon-recall-policy.sh` — marker-delimited, owned by the repo, rewritten every deploy. Agent-authored hook config that a later deploy overwrites is a bad time. |
+
+**Build it at group level first**, for three reasons in descending weight:
+
+1. **Iteration cost.** In the group folder, editing `lint.ts` is instant. Under pi-bootstrap
+   it's edit → deploy → verify every time, and as a Dockerfile patch it inherits this repo's
+   own documented trap: forget the version bump and the change is invisible to every existing
+   install while every deploy reports success. That's the wrong loop for code that will change
+   twenty times in its first week.
+2. **A linter needs a corpus, and only the group has one.** This repo has no fixtures and no
+   test framework — verification here is `bash -n` and a real deploy. Whether a check like
+   "asymmetric relations" fires on real data can only be found out where real pages exist.
+3. **Durability is not the tiebreaker it appears to be.** Group-folder scripts survive `CLEAN`
+   (gitignored, so `git reset --hard` cannot see them) *and* `groups/` is declared in
+   `info.yaml`'s `data_dirs`, so `backup.sh` archives them. Group-level work here is not
+   fragile in the way "outside git" usually implies.
+
+**What group level genuinely lacks**, and these are real: no review, no diff history, no PR
+trail; no replication to a second group; not reproducible on a fresh Pi except via restore;
+and no `docs/lessons-learned/` entry when it breaks. Acceptable for a prototype, not for
+anything load-bearing.
+
+**Graduation triggers — write them down now or the prototype simply stays one.** Move the
+generic scripts into `environments/nanoclaw-mnemon/scripts/`, in the `scaffold-wiki.sh` mold,
+when **any one** of these holds: they've stopped changing; a second group wants them or a
+fresh Pi has to reproduce them; losing them would actually cost something.
+
+**The override**: if Bun isn't on `PATH` in the agent sandbox, this is pi-bootstrap's from day
+one — it becomes a `container/Dockerfile` patch, and an agent structurally cannot durably
+modify the image it runs in. That case has precedent worth heeding: `GIST-PARITY.md` records
+an agent hitting exactly this wall for media tools, then installing `yt-dlp` and a rootless
+`whisper.cpp` around it through a permission gap in its own writable folder — twice,
+unprompted. It worked, and it was also per-group-only, unreplicable, and off-book, while the
+underlying gap was a pi-bootstrap bug (`CLEAN` not rebuilding the sandbox image from the
+patched Dockerfile) that could only be fixed at the right level. A rootless Bun in one group's
+folder would be that story again.
 
 ### The Ollama tier is mostly already built, and installing it in-container is wrong
 
