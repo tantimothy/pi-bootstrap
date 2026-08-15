@@ -814,6 +814,25 @@ Ollama's default bind is `127.0.0.1:11434`, which refuses that address, so
 active at install time into the scheduled job. See the 2026-08-07 entry above
 for why that variable exists at all.
 
+**And the bind address is why scheduling belongs in the menu, not a shell.** The
+first draft of this entry recommended
+`OLLAMA_SERVE_HOST=0.0.0.0:11434 ./ollama-watchdog.sh --install` from a shell.
+That works, but it works by the operator remembering a variable, which is
+precisely the failure this repo already designed around: the watchdog's
+`--install`/`--status`/`--check`/`--restart`/`--stop` actions live in
+`environments/ollama/info.yaml`'s `custom_actions`, and that file says why in
+its own comment — the watchdog restarts the daemon on its own schedule, so it
+has to agree with that environment about the bind address, and it reads
+`OLLAMA_SERVE_HOST` from that environment's `.env` rather than from whatever
+happens to be exported. `./deploy.sh` → Environments → ollama → "Watchdog:
+Schedule Automatic Checks" supplies it by construction.
+
+The precondition that remains either way: `OLLAMA_SERVE_HOST` ships commented
+out in `.env.example`, and `.env.example` is never sourced — so on a host where
+the `ollama` environment was never deployed, there may be no `.env` at all and
+the value is empty. `--install` would then schedule a job that restarts Ollama
+on loopback forever, healthily, while refusing every container.
+
 ### General Lessons
 
 - **A watchdog that was never installed is documentation, not a safeguard.**
@@ -835,3 +854,13 @@ for why that variable exists at all.
   probing — was built and verified against a *running* host. None of it was
   exercised against "the machine came back up," which is the one transition that
   reliably happens without anyone watching.
+- **An operator instruction that opens with an inline environment variable is a
+  smell — check `custom_actions` first.** `OLLAMA_SERVE_HOST=… ./script --install`
+  reads like a complete instruction, and it hides that the value has to be
+  remembered correctly every time. This repo had already solved that by putting
+  the action in `environments/ollama/info.yaml`, where it runs with that
+  environment's `.env` loaded and the bind address arrives by construction.
+  Recommending the raw command re-opened, in prose, the exact hazard the menu
+  entry was built to close. Before writing a shell instruction for something
+  this repo manages, grep `info.yaml` for it — the designed path usually exists
+  and usually carries configuration the bare command doesn't.

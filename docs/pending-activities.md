@@ -229,11 +229,22 @@ Full account in `docs/lessons-learned/general.md`; the boot-persistence
 design question in
 `docs/future-enhancements/ollama-watchdog-boot-persistence.md`.
 
-- **`ollama-watchdog.sh` has never been installed on that host.** It
-  exists for exactly this failure. Install with
-  `OLLAMA_SERVE_HOST=0.0.0.0:11434 ./ollama-watchdog.sh --install` —
-  the bind address matters, since this install reaches Ollama on a LAN
-  IP and Ollama's default loopback bind refuses that.
+- **`ollama-watchdog.sh` has never been scheduled on that host.** It
+  exists for exactly this failure. Schedule it through the designed
+  path, not a shell: `./deploy.sh` → Environments → **ollama** →
+  "Watchdog: Schedule Automatic Checks", then "Watchdog: Show Schedule
+  Status" to confirm. Those actions live under the `ollama` environment
+  specifically because they run with its `.env` loaded, which is where
+  `OLLAMA_SERVE_HOST` comes from.
+- **First confirm `OLLAMA_SERVE_HOST=0.0.0.0:11434` is uncommented in
+  `environments/ollama/.env` on that host.** It ships commented out in
+  `.env.example`, and `.env.example` is never sourced — so if the
+  `ollama` environment was never deployed there, the value is simply
+  empty. `--install` bakes whatever is set at install time into the
+  launchd plist, so an empty value schedules a job that restarts Ollama
+  on its default loopback bind, refusing the LAN IP this install uses.
+  That reproduces the 2026-08-07 bug exactly: watchdog reporting healthy
+  every cycle, containers refused, no error anywhere.
 - ~~Confirm the manual restart reached the containers~~ — **done**,
   confirmed 2026-08-15 from inside a group container:
   `nomic-embed-text:latest` responding at `192.168.1.50:11434`. That's

@@ -65,6 +65,14 @@ Constraints that make this more than a path change:
 - **`OLLAMA_SERVE_HOST` must carry through**, same as the existing plist and
   cron paths already do. A boot-time daemon that comes up bound to loopback
   restores nothing for the containers that need it.
+- **It needs a matching `custom_actions` entry, not just a flag.** The existing
+  watchdog actions live in `environments/ollama/info.yaml` precisely so they run
+  with that environment's `.env` loaded and pick up `OLLAMA_SERVE_HOST` without
+  the operator having to remember it. A `--install-daemon` reachable only from a
+  shell would reintroduce that gap for the one install path where getting the
+  bind address wrong is hardest to notice — a boot-time daemon nobody watches.
+  Add it beside "Watchdog: Schedule Automatic Checks", labelled so the
+  distinction from the LaunchAgent version is obvious at the menu.
 
 ## Cheaper alternatives worth considering first
 
