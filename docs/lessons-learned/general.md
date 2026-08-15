@@ -814,6 +814,25 @@ Ollama's default bind is `127.0.0.1:11434`, which refuses that address, so
 active at install time into the scheduled job. See the 2026-08-07 entry above
 for why that variable exists at all.
 
+**And the bind address is why scheduling belongs in the menu, not a shell.** The
+first draft of this entry recommended
+`OLLAMA_SERVE_HOST=0.0.0.0:11434 ./ollama-watchdog.sh --install` from a shell.
+That works, but it works by the operator remembering a variable, which is
+precisely the failure this repo already designed around: the watchdog's
+`--install`/`--status`/`--check`/`--restart`/`--stop` actions live in
+`environments/ollama/info.yaml`'s `custom_actions`, and that file says why in
+its own comment — the watchdog restarts the daemon on its own schedule, so it
+has to agree with that environment about the bind address, and it reads
+`OLLAMA_SERVE_HOST` from that environment's `.env` rather than from whatever
+happens to be exported. `./deploy.sh` → Environments → ollama → "Watchdog:
+Schedule Automatic Checks" supplies it by construction.
+
+The precondition that remains either way: `OLLAMA_SERVE_HOST` ships commented
+out in `.env.example`, and `.env.example` is never sourced — so on a host where
+the `ollama` environment was never deployed, there may be no `.env` at all and
+the value is empty. `--install` would then schedule a job that restarts Ollama
+on loopback forever, healthily, while refusing every container.
+
 ### General Lessons
 
 - **A watchdog that was never installed is documentation, not a safeguard.**
@@ -835,3 +854,85 @@ for why that variable exists at all.
   probing — was built and verified against a *running* host. None of it was
   exercised against "the machine came back up," which is the one transition that
   reliably happens without anyone watching.
+- **An operator instruction that opens with an inline environment variable is a
+  smell — check `custom_actions` first.** `OLLAMA_SERVE_HOST=… ./script --install`
+  reads like a complete instruction, and it hides that the value has to be
+  remembered correctly every time. This repo had already solved that by putting
+  the action in `environments/ollama/info.yaml`, where it runs with that
+  environment's `.env` loaded and the bind address arrives by construction.
+  Recommending the raw command re-opened, in prose, the exact hazard the menu
+  entry was built to close. Before writing a shell instruction for something
+  this repo manages, grep `info.yaml` for it — the designed path usually exists
+  and usually carries configuration the bare command doesn't.
+
+---
+
+## `--status` reports a bind address the scheduled job may not be using (2026-08-15)
+
+**Status:** not fixed — found by inspection, not by a failure, and recorded
+before it becomes one. Operationally mitigated (re-running the install action
+overwrites the plist), with the reporting fix tracked in
+`docs/future-enhancements/ollama-watchdog-boot-persistence.md`.
+
+### Summary
+
+`ollama-watchdog.sh --status` exists to answer "is this set up correctly?". On
+the one field where being wrong is both silent and costly — the bind address —
+it reports a value that is not necessarily the one the scheduled job will use.
+
+### Root cause: two copies, one reported
+
+There are two `OLLAMA_SERVE_HOST` values in play:
+
+- the **live** one, from `environments/ollama/.env` as loaded right now;
+- the **baked** one, written into the LaunchAgent plist's
+  `EnvironmentVariables` dict at `--install` time (or into the cron line on
+  Linux), which is what every scheduled restart actually runs with.
+
+`--status` prints the first (`ollama-watchdog.sh:321`) and never reads the
+second. Install the schedule before setting `.env`, then set `.env` afterwards,
+and the two disagree permanently while `--status` reports the value that isn't
+in charge.
+
+### What it looks like when it goes wrong
+
+Nothing. `--status` shows the correct bind address, `Schedule: installed`,
+`Health: ✅ responding`, and a correct current listener — all true, because the
+running daemon was started by hand. The divergence only takes effect on the
+next *watchdog-initiated* restart, which binds loopback and refuses every
+container, while continuing to report healthy on every subsequent cycle. That is
+the 2026-08-07 loopback bug reached by a different route.
+
+### Real output that prompted this
+
+A live `--status` run showed `Bind address: 0.0.0.0:11434`, `Schedule:
+installed (launchd, every 300s)`, health responding, and `Ollama is listening
+on: *:11434`. Every line correct, and none of them evidence about the plist —
+the one thing that governs what happens after the next automatic restart.
+
+### General Lessons
+
+- **Anything that bakes configuration at install time creates a second source
+  of truth, and must be able to read back what it baked.** Reporting the live
+  value beside a baked one that governs behavior is worse than reporting
+  nothing, because it reads as confirmation. Report the operative value, or
+  report both and flag the mismatch.
+- **This pattern is not specific to the watchdog, and the repo has another
+  instance of it right now.** `apply_mnemon_patch()` bakes
+  `MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL` into `container/Dockerfile` as
+  `ENV` lines at image-build time. Change those in `.env` without a `CLEAN` and
+  the image keeps the old values, with nothing anywhere reporting the
+  divergence — same shape, different mechanism. Worth a deliberate check
+  wherever this repo bakes a `.env` value into something longer-lived than the
+  `.env`.
+- **Three failures in one script's config path now share a shape**: the
+  2026-08-07 variable collision (a health check that passed while containers
+  were refused), the 2026-08-15 outage (a fallback so legitimate that its
+  cause was invisible), and this one (a status line answering a question
+  adjacent to the one asked). Each was individually reasonable. Together they
+  say the checks in this path were written to confirm the happy path rather
+  than to distinguish it from the failure that resembles it.
+- **"Found by inspection, not by a failure" is worth writing down precisely
+  because there's no incident to point at.** The two entries above cost real
+  debugging time; this one was caught by asking whether a passing check
+  actually answered the question it was being trusted to answer.

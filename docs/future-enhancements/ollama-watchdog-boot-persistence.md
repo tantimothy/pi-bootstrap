@@ -65,6 +65,14 @@ Constraints that make this more than a path change:
 - **`OLLAMA_SERVE_HOST` must carry through**, same as the existing plist and
   cron paths already do. A boot-time daemon that comes up bound to loopback
   restores nothing for the containers that need it.
+- **It needs a matching `custom_actions` entry, not just a flag.** The existing
+  watchdog actions live in `environments/ollama/info.yaml` precisely so they run
+  with that environment's `.env` loaded and pick up `OLLAMA_SERVE_HOST` without
+  the operator having to remember it. A `--install-daemon` reachable only from a
+  shell would reintroduce that gap for the one install path where getting the
+  bind address wrong is hardest to notice — a boot-time daemon nobody watches.
+  Add it beside "Watchdog: Schedule Automatic Checks", labelled so the
+  distinction from the LaunchAgent version is obvious at the menu.
 
 ## Cheaper alternatives worth considering first
 
@@ -77,6 +85,43 @@ Constraints that make this more than a path change:
   restarts it. This doesn't fix the outage, but it converts a silent
   degradation into a reported one — which, per the lessons-learned entry, was
   the actually damaging part.
+
+## Separate, smaller, and worth doing regardless: make `--status` read the schedule
+
+Independent of the boot question above — this one applies whether or not a
+LaunchDaemon ever gets built, and it is the cheaper of the two.
+
+`--status` prints the bind address from the **live** environment
+(`ollama-watchdog.sh:321`, `${OLLAMA_SERVE_HOST:-…}`), while the scheduled job
+runs with a **baked copy** written into the plist's `EnvironmentVariables` dict
+at `--install` time (`ollama-watchdog.sh:200-214`) or into the cron line's
+inline assignment. Install the schedule before setting `.env` and the two
+disagree forever, with `--status` reporting the value that isn't in charge —
+and the divergence only takes effect on the next watchdog-initiated restart,
+which binds loopback while reporting healthy on every cycle thereafter. Full
+account in `docs/lessons-learned/general.md` (2026-08-15).
+
+Proposed change:
+
+- When a schedule is installed, read `OLLAMA_SERVE_HOST` back out of the plist
+  (`PlistBuddy`/`plutil -convert json`, or a plain `grep -A1` on the known key)
+  or out of the cron line, and report **that** as the operative value.
+- Print the live `.env` value beside it and flag a mismatch explicitly —
+  `⚠️ scheduled job will use <baked>, .env says <live> — re-run the install
+  action to reconcile`. A mismatch is not an error state (it is exactly what
+  happens between setting `.env` and re-installing), so it warns rather than
+  exits nonzero.
+- Same treatment for `OLLAMA_HOST` and the timeout, which are baked by the same
+  mechanism and have the same drift.
+
+This also improves the boot-persistence work above, if it happens: a
+`--install-daemon` mode adds a *third* place the bind address can live, and a
+`--status` that already reconciles two will extend to three cleanly. Doing the
+reporting fix first is the better order.
+
+Note the `--status` improvement already suggested under the LaunchDaemon
+constraints — reporting *what currently supervises* Ollama — is the same
+function and the same pass of work. Treat them as one change.
 
 ## Related
 
