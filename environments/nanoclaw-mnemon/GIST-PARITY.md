@@ -130,6 +130,16 @@ Whether or not the gist ever ran a real version of this, a deliberate, well-word
 
 **Net take**: real, usable, available today — a judgment call each time it's run rather than a guaranteed pipeline, and not chasing gist-parity so much as just a genuinely useful thing to be able to ask for. Good for an occasional "give me a state-of-the-memory wiki snapshot" ask; not a substitute for the deterministic ingest step described above if you specifically want that connection to hold up unattended.
 
+### It has actually been done, once, in the opposite direction
+
+Surfaced on 2026-08-15 from a group agent's own self-documentation, and worth recording because it qualifies the section heading above.
+
+**"Independent systems" describes what this environment wires up — not necessarily what a given deployment ends up running.** Nothing in `run.sh` connects mnemon to the wiki, and that is still accurate. But on 2026-07-18 one real deployment bridged them by hand, and not in the direction the gist claims: the **wiki was bulk-imported into mnemon**, via `mnemon import` against schema-validated JSON drafts, using the 83 wiki pages that existed at the time (the raw `sources/` folder — 243 files, 54MB — was considered and rejected as too voluminous for atomic insight storage). Result: 321 insights, 0 errors, and 3,295 total edges from 140 explicitly declared ones, the rest auto-derived by mnemon's own import path.
+
+So the manual bridge above isn't hypothetical, and the direction that actually got exercised is **wiki → mnemon**, the reverse of the gist's claimed mnemon → wiki pipeline. That is still not evidence for the gist's architecture — if anything it's the opposite, since it treats the wiki as the source and mnemon as the derived store.
+
+**It also turned out to be the wrong direction to push knowledge**, for reasons that are mnemon's design rather than anyone's mistake — see `docs/lessons-learned/nanoclaw-mnemon.md`'s 2026-08-15 entry. Short version: mnemon decays and prunes by design, so reference material imported at default importance halves in effective value every 30 days, and a one-time snapshot goes stale from the next wiki edit onward (that corpus reached 632 pages within a month, leaving the import at ~13% coverage). The gist's own §5.1 reaches the same conclusion from the other side, listing importance-decay and auto-pruning as reasons mnemon can't be the wiki's substrate.
+
 ---
 
 ## 📚 The Karpathy-Pattern Ecosystem (it's not one project)

@@ -408,10 +408,72 @@ predicate, mechanically convertible. `married_to` is symmetric, which also makes
 cleanest possible first exercise of the bidirectional-assertion lint check that has nothing
 to check today.
 
-One thing to establish before scripting that conversion: whether `married:` values are page
-links or plain names. Plain strings need resolving to a concrete page path, and any spouse
-without a page of their own means the conversion also creates entity pages rather than just
-rewriting fields.
+### …but that frontmatter does not currently parse, and one failure mode is silent
+
+Sampled `married:` values, 2026-08-15:
+
+```yaml
+married: **Alfred Chen**
+married: **Bernard Tan Tiong Gie** (b. 18 May 1943), 11 April 1970, Kampong Kapor Methodist Church, Singapore
+married: 20 august 1942, kampong kapor methodist church (kkmc)
+married: 12 july 1947 *(year confirmed by GEDCOM; previously "year not certain")*
+married: **neo seng kee** (~1948)
+married: **sudarmini tarmidi, tan lian hoa (lena)**
+```
+
+Two hazards, both **verified against `yaml.safe_load`** rather than assumed:
+
+| Input | Result |
+|---|---|
+| `married: **Alfred Chen**` | **`ScannerError: while scanning an alias`** — hard failure. `*` opens a YAML alias, so an unquoted value starting with `**` makes the whole frontmatter block unloadable. |
+| the same key repeated | **Parses silently, keeping only the last value.** A page with the name on one `married:` line and the date on another loads as just the date — *the spouse's name is discarded at parse time, with no error.* |
+
+The repeated key isn't sloppiness: a YAML mapping cannot hold the same key twice, and the
+corpus was reaching for multiplicity anyway — one person, several marriages, or one marriage
+split across a name line and a date line. It hit the limit of the format and worked around it.
+
+**The counter-intuitive part: the loudly-broken pages are the safe ones.** A file that raises
+`ScannerError` cannot be parsed, so it cannot be parse-and-rewritten either — the data is
+stuck but intact. A file whose duplicate keys parse silently *can* be rewritten, and the moment
+any tool round-trips it (load frontmatter → mutate → dump), the dropped key is gone from disk
+permanently. The files that look healthiest are the ones most at risk.
+
+This means the frontmatter has, in all likelihood, **never been machine-parsed** — nothing
+has read it but an LLM treating it as text. Every downstream step assumes otherwise.
+
+### What follows for the plan
+
+- **`lint.ts`'s first check is "does this file's frontmatter load at all?"** — ahead of every
+  structural rule. Expect a substantial fail count among the 138 person-pages, and treat
+  duplicate keys as a finding in their own right, since the parser will not report them.
+- **The `recipes/` backfill must be a textual insertion, never a YAML round-trip.** Adding
+  `type: recipe` by loading and re-dumping frontmatter would silently drop duplicate keys on
+  any file that has them. Insert the line; don't reserialize the block.
+- **Repair before conversion.** `married:` → `relations:` can't run against text that doesn't
+  parse. Fixing the YAML — quoting starred values, merging duplicate keys — is its own step,
+  and it must preserve every value rather than accepting whatever the parser happens to return.
+- **The conversion itself is a genealogy modelling problem, not a rewrite.** A single value
+  like the Bernard example carries four facts headed for four destinations: the spouse name to
+  the triple's `object` (a page path where one exists, else a literal or stub); the marriage
+  date to `date`, as a quoted ISO 8601 string; the church and city to *no existing slot* —
+  the triple schema is `predicate`/`object`/`date`/`source` only, so that needs a second
+  predicate or body prose, which is a schema decision; and `b. 18 May 1943` is not this page's
+  fact at all — it belongs on Bernard's page, which may not exist yet.
+- **Other shapes in the same field** that need conventions before scripting: approximate dates
+  (`~1948`) which ISO 8601 cannot express; embedded provenance (`year confirmed by GEDCOM`)
+  which maps to the triple's `source` plus the page's `sources[]`; one person carrying several
+  names (`sudarmini tarmidi, tan lian hoa (lena)`) which is one entity, not two spouses; and
+  inconsistent casing across otherwise identical name formats.
+- **Never delete a `married:` field in the same pass that adds `relations:`.** Keep both until
+  lint confirms every fragment is represented elsewhere, then remove. A lossy parse would
+  otherwise destroy birth dates and church names that exist nowhere else in the corpus.
+
+This is also the concrete argument for git-first: with version control a bad parse is a
+`git checkout`; without it, those church names are simply gone.
+
+**One genuine consolation.** `relations:` is a YAML *array*, so it expresses repetition
+natively — the exact thing duplicate `married:` keys were failing to express. The migration
+doesn't just reformat the workaround, it repairs the structural problem that forced it.
 
 ### Put the wiki in git before anything else touches it
 
@@ -485,10 +547,11 @@ to a group that hasn't been scaffolded, which is exactly what graduating it into
 | # | Step | Status |
 |---|---|---|
 | 0 | **`git init` in `wiki/`** | **Before anything else touches the corpus**, so every bulk change below lands as a reviewable diff. Local only. |
-| 1 | **`lint.ts`** | Concrete day-one output: 341 pages with no frontmatter, 138 with frontmatter but no `type:`, 4 on the legacy `nodes:` field, 236 unlisted in `index.md`. Needs no schema and no SQLite. |
-| 2 | **`recipes/` backfill** (171 pages) | Scripted `type: recipe`, one diff. The other 170 are a directory-informed proposal to review, not 170 hand decisions. |
+| 1 | **`lint.ts`** | **First check: does the frontmatter parse at all?** Verified failures exist — unquoted `**Name**` raises `ScannerError`, and duplicate keys parse silently while discarding values. Then: 341 pages with no frontmatter, 138 with frontmatter but no `type:`, 4 on the legacy `nodes:` field, 236 unlisted in `index.md`. Needs no schema and no SQLite. |
+| 1b | **Repair the malformed frontmatter** | Quote starred values, merge duplicate keys into something a parser can hold. Must preserve every value, not whatever the parser returns. Blocks steps 2 and 4 — both would otherwise operate on text that doesn't load, or silently drop data that does. |
+| 2 | **`recipes/` backfill** (171 pages) | Scripted `type: recipe`, one diff. **Textual insertion, never a YAML round-trip** — load-mutate-dump would permanently drop duplicate keys on any file that has them. The other 170 are a directory-informed proposal to review, not 170 hand decisions. |
 | 3 | **Schema: two axes** | Keep document types on the 153; add OKF entity types to the 138. Not the open design problem it looked like — the corpus already made the split. |
-| 4 | **`married:` → `relations`** | Formalize a graph that already exists as ad-hoc scalars. Symmetric predicate, so it properly exercises the bidirectional lint check. |
+| 4 | **`married:` → `relations`** | Formalize a graph that already exists as ad-hoc scalars — and a genealogy modelling problem, not a rewrite: four facts per value, approximate dates, embedded provenance, multi-name people. Keep `married:` alongside `relations:` until lint confirms nothing was lost. Symmetric predicate, so it properly exercises the bidirectional lint check. |
 | 5 | **`build-index.ts` + `context-for.ts`** | 632 pages with 37% index drift is the case for it. Regenerating `index.md` from the same walk makes the drift structurally impossible. |
 | 6 | **Vector leg** | Unblocked — Ollama reachable again, `nomic-embed-text` responding. Worth having at this corpus size. |
 | — | `timeline.ts`, `keywords.ts` + hook | After relations exist and there's something to render/trigger on. Hook scope risk resolved (per-group mount). |
