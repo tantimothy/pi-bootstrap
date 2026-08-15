@@ -15,11 +15,14 @@ effort is re-solving a problem `run.sh` already solves.
 
 ## What this is about
 
-`environments/nanoclaw-mnemon/GIST-PARITY.md` tracks
-[gist `a7d4eec3…`](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322)
-("NanoClaw + mnemon + local embeddings + wiki + Obsidian sync as a second brain").
+`environments/nanoclaw-mnemon/GIST-PARITY.md` is the environment-facing comparison, and now
+covers **both** of this author's gists: [`a7d4eec3…`](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322)
+("NanoClaw + mnemon + local embeddings + wiki + Obsidian sync as a second brain"), which the
+environment follows, and the one below, which it does not. Its "The second gist" section holds
+the component-by-component status; the deep analysis and any build ordering live here, so the
+two don't duplicate each other.
 
-This document is about a **different gist by the same author**:
+This document is about the **second, later gist by the same author**:
 [`83d1ea5f…`](https://gist.github.com/VivianBalakrishnan/83d1ea5f929d0ae51bca7fe25129b0d7),
 `okf-graph-wiki.md` — "OKF Graph Wiki: Agent-Maintained Knowledge Graph for Context
 Retrieval." It is not a companion piece to the first one. It is a self-contained
