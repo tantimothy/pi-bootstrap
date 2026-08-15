@@ -864,3 +864,75 @@ on loopback forever, healthily, while refusing every container.
   entry was built to close. Before writing a shell instruction for something
   this repo manages, grep `info.yaml` for it — the designed path usually exists
   and usually carries configuration the bare command doesn't.
+
+---
+
+## `--status` reports a bind address the scheduled job may not be using (2026-08-15)
+
+**Status:** not fixed — found by inspection, not by a failure, and recorded
+before it becomes one. Operationally mitigated (re-running the install action
+overwrites the plist), with the reporting fix tracked in
+`docs/future-enhancements/ollama-watchdog-boot-persistence.md`.
+
+### Summary
+
+`ollama-watchdog.sh --status` exists to answer "is this set up correctly?". On
+the one field where being wrong is both silent and costly — the bind address —
+it reports a value that is not necessarily the one the scheduled job will use.
+
+### Root cause: two copies, one reported
+
+There are two `OLLAMA_SERVE_HOST` values in play:
+
+- the **live** one, from `environments/ollama/.env` as loaded right now;
+- the **baked** one, written into the LaunchAgent plist's
+  `EnvironmentVariables` dict at `--install` time (or into the cron line on
+  Linux), which is what every scheduled restart actually runs with.
+
+`--status` prints the first (`ollama-watchdog.sh:321`) and never reads the
+second. Install the schedule before setting `.env`, then set `.env` afterwards,
+and the two disagree permanently while `--status` reports the value that isn't
+in charge.
+
+### What it looks like when it goes wrong
+
+Nothing. `--status` shows the correct bind address, `Schedule: installed`,
+`Health: ✅ responding`, and a correct current listener — all true, because the
+running daemon was started by hand. The divergence only takes effect on the
+next *watchdog-initiated* restart, which binds loopback and refuses every
+container, while continuing to report healthy on every subsequent cycle. That is
+the 2026-08-07 loopback bug reached by a different route.
+
+### Real output that prompted this
+
+A live `--status` run showed `Bind address: 0.0.0.0:11434`, `Schedule:
+installed (launchd, every 300s)`, health responding, and `Ollama is listening
+on: *:11434`. Every line correct, and none of them evidence about the plist —
+the one thing that governs what happens after the next automatic restart.
+
+### General Lessons
+
+- **Anything that bakes configuration at install time creates a second source
+  of truth, and must be able to read back what it baked.** Reporting the live
+  value beside a baked one that governs behavior is worse than reporting
+  nothing, because it reads as confirmation. Report the operative value, or
+  report both and flag the mismatch.
+- **This pattern is not specific to the watchdog, and the repo has another
+  instance of it right now.** `apply_mnemon_patch()` bakes
+  `MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL` into `container/Dockerfile` as
+  `ENV` lines at image-build time. Change those in `.env` without a `CLEAN` and
+  the image keeps the old values, with nothing anywhere reporting the
+  divergence — same shape, different mechanism. Worth a deliberate check
+  wherever this repo bakes a `.env` value into something longer-lived than the
+  `.env`.
+- **Three failures in one script's config path now share a shape**: the
+  2026-08-07 variable collision (a health check that passed while containers
+  were refused), the 2026-08-15 outage (a fallback so legitimate that its
+  cause was invisible), and this one (a status line answering a question
+  adjacent to the one asked). Each was individually reasonable. Together they
+  say the checks in this path were written to confirm the happy path rather
+  than to distinguish it from the failure that resembles it.
+- **"Found by inspection, not by a failure" is worth writing down precisely
+  because there's no incident to point at.** The two entries above cost real
+  debugging time; this one was caught by asking whether a passing check
+  actually answered the question it was being trusted to answer.
