@@ -220,36 +220,25 @@ Ollama is reachable again. What's left:
   host) only exists in this repo's docs so far — the group agent that
   proposed it hasn't been told.
 
-## Ollama: restored by hand after a silent outage, two follow-ups open
+## Ollama: outage resolved, one question left that decides whether it recurs
 
 The host rebooted, Ollama didn't come back, and nothing reported it —
 mnemon ran graph-only for an unknown period. Found incidentally by a
-`curl` during unrelated scoping work. Restarted manually on 2026-08-15.
-Full account in `docs/lessons-learned/general.md`; the boot-persistence
-design question in
-`docs/future-enhancements/ollama-watchdog-boot-persistence.md`.
+`curl` during unrelated scoping work. Since resolved on 2026-08-15:
+Ollama restarted and confirmed reachable from inside a group container
+(`nomic-embed-text:latest` responding at `192.168.1.50:11434`), and the
+watchdog scheduled via `./deploy.sh` → Environments → ollama →
+"Watchdog: Schedule Automatic Checks". Full account in
+`docs/lessons-learned/general.md`; the boot-persistence design question
+in `docs/future-enhancements/ollama-watchdog-boot-persistence.md`.
 
-- **`ollama-watchdog.sh` has never been scheduled on that host.** It
-  exists for exactly this failure. Schedule it through the designed
-  path, not a shell: `./deploy.sh` → Environments → **ollama** →
-  "Watchdog: Schedule Automatic Checks", then "Watchdog: Show Schedule
-  Status" to confirm. Those actions live under the `ollama` environment
-  specifically because they run with its `.env` loaded, which is where
-  `OLLAMA_SERVE_HOST` comes from.
-- **First confirm `OLLAMA_SERVE_HOST=0.0.0.0:11434` is uncommented in
-  `environments/ollama/.env` on that host.** It ships commented out in
-  `.env.example`, and `.env.example` is never sourced — so if the
-  `ollama` environment was never deployed there, the value is simply
-  empty. `--install` bakes whatever is set at install time into the
-  launchd plist, so an empty value schedules a job that restarts Ollama
-  on its default loopback bind, refusing the LAN IP this install uses.
-  That reproduces the 2026-08-07 bug exactly: watchdog reporting healthy
-  every cycle, containers refused, no error anywhere.
-- ~~Confirm the manual restart reached the containers~~ — **done**,
-  confirmed 2026-08-15 from inside a group container:
-  `nomic-embed-text:latest` responding at `192.168.1.50:11434`. That's
-  the manual restart holding, not a fix; the next reboot reproduces the
-  outage unless the watchdog is installed.
+- **Confirm the scheduled job's baked-in bind address, once.**
+  `--install` bakes whatever `OLLAMA_SERVE_HOST` held at install time
+  into the launchd plist, and an empty value there schedules a job that
+  restarts Ollama on loopback — reporting healthy every cycle while
+  refusing every container, which is the 2026-08-07 bug exactly and
+  produces no error anywhere. "Watchdog: Show Schedule Status" prints
+  the bind address alongside the schedule; one look closes this.
 - **Does that host auto-log-in after a reboot?** Unanswered, and it
   decides whether `--install` is sufficient at all: a LaunchAgent loads
   at user login, not at boot, so on a host that reboots to the login
