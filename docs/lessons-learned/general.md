@@ -756,3 +756,82 @@ type-ahead), not a fork in direction like the `--treeview`-vs-`--menu`
 question or the declined generic-engine question above. Worth keeping
 this list current if a future edit finds another paper-cut in this same
 menu shape, rather than letting each one live only in a commit message.
+
+---
+
+## Ollama stayed down after a host reboot, silently, and the watchdog built to prevent that wasn't installed (2026-08-15)
+
+**Status:** service restored by hand; two follow-ups open (install the watchdog
+with the right bind address; decide whether a LaunchAgent is sufficient on a
+headless host — see `docs/future-enhancements/ollama-watchdog-boot-persistence.md`).
+
+### Summary
+
+The Mac host running Ollama for `nanoclaw-mnemon` rebooted. Ollama did not come
+back up, and stayed down for an unknown length of time. Nothing anywhere
+reported a problem.
+
+### Symptom
+
+None — that's the whole point of this entry. It surfaced only incidentally: a
+group agent was asked to run `curl http://192.168.1.50:11434/api/tags` while
+scoping unrelated work, and got `Connection refused`. Mnemon had been running
+graph-only that entire time.
+
+### Root cause
+
+Two things, stacked:
+
+- **Ollama has no boot autostart on that host.** A reboot leaves it stopped
+  until someone starts it manually.
+- **`ollama-watchdog.sh` was never installed.** The script exists in this repo
+  precisely to health-check and restart the host's native Ollama, and
+  `--install` schedules it (launchd `StartInterval`, default 300s, plus
+  `RunAtLoad`). It had simply never been run on that machine, so nothing was
+  watching.
+
+### The part that isn't fixed by just installing it
+
+`--install` writes a **LaunchAgent** to `~/Library/LaunchAgents/`. LaunchAgents
+load at *user login*, not at boot. On a host that reboots to the login window
+and stays there, the agent never loads — so neither the watchdog nor Ollama
+comes back, and the mechanism meant to catch this is itself absent for the same
+reason the thing it watches is. A system-level LaunchDaemon in
+`/Library/LaunchDaemons` runs at boot without a login; the script doesn't write
+one today.
+
+Whether this matters depends on whether that host auto-logs-in, which is worth
+establishing rather than assuming.
+
+### Adjacent trap, already documented
+
+`MNEMON_EMBED_ENDPOINT` on this install is a LAN IP (`192.168.1.50:11434`), not
+`host.docker.internal` — an operator had already worked around the container
+routing problem the README records. That means a plain restart is not enough:
+Ollama's default bind is `127.0.0.1:11434`, which refuses that address, so
+"Ollama is running" and "containers can reach Ollama" remain separate facts.
+`OLLAMA_SERVE_HOST=0.0.0.0:11434` has to be set, and `--install` bakes the value
+active at install time into the scheduled job. See the 2026-08-07 entry above
+for why that variable exists at all.
+
+### General Lessons
+
+- **A watchdog that was never installed is documentation, not a safeguard.**
+  This repo has had a working `ollama-watchdog.sh` — with `--install`, health
+  probing beyond "is the process alive," and supervisor-aware restarts — for
+  over a week, and none of it ran on the host that needed it. Shipping the
+  mechanism and adopting it are different events; only the second one prevents
+  outages.
+- **A legitimate fallback is exactly what makes a dependency outage invisible.**
+  Mnemon degrades to graph-only recall when embeddings are unreachable, and that
+  is correct, documented behavior — `ensure_ollama_ready()` deliberately warns
+  rather than aborting the deploy for the same reason. The cost is that nothing
+  in the system distinguishes "embeddings intentionally disabled" from
+  "embeddings broken since the last reboot." Anything with a graceful fallback
+  needs an explicit, separate liveness check, because by construction it will
+  never complain on its own.
+- **Reboot is a state transition worth testing deliberately.** Every check in
+  this repo's Ollama path — endpoint reachability, bind address, container-side
+  probing — was built and verified against a *running* host. None of it was
+  exercised against "the machine came back up," which is the one transition that
+  reliably happens without anyone watching.

@@ -257,8 +257,11 @@ generic scripts into `environments/nanoclaw-mnemon/scripts/`, in the `scaffold-w
 when **any one** of these holds: they've stopped changing; a second group wants them or a
 fresh Pi has to reproduce them; losing them would actually cost something.
 
-**The override**: if Bun isn't on `PATH` in the agent sandbox, this is pi-bootstrap's from day
-one — it becomes a `container/Dockerfile` patch, and an agent structurally cannot durably
+**The override — checked on 2026-08-15, and it does not apply**: Bun ships in NanoClaw's own
+base image (`bun 1.3.12`, `/usr/local/bin/bun`, all groups), so group-level is confirmed and
+none of the image machinery is needed. The rule is kept because it still governs any *future*
+tool this work turns out to need. If a runtime isn't on `PATH` in the agent sandbox, that work
+is pi-bootstrap's from day one — it becomes a `container/Dockerfile` patch, and an agent structurally cannot durably
 modify the image it runs in. That case has precedent worth heeding: `GIST-PARITY.md` records
 an agent hitting exactly this wall for media tools, then installing `yt-dlp` and a rootless
 `whisper.cpp` around it through a permission gap in its own writable folder — twice,
@@ -306,6 +309,11 @@ different units, not a discrepancy.)
 the proposed tiers. Build the index and the keyword file *with* their reader, as one piece of
 work, or not yet.
 
+> **Superseded in part.** The "wait" verdict on `build-index.ts` was reasoned from an assumed
+> ~50-page corpus. The real figure is 632, and FTS5 needs no frontmatter — see
+> "[Revised ordering](#revised-ordering)" below, which promotes it. The pairing rule stands:
+> build it *with* `context-for.ts`, never alone.
+
 The hook in particular is the highest-integration-risk item and shouldn't be waved through as
 a footnote: it has to be registered in the agent's own settings inside the container, and it
 would fire on every prompt alongside mnemon's own hooks **and** the marker-delimited recall
@@ -326,18 +334,91 @@ has to graduate into a version-marked `apply_*_patch()` in `run.sh`, with the de
 sweep that implies (see the root `CLAUDE.md`). For scripts operating on group-local data,
 group-local is correct and sufficient.
 
-### Two things to confirm before starting
+### Answered by the group agent, 2026-08-15 — and two of the answers change the plan
 
-- **Is Bun actually on `PATH` in the agent sandbox?** NanoClaw's orchestrator is Bun-based,
-  but that's a different image from `container/Dockerfile`, which isn't in this repo (it's
-  cloned at deploy time), so it can't be checked from here. `bun --version` inside the
-  sandbox settles it. If it's absent, this stops being "a few hundred lines each" and becomes
-  a Dockerfile patch plus a base-and-derived-image rebuild.
-- **How many pages does the wiki have?** The five implementations surveyed in
-  `GIST-PARITY.md` converged on index-first navigation being sufficient to roughly 100
-  articles, and the OKF spec itself targets hundreds-to-low-thousands before its indexing
-  earns its keep. Under ~50 pages, `lint.ts` is worth having and the retrieval pipeline
-  solves a problem that doesn't exist yet.
+Both open questions above came back, along with the corpus shape. Recorded here because
+the second answer reverses part of the ordering that preceded it.
+
+**Bun: present, and it's free.** `bun 1.3.12` at `/usr/local/bin/bun`, a root-owned 100MB
+native binary that ships in NanoClaw's own base image — the agent runner at `/app/` is
+itself a Bun application (`bun.lock`, `"start": "bun src/index.ts"`). Not apt, not `npm -g`,
+available to every group, no per-group install. `node v22.23.1` is there too. This is the
+cleanest possible answer to the level question: **no Dockerfile patch, no image rebuild, no
+derived sweep** — these are plain files in the group folder, and later graduation into
+`environments/nanoclaw-mnemon/scripts/` is a file copy in the `scaffold-wiki.sh` mold.
+
+**Scale: 632 pages, not the ~50 the caveat above assumed.** That inverts it. 632 is six
+times past the ~100-article threshold at which every surveyed implementation says
+index-first navigation stops working, and comfortably inside the OKF spec's own
+hundreds-to-low-thousands target. Retrieval is warranted *now*; it is not premature.
+
+**Frontmatter: 291 of 632 pages have any (46%).** `relations:` appears on exactly one page,
+`nodes:` (an older format) on four. So the relation graph starts from zero.
+
+The consequence for ordering, which contradicts the "wait" verdict in the table above:
+**FTS5 indexes body text, so `build-index.ts` needs neither frontmatter nor the schema.**
+It delivers keyword search across all 632 pages immediately; only graph expansion depends
+on `relations`. The earlier table bundled `build-index.ts` with the schema-dependent work,
+which was the right call for a ~50-page corpus and the wrong one for this.
+
+`lint.ts` still goes first, but **its value is not where the proposal put it.** Relation
+symmetry has one page to check. What has real signal today: 341 pages with no frontmatter
+at all, missing `type`/`title` on the 291 that do, the 4 legacy `nodes:` pages, broken
+internal links, orphans, and the `log.md`-versus-`log/` split.
+
+### The type vocabulary already exists, and OKF's would break it
+
+"No existing schema to conform to" isn't quite right. The corpus has an emergent one, in
+use: `reference` ×68, `wiki-page` ×15, `personal-history` ×11, `archive` ×10, `explainer`
+×9, `book` ×7, plus a tail.
+
+Those don't compete with the spec's `Person`/`Organization`/`Product`/`Place`/`Country`/
+`Entity`/`Concept` — they're a different axis. **The existing types describe what a
+document *is*; OKF's describe what an entity *is*.** This corpus is a library; OKF models a
+graph. Adopting the spec's list verbatim would mean reclassifying ~120 already-typed pages
+into a taxonomy that doesn't describe them, with no correct answer for what `type: book`
+becomes.
+
+The likely right shape is both axes: keep document types for source-derived pages, and add
+entity pages as a new layer that `relations` actually connects. That is a schema design
+decision, and per `scaffold-wiki.sh`'s own reasoning it isn't one to make unattended.
+
+One gap worth closing first: the listed types account for ~120 of the 291 frontmatter
+pages. Whether the remaining ~170 are a long tail of one-off types or have no `type:` at
+all changes whether the vocabulary needs consolidating before anything indexes it.
+
+### The hook has a scope risk the sandbox can't see
+
+`settings.json` lives at `/home/node/.claude/settings.json`, on a virtiofs mount from the
+Mac host — so it survives container restarts, and its single current `UserPromptSubmit`
+entry is mnemon's. Adding a second entry alongside it is mechanically straightforward.
+
+**What isn't established is whether that mount is per-group or shared across every group.**
+The mount table inside a container shows the target, not the source path. This repo's own
+layout suggests per-group (`data/v2-sessions/<group-id>/.claude-shared/…`), but "mounted
+from the Mac host" is compatible with either, and if it's shared then a wiki-trigger hook
+registered there fires for *every* group — including ones with no wiki, where it errors on
+every prompt. Settle it host-side (`docker inspect` the group's container, or look at what
+`$NANOCLAW_INSTALL_PATH/data/v2-sessions/` actually contains).
+
+Two things follow either way:
+
+- **The hook must self-gate** — exit 0 immediately if `wiki-trigger-keywords.txt` is
+  absent. Cheap insurance regardless of the answer.
+- Putting the script in `/workspace/agent/hooks/` while registering it in a possibly-shared
+  `settings.json` happens to work, because every group has its own `/workspace/agent` — but
+  that's a coincidence rather than a design, and it is only safe with the gate.
+
+### Revised ordering
+
+| Step | Status |
+|---|---|
+| `lint.ts` — frontmatter coverage, legacy `nodes:`, broken links, orphans | **Start now.** Real findings on day one; needs no schema and no SQLite. |
+| `build-index.ts` + `context-for.ts` as a pair, FTS5 over body only | **Promoted from "wait".** 632 pages needs search; body-text indexing needs no schema. |
+| Schema decision — document types vs. a new entity layer | **Before any `relations` work.** Collaborative, not scripted. |
+| `timeline.ts` | After relations exist. Nothing to render from one page. |
+| `keywords.ts` + hook | Last, gated on the shared-vs-per-group answer, self-gating regardless. |
+| Vector leg | Worth having at this corpus size; blocked while Ollama is down (see `docs/lessons-learned/general.md`, 2026-08-15). |
 
 ### The conventions tier is free, with one dependency worth naming
 

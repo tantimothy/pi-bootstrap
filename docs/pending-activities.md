@@ -187,24 +187,57 @@ records what order to do it in, which level should own it, and three
 corrections to that proposal. Open items, in the order they need
 answering:
 
-- **Is Bun actually on `PATH` in the agent sandbox?** Unanswered, and it
-  decides everything else: with Bun present these are plain scripts in a
-  group folder; without it, it's a `container/Dockerfile` patch plus a
-  base-and-derived-image rebuild, and pi-bootstrap's from day one. Can't
-  be checked from this repo — `container/Dockerfile` is cloned at deploy
-  time — so it needs `bun --version` run inside the sandbox.
-- **How many pages does the group's wiki actually have?** Also
-  unanswered. Under roughly 50, `lint.ts` is worth having and the rest of
-  the retrieval pipeline solves a problem that doesn't exist yet.
-- **If anything gets built, `lint.ts` first, standalone.** It needs no
-  SQLite and so doesn't depend on `build-index.ts`; `build-index.ts` and
-  `keywords.ts` should wait for `context-for.ts`, their only consumer,
-  which was in none of the proposed tiers.
+Both original blocking questions came back answered on 2026-08-15 and are
+recorded in the doc: **Bun is present** (`1.3.12`, in NanoClaw's own base
+image, all groups — so this is group-level work, no Dockerfile patch),
+and the wiki holds **632 pages**, not the ~50 originally assumed, which
+promoted `build-index.ts` from "wait" to "early". What's still open:
+
+- **The `type:` vocabulary conflict is undecided.** The corpus has an
+  emergent document-oriented taxonomy in use (`reference`, `book`,
+  `explainer`, `archive`, …) on ~120 pages; OKF's is entity-oriented.
+  Adopting the spec's verbatim would reclassify those into a taxonomy
+  that doesn't describe them. Needs a deliberate schema decision before
+  any `relations` work starts.
+- **~170 of the 291 frontmatter pages are unaccounted for** in that type
+  breakdown — long tail of one-off types, or no `type:` at all? Changes
+  whether the vocabulary needs consolidating before anything indexes it.
+- **Is `/home/node/.claude` per-group or shared across all groups?**
+  Can't be answered from inside the sandbox (the mount table shows the
+  target, not the source). If shared, a wiki-trigger `UserPromptSubmit`
+  hook registered there fires for every group, including ones with no
+  wiki. Blocks `keywords.ts`; the hook should self-gate regardless.
 - **Nothing here has been corrected at the source yet.** The Ollama
   correction in particular (the proposal treats it as an in-container
   package install; `ensure_ollama_ready()` already handles it on the
   host) only exists in this repo's docs so far — the group agent that
   proposed it hasn't been told.
+
+## Ollama: restored by hand after a silent outage, two follow-ups open
+
+The host rebooted, Ollama didn't come back, and nothing reported it —
+mnemon ran graph-only for an unknown period. Found incidentally by a
+`curl` during unrelated scoping work. Restarted manually on 2026-08-15.
+Full account in `docs/lessons-learned/general.md`; the boot-persistence
+design question in
+`docs/future-enhancements/ollama-watchdog-boot-persistence.md`.
+
+- **`ollama-watchdog.sh` has never been installed on that host.** It
+  exists for exactly this failure. Install with
+  `OLLAMA_SERVE_HOST=0.0.0.0:11434 ./ollama-watchdog.sh --install` —
+  the bind address matters, since this install reaches Ollama on a LAN
+  IP and Ollama's default loopback bind refuses that.
+- **Confirm the manual restart actually reached the containers**, not
+  just the host: `./ollama-watchdog.sh --status` on the host, or
+  `curl -s --noproxy '*' http://192.168.1.50:11434/api/tags` from inside
+  a group container. "Ollama is running" and "containers can reach
+  Ollama" are separate facts here.
+- **Does that host auto-log-in after a reboot?** Unanswered, and it
+  decides whether `--install` is sufficient at all: a LaunchAgent loads
+  at user login, not at boot, so on a host that reboots to the login
+  window neither Ollama nor the watchdog comes back. One reboot settles
+  it, and the answer decides whether the LaunchDaemon proposal is worth
+  building.
 
 ## Known, deliberately-deferred code quality items
 
