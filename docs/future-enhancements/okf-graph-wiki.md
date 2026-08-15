@@ -1,9 +1,17 @@
 # OKF Graph Wiki — a second gist by the same author, and what it would mean here
 
-**Status: evaluated, not built, not currently planned.** This document exists because
-the gist it analyses explicitly evaluates and rejects mnemon — the component
-`environments/nanoclaw-mnemon/` is named for — and its stated reasons check out against
-mnemon's real schema. That's worth having on record whether or not anything gets built.
+**Status: evaluated; nothing built in pi-bootstrap itself, and nothing planned here.** This
+document exists because the gist it analyses explicitly evaluates and rejects mnemon — the
+component `environments/nanoclaw-mnemon/` is named for — and its stated reasons check out
+against mnemon's real schema. That's worth having on record whether or not anything gets
+built.
+
+A partial build has since been proposed from the other direction — by an agent running
+*inside* a deployed group, for that group's own wiki, rather than as a change to this
+repo. Ordering guidance and three corrections for that case are in
+"[Implementation ordering, if a group agent builds part of this](#implementation-ordering-if-a-group-agent-builds-part-of-this)"
+below. **Read the Ollama correction before starting anything**: the most likely wasted
+effort is re-solving a problem `run.sh` already solves.
 
 ## What this is about
 
@@ -196,6 +204,96 @@ inspectable source of truth, with two hooks competing to nudge the same agent. B
 would be a real project, and the case for it is "markdown you can review in git beats an
 opaque insight DB", not "mnemon is broken". If any of it gets picked up, the BM25
 coverage gate and the exact-title seeding rule are the cheap, standalone wins.
+
+## Implementation ordering, if a group agent builds part of this
+
+**Whose build this is.** The proposal this section responds to came from an agent running
+inside a deployed group, scoped to that group's own `wiki/` — not a change to this repo.
+That distinction sets the rules below: group-local files persist across deploys, anything
+inside the NanoClaw checkout does not, and nothing here goes through `run.sh`'s patch
+machinery unless it graduates into a `apply_*_patch()`. The proposal came in three tiers
+(conventions / scripts / embeddings). The tiering is sound; the contents need three fixes.
+
+### The Ollama tier is mostly already built, and installing it in-container is wrong
+
+Treating embeddings as "one package install inside the sandbox, pending admin approval"
+misreads how this environment is wired. **Ollama runs natively on the host**; containers
+reach it at `host.docker.internal:11434`. `run.sh:2170`'s `ensure_ollama_ready()` — called
+unconditionally at `run.sh:2493` on every deploy, `FAST` or `CLEAN` — already probes the
+endpoint, offers a host install behind a y/N prompt (Homebrew on macOS, the official
+installer on Linux), starts an installed-but-stopped daemon, and **pulls the configured
+model if it's missing**. Installing a second daemon inside a per-group sandbox would mean a
+duplicate model download per group on a Pi, for nothing.
+
+The correct action is: set `MNEMON_EMBED_ENDPOINT` in `.env`, redeploy. No package request.
+
+The hard part of this tier was never installation — it's **container→host reachability**,
+already a real multi-day failure here (see the README's Ollama section): `host.docker.internal`
+resolved inside the container to an address that refused connections while the host's own LAN
+IP was reachable from that same container, and every host-side check passed the whole time.
+That's why `ensure_ollama_ready()` also curls from inside a throwaway container with
+`--noproxy '*'`. A second footgun sits next to it: baking `ENV NO_PROXY=host.docker.internal`
+into the image *breaks* the routing this needs (`run.sh:1117-1132`). Any new embedding client
+written inside the sandbox inherits both — reuse the existing endpoint configuration rather
+than re-deriving it.
+
+(On model size: 137M *parameters*, ~274MB *on disk* at F16. Both figures are correct; they're
+different units, not a discrepancy.)
+
+### Split the script tier — half of it has no reader
+
+| Script | Ship when? | Why |
+|---|---|---|
+| `lint.ts` | **Now** | Output is consumed by a human directly. Needs no SQLite — it walks frontmatter and checks referential integrity — so it has no dependency on `build-index.ts` and ships completely standalone. Lowest coupling *and* highest immediate value. |
+| `timeline.ts` | **Now** | Same: renders `timeline.md` for a human. Self-contained. |
+| `build-index.ts` | **Wait** | Produces a `wiki.db` nothing queries until `context_for()` exists. An unread index goes stale. |
+| `keywords.ts` | **Wait** | Produces a keyword file that is inert until a `UserPromptSubmit` hook is registered to read it. |
+
+`context-for.ts` — the actual payoff, and the only consumer of the bottom two — is in none of
+the proposed tiers. Build the index and the keyword file *with* their reader, as one piece of
+work, or not yet.
+
+The hook in particular is the highest-integration-risk item and shouldn't be waved through as
+a footnote: it has to be registered in the agent's own settings inside the container, and it
+would fire on every prompt alongside mnemon's own hooks **and** the marker-delimited recall
+policy that `scripts/apply-mnemon-recall-policy.sh` rewrites into each group's
+`CLAUDE.local.md` on every deploy. Three mechanisms nudging one agent on one turn.
+`MNEMON-RECALL-POLICY.md` is the existing prose answer to the same question the hook answers
+deterministically; decide which one owns the job before adding the second.
+
+### Where the files live decides whether the work survives
+
+Anything written inside the NanoClaw checkout is destroyed by the next `CLEAN` — that path is
+`git reset --hard` to upstream, and the README states plainly that manual edits inside the
+checkout are discarded. Scripts must live in the group's own folder
+(`$NANOCLAW_INSTALL_PATH/groups/<group>/`), which is in NanoClaw's `.gitignore` and therefore
+invisible to git operations — the same reason `groups/`, `data/`, and a scaffolded `wiki/`
+already survive `CLEAN`. Anything that needs to survive an *image* rebuild as well eventually
+has to graduate into a version-marked `apply_*_patch()` in `run.sh`, with the derived-image
+sweep that implies (see the root `CLAUDE.md`). For scripts operating on group-local data,
+group-local is correct and sufficient.
+
+### Two things to confirm before starting
+
+- **Is Bun actually on `PATH` in the agent sandbox?** NanoClaw's orchestrator is Bun-based,
+  but that's a different image from `container/Dockerfile`, which isn't in this repo (it's
+  cloned at deploy time), so it can't be checked from here. `bun --version` inside the
+  sandbox settles it. If it's absent, this stops being "a few hundred lines each" and becomes
+  a Dockerfile patch plus a base-and-derived-image rebuild.
+- **How many pages does the wiki have?** The five implementations surveyed in
+  `GIST-PARITY.md` converged on index-first navigation being sufficient to roughly 100
+  articles, and the OKF spec itself targets hundreds-to-low-thousands before its indexing
+  earns its keep. Under ~50 pages, `lint.ts` is worth having and the retrieval pipeline
+  solves a problem that doesn't exist yet.
+
+### The conventions tier is free, with one dependency worth naming
+
+Typed `relations` blocks, quoted date literals, `generated:` provenance, and
+`superseded_by:`/`supersedes:` on replacement all cost nothing and compound. But "assert both
+directions of a relation on ingest," proposed as discipline rather than code, is exactly the
+discipline that decays silently — which is why the spec makes asymmetric relations a **lint
+check** instead of a rule. That item doesn't hold without `lint.ts`, which is an independent
+argument for the same ordering: lint first.
 
 ## Related
 
