@@ -1,10 +1,17 @@
 # Gist Parity: What's Here, What's Missing, How to Get It
 
-The [VivianBalakrishnan gist](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322) this environment follows combines five pieces. Here's the status of each, verified against the actual upstream source (not assumed), and exactly what's needed to close each gap.
+This document compares this environment against **two gists by the same author**. They describe different systems and stand in very different relationships to what's built here — keeping that straight is the first thing to get right:
+
+- **Gist 1 — [the "second brain" gist](https://gist.github.com/VivianBalakrishnan/a7d4eec3833baee4971a0ee54b08f322)** (`a7d4eec3…`). NanoClaw + mnemon + local embeddings + a wiki + Obsidian sync. **This is the one this environment follows**: its five pieces are build targets, and the first table below is the status of each, verified against actual upstream sources rather than assumed, with exactly what's needed to close each gap.
+- **Gist 2 — ["OKF Graph Wiki"](https://gist.github.com/VivianBalakrishnan/83d1ea5f929d0ae51bca7fe25129b0d7)** (`83d1ea5f…`). A later, self-contained retrieval spec for a Karpathy-pattern wiki, built on Google Cloud's [Open Knowledge Format](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing) (v0.1, June 2026). **This environment does not implement it and has not committed to.** It's here as a comparison reference — a second, more rigorous design for the same slot — and because it evaluates and rejects mnemon, which is worth knowing about the component this environment is named for. Its table is further down under "The second gist."
+
+A ❌ in the first table is a gap against something this environment set out to do. A ❌ in the second is simply a thing this environment doesn't do, and mostly never intended to.
 
 **A credibility caveat, worth reading before the rest of this document**: this environment implements each individual piece the gist names against real, independently-verified upstream sources — NanoClaw's own `/add-mnemon` and `/add-karpathy-llm-wiki` skills, and mnemon's own genuinely-real optional embeddings feature. What's *not* independently corroborated is the gist's specific claim that these pieces form one connected pipeline (wiki pages synthesized *from* mnemon's extracted facts). Checked two ways: the gist author's only public GitHub repository is a fork of `mnemon-dev/mnemon` with **zero commits ahead of upstream** ("there isn't anything to compare," confirmed directly via GitHub's own compare view) — no trace of the described wiki-compilation code anywhere in their public work. And none of the five independently-built "Karpathy pattern" wiki implementations surveyed below use anything like a "separate memory tool extracts facts, wiki synthesizes from those facts" architecture — all five compile directly from raw sources, the simpler two-stage model this environment also uses. Given that, **this environment's actual architecture — mnemon and the wiki as independent systems, not a claimed pipeline — looks like the one supported by real-world precedent, not a shortfall relative to a proven design.** Treat "what the gist says" below as one person's unverified description, not an established spec to chase.
 
 **Corroborated since, from the author's own side.** The same author has a second, later gist — [`83d1ea5f…`, "OKF Graph Wiki"](https://gist.github.com/VivianBalakrishnan/83d1ea5f929d0ae51bca7fe25129b0d7) — describing a wiki that ingests **raw sources**, with mnemon appearing only in a section headed "Why not `mnemon-dev/mnemon`" explaining why it was evaluated and rejected. That independently confirms the reading above (no mnemon→wiki pipeline) and explains the zero-commit fork: evaluating and rejecting a tool is exactly what leaves one behind. Full analysis, including whether that gist's critique of mnemon holds up against mnemon's real schema (it does): [`docs/future-enhancements/okf-graph-wiki.md`](../../docs/future-enhancements/okf-graph-wiki.md).
+
+## Gist 1: the "second brain" gist — component status
 
 | Component | Status | Automated in this environment? |
 |---|---|---|
@@ -15,6 +22,8 @@ The [VivianBalakrishnan gist](https://gist.github.com/VivianBalakrishnan/a7d4eec
 | Voice transcription — local whisper.cpp | ✅ Have — via a different path than the gist's own | Yes — but **not** the gist's own WhatsApp-voice-note pipeline analyzed below. A separate, from-scratch `yt-dlp` + `whisper.cpp` build was added instead (`apply_media_tools_patch()` in `run.sh`, plus the orchestrator's own `Dockerfile`) — video-URL transcription for the wiki, not voice-note transcription for chat. See the README's "🎙️ Transcribing Audio/Video" section. Deliberately avoids everything in section 3 below (no `qwibitai` fork, no git-merge, no WhatsApp dependency) — `yt-dlp` and `whisper.cpp` are pulled directly from their own real upstream projects |
 | Local vector embeddings (Ollama + `nomic-embed-text`) | ✅ Have — opt-in | Yes — `apply_mnemon_patch()` bakes `MNEMON_EMBED_ENDPOINT`/`MNEMON_EMBED_MODEL` into the Dockerfile when set in `.env` (unset by default; requires a reachable Ollama daemon and `CLEAN` to activate) |
 | Obsidian/iCloud/rsync personal sync | ❌ Out of scope by design | Inherently personal, not automatable |
+
+**Naming convention for the rest of this document**: everything from here down to "The second gist" concerns gist 1, and an unqualified "the gist" means gist 1 throughout — those sections were written before a second one existed. Gist 2 is always named explicitly.
 
 ---
 
@@ -189,10 +198,52 @@ Already covered in the README's "Optional: Karpathy LLM Wiki" section — recapp
 
 ---
 
+## The second gist: OKF Graph Wiki — a reference point, not a roadmap
+
+[`83d1ea5f…`](https://gist.github.com/VivianBalakrishnan/83d1ea5f929d0ae51bca7fe25129b0d7), by the same author and necessarily later (it builds on a spec published 12 June 2026). A full engineering design for the retrieval half of a Karpathy-pattern wiki: OKF-formatted concept files as the source of truth, a regenerable SQLite index (`concepts` + FTS5 + `embeddings`), and a `context_for(question)` pipeline — RRF fusion (k≈60) of exact-title / BM25 / vector cosine, intent detection, bounded 2-hop graph expansion with trust multipliers, supersession and staleness filtering. TypeScript on Bun, Ollama + `nomic-embed-text`.
+
+**Read this table differently from the one at the top.** Nothing here was ever a build target. It exists so that a future reader comparing this environment against that gist can see immediately which parts happen to coincide, which don't, and which diverge deliberately.
+
+| Component | Status here | Notes |
+|---|---|---|
+| Markdown concept files as source of truth | 🟡 Partial | The scaffolded wiki is markdown, but nothing produces OKF-conformant frontmatter. One deployment separately maintains a genuinely OKF v0.1-conformant bundle (4 files) alongside its wiki — built by hand, not by anything in `run.sh` |
+| **Git-diffable** source of truth | ❌ | The spec's own first and strongest objection to mnemon is that a DB isn't git-diffable. Checked on a live install: the wiki isn't under version control either, so that advantage is currently theoretical. Highest-leverage gap of any row here |
+| Typed `relations` triples | ❌ | The author's own extension, not OKF core (OKF requires only `type`). One page carries `relations:`; ~138 person-pages carry an ad-hoc `married:` scalar that is the same idea in weaker form — and doesn't currently parse |
+| `wiki.db` — SQLite `concepts` + FTS5 + `embeddings` | ❌ Not built | — |
+| `context_for()` retrieval pipeline | ❌ Not built | — |
+| `lint` / `evaluate` / `timeline` / `keywords` | ❌ Not built | `evaluate` as a hard gate on every ingest is something none of the six wiki implementations surveyed above does |
+| `UserPromptSubmit` trigger hook | ❌ Not built | The slot is occupied: mnemon's own hook is registered there, and `MNEMON-RECALL-POLICY.md` answers the same "when should the agent go look?" question in prose instead |
+| Bun runtime | ✅ Present | Ships in NanoClaw's own base image (`/usr/local/bin/bun`, all groups) — nothing to install |
+| Ollama + `nomic-embed-text` | ✅ Present | The same host daemon and model mnemon's optional embeddings already use |
+| Supersession / staleness (`superseded_by`, `stale_after`) | ❌ | — |
+| mnemon itself | ⚠️ Divergent, deliberately | **The spec evaluates mnemon and rejects it** (§5.1); this environment installs it by default. Not a gap — see below |
+
+### The mnemon rejection, and why it isn't an argument to remove it
+
+§5.1's four objections: the SQLite DB *is* the source of truth with no git-diffable per-node files; the `insights` schema is flat, with no room for `type`/`sources`/`verified`/`status`/`stale_after`; edges are inferred heuristically from a fixed four-type enum rather than deliberately asserted; and importance-decay plus auto-pruning work against a "nothing gets silently dropped" goal.
+
+**All four check out** against mnemon's real schema — as documented independently in this repo, in `scripts/export-mnemon-pages.py`'s header (confirmed against mnemon's own `internal/store/db.go`), right down to the four-type enum being that script's own `EDGE_TYPE_ORDER`.
+
+They are also all arguments about mnemon as a *wiki substrate*, not as conversational memory. Decay and pruning are a liability for a compounding reference corpus and a feature for cross-session chat memory, where unbounded accumulation is the actual failure mode. The two systems are optimised for different jobs, and this repo has since seen what happens when that boundary is crossed in practice — see `docs/lessons-learned/nanoclaw-mnemon.md`'s 2026-08-15 entry on a wiki bulk-imported into mnemon.
+
+### What's worth taking from it regardless
+
+Most of the spec is standard information retrieval — RRF at k≈60 is the constant from the original rank-fusion literature, and hybrid keyword+vector fusion is what mnemon's own README already advertises. Three ideas aren't, and are cheap enough to adopt without the rest:
+
+- **BM25 gated on word *coverage*, not score** — the fraction of the question's content words present in the top match, `>0.5`. BM25 scores aren't comparable across queries, so a fixed score threshold is unreliable by construction; coverage is query-normalised.
+- **Exact title match as a first-class fused signal, weighted 2×, at whole-word boundaries** — with the failure it prevents stated plainly: *"A concept titled 'AI' must not seed on the word 'explain', nor 'Go' on 'ago'."*
+- **`evaluate` as a hard gate on every ingest** — regression-testing a knowledge base.
+
+Full analysis, what would be involved in building any of it here, and an ordering if someone does: [`docs/future-enhancements/okf-graph-wiki.md`](../../docs/future-enhancements/okf-graph-wiki.md).
+
+---
+
 ## Summary
 
 Three of five pieces are fully automated and verified now (core NanoClaw, mnemon, and mnemon's optional embeddings — the last of which looked like the hardest gap through two prior passes on this document and turned out to be a built-in config flag). One is half-automated with the interactive part staying manual by upstream design (wiki) — and runs as an independent system from mnemon, which, after checking the gist's own credibility (see the caveat at the top of this document), now looks like the architecture matching real-world precedent rather than a shortfall against a proven design: none of the five independently-built wiki tools surveyed below connect a memory tool's extracted facts to wiki compilation either. A manual prompt can combine the two on demand if you want that behavior anyway, documented below. Voice transcription **via the gist's own specific pipeline** (WhatsApp voice notes, OpenAI Whisper, the `qwibitai` fork git-merge) remains an unstarted build, deliberately — but local whisper.cpp transcription itself is done, via a separate, from-scratch `yt-dlp`+`whisper.cpp` implementation with none of that pipeline's fragility (see the section above and the README's "🎙️ Transcribing Audio/Video"). Sync is intentionally left as "point your own tool at an existing folder."
 
-**One update from outside this document's own scope**: the same author's second, later gist ("OKF Graph Wiki") describes a different architecture again — raw sources into an OKF-formatted markdown wiki with its own SQLite/FTS5/embedding retrieval layer, and mnemon evaluated and rejected rather than used. It corroborates the credibility caveat at the top of this document and qualifies the ecosystem finding above. Analysis, and what building it here would involve: [`docs/future-enhancements/okf-graph-wiki.md`](../../docs/future-enhancements/okf-graph-wiki.md).
+**Against gist 2, the picture is different in kind, not degree.** Almost nothing of the OKF Graph Wiki spec is built, and almost none of it was ever meant to be — the two things that do line up (Bun, and Ollama with `nomic-embed-text`) are there for other reasons entirely. The rows worth a second look are the two that aren't simply "not built": the wiki isn't in git, which nullifies the spec's own strongest argument for markdown over a database and is cheap to fix; and mnemon is installed here despite the spec rejecting it, which is a deliberate divergence rather than an oversight, because the rejection is about mnemon as a *wiki substrate* and this environment uses it as *conversational memory*.
+
+Both gists point at the same underlying boundary from opposite sides: curated reference material wants a durable, reviewable store, and conversational context wants one that forgets. Gist 1 blurred that line with a claimed pipeline this environment declined to build; gist 2 draws it explicitly and rejects mnemon on the strength of it. This environment has arrived at the same place by keeping the two systems separate.
 
 Let me know if you want voice transcription started next — begin with the git-merge feasibility check against current `main`.
