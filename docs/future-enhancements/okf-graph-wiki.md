@@ -570,6 +570,10 @@ argument for the same ordering: lint first.
 
 ## Related
 
+- `environments/nanoclaw-mnemon/MEMORY-EXPLAINED.md` — the same material without the
+  jargon: one message traced end-to-end through mnemon and through this spec's
+  `context_for()` pipeline, with flowcharts and a glossary. Start there if the terminology
+  in this document (BM25 coverage gates, RRF, hop decay, trust tiers) isn't already familiar.
 - `environments/nanoclaw-mnemon/GIST-PARITY.md` — the first gist, the five surveyed wiki
   implementations, and the credibility caveat this document corroborates.
 - `environments/nanoclaw-mnemon/MNEMON-RECALL-POLICY.md` — the prose-policy answer to the
