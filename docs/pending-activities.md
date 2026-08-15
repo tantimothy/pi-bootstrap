@@ -1,6 +1,9 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-08-09**. GitHub itself (PR/issue
+A snapshot of open follow-ups as of **2026-08-15** — though only the
+`okf-graph-wiki` entry was added in that pass; every older entry below
+carries its 2026-08-09 state and was not re-verified, so treat anything
+else here as at least that stale. GitHub itself (PR/issue
 state) is always the authoritative source for anything below that
 references a PR — this file is a convenience index, not a system of
 record, and goes stale the moment something merges or gets tested. Prune
@@ -173,6 +176,35 @@ over-corrected "cancel never exits" symptom). Not yet confirmed live:
   change (`{{.CreatedSince}}`) is a one-line addition to an existing,
   already-working code path, but hasn't been visually confirmed against a
   real `dialog` render.
+
+## nanoclaw-mnemon: OKF graph wiki proposed by a group agent, nothing decided
+
+Full analysis in `docs/future-enhancements/okf-graph-wiki.md` (PR
+[#266](https://github.com/tantimothy/pi-bootstrap/pull/266)). Nothing is
+built and nothing is committed to — an agent running inside a deployed
+group proposed building part of the spec for its own wiki, and the doc
+records what order to do it in, which level should own it, and three
+corrections to that proposal. Open items, in the order they need
+answering:
+
+- **Is Bun actually on `PATH` in the agent sandbox?** Unanswered, and it
+  decides everything else: with Bun present these are plain scripts in a
+  group folder; without it, it's a `container/Dockerfile` patch plus a
+  base-and-derived-image rebuild, and pi-bootstrap's from day one. Can't
+  be checked from this repo — `container/Dockerfile` is cloned at deploy
+  time — so it needs `bun --version` run inside the sandbox.
+- **How many pages does the group's wiki actually have?** Also
+  unanswered. Under roughly 50, `lint.ts` is worth having and the rest of
+  the retrieval pipeline solves a problem that doesn't exist yet.
+- **If anything gets built, `lint.ts` first, standalone.** It needs no
+  SQLite and so doesn't depend on `build-index.ts`; `build-index.ts` and
+  `keywords.ts` should wait for `context-for.ts`, their only consumer,
+  which was in none of the proposed tiers.
+- **Nothing here has been corrected at the source yet.** The Ollama
+  correction in particular (the proposal treats it as an in-container
+  package install; `ensure_ollama_ready()` already handles it on the
+  host) only exists in this repo's docs so far — the group agent that
+  proposed it hasn't been told.
 
 ## Known, deliberately-deferred code quality items
 
