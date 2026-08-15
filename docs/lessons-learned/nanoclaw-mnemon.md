@@ -2481,3 +2481,80 @@ present, and bash removed from `PATH` — and each produces a visible prompt.
   handoff whose failure mode was invisible rather than loud. The pattern to
   generalize is that interactive handoffs must be tested interactively, under a
   real pty, not just syntax-checked.
+
+---
+
+## Follow-up (2026-08-15): bulk-importing the wiki into mnemon put reference material in a store designed to forget it
+
+**Status:** not a pi-bootstrap bug and no code change proposed — a usage trap,
+found by reading a group agent's own self-documentation rather than by anything
+breaking. Recorded because the shape generalizes and the failure is silent.
+
+### Summary
+
+On 2026-07-18 a deployment bulk-loaded its wiki into mnemon: 8 sub-agents each
+read one topic folder, wrote schema-validated JSON drafts, and those were
+`--dry-run` validated then imported with `mnemon import`. Result: **321
+insights, 0 errors**, and **3,295 total edges** from 140 explicitly declared —
+the rest auto-derived by mnemon's own import path. The raw `sources/` folder
+(243 files, 54MB) was considered and correctly rejected as too voluminous; the
+83 distilled `wiki/` pages were used instead.
+
+Every step of that was reasonable. The problem is where the data landed.
+
+### Why it's a trap
+
+mnemon's lifecycle is built to forget, deliberately:
+
+- `mnemon remember`'s `--imp` **defaults to 3**, which maps to weight `0.5`.
+- Effective importance decays as `0.5 ^ (days_since_access / 30)` — a 30-day
+  half-life.
+- Immunity from auto-pruning requires `importance >= 4` **or**
+  `access_count >= 3`.
+- Auto-pruning triggers past 1000 active insights, soft-deleting the 10
+  lowest-scoring non-immune entries per pass.
+
+So reference material imported at default importance, and not recalled since,
+loses half its effective value every month and accrues toward the prune pool.
+None of that is a malfunction — it is exactly what a conversational-memory store
+should do to un-recalled chatter. It is simply the opposite of what a reference
+corpus needs.
+
+The second failure is coverage. A one-time import is stale from the next wiki
+edit onward, and this corpus went from **83 pages to 632 within a month** — the
+snapshot now covers roughly 13% of it, with no sync. The import's own notes
+flagged this ("not a live sync"), which is the right caveat and also the reason
+the approach doesn't scale: refreshing means re-running the whole batch by hand.
+
+### The direction that does work
+
+Keep the wiki authoritative for curated reference material — versioned markdown,
+nothing silently dropped — and leave mnemon the job it is actually good at:
+conversational memory across sessions, where decay is a feature because
+un-recalled context genuinely should fade.
+
+This is the same conclusion the OKF Graph Wiki spec reaches from the other
+direction, listing importance-decay and auto-pruning among its reasons mnemon
+can't serve as a wiki substrate (see
+`docs/future-enhancements/okf-graph-wiki.md`). Two independent routes to the
+same boundary is a reasonable signal it's a real one.
+
+### General Lessons
+
+- **A store's retention policy is part of its interface.** Choosing where
+  knowledge lives is choosing what you are willing to lose. mnemon's decay and
+  prune behavior is documented and correct; importing durable reference material
+  into it is a decision about acceptable loss, whether or not it was made
+  consciously.
+- **"Bulk import to bootstrap" is an asymmetric offer.** The import is one
+  command and produces an impressive number. The *maintenance* is unbounded and
+  manual, and nothing signals when the snapshot has drifted — the corpus grew
+  7.6× in a month here without a single warning that the copy was stale.
+- **Auto-derived edges inflate apparent success.** 140 declared edges became
+  3,295. That is mnemon working as designed, but it means the resulting graph's
+  shape is mostly inference over the import rather than structure carried from
+  the source — worth knowing before treating edge count as a measure of how well
+  the source's relationships survived the trip.
+- **When the same knowledge lives in two stores with different retention rules,
+  name which one is authoritative.** Not naming it doesn't avoid the decision;
+  it just means the store that forgets fastest decides for you.
