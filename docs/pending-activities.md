@@ -220,33 +220,20 @@ Ollama is reachable again. What's left:
   host) only exists in this repo's docs so far — the group agent that
   proposed it hasn't been told.
 
-## Ollama: outage resolved, one reconciliation and one tool fix left
+## Ollama: outage closed on the host, one tool fix still open
 
-The host rebooted, Ollama didn't come back, and nothing reported it —
-mnemon ran graph-only for an unknown period. Found incidentally by a
-`curl` during unrelated scoping work. Since resolved on 2026-08-15:
-Ollama restarted and confirmed reachable from inside a group container
-(`nomic-embed-text:latest` responding at `192.168.1.50:11434`), and the
-watchdog scheduled via `./deploy.sh` → Environments → ollama →
-"Watchdog: Schedule Automatic Checks". The boot question is answered
-too — that host auto-logs-in, so the LaunchAgent loads and `RunAtLoad`
-fires within seconds of a reboot; no LaunchDaemon needed. Full account
-in `docs/lessons-learned/general.md`.
+The 2026-08-15 outage is fully resolved on the host side — Ollama
+restarted and confirmed reachable from inside a group container, the
+watchdog scheduled through the `ollama` environment's own action, the
+schedule re-run after `.env` was confirmed so the plist carries the
+right bind address, and the boot question answered (that host
+auto-logs-in, so the LaunchAgent covers a reboot). Full account, and the
+note that auto-login is now a load-bearing prerequisite, in
+`docs/lessons-learned/general.md`.
 
-- **Reconcile the scheduled job's baked-in bind address, once.**
-  `--install` bakes whatever `OLLAMA_SERVE_HOST` held at install time
-  into the launchd plist, and an empty value there schedules a job that
-  restarts Ollama on loopback — reporting healthy every cycle while
-  refusing every container, which is the 2026-08-07 bug exactly and
-  produces no error anywhere. **"Watchdog: Show Schedule Status" cannot
-  close this** — it prints the live `.env` value, not the plist's (see
-  the next item). Either `grep -A1 OLLAMA_SERVE_HOST` the plist at
-  `~/Library/LaunchAgents/com.pi-bootstrap.ollama-watchdog.plist`, or
-  skip diagnosing and just re-run "Watchdog: Schedule Automatic Checks"
-  — `--install` overwrites and reloads the plist, so with `.env` now
-  confirmed correct it bakes the right value by construction.
 - **`--status` reports the live bind address, not the scheduled one.**
-  Not a host task — a change to `ollama-watchdog.sh`, scoped in
+  The last thing left here, and it's a change to `ollama-watchdog.sh`
+  rather than anything on the host — scoped in
   `docs/future-enhancements/ollama-watchdog-status-reporting.md`.
 
 ## Known, deliberately-deferred code quality items
