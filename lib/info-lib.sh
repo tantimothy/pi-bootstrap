@@ -649,45 +649,77 @@ _load_info_yaml() {
     [ -z "$HOST_IP" ] && HOST_IP=$( { hostname -I 2>/dev/null || true; } | awk '{print $1}')
     [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
-    local i _raw
+    _yaml_read_fields "$yaml" "$_INFO_YAML_FIELDS" _load_info_field
+}
 
-    _read_lines < <(_yq '.data_dirs[].path' "$yaml"); _raw=("${_LINES[@]}")
-    DATA_DIRS=()
-    for i in "${!_raw[@]}"; do DATA_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
-    _read_lines < <(_yq '.data_dirs[].description' "$yaml"); DATA_DESCRIPTIONS=("${_LINES[@]}")
+# Field map for the read above: "<name>|<yq expression>", one per line, in the
+# order they should be evaluated. Names are arbitrary labels — they exist only
+# to route each field's lines to the right variable in _load_info_field below.
+_INFO_YAML_FIELDS='
+data_dirs.path|.data_dirs[].path
+data_dirs.description|.data_dirs[].description
+install_dirs.path|.install_dirs[].path
+install_dirs.description|.install_dirs[].description
+named_volumes.name|.named_volumes[].name
+named_volumes.description|.named_volumes[].description
+wipe_parent_dirs|.wipe_parent_dirs[]
+web_uis.name|.web_uis[].name
+web_uis.url|.web_uis[].url
+active_config.label|.active_config[].label
+active_config.value|.active_config[].value
+data_dirs_label|.data_dirs_label // ""
+install_dirs_label|.install_dirs_label // ""
+delete_install_dirs|.delete_install_dirs // "false"
+delete_confirm_msg|.delete_confirm_msg // ""
+no_data_msg|.no_data_msg // ""
+no_delete_msg|.no_delete_msg // ""
+useful_commands|.useful_commands // ""
+'
 
-    _read_lines < <(_yq '.install_dirs[].path' "$yaml"); _raw=("${_LINES[@]}")
-    INSTALL_DIRS=()
-    for i in "${!_raw[@]}"; do INSTALL_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
-    _read_lines < <(_yq '.install_dirs[].description' "$yaml"); INSTALL_DESCRIPTIONS=("${_LINES[@]}")
+# Routes one field's collected lines into the variable it belongs to. Called
+# by _yaml_read_fields once per field, with the field name in $1 and the lines
+# in the _YAML_FIELD_LINES array.
+#
+# The split between the two halves is exactly the array/scalar split: an array
+# field takes one element per line, a scalar field takes the lines rejoined.
+# Which fields get _yaml_expand applied, and which don't, is preserved
+# verbatim from the 18 individual calls this replaces — descriptions, web UI
+# names and active-config labels deliberately do NOT get expanded.
+_load_info_field() {
+    local i
+    case "$1" in
+        data_dirs.path)
+            DATA_DIRS=()
+            for i in "${!_YAML_FIELD_LINES[@]}"; do DATA_DIRS[i]="$(_yaml_expand "${_YAML_FIELD_LINES[$i]}")"; done ;;
+        data_dirs.description)  DATA_DESCRIPTIONS=("${_YAML_FIELD_LINES[@]}") ;;
+        install_dirs.path)
+            INSTALL_DIRS=()
+            for i in "${!_YAML_FIELD_LINES[@]}"; do INSTALL_DIRS[i]="$(_yaml_expand "${_YAML_FIELD_LINES[$i]}")"; done ;;
+        install_dirs.description) INSTALL_DESCRIPTIONS=("${_YAML_FIELD_LINES[@]}") ;;
+        named_volumes.name)
+            NAMED_VOLUMES=()
+            for i in "${!_YAML_FIELD_LINES[@]}"; do NAMED_VOLUMES[i]="$(_yaml_expand "${_YAML_FIELD_LINES[$i]}")"; done ;;
+        named_volumes.description) NAMED_VOLUME_DESCRIPTIONS=("${_YAML_FIELD_LINES[@]}") ;;
+        wipe_parent_dirs)
+            WIPE_PARENT_DIRS=()
+            for i in "${!_YAML_FIELD_LINES[@]}"; do WIPE_PARENT_DIRS[i]="$(_yaml_expand "${_YAML_FIELD_LINES[$i]}")"; done ;;
+        web_uis.name)           WEB_UI_NAMES=("${_YAML_FIELD_LINES[@]}") ;;
+        web_uis.url)
+            WEB_UI_URLS=()
+            for i in "${!_YAML_FIELD_LINES[@]}"; do WEB_UI_URLS[i]="$(_yaml_expand "${_YAML_FIELD_LINES[$i]}")"; done ;;
+        active_config.label)    ACTIVE_CONFIG_LABELS=("${_YAML_FIELD_LINES[@]}") ;;
+        active_config.value)
+            ACTIVE_CONFIG_VALUES=()
+            for i in "${!_YAML_FIELD_LINES[@]}"; do ACTIVE_CONFIG_VALUES[i]="$(_yaml_expand "${_YAML_FIELD_LINES[$i]}")"; done ;;
 
-    _read_lines < <(_yq '.named_volumes[].name' "$yaml"); _raw=("${_LINES[@]}")
-    NAMED_VOLUMES=()
-    for i in "${!_raw[@]}"; do NAMED_VOLUMES[i]="$(_yaml_expand "${_raw[$i]}")"; done
-    _read_lines < <(_yq '.named_volumes[].description' "$yaml"); NAMED_VOLUME_DESCRIPTIONS=("${_LINES[@]}")
-
-    _read_lines < <(_yq '.wipe_parent_dirs[]' "$yaml"); _raw=("${_LINES[@]}")
-    WIPE_PARENT_DIRS=()
-    for i in "${!_raw[@]}"; do WIPE_PARENT_DIRS[i]="$(_yaml_expand "${_raw[$i]}")"; done
-
-    _read_lines < <(_yq '.web_uis[].name' "$yaml"); WEB_UI_NAMES=("${_LINES[@]}")
-    _read_lines < <(_yq '.web_uis[].url' "$yaml"); _raw=("${_LINES[@]}")
-    WEB_UI_URLS=()
-    for i in "${!_raw[@]}"; do WEB_UI_URLS[i]="$(_yaml_expand "${_raw[$i]}")"; done
-
-    _read_lines < <(_yq '.active_config[].label' "$yaml"); ACTIVE_CONFIG_LABELS=("${_LINES[@]}")
-    _read_lines < <(_yq '.active_config[].value' "$yaml"); _raw=("${_LINES[@]}")
-    ACTIVE_CONFIG_VALUES=()
-    for i in "${!_raw[@]}"; do ACTIVE_CONFIG_VALUES[i]="$(_yaml_expand "${_raw[$i]}")"; done
-
-    DATA_DIRS_LABEL="$(_yaml_expand "$(_yq '.data_dirs_label // ""' "$yaml")")"
-    INSTALL_DIRS_LABEL="$(_yaml_expand "$(_yq '.install_dirs_label // ""' "$yaml")")"
-    DELETE_INSTALL_DIRS="$(_yq '.delete_install_dirs // "false"' "$yaml")"
-    DELETE_CONFIRM_MSG="$(_yaml_expand "$(_yq '.delete_confirm_msg // ""' "$yaml")")"
-    NO_DATA_MSG="$(_yaml_expand "$(_yq '.no_data_msg // ""' "$yaml")")"
-    NO_DELETE_MSG="$(_yaml_expand "$(_yq '.no_delete_msg // ""' "$yaml")")"
-
-    USEFUL_COMMANDS="$(_yaml_expand "$(_yq '.useful_commands // ""' "$yaml")")"
+        data_dirs_label)        DATA_DIRS_LABEL="$(_yaml_expand "$(_yaml_field_scalar)")" ;;
+        install_dirs_label)     INSTALL_DIRS_LABEL="$(_yaml_expand "$(_yaml_field_scalar)")" ;;
+        delete_install_dirs)    DELETE_INSTALL_DIRS="$(_yaml_field_scalar)" ;;
+        delete_confirm_msg)     DELETE_CONFIRM_MSG="$(_yaml_expand "$(_yaml_field_scalar)")" ;;
+        no_data_msg)            NO_DATA_MSG="$(_yaml_expand "$(_yaml_field_scalar)")" ;;
+        no_delete_msg)          NO_DELETE_MSG="$(_yaml_expand "$(_yaml_field_scalar)")" ;;
+        useful_commands)        USEFUL_COMMANDS="$(_yaml_expand "$(_yaml_field_scalar)")" ;;
+    esac
 }
 
 # Generic driver for environments with no info.sh logic beyond declaring

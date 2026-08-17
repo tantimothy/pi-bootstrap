@@ -214,6 +214,44 @@ source "$PROJECT_DIR/lib/deploy-lib.sh"
 source "$PROJECT_DIR/lib/yaml-lib.sh"
 _require_yq || exit 1
 
+# Strips leading and trailing whitespace from $1, leaving the result in
+# $_TRIMMED. A global rather than an echoed return value on purpose: the
+# config-form parser below calls this once per line of .env.example, and
+# `x=$(_trim ...)` would fork a subshell each time — which is most of what
+# that rewrite set out to remove.
+_trim_var() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    _TRIMMED="$s"
+}
+
+# Looks up a key in the _ENV_KEYS/_ENV_VALS snapshot of .env taken by the
+# config-form parser, setting $_ENV_FOUND and $_ENV_VALUE. Replaces a
+# `grep "^KEY=" .env` (plus a `cut` and a `sed` on the hit) per key.
+#
+# Faithful to the grep it replaces on one detail worth keeping: a key
+# appearing more than once in .env yielded every match, newline-joined, so
+# that is what this returns too. Each value is trimmed and then has one
+# surrounding single quote removed from each end — the form writer's own
+# quoting, stripped so the dialog field shows a clean value.
+_env_lookup() {
+    local want="$1" i v
+    _ENV_FOUND=false
+    _ENV_VALUE=""
+    for i in "${!_ENV_KEYS[@]}"; do
+        [ "${_ENV_KEYS[$i]}" = "$want" ] || continue
+        _trim_var "${_ENV_VALS[$i]}"; v="$_TRIMMED"
+        v="${v#\'}"; v="${v%\'}"
+        if [ "$_ENV_FOUND" = "true" ]; then
+            _ENV_VALUE="${_ENV_VALUE}"$'\n'"$v"
+        else
+            _ENV_VALUE="$v"
+            _ENV_FOUND=true
+        fi
+    done
+}
+
 # --- DIAGNOSTIC BLOCK ---
 if [ ! -d "environments" ]; then
     dialog --title " Error " --msgbox "Missing directory: Could not find an 'environments/' folder at: $PROJECT_DIR" 8 60
@@ -1178,8 +1216,33 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
     HELP_TEXT=""
     CURRENT_COMMENT=""
 
+    # The loop below runs per line of .env.example (155 lines for
+    # chat-frontends, 159 for nanoclaw-mnemon) and used to shell out for work
+    # bash does natively: an `echo | sed` to trim EVERY line, another for every
+    # comment line, a `cut` plus a `sed` for each half of every key line, and a
+    # `grep .env` — sometimes twice — per key. That came to roughly 700
+    # processes to draw one config form, on every FAST/CLEAN selection.
+    #
+    # Two changes: the string work is parameter expansion, and .env is read
+    # once up front instead of being re-scanned per key. Nothing in this loop
+    # writes .env (the form does that later, further down), so one snapshot is
+    # good for the whole pass.
+    _ENV_KEYS=()
+    _ENV_VALS=()
+    if [ -f ".env" ]; then
+        while IFS= read -r _env_line || [ -n "$_env_line" ]; do
+            # Only lines that would have matched `grep "^KEY="`: the key is
+            # everything before the first =, so a leading space or an `export`
+            # prefix yields a key that matches nothing, exactly as the anchored
+            # grep did.
+            case "$_env_line" in
+                *=*) _ENV_KEYS+=("${_env_line%%=*}"); _ENV_VALS+=("${_env_line#*=}") ;;
+            esac
+        done < .env
+    fi
+
     while IFS= read -r line || [ -n "$line" ]; do
-        line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        _trim_var "$line"; line="$_TRIMMED"
 
         # A commented-out OPTIONAL variable line (this repo's own
         # convention: "#KEY=" or "#KEY=default", no space between # and
@@ -1201,30 +1264,39 @@ if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLIC
         if [[ "$line" =~ ^#[A-Za-z_][A-Za-z0-9_]*= ]]; then
             _optional_key="${line#\#}"
             _optional_key="${_optional_key%%=*}"
-            if [ -f ".env" ] && grep -q "^${_optional_key}=" .env; then
+            _env_lookup "$_optional_key"
+            if [ "$_ENV_FOUND" = "true" ]; then
                 line="${line#\#}"
             fi
         fi
 
         if [[ "$line" =~ ^# ]]; then
-            CLEAN_COMMENT=$(echo "$line" | sed 's/^#[[:space:]]*//')
+            # `sed 's/^#[[:space:]]*//'` — drop the #, then any spaces after it.
+            CLEAN_COMMENT="${line#\#}"
+            CLEAN_COMMENT="${CLEAN_COMMENT#"${CLEAN_COMMENT%%[![:space:]]*}"}"
             if [ -z "$CURRENT_COMMENT" ]; then
                 CURRENT_COMMENT="$CLEAN_COMMENT"
             else
                 CURRENT_COMMENT="$CURRENT_COMMENT $CLEAN_COMMENT"
             fi
         elif [[ "$line" =~ = ]]; then
-            KEY=$(echo "$line" | cut -d'=' -f1 | sed 's/[[:space:]]*$//')
-            VAL=$(echo "$line" | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-            
+            # cut -d'=' -f1 / -f2- are the first-= split; the trims match the
+            # sed pipelines they replace (key: trailing only, value: both).
+            KEY="${line%%=*}"
+            KEY="${KEY%"${KEY##*[![:space:]]}"}"
+            VAL="${line#*=}"
+            _trim_var "$VAL"; VAL="$_TRIMMED"
+
             if [ ! -z "$KEY" ]; then
                 # DYNAMIC FIX: If a configuration profile already exists, parse and inject its value as the new form default
-                if [ -f ".env" ] && grep -q "^${KEY}=" .env; then
-                    # Strip surrounding single quotes written by the form writer so
-                    # the dialog field shows the clean value without escape characters.
-                    VAL=$(grep "^${KEY}=" .env | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^'//;s/'$//")
+                _env_lookup "$KEY"
+                if [ "$_ENV_FOUND" = "true" ]; then
+                    # Surrounding single quotes written by the form writer are
+                    # stripped in _env_lookup, so the dialog field shows the
+                    # clean value without escape characters.
+                    VAL="$_ENV_VALUE"
                 fi
-                
+
                 KEYS+=("$KEY")
                 DEFAULTS+=("$VAL")
                 

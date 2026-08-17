@@ -107,3 +107,83 @@ _read_lines() {
         _LINES+=("$line")
     done
 }
+
+# ---------------------------------------------------------------------------
+# Batched multi-field YAML read.
+#
+# The two *_yaml() loaders used to make one `yq eval` call per field against
+# the same small file — 18 for info.yaml, 15 for desktop-entries.yaml, plus
+# _require_yq's own `yq --version | grep` on top. That is per environment, and
+# both backup.sh and install-desktop-entries.sh run a loader for every one of
+# the ~21 environments in a single command, so reading a few hundred lines of
+# YAML cost several hundred process startups. yq's startup dominates; the
+# parsing does not.
+#
+# _yaml_read_fields runs ONE yq invocation for the whole file. The field map
+# ($2) is "<name>|<yq expression>" lines; each field is announced in the output
+# by a marker line and followed by its value lines, and $3 is called once per
+# field with the name in $1 and the lines in _YAML_FIELD_LINES.
+#
+# The marker is a lone \001 byte plus the field name. It cannot be produced by
+# a value in these files: a literal control character in YAML source is already
+# unusual, and yq quotes any string containing one on output, so it could never
+# emerge as a bare marker line.
+#
+# An array field emits one line per element and a scalar emits however many
+# lines it has, which is what keeps a `useful_commands: |` block intact —
+# callers rejoin those with _yaml_field_scalar.
+# ---------------------------------------------------------------------------
+_YAML_FIELD_MARK=$'\001'
+
+_yaml_read_fields() {
+    local yaml="$1" field_map="$2" handler="$3"
+    local name expr query="" line current="" started=false
+
+    while IFS='|' read -r name expr; do
+        [ -n "$name" ] || continue
+        query="${query}\"${_YAML_FIELD_MARK}${name}\", (${expr}), "
+    done <<YAML_FIELD_MAP
+$field_map
+YAML_FIELD_MAP
+    # Trailing ", " removed — yq rejects a dangling comma.
+    query="${query%, }"
+
+    _YAML_FIELD_LINES=()
+    while IFS= read -r line; do
+        case "$line" in
+            "${_YAML_FIELD_MARK}"*)
+                # A marker closes the previous field before opening this one.
+                # $started guards only the very first marker, which has no
+                # predecessor to flush.
+                [ "$started" = "true" ] && "$handler" "$current"
+                started=true
+                current="${line#"$_YAML_FIELD_MARK"}"
+                _YAML_FIELD_LINES=()
+                ;;
+            *)
+                _YAML_FIELD_LINES+=("$line")
+                ;;
+        esac
+    done < <(yq eval "$query" "$yaml")
+    [ "$started" = "true" ] && "$handler" "$current"
+    return 0
+}
+
+# Rejoins the current field's lines into one scalar, reproducing exactly what
+# `$(_yq '<expr>' file)` used to yield for the same field — including command
+# substitution's stripping of trailing newlines, which is why trailing empty
+# lines are dropped rather than preserved.
+_yaml_field_scalar() {
+    local i last=-1 out=""
+    for i in "${!_YAML_FIELD_LINES[@]}"; do
+        [ -n "${_YAML_FIELD_LINES[$i]}" ] && last=$i
+    done
+    [ "$last" -lt 0 ] && return 0
+    # Arithmetic for-loop, not `seq` — a subprocess here would undo part of
+    # what this whole mechanism exists to save.
+    for (( i=0; i<=last; i++ )); do
+        if [ "$i" -eq 0 ]; then out="${_YAML_FIELD_LINES[$i]}"
+        else out="${out}"$'\n'"${_YAML_FIELD_LINES[$i]}"; fi
+    done
+    printf '%s' "$out"
+}
