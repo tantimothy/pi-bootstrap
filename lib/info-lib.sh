@@ -82,12 +82,141 @@ _color() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Measurement cache for the dirs/volumes listing.
+#
+# run_info's "list" action renders this same content TWICE — once plain into
+# post-deploy-info.html, once colored to the terminal — and the two passes
+# can't share their rendered output, because the whole point of the second
+# one is that it's colored differently. What they can share is the expensive
+# part: a `du -sh` per directory, and (per named volume) a `docker volume
+# inspect` plus a `docker volume ls`. Caching the *measurements* instead of
+# the text keeps both passes independent while paying for the measuring once.
+#
+# The Docker CLI round-trips are the ones that hurt: chat-frontends declares
+# 12 named volumes, so the per-volume version cost 24 daemon round-trips per
+# render — 48 across both passes — for one INFO screen. Now it's two calls
+# total, regardless of how many volumes an environment declares.
+#
+# An entry holds the `du -sh` size column, or $_INFO_ABSENT when the path/
+# volume doesn't exist. That distinction needs its own sentinel rather than
+# just an empty string, because "exists but du couldn't read it" legitimately
+# produces an empty size and must still render as a size, not as "not yet
+# created" — which is what the per-row `[ -d ]`/EXISTS tests used to convey.
+# ---------------------------------------------------------------------------
+_INFO_ABSENT=$'\001absent'
+_INFO_SIZES_CACHED=0
+_DATA_DIR_SIZES=()
+_INSTALL_DIR_SIZES=()
+_NAMED_VOLUME_SIZES=()
+
+# Existing Docker volume names, newline-separated, fetched at most once per
+# process. Replaces `docker volume ls -q --filter name=^<vol>$` per volume.
+_INFO_VOLUME_LIST_CACHED=0
+_INFO_VOLUME_LIST=""
+_info_load_volume_list() {
+    [ "$_INFO_VOLUME_LIST_CACHED" = "1" ] && return 0
+    _INFO_VOLUME_LIST="$(docker volume ls -q 2>/dev/null)"
+    _INFO_VOLUME_LIST_CACHED=1
+}
+
+# Membership test against that cached listing, as a `case` glob rather than a
+# grep, so checking N volumes costs no processes at all. "$1" is quoted inside
+# the pattern, so a volume name is matched literally.
+_info_volume_exists() {
+    _info_load_volume_list
+    case $'\n'"$_INFO_VOLUME_LIST"$'\n' in
+        *$'\n'"$1"$'\n'*) return 0 ;;
+    esac
+    return 1
+}
+
+# `du -sh`'s size column for an existing directory, else $_INFO_ABSENT. The
+# tab split is a parameter expansion rather than the `| cut -f1` this
+# replaces — same result, one fewer process per row.
+_info_measure_dir() {
+    local out
+    if [ -d "$1" ]; then
+        out="$(du -sh "$1" 2>/dev/null)"
+        printf '%s' "${out%%$'\t'*}"
+    else
+        printf '%s' "$_INFO_ABSENT"
+    fi
+}
+
+_info_cache_sizes() {
+    [ "$_INFO_SIZES_CACHED" = "1" ] && return 0
+    _INFO_SIZES_CACHED=1
+
+    local i
+    _DATA_DIR_SIZES=()
+    if [ "${#DATA_DIRS[@]}" -gt 0 ]; then
+        for i in "${!DATA_DIRS[@]}"; do
+            _DATA_DIR_SIZES[$i]="$(_info_measure_dir "${DATA_DIRS[$i]}")"
+        done
+    fi
+
+    _INSTALL_DIR_SIZES=()
+    if [ "${#INSTALL_DIRS[@]}" -gt 0 ]; then
+        for i in "${!INSTALL_DIRS[@]}"; do
+            _INSTALL_DIR_SIZES[$i]="$(_info_measure_dir "${INSTALL_DIRS[$i]}")"
+        done
+    fi
+
+    _info_cache_volume_sizes
+}
+
+_info_cache_volume_sizes() {
+    local i vol name mp out mounts existing
+
+    _NAMED_VOLUME_SIZES=()
+    [ "${#NAMED_VOLUMES[@]}" -gt 0 ] || return 0
+
+    existing=()
+    for i in "${!NAMED_VOLUMES[@]}"; do
+        vol="${NAMED_VOLUMES[$i]}"
+        if _info_volume_exists "$vol"; then
+            _NAMED_VOLUME_SIZES[$i]=""
+            existing+=("$vol")
+        else
+            _NAMED_VOLUME_SIZES[$i]="$_INFO_ABSENT"
+        fi
+    done
+    [ "${#existing[@]}" -gt 0 ] || return 0
+
+    # One inspect for every existing volume at once. Only existing ones are
+    # passed: `docker volume inspect` exits non-zero on a name it can't find,
+    # and mixing one in would make the whole call's status unreliable.
+    # `{{"\t"}}` rather than a literal \t — Go templates emit text outside
+    # {{...}} verbatim, so "\t" in the format string would print as a
+    # backslash and a t.
+    mounts="$(docker volume inspect "${existing[@]}" \
+        --format '{{.Name}}{{"\t"}}{{.Mountpoint}}' 2>/dev/null)"
+
+    while IFS=$'\t' read -r name mp; do
+        [ -n "$name" ] && [ -n "$mp" ] || continue
+        out="$(du -sh "$mp" 2>/dev/null)"
+        out="${out%%$'\t'*}"
+        # Match back to the declared order by name. NAMED_VOLUMES is at most
+        # a dozen entries, so this pure-bash scan is cheaper than any way of
+        # indexing it would be under bash 3.2 (no associative arrays).
+        for i in "${!NAMED_VOLUMES[@]}"; do
+            if [ "${NAMED_VOLUMES[$i]}" = "$name" ]; then
+                _NAMED_VOLUME_SIZES[$i]="$out"
+                break
+            fi
+        done
+    done <<VOLUME_MOUNTPOINTS
+$mounts
+VOLUME_MOUNTPOINTS
+}
+
 # Prints one "path  (size or not-yet-created)" + description row — the
 # shared row format between the DATA_DIRS and INSTALL_DIRS sections below.
+# $3 is the cached measurement (see _info_cache_sizes).
 _info_print_dir_row() {
-    local dir="$1" desc="$2"
-    if [ -d "$dir" ]; then
-        local size; size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+    local dir="$1" desc="$2" size="$3"
+    if [ "$size" != "$_INFO_ABSENT" ]; then
         printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "($size)"; echo ""
     else
         printf '   %s  ' "$(_color "$_C_CYAN" "$dir")"; _color "$_C_DIM" "(not yet created)"; echo ""
@@ -99,11 +228,13 @@ _info_print_dir_row() {
 # can reuse it in the <pre> block without also pulling in the web UIs
 # section, which it renders as a separate HTML table instead.
 _info_dirs_and_volumes_text() {
+    _info_cache_sizes
+
     if [ "${#DATA_DIRS[@]}" -gt 0 ]; then
         _color "$_C_BOLD" "${DATA_DIRS_LABEL:-📁 Persistent Data Directories:}"; echo ""
         local i
         for i in "${!DATA_DIRS[@]}"; do
-            _info_print_dir_row "${DATA_DIRS[$i]}" "${DATA_DESCRIPTIONS[$i]}"
+            _info_print_dir_row "${DATA_DIRS[$i]}" "${DATA_DESCRIPTIONS[$i]}" "${_DATA_DIR_SIZES[$i]}"
         done
         echo ""
     fi
@@ -112,7 +243,7 @@ _info_dirs_and_volumes_text() {
         _color "$_C_BOLD" "${INSTALL_DIRS_LABEL:-📂 Install Directories:}"; echo ""
         local i
         for i in "${!INSTALL_DIRS[@]}"; do
-            _info_print_dir_row "${INSTALL_DIRS[$i]}" "${INSTALL_DESCRIPTIONS[$i]}"
+            _info_print_dir_row "${INSTALL_DIRS[$i]}" "${INSTALL_DESCRIPTIONS[$i]}" "${_INSTALL_DIR_SIZES[$i]}"
         done
         echo ""
     fi
@@ -122,11 +253,8 @@ _info_dirs_and_volumes_text() {
         local i
         for i in "${!NAMED_VOLUMES[@]}"; do
             local vol="${NAMED_VOLUMES[$i]}"
-            local SIZE EXISTS
-            SIZE=$(docker volume inspect "$vol" --format '{{.Mountpoint}}' 2>/dev/null \
-                | xargs -I{} du -sh {} 2>/dev/null | cut -f1 || echo "unknown")
-            EXISTS=$(docker volume ls -q --filter name="^${vol}$" 2>/dev/null)
-            if [ -n "$EXISTS" ]; then
+            local SIZE="${_NAMED_VOLUME_SIZES[$i]}"
+            if [ "$SIZE" != "$_INFO_ABSENT" ]; then
                 printf '   docker volume: %s  ' "$(_color "$_C_CYAN" "$vol")"; _color "$_C_DIM" "($SIZE)"; echo ""
             else
                 printf '   docker volume: %s  ' "$(_color "$_C_CYAN" "$vol")"; _color "$_C_DIM" "(not yet created)"; echo ""
@@ -420,8 +548,7 @@ _info_delete() {
         echo "   Named Docker volumes will also be removed:"
         local vol
         for vol in "${NAMED_VOLUMES[@]}"; do
-            local EXISTS; EXISTS=$(docker volume ls -q --filter name="^${vol}$" 2>/dev/null)
-            if [ -n "$EXISTS" ]; then
+            if _info_volume_exists "$vol"; then
                 echo "   🗑️  docker volume: $vol"
                 DIRS_EXIST=true
             else
@@ -463,8 +590,11 @@ _info_delete() {
         if [ "${#NAMED_VOLUMES[@]}" -gt 0 ]; then
             local vol
             for vol in "${NAMED_VOLUMES[@]}"; do
-                local EXISTS; EXISTS=$(docker volume ls -q --filter name="^${vol}$" 2>/dev/null)
-                [ -n "$EXISTS" ] && docker volume rm "$vol" && echo "🗑️  Deleted volume: $vol"
+                # Same cached listing the confirmation screen above was
+                # rendered from, deliberately: what gets removed is exactly
+                # what the user was shown and agreed to, not a re-read taken
+                # after they answered.
+                _info_volume_exists "$vol" && docker volume rm "$vol" && echo "🗑️  Deleted volume: $vol"
             done
         fi
         if [ -n "${WIPE_PARENT_DIRS+x}" ] && [ "${#WIPE_PARENT_DIRS[@]}" -gt 0 ]; then
@@ -569,6 +699,15 @@ run_info_yaml() {
 
 run_info() {
     if [ "$ACTION" = "list" ]; then
+        # Measure the data dirs and volumes once, HERE, before either render
+        # pass. Both passes below reach _info_dirs_and_volumes_text through a
+        # subshell — _info_html captures it with command substitution, and
+        # _info_list is the left side of a pipe into less — so a cache
+        # populated lazily inside either one dies with that subshell and the
+        # other pass pays full price again. Priming it in this shell is what
+        # makes the second pass free.
+        _info_cache_sizes
+
         # Regenerated on every "list" — post-deploy (run.sh already calls
         # this) and every time INFO is opened from the menu — so it's never
         # stale, without needing a separate action or menu entry.

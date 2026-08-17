@@ -124,8 +124,14 @@ ollama_listeners() {
     fi
 }
 
+# Called once per listener address, from inside loops in both callers below.
+# A `case` rather than the `printf | grep -q` this replaces: same four
+# prefixes, but as a builtin it costs no subshell and no process per address.
 _ollama_is_loopback() {
-    printf '%s' "$1" | grep -q -e '^127\.0\.0\.1' -e '^\[::1\]' -e '^::1' -e '^localhost'
+    case "$1" in
+        127.0.0.1*|'[::1]'*|::1*|localhost*) return 0 ;;
+    esac
+    return 1
 }
 
 # Prints what Ollama is actually listening on, and warns about the two states
@@ -434,9 +440,14 @@ ollama_stop() {
     # daemon beside the first rather than replacing it. Saying so here turns a
     # silent respawn into a visible one.
     sleep 2
-    if [ -n "$(ollama_listeners)" ]; then
+    # Captured once rather than probed twice: ollama_listeners shells out to
+    # lsof/ss/netstat plus awk, and re-running it to print what the test just
+    # found would also mean the message could describe a different set of
+    # listeners than the one that triggered it.
+    local still_listening; still_listening="$(ollama_listeners)"
+    if [ -n "$still_listening" ]; then
         echo "⚠️  Ollama is still listening after being stopped — something is supervising and restarting it:" >&2
-        ollama_listeners | sed 's/^/       /' >&2
+        printf '%s\n' "$still_listening" | sed 's/^/       /' >&2
         echo "   Starting another one now would leave TWO daemons on this port, which is worse" >&2
         echo "   than the original problem. Find the supervisor before continuing:" >&2
         echo "     brew services list | grep -i ollama" >&2

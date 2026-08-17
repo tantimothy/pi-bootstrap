@@ -462,15 +462,15 @@ Every environment gets its **own submenu** (`register_submenu`, called automatic
 
 ### Registering with `backup.sh`
 
-Unlike `info.yaml`/`desktop-entries.yaml` (discovered automatically per-environment), "is this environment actually deployed, or just configured-but-never-run" is a manually-maintained `case` statement inside the **root** `backup.sh`'s `is_deployed()` function — add your environment there so `backup.sh` doesn't skip its data or, conversely, doesn't try to back up an empty shell that was only ever set up in the TUI wizard:
+"Is this environment actually deployed, or just configured-but-never-run" is declared in the environment's own `maintenance.yaml`, discovered automatically per-directory the same way `info.yaml`/`desktop-entries.yaml` are — add one so `backup.sh` doesn't skip its data or, conversely, doesn't try to back up an empty shell that was only ever set up in the TUI wizard:
 
-```bash
-my-environment)
-    $DOCKER ps -a --filter "name=^/my-app$" -q 2>/dev/null | grep -q .
-    ;;
+```yaml
+deployment:
+  kind: container      # container | marker | directory | systemd-service
+  value: my-app        # ${VAR} markers are expanded against .env
 ```
 
-Environments without a case here fall through to the default (`*) true ;;`) — always treated as deployed, which is harmless but less precise than an explicit check.
+Environments without a `maintenance.yaml` (or with no `deployment:` block) are always treated as deployed — harmless, but less precise than an explicit check. See `docs/environment-yaml-schemas.md` for the full schema, including the `updates.local_images` block that tells `check-updates.sh` how to check a locally-built image.
 
 ---
 
