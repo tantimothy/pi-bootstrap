@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+#
+# whimsy-menu — a small TUI for launching the whimsical terminal splashes
+# explicitly, instead of waiting for a login shell to pick one at random.
+#
+# Every entry here comes from `whimsy-splash --list`, so this menu never
+# needs editing when a splash is added or removed — the catalogue lives in
+# whimsy-splash, and that same catalogue is what the random login pick
+# draws from. Splashes whose tools aren't installed are still listed, but
+# labelled with what to install rather than silently missing.
+#
+# Runs from either copy of itself, with no setup: the one in this repo
+# (environments/mac-terminal-setup/bin/, which is what deploy.sh's
+# "Launch a whimsy splash..." action invokes) or the one run.sh deploys to
+# ~/bin. It finds its own whimsy-splash sibling either way.
+#
+# dialog is used when present (the same TUI toolkit deploy.sh itself uses,
+# and it's in packages-whimsy.txt so an enabled whimsy install always has
+# it); a plain numbered prompt is the fallback, so this still works on a
+# machine that only ever installed the splash tools by hand.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Force a UTF-8 locale before dialog sees any em-dash in a menu item — see
+# lib/locale-lib.sh's own comment for the real macOS failure this avoids.
+# Checked in both places the file can be: this repo (when running from the
+# repo copy) and ~/bin (where run.sh deploys it next to this script,
+# precisely so the deployed copy gets the same guard rather than a
+# hand-duplicated version of it).
+for _locale_lib in "$SCRIPT_DIR/../../../lib/locale-lib.sh" "$HOME/bin/locale-lib.sh"; do
+    # shellcheck disable=SC1090
+    [ -f "$_locale_lib" ] && { source "$_locale_lib"; break; }
+done
+unset _locale_lib
+
+if [ -x "$SCRIPT_DIR/whimsy-splash" ]; then
+    SPLASH="$SCRIPT_DIR/whimsy-splash"
+elif [ -x "$HOME/bin/whimsy-splash" ]; then
+    SPLASH="$HOME/bin/whimsy-splash"
+else
+    echo "❌ whimsy-splash not found next to this script or in ~/bin." >&2
+    echo "   Re-run environments/mac-terminal-setup/run.sh to deploy both." >&2
+    exit 1
+fi
+
+# Splash ids, in catalogue order, plus the label/description for each.
+IDS=()
+LABELS=()
+DESCRIPTIONS=()
+while IFS=$'\t' read -r _id _label _desc; do
+    [ -z "$_id" ] && continue
+    IDS+=("$_id")
+    LABELS+=("$_label")
+    DESCRIPTIONS+=("$_desc")
+done < <("$SPLASH" --list)
+
+if [ ${#IDS[@]} -eq 0 ]; then
+    echo "❌ whimsy-splash returned an empty catalogue — nothing to show." >&2
+    exit 1
+fi
+
+# Runs one splash with the screen to itself, then waits before handing the
+# terminal back to the menu (which would otherwise wipe whatever the splash
+# just printed the instant it returned).
+_launch() {
+    local id="$1"
+    clear
+    "$SPLASH" "$id"
+    echo ""
+    read -rp "Press Enter to return to the menu..."
+}
+
+_launch_random() {
+    clear
+    "$SPLASH"
+    echo ""
+    read -rp "Press Enter to return to the menu..."
+}
+
+# --- DIALOG FRONT END ---
+_menu_dialog() {
+    local choice exit_code menu_items=() i avail suffix
+    while true; do
+        # Availability is re-read on every pass, not cached: installing a
+        # missing tool in another window and coming back should just work.
+        avail=" $("$SPLASH" --available | tr '\n' ' ')"
+        menu_items=()
+        for i in "${!IDS[@]}"; do
+            suffix=""
+            case "$avail" in
+                *" ${IDS[$i]} "*) ;;
+                *) suffix=" [not installed]" ;;
+            esac
+            menu_items+=( "${IDS[$i]}" "${DESCRIPTIONS[$i]}${suffix}" )
+        done
+        menu_items+=( "random" "Surprise me - any one that's installed" )
+
+        # Selection read back through a temp file rather than --stdout, the
+        # same way deploy.sh does it everywhere — one less dialog option to
+        # depend on being compiled in.
+        local tmpfile
+        tmpfile=$(mktemp)
+        dialog --clear \
+            --title " Whimsy Splashes " \
+            --cancel-label "Exit" \
+            --menu "Pick a splash to launch. This is the same list a new login shell picks from at random." \
+            20 78 "$(( ${#menu_items[@]} / 2 ))" \
+            "${menu_items[@]}" \
+            2> "$tmpfile"
+        exit_code=$?
+        choice=$(cat "$tmpfile")
+        rm -f "$tmpfile"
+
+        clear
+        [ $exit_code -ne 0 ] && return 0
+        [ -z "$choice" ] && return 0
+
+        if [ "$choice" = "random" ]; then
+            _launch_random
+        else
+            _launch "$choice"
+        fi
+    done
+}
+
+# --- PLAIN-TEXT FALLBACK (no dialog installed) ---
+_menu_plain() {
+    local i avail suffix choice
+    while true; do
+        avail=" $("$SPLASH" --available | tr '\n' ' ')"
+        echo ""
+        echo "🎭 Whimsy Splashes — the same list a new login shell picks from at random."
+        echo ""
+        for i in "${!IDS[@]}"; do
+            suffix=""
+            case "$avail" in
+                *" ${IDS[$i]} "*) ;;
+                *) suffix="  [not installed]" ;;
+            esac
+            printf "  %2d) %-10s %s%s\n" "$((i + 1))" "${IDS[$i]}" "${DESCRIPTIONS[$i]}" "$suffix"
+        done
+        printf "  %2s) %-10s %s\n" "r" "random" "Surprise me - any one that's installed"
+        printf "  %2s) %-10s %s\n" "q" "quit" "Back to the shell"
+        echo ""
+        read -rp "Choice: " choice
+
+        case "$choice" in
+            q|Q|"") return 0 ;;
+            r|R) _launch_random ;;
+            *[!0-9]*) echo "Not a valid choice." ;;
+            *)
+                if [ "$choice" -ge 1 ] && [ "$choice" -le ${#IDS[@]} ]; then
+                    _launch "${IDS[$((choice - 1))]}"
+                else
+                    echo "Not a valid choice."
+                fi
+                ;;
+        esac
+    done
+}
+
+if command -v dialog >/dev/null 2>&1; then
+    _menu_dialog
+else
+    _menu_plain
+fi

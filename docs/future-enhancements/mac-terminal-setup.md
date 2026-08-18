@@ -1,6 +1,8 @@
 # Mac Terminal Setup — Future Enhancements
 
-**Status:** ideas only — none of this is implemented. See
+**Status:** follow-ups, not shipped work — each item below is either an
+idea nothing implements yet (#2, #3) or something that ships today but has
+never been exercised on a real Mac (#1, #4). See
 `docs/lessons-learned/mac-terminal-setup.md` for what was actually found
 and fixed while building this environment; these are the follow-ups worth
 doing deliberately rather than reactively.
@@ -65,3 +67,47 @@ re-sync if it's drifted meaningfully. A GitHub Actions workflow that does
 this on a schedule and opens a PR on drift would close the gap for good,
 but is likely more machinery than a once-a-year manual check justifies for
 what's ultimately a whimsy feature.
+
+## 4. Confirm the three new splashes actually behave on a real Mac
+
+`hollywood`, `genact` and `nms` were added to the splash catalogue
+(`environments/mac-terminal-setup/bin/whimsy-splash`) along with
+`bin/whimsy-menu`, the TUI for launching any of them on demand. The
+scripts' own mechanics were exercised directly on Linux — catalogue
+parsing, availability filtering, the dialog and plain-text menus, the
+login-mode time limit actually killing the process it bounds (an earlier
+version killed only the wrapper subshell and left the splash running as an
+orphan; fixed and re-confirmed), and `run.sh` deploying and fetching
+everything into the right layout under a throwaway `$HOME`. None of it has
+run on macOS, which is the only OS this environment supports, so what's
+below is reasoned-from-upstream-source rather than seen working:
+
+- **`brew install genact no-more-secrets dialog figlet pv htop`** — every
+  one of those formula names was confirmed to exist in `homebrew-core`
+  (and `hollywood` confirmed *not* to, which is why `run.sh` fetches it),
+  but no `brew install` has actually been run.
+- **hollywood inside this environment's own tmux** — `.bashrc.tmux`
+  auto-attaches tmux before the whimsy block runs, so on a real login
+  `$TMUX` is always set and hollywood takes its "already in tmux" branch:
+  a new *window* in the user's own session rather than a session of its
+  own. Verified to work that way under a synthetic tmux session on Linux;
+  not seen against the real login sequence, where the window appearing and
+  then vanishing mid-login is the part worth eyeballing.
+- **How the seven curated widgets actually look** — four fetched from
+  upstream (`cmatrix`, `figlet`, `htop`, `pv`) and three written here
+  (`mac-logs`, `mac-hexdump`, `mac-netstat`). The three new ones are built
+  on `log stream`, `hexdump -C` and `netstat -w 1`; the commands are
+  right, but whether each is legible in a pane a few rows tall is a
+  judgement only a real screen can make.
+- **Upstream's own fragility, inherited** — hollywood opens its first pane
+  with one randomly-chosen widget and exits immediately if that widget
+  dies, which is exactly what a missing dependency does. Observed on Linux
+  (where most widgets can't run) and the reason the widget directory is
+  curated to things that work rather than mirrored wholesale. If it ever
+  turns up on macOS, the widget whose tool is missing is the thing to find.
+
+**Close this out by:** enabling whimsy on a real Mac, running
+`~/bin/whimsy-menu`, and launching all eight splashes from it — then
+opening a few new terminal tabs to see the random login pick, including at
+least one that lands on `hollywood` or `genact` and hits the
+`WHIMSY_SPLASH_SECONDS` limit.

@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# hollywood widget: live network throughput.
+#
+# Written for this repo: upstream covers this with `bmon` and
+# `speedometer`, one of which has no macOS build and the other of which
+# reads /proc/net/route to find its interface. macOS's own netstat has a
+# repeating-statistics mode that needs neither.
+
+[ "$(uname)" = "Darwin" ] || exit 1
+command -v netstat >/dev/null 2>&1 || exit 1
+
+trap "pkill -9 -f lib/hollywood/ >/dev/null 2>&1; exit" INT
+while true; do
+	# -w 1: re-print interface packet/byte counters once a second. BSD
+	# netstat only; the GNU/Linux one spells this -c/--continuous.
+	netstat -w 1 2>/dev/null
+	sleep 2
+done

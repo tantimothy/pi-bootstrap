@@ -5,3 +5,18 @@ asciiquarium
 cowsay
 fortune
 lolcat
+genact
+no-more-secrets
+# dialog: the TUI toolkit bin/whimsy-menu draws its splash picker with —
+# the same one deploy.sh uses, but installed here too so the menu works
+# when run straight from ~/bin rather than through deploy.sh.
+dialog
+# hollywood itself has no Homebrew formula (it's a Debian package
+# upstream), so run.sh fetches it — see its own comment. These three are
+# what its macOS-viable widgets need: figlet for the banner pane, pv for
+# the transfer gauges, htop for the process monitor. Every other upstream
+# widget wants ccze (unmaintained, no formula) or a Linux-only tool, and
+# is deliberately not fetched.
+figlet
+pv
+htop

@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# hollywood widget: hex dumps of random system binaries.
+#
+# Written for this repo: upstream's own `hexdump` widget is the same idea
+# but pipes through ccze for colour, and ccze has no Homebrew formula (it's
+# been unmaintained for years), so on macOS that widget exits immediately
+# and the pane dies. This one colours itself with a plain ANSI escape and
+# needs nothing beyond what macOS already ships.
+
+command -v hexdump >/dev/null 2>&1 || exit 1
+
+trap "printf '\033[0m'; pkill -9 -f lib/hollywood/ >/dev/null 2>&1; exit" INT
+printf '\033[32m'
+while true; do
+	# sort -R is random-sort — present in BSD sort (macOS) as well as GNU,
+	# which is why upstream's widgets use it too.
+	for f in $(ls /usr/bin/ | sort -R); do
+		head -c 4096 "/usr/bin/$f" 2>/dev/null | hexdump -C
+		sleep 0.7
+	done
+done
