@@ -116,11 +116,15 @@ the user on their own Mac. Not yet done:
   `docs/future-enhancements/mac-terminal-setup.md` #3.
 - **The seven splashes added to whimsy (`hollywood`, `genact`, `nms`,
   `aafire`, `bb`, `sl`, `tty-clock`) and the `whimsy-menu` picker** —
-  mechanics exercised on Linux, nothing yet run on a Mac: no
-  `brew install` of the new formulas, hollywood's panes never seen on a
-  real screen, and `bb`'s from-source build (the only thing this
-  environment compiles) never attempted against a real clang. See
-  `docs/future-enhancements/mac-terminal-setup.md` #4.
+  largely closed out: `bb` builds and runs on the user's Apple Silicon
+  Mac, and `aafire` renders in place there including inside tmux, after
+  six fixes found across as many rounds (issues #4-#9 in
+  `docs/lessons-learned/mac-terminal-setup.md`). Still open: which of two
+  candidate fixes made the tmux case work isn't recorded, so a fresh Mac
+  may hit it again — and if it was `brew install ncurses`, then
+  `bin/install-aalib` should install that formula rather than falling back
+  to the SDK's older copy. hollywood's panes also haven't been seen on a
+  real screen. See `docs/future-enhancements/mac-terminal-setup.md` #4.
 
 ## nanoclaw-mnemon: per-group derived agent images — one restore path still unverified
 

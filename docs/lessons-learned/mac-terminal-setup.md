@@ -120,12 +120,14 @@ actually read anyway).
 
 ## Session 2 (2026-08-18): building BB from source for the splash menu
 
-**Status:** issues #4 and #5 were found on Linux with gcc while
-implementing, and fixed there; #6, #7 and #8 came from actually running
-this on the user's Mac, one round at a time — each fix got the build one
-step further and revealed the next thing. Every fix is verified not to
-regress the gcc build; the macOS confirmation for #7 and #8 is still
-outstanding. See `docs/future-enhancements/mac-terminal-setup.md` #4.
+**Status:** all six fixed and confirmed working on the user's Mac — `bb`
+builds and runs, and `aafire` renders in place, including inside tmux.
+Issues #4 and #5 were found on Linux with gcc while implementing; #6-#9
+came from running it on the Mac, one round at a time, each fix getting one
+step further and revealing the next thing. One loose end is tracked in
+`docs/future-enhancements/mac-terminal-setup.md` #4: which of two possible
+fixes made the tmux case work isn't recorded, and a fresh Mac may hit that
+wall again.
 Issue #9 is the one that finally explains the aafire/bb rendering, and it
 was only reachable because the machine was asked what drivers it had
 rather than being reasoned about.
