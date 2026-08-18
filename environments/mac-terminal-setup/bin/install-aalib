@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+#
+# install-aalib — build AA-lib with a real terminal driver into ~/bin/aalib.d.
+#
+# Homebrew's aalib has no curses or slang driver at all. Confirmed on a real
+# Mac: `aafire -help` lists "available drivers:stdout stderr" and nothing
+# else. aalib's 1997 configure hunts for curses by testing hardcoded paths
+# — /usr/include/ncurses.h and friends — and modern macOS has no
+# /usr/include at all, so the hunt finds nothing and the driver is silently
+# dropped from the build.
+#
+# What's left is the `stdout` driver, which renders by printing frames
+# rather than by moving the cursor, in a fixed 80x25 frame it can't resize.
+# That's why aafire and bb scroll up the screen instead of animating in
+# place. whimsy-splash mitigates it by matching the frame to the window,
+# but tearing is inherent to the streaming driver; the only real fix is an
+# aalib that has a driver worth the name.
+#
+# So this builds one. Nothing is installed system-wide: everything lands
+# under ~/bin/aalib.d via --prefix, and whimsy-splash prefers that aafire
+# over the Homebrew one when it's present.
+#
+#   ~/bin/install-aalib          # build only if the aalib in use has no real driver
+#   ~/bin/install-aalib --force  # build regardless, ignoring a past failure
+#
+# Run by run.sh best-effort when whimsy is enabled. A failed build writes
+# .build-failed and isn't retried automatically, same as install-bb.
+
+set -u
+
+AALIB_DIR="$HOME/bin/aalib.d"
+AALIB_SRC="$AALIB_DIR/src"
+AALIB_LOG="$AALIB_DIR/build.log"
+AALIB_FAILED="$AALIB_DIR/.build-failed"
+
+# Same release Homebrew packages, and the same checksum it verifies. The
+# tarball is 2001-vintage and hasn't changed since, but it arrives over the
+# network from a third-party mirror, so it gets checked rather than
+# trusted.
+AALIB_URL="https://downloads.sourceforge.net/project/aa-project/aa-lib/1.4rc5/aalib-1.4rc5.tar.gz"
+AALIB_SHA256="fbddda9230cf6ee2a4f5706b4b11e2190ae45f5eda1f0409dc4f99b35e0a70ee"
+AALIB_SRCDIR_NAME="aalib-1.4.0"   # what the 1.4rc5 tarball actually unpacks to
+
+# Homebrew's own patch against this exact release: malloc.h -> stdlib.h
+# (macOS has no malloc.h), missing includes, and an underquoted autoconf
+# macro. Fetched rather than vendored for the same reason install-bb clones
+# rather than vendors — it's upstream's fix to upstream's code, and this
+# repo has no business carrying a copy of it.
+AALIB_PATCH_URL="https://raw.githubusercontent.com/Homebrew/homebrew-core/master/Patches/aalib/1.4rc5.patch"
+
+FORCE=false
+[ "${1:-}" = "--force" ] && FORCE=true
+
+# Does the aafire we'd otherwise use already have a real driver? On a
+# machine where it does — Linux with libaa from a distro, or a future
+# Homebrew formula that fixes this — there is nothing to build and this
+# exits without touching anything.
+_has_real_driver() {
+    local binary="$1" drivers
+    [ -x "$binary" ] || command -v "$binary" >/dev/null 2>&1 || return 1
+    drivers=$("$binary" -help 2>&1 | sed -n 's/.*available drivers:\(.*\)/\1/p' | head -n1)
+    case " $drivers " in
+        *" slang "*|*" curses "*) return 0 ;;
+    esac
+    return 1
+}
+
+if [ "$FORCE" = "false" ]; then
+    if _has_real_driver "$AALIB_DIR/bin/aafire"; then
+        echo "   ✅ aalib already built with a real driver ($AALIB_DIR/bin/aafire)."
+        exit 0
+    fi
+    if _has_real_driver aafire; then
+        echo "   ✅ The installed aalib already has a real terminal driver — nothing to build."
+        exit 0
+    fi
+    if [ -f "$AALIB_FAILED" ]; then
+        echo "   ⏭️  Skipping aalib — a previous build failed. Details: $AALIB_LOG"
+        echo "      Retry with: ~/bin/install-aalib --force"
+        exit 0
+    fi
+fi
+
+for tool in curl tar make cc; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "   ⚠️  Building aalib needs '$tool', which isn't installed." >&2
+        echo "      On macOS: xcode-select --install" >&2
+        exit 1
+    fi
+done
+
+# Where to find ncurses. Homebrew's is preferred when installed — it's
+# current, and its headers and libs live together under one prefix, which
+# is exactly the shape aalib's --with-ncurses option wants. Failing that,
+# the macOS SDK carries one (an old ncurses 5.7, but a working one), and
+# `xcrun --show-sdk-path` is the only reliable way to name its path since
+# /usr/include stopped existing.
+NCURSES_PREFIX=""
+if command -v brew >/dev/null 2>&1; then
+    NCURSES_PREFIX="$(brew --prefix ncurses 2>/dev/null)"
+    [ -d "$NCURSES_PREFIX/include" ] || NCURSES_PREFIX=""
+fi
+if [ -z "$NCURSES_PREFIX" ] && command -v xcrun >/dev/null 2>&1; then
+    _sdk="$(xcrun --show-sdk-path 2>/dev/null)"
+    [ -n "$_sdk" ] && [ -f "$_sdk/usr/include/curses.h" ] && NCURSES_PREFIX="$_sdk/usr"
+fi
+if [ -z "$NCURSES_PREFIX" ] && [ -f /usr/include/curses.h ]; then
+    NCURSES_PREFIX="/usr"
+fi
+if [ -z "$NCURSES_PREFIX" ]; then
+    echo "   ⚠️  Couldn't find an ncurses to build aalib against." >&2
+    echo "      Install one with: brew install ncurses" >&2
+    exit 1
+fi
+
+mkdir -p "$AALIB_DIR"
+rm -f "$AALIB_FAILED"
+
+echo "   🔥 Building aalib with a real terminal driver (ncurses: $NCURSES_PREFIX)..."
+
+{
+    echo "=== install-aalib $(date) ==="
+    echo "=== ncurses prefix: $NCURSES_PREFIX ==="
+    rm -rf "$AALIB_SRC"
+    mkdir -p "$AALIB_SRC"
+    cd "$AALIB_SRC" || exit 1
+
+    echo "=== fetching $AALIB_URL ==="
+    curl --max-time 60 -fsSL "$AALIB_URL" -o aalib.tar.gz || exit 1
+
+    echo "=== verifying checksum ==="
+    # shasum ships with macOS; sha256sum is the Linux spelling. Either is
+    # fine, but a machine with neither must not silently skip the check.
+    if command -v shasum >/dev/null 2>&1; then
+        echo "$AALIB_SHA256  aalib.tar.gz" | shasum -a 256 -c - || exit 1
+    elif command -v sha256sum >/dev/null 2>&1; then
+        echo "$AALIB_SHA256  aalib.tar.gz" | sha256sum -c - || exit 1
+    else
+        echo "no shasum or sha256sum available to verify the download" >&2
+        exit 1
+    fi
+
+    tar xzf aalib.tar.gz || exit 1
+    cd "$AALIB_SRCDIR_NAME" || exit 1
+
+    echo "=== applying Homebrew's patch ==="
+    curl --max-time 30 -fsSL "$AALIB_PATCH_URL" -o ../homebrew.patch || exit 1
+    patch -p1 < ../homebrew.patch || exit 1
+} > "$AALIB_LOG" 2>&1 || {
+    echo "   ⚠️  Couldn't fetch or prepare the aalib source — see $AALIB_LOG" >&2
+    touch "$AALIB_FAILED"
+    exit 1
+}
+
+# aacurses.c reads the terminal size straight out of the WINDOW struct
+# (stdscr->_maxx / ->_maxy). ncurses 6 made that struct opaque, so the file
+# no longer compiles against it: "invalid use of incomplete typedef
+# 'WINDOW'". -DNCURSES_OPAQUE=0 does not help — the generated curses.h
+# defines it itself, and its definition wins. getmaxyx() is the accessor
+# ncurses provides for exactly this, and it has existed since long before
+# this code was written, so the replacement is portable backwards as well
+# as forwards (macOS's own SDK ncurses is 5.7, where the struct is still
+# transparent and this changes nothing).
+#
+# Anchor-checked like install-bb's regparm patch: a silent no-op here would
+# surface as a compile error further down with no explanation.
+AACURSES="$AALIB_SRC/$AALIB_SRCDIR_NAME/src/aacurses.c"
+AACURSES_ANCHOR='    *width = stdscr->_maxx + 1;'
+if grep -qF "$AACURSES_ANCHOR" "$AACURSES" 2>/dev/null; then
+    python3 - "$AACURSES" <<'PY' || true
+import sys
+path = sys.argv[1]
+src = open(path).read()
+old = "    *width = stdscr->_maxx + 1;\n    *height = stdscr->_maxy + 1;"
+new = "    /* pi-bootstrap: WINDOW is opaque in ncurses 6 */\n    getmaxyx(stdscr, *height, *width);"
+open(path, "w").write(src.replace(old, new, 1))
+PY
+    echo "   🔧 Patched aacurses.c for ncurses 6's opaque WINDOW."
+elif grep -q "_maxx" "$AACURSES" 2>/dev/null; then
+    echo "   ⚠️  aacurses.c reads _maxx but not in the form this script patches —" >&2
+    echo "      the build will fail against ncurses 6. See bin/install-aalib." >&2
+fi
+
+# The same clang-strictness flags install-bb needs, for the same reason:
+# this is 1997 C and Xcode 15's clang treats several of its idioms as
+# errors. --with-ncurses=<dir> is the part that matters most — it skips the
+# hardcoded-path hunt entirely and wires up -I/-L itself, which is the only
+# reason a driver gets built at all on a machine with no /usr/include.
+AALIB_CFLAGS="-Wno-implicit-int -Wno-implicit-function-declaration"
+AALIB_CFLAGS="$AALIB_CFLAGS -Wno-int-conversion -Wno-incompatible-function-pointer-types"
+
+{
+    cd "$AALIB_SRC/$AALIB_SRCDIR_NAME" || exit 1
+    echo "=== configure --prefix=$AALIB_DIR --without-x --with-ncurses=$NCURSES_PREFIX ==="
+    CFLAGS="${CFLAGS:--g -O2} $AALIB_CFLAGS" \
+        ./configure --prefix="$AALIB_DIR" --without-x \
+                    --with-ncurses="$NCURSES_PREFIX" &&
+        echo "=== make ===" && make &&
+        echo "=== make install ===" && make install
+} >> "$AALIB_LOG" 2>&1
+
+if _has_real_driver "$AALIB_DIR/bin/aafire"; then
+    echo "   ✅ Built aalib — $AALIB_DIR/bin/aafire ($("$AALIB_DIR/bin/aafire" -help 2>&1 |
+        sed -n 's/.*available drivers:\(.*\)/\1/p' | head -n1))"
+    exit 0
+fi
+
+# Two distinguishable failures, worth telling apart: nothing got built, or
+# something got built that is no better than what Homebrew ships.
+if [ -x "$AALIB_DIR/bin/aafire" ]; then
+    echo "   ⚠️  aalib built, but still without a real terminal driver." >&2
+    echo "      The ncurses at $NCURSES_PREFIX isn't being picked up. Log: $AALIB_LOG" >&2
+else
+    echo "   ⚠️  aalib didn't build. Full output: $AALIB_LOG" >&2
+fi
+echo "      aafire and bb keep working either way — they fall back to the" >&2
+echo "      streaming driver, which whimsy-splash sizes to your terminal." >&2
+touch "$AALIB_FAILED"
+exit 1

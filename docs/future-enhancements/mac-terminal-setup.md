@@ -1,3 +1,13 @@
+- **Whether the rebuilt aalib actually renders in place on that Mac** —
+  the machine reported `available drivers:stdout stderr`, confirming
+  Homebrew's aalib has no terminal driver at all (issue #9), so
+  `bin/install-aalib` now builds one with `--with-ncurses`. That build and
+  its two workarounds are verified on Linux against ncurses 6 — the harder
+  case, since macOS's own SDK ncurses is the older non-opaque 5.7 — but
+  the macOS run hasn't happened. What to watch: whether the SDK path from
+  `xcrun --show-sdk-path` is picked up when Homebrew's ncurses isn't
+  installed, and whether `bb` visibly improves after `install-bb` rebuilds
+  it against the new aalib.
 # Mac Terminal Setup — Future Enhancements
 
 **Status:** follow-ups, not shipped work — each item below is either an

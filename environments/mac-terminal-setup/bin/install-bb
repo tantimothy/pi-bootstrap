@@ -35,9 +35,26 @@ BB_REPO="https://github.com/artyfarty/bb-osx.git"
 FORCE=false
 [ "${1:-}" = "--force" ] && FORCE=true
 
+# Which aalib this build should link against — see the --with-aalib-prefix
+# comment further down. Recorded next to the binary, because "already
+# built" stops being the right answer the moment that choice changes:
+# without this, a bb built before install-aalib ran would keep its
+# driver-less aalib forever, and the whole point of building a better one
+# would be invisible.
+AALIB_PREFIX="$HOME/bin/aalib.d"
+BB_AALIB_STAMP="$BB_DIR/.built-against-aalib"
+if [ -x "$AALIB_PREFIX/bin/aalib-config" ]; then
+    BB_AALIB_WANT="$AALIB_PREFIX"
+else
+    BB_AALIB_WANT="(system)"
+fi
+
 if [ -x "$BB_DIR/bin/bb" ] && [ "$FORCE" = "false" ]; then
-    echo "   ✅ bb already built ($BB_DIR/bin/bb)."
-    exit 0
+    if [ "$(cat "$BB_AALIB_STAMP" 2>/dev/null)" = "$BB_AALIB_WANT" ]; then
+        echo "   ✅ bb already built ($BB_DIR/bin/bb)."
+        exit 0
+    fi
+    echo "   ♻️  Rebuilding bb — the aalib to link against changed to $BB_AALIB_WANT."
 fi
 
 if [ -f "$BB_FAILED" ] && [ "$FORCE" = "false" ]; then
@@ -166,6 +183,15 @@ if command -v brew >/dev/null 2>&1; then
     [ -n "$BREW_PREFIX" ] && CONFIGURE_ARGS+=("--with-libmikmod-prefix=$BREW_PREFIX")
 fi
 
+# bb renders through whatever aalib it was linked against, so it inherits
+# that aalib's drivers — link it against Homebrew's and bb can only stream
+# frames, however many times whimsy-splash asks for a better driver. When
+# bin/install-aalib has built one with a real terminal driver, build bb
+# against that instead.
+if [ -x "$AALIB_PREFIX/bin/aalib-config" ]; then
+    CONFIGURE_ARGS+=("--with-aalib-prefix=$AALIB_PREFIX")
+fi
+
 # Clang 16 (Xcode 15) promoted a set of pre-ANSI C patterns from warnings
 # to hard errors: implicit int, implicit function declarations, int
 # conversions, incompatible function pointer types. All four are ordinary
@@ -209,6 +235,7 @@ BB_CFLAGS="$BB_CFLAGS -Wno-int-conversion -Wno-incompatible-function-pointer-typ
 } >> "$BB_LOG" 2>&1
 
 if [ -x "$BB_DIR/bin/bb" ]; then
+    echo "$BB_AALIB_WANT" > "$BB_AALIB_STAMP"
     echo "   ✅ Built bb — $BB_DIR/bin/bb"
     exit 0
 fi

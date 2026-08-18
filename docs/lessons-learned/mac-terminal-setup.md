@@ -126,6 +126,9 @@ this on the user's Mac, one round at a time — each fix got the build one
 step further and revealed the next thing. Every fix is verified not to
 regress the gcc build; the macOS confirmation for #7 and #8 is still
 outstanding. See `docs/future-enhancements/mac-terminal-setup.md` #4.
+Issue #9 is the one that finally explains the aafire/bb rendering, and it
+was only reachable because the machine was asked what drivers it had
+rather than being reasoned about.
 
 Context: `bb` (AA-lib's demo) was added to the whimsy splash catalogue
 alongside `aafire`, `sl` and `tty-clock`. The other three are Homebrew
@@ -313,6 +316,55 @@ The terminal size is read with `stty size < /dev/tty`, not `tput`: this
 runs inside a command substitution, so `tput`'s own stdout is a pipe and
 it answers from terminfo's static 80x24 rather than from the window.
 
+### 9. Homebrew's aalib has no terminal driver at all, because a 1997 configure looks for headers where macOS no longer keeps them
+
+**Symptom:** the machine's own answer, once asked directly:
+
+```
+$ aafire -help 2>&1 | grep -A1 'available drivers'
+                  available drivers:stdout stderr
+```
+
+No curses, no slang — only the streaming driver. So issue #8's mitigation
+(request the best driver) had nothing to request, and #8's follow-up
+(match the frame to the window) was as far as it could go.
+
+**Root cause:** aalib's configure hunts for curses by testing hardcoded
+paths — `/usr/include/ncurses.h`, `/usr/include/ncurses/ncurses.h`, and so
+on. macOS hasn't had a `/usr/include` since 10.14; its headers live inside
+the SDK, reachable only via `xcrun --show-sdk-path`. Every test fails, the
+driver is silently dropped, and the build succeeds — producing a working
+library that can't redraw a screen. Homebrew's formula declares no ncurses
+dependency and passes no override, so its bottle has this baked in on
+every Mac.
+
+**Fix:** `bin/install-aalib` builds aalib from the same 1.4rc5 tarball
+Homebrew uses (checksum-verified), with Homebrew's own patch applied, plus
+`--with-ncurses=<prefix>` — an option aalib has always had, which skips
+the path hunt entirely and wires up `-I`/`-L` itself. The prefix is
+Homebrew's ncurses when installed, else the SDK's. Result, measured on the
+same terminal that had been streaming: `available drivers:linux slang
+curses stdout stderr`, and 265,735 cursor-positioning escapes against 30
+newlines — genuine in-place rendering at an arbitrary window size.
+
+Two things had to be worked around inside that build:
+
+- **`aacurses.c` reads `stdscr->_maxx` / `->_maxy` directly.** ncurses 6
+  made `WINDOW` opaque, so it no longer compiles: *invalid use of
+  incomplete typedef 'WINDOW'*. `-DNCURSES_OPAQUE=0` does not help — the
+  generated `curses.h` defines that itself and its definition wins. The
+  fix is `getmaxyx()`, the accessor ncurses provides for exactly this,
+  which predates the code being patched and so works against macOS's own
+  ncurses 5.7 as well.
+- **The same clang-16 strictness as issue #6**, for the same reason: it is
+  the same vintage of C.
+
+**And then bb needed rebuilding.** bb renders through whatever aalib it
+was *linked* against, so a bb built earlier kept its driver-less one no
+matter how many drivers the new aalib had. `install-bb` now records which
+aalib it built against and rebuilds when that changes, and `run.sh` builds
+aalib first so a single pass is enough.
+
 ### General lesson
 
 **A third-party fork's committed build artifacts are inputs to your build,
@@ -334,6 +386,14 @@ someone last cared, so the interesting question isn't whether it claims to
 work but what has changed underneath it since. Here it was one clang
 release turning four warnings into errors, and then the Apple Silicon
 transition making an x86-only attribute fatal.
+
+**Ask the machine, don't infer it.** Issue #8's diagnosis was reasoned out
+correctly from measurements taken elsewhere, and the fix it produced was
+the right fix for what was known — but three rounds went by before anyone
+ran `aafire -help` on the actual Mac, and that one line was what turned
+"aalib probably has no real driver" into "aalib has no real driver, here
+is why, and here is the flag that fixes it". A one-command question
+answered in seconds what careful inference could only narrow down.
 
 **A symptom that looks like a rendering bug can be a capability that was
 never compiled in.** Issue #8 presented as "vertical sync isn't working"
