@@ -104,11 +104,19 @@ _menu_dialog() {
         # the list itself rather than refusing to draw. A fixed height (the
         # usual style elsewhere in this repo) stopped fitting once the
         # catalogue passed a dozen entries.
+        #
+        # The +9 is dialog's own chrome — borders, title, prompt, the blank
+        # rows around the list, and the button row — and it is measured,
+        # not estimated. An earlier +7 was two rows short, which dialog
+        # resolves by silently scrolling the list: with thirteen rows it
+        # drew twelve, and the one it dropped was the last entry in the
+        # catalogue. That looked exactly like the splash having never been
+        # added, which is how it was reported.
         local rows list_height box_height
         rows=$(tput lines 2>/dev/null) || rows=24
         [ -z "$rows" ] && rows=24
         list_height=$(( ${#menu_items[@]} / 2 ))
-        box_height=$(( list_height + 7 ))
+        box_height=$(( list_height + 9 ))
         [ "$box_height" -gt $(( rows - 2 )) ] && box_height=$(( rows - 2 ))
         [ "$box_height" -lt 12 ] && box_height=12
 
@@ -120,7 +128,7 @@ _menu_dialog() {
         dialog --clear \
             --title " Whimsy Splashes " \
             --cancel-label "Exit" \
-            --menu "Pick a splash to launch. This is the same list a new login shell picks from at random." \
+            --menu "Pick a splash — a login shell picks from this list at random." \
             "$box_height" 78 "$list_height" \
             "${menu_items[@]}" \
             2> "$tmpfile"
