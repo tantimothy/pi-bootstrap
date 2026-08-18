@@ -16,9 +16,11 @@
 # but tearing is inherent to the streaming driver; the only real fix is an
 # aalib that has a driver worth the name.
 #
-# So this builds one. Nothing is installed system-wide: everything lands
-# under ~/bin/aalib.d via --prefix, and whimsy-splash prefers that aafire
-# over the Homebrew one when it's present.
+# So this builds one, against Homebrew's ncurses specifically — see the
+# NCURSES_PREFIX comment below for why that particular copy matters more
+# than it looks. Nothing is installed system-wide: everything lands under
+# ~/bin/aalib.d via --prefix, and whimsy-splash prefers that aafire over
+# the Homebrew one when it's present.
 #
 #   ~/bin/install-aalib          # build only if the aalib in use has no real driver
 #   ~/bin/install-aalib --force  # build regardless, ignoring a past failure
@@ -89,20 +91,42 @@ for tool in curl tar make cc; do
     fi
 done
 
-# Where to find ncurses. Homebrew's is preferred when installed — it's
-# current, and its headers and libs live together under one prefix, which
-# is exactly the shape aalib's --with-ncurses option wants. Failing that,
-# the macOS SDK carries one (an old ncurses 5.7, but a working one), and
-# `xcrun --show-sdk-path` is the only reliable way to name its path since
-# /usr/include stopped existing.
+# Where to find ncurses. Which one is not a detail — it decides whether
+# the resulting aafire works inside tmux, which on this machine is
+# everywhere, since .bashrc.tmux auto-attaches tmux before the whimsy
+# block ever runs.
+#
+# The reason is terminfo. aalib's curses driver calls initscr(), which
+# needs a terminfo entry for $TERM; without one it fails, and aalib
+# silently falls back to the streaming driver. Inside tmux $TERM is
+# typically tmux-256color — an entry macOS's own ncurses (5.7, from 2009)
+# predates and does not carry, while Homebrew's ncurses 6 ships a current
+# database that does. So an aalib built against the SDK's copy renders
+# beautifully in a plain Terminal window and scrolls the moment you're in
+# tmux. Confirmed on a real Mac, twice over: that was the symptom, and
+# rebuilding against Homebrew's ncurses was what fixed it.
+#
+# Hence installing the formula rather than quietly settling for the SDK,
+# the same way install-bb installs libmikmod. The SDK path stays as a last
+# resort for a machine with no Homebrew at all, with a warning about what
+# it will and won't do.
 NCURSES_PREFIX=""
 if command -v brew >/dev/null 2>&1; then
+    brew list --formula ncurses >/dev/null 2>&1 || {
+        echo "   📦 Installing ncurses (aalib needs its terminfo database to work inside tmux)..."
+        brew install ncurses || echo "   ⚠️  brew install ncurses failed — continuing anyway." >&2
+    }
     NCURSES_PREFIX="$(brew --prefix ncurses 2>/dev/null)"
     [ -d "$NCURSES_PREFIX/include" ] || NCURSES_PREFIX=""
 fi
 if [ -z "$NCURSES_PREFIX" ] && command -v xcrun >/dev/null 2>&1; then
     _sdk="$(xcrun --show-sdk-path 2>/dev/null)"
-    [ -n "$_sdk" ] && [ -f "$_sdk/usr/include/curses.h" ] && NCURSES_PREFIX="$_sdk/usr"
+    if [ -n "$_sdk" ] && [ -f "$_sdk/usr/include/curses.h" ]; then
+        NCURSES_PREFIX="$_sdk/usr"
+        echo "   ⚠️  Building against the SDK's ncurses — no Homebrew here to get a newer one." >&2
+        echo "      Expect aafire and bb to render correctly outside tmux and to scroll" >&2
+        echo "      inside it, since that ncurses has no terminfo entry for tmux's \$TERM." >&2
+    fi
 fi
 if [ -z "$NCURSES_PREFIX" ] && [ -f /usr/include/curses.h ]; then
     NCURSES_PREFIX="/usr"
