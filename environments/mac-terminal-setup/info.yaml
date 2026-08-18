@@ -31,6 +31,6 @@ useful_commands: |2
         container or service runs, so there's nothing to STOP/TEARDOWN.
      🔑 Whimsical login extras (fortune-style sign-offs) default off;
         toggle them with this environment's own menu action. A new shell
-        then opens with one splash picked at random out of the eight;
+        then opens with one splash picked at random out of the twelve;
         "Launch a whimsy splash..." runs whichever one you want, whenever.
      🔑 Full details: environments/mac-terminal-setup/README.md

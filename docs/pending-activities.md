@@ -114,10 +114,12 @@ the user on their own Mac. Not yet done:
   against `freebsd/calendar-data` once, as a point-in-time snapshot; no
   process exists yet to catch it drifting again over time. See
   `docs/future-enhancements/mac-terminal-setup.md` #3.
-- **The three splashes added to whimsy (`hollywood`, `genact`, `nms`) and
-  the `whimsy-menu` picker** — mechanics exercised on Linux, nothing yet
-  run on a Mac: no `brew install` of the new formulas, and hollywood's
-  panes never seen on a real screen. See
+- **The seven splashes added to whimsy (`hollywood`, `genact`, `nms`,
+  `aafire`, `bb`, `sl`, `tty-clock`) and the `whimsy-menu` picker** —
+  mechanics exercised on Linux, nothing yet run on a Mac: no
+  `brew install` of the new formulas, hollywood's panes never seen on a
+  real screen, and `bb`'s from-source build (the only thing this
+  environment compiles) never attempted against a real clang. See
   `docs/future-enhancements/mac-terminal-setup.md` #4.
 
 ## nanoclaw-mnemon: per-group derived agent images — one restore path still unverified

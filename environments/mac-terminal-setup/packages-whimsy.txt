@@ -7,6 +7,12 @@ fortune
 lolcat
 genact
 no-more-secrets
+sl
+tty-clock
+# aalib ships aafire (the burning-terminal splash) and is also what bb
+# renders through — see bin/install-bb, which builds bb itself since
+# nothing packages it for macOS.
+aalib
 # dialog: the TUI toolkit bin/whimsy-menu draws its splash picker with —
 # the same one deploy.sh uses, but installed here too so the menu works
 # when run straight from ~/bin rather than through deploy.sh.
