@@ -277,7 +277,39 @@ _run_moose() {
     fi
 }
 
-_run_aafire() { aafire; }
+# aalib (aafire, and bb) picks its output driver at runtime, trying slang,
+# then curses, then falling back to `stdout` — and the stdout driver does
+# no in-place redraw at all. It just streams frame after frame, so the fire
+# scrolls up the screen instead of burning in one place, which is exactly
+# what a machine whose aalib has no real terminal driver looks like.
+#
+# Which drivers exist is a property of how aalib was built, and Homebrew's
+# formula builds it `--without-x` and depends on neither s-lang nor
+# ncurses, so it varies by machine. A driver can also be present but fail
+# to initialise under tmux, where TERM may name a terminfo entry the
+# linked curses doesn't have.
+#
+# Asking for the best available one explicitly costs nothing: aalib falls
+# back on its own when it can't honour the request (confirmed directly —
+# `-driver X11` with no display still renders through a terminal driver
+# rather than dying). If neither real driver was compiled in, this adds no
+# argument and aafire scrolls, because nothing here can fix that; see the
+# README's "if aafire scrolls" note.
+_aalib_driver_args() {
+    local drivers driver
+    drivers=$("$1" -help 2>&1 | sed -n 's/.*available drivers:\(.*\)/\1/p' | head -n1)
+    for driver in slang curses; do
+        case " $drivers " in
+            *" $driver "*) echo "-driver $driver"; return 0 ;;
+        esac
+    done
+    return 0
+}
+
+# Unquoted on purpose in both callers below: no driver available must
+# expand to no argument at all, not to an empty one.
+# shellcheck disable=SC2046
+_run_aafire() { aafire $(_aalib_driver_args aafire); }
 
 _run_sl() {
     # sl's whole personality is its variants, and picking one at random
@@ -326,7 +358,8 @@ _splash_run() {
         hollywood) _splash_run_bounded "$limit" "$(_hollywood_bin)"; _hollywood_cleanup ;;
         genact)    _splash_run_bounded "$limit" genact ;;
         aafire)    _run_aafire ;;
-        bb)        _splash_run_bounded "$limit" "$(_bb_bin)" ;;
+        # shellcheck disable=SC2046
+        bb)        _splash_run_bounded "$limit" "$(_bb_bin)" $(_aalib_driver_args "$(_bb_bin)") ;;
         sl)        _run_sl ;;
         ttyclock)  _run_ttyclock ;;
         *)

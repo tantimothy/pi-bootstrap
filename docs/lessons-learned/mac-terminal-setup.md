@@ -121,10 +121,11 @@ actually read anyway).
 ## Session 2 (2026-08-18): building BB from source for the splash menu
 
 **Status:** issues #4 and #5 were found on Linux with gcc while
-implementing, and fixed there; #6 is the first one found by actually
-running this on the user's Mac, and its fix has been checked only for not
-regressing the gcc build. A confirming macOS run is still outstanding —
-see `docs/future-enhancements/mac-terminal-setup.md` #4.
+implementing, and fixed there; #6, #7 and #8 came from actually running
+this on the user's Mac, one round at a time — each fix got the build one
+step further and revealed the next thing. Every fix is verified not to
+regress the gcc build; the macOS confirmation for #7 and #8 is still
+outstanding. See `docs/future-enhancements/mac-terminal-setup.md` #4.
 
 Context: `bb` (AA-lib's demo) was added to the whimsy splash catalogue
 alongside `aafire`, `sl` and `tty-clock`. The other three are Homebrew
@@ -221,6 +222,76 @@ so whatever configure resolves is what the real compile uses. One place
 covers both. The resolved `CFLAGS` is echoed into `build.log` so the next
 failure of this shape is one `grep` away.
 
+### 7. `regparm` is x86-32 only, and bb's macro guard predates any other architecture
+
+**Symptom:** with the clang flags from issue #6 in place, `configure`
+succeeded and `make` failed on the very first file, on an Apple Silicon
+Mac:
+
+```
+./formulas.h:53:63: error: 'regparm' is not valid on this platform
+./config.h:42:38: note: expanded from macro 'REGISTERS'
+   42 | #define REGISTERS(n) __attribute__ ((regparm(n)))
+```
+
+**Root cause:** bb declares its hot function pointers `REGISTERS(3)`, and
+`config.h` defines that as `__attribute__((regparm(n)))` behind
+`#ifdef __GNUC__` — with no architecture condition at all, because in 1997
+GCC *meant* x86. `regparm` is an x86-32 calling convention: x86-64 clang
+ignores it with a warning (which is why the fork's Intel-era build was
+fine), and arm64 clang rejects it outright.
+
+**Fix:** `bin/install-bb` patches that one line to define `REGISTERS(n)`
+as nothing. It's a micro-optimisation for passing arguments in registers
+on 32-bit x86; the macro is the only place the attribute appears and every
+declaration goes through it, so nothing ends up half-converted. The anchor
+is checked before the `sed`, and a mismatch says so loudly rather than
+silently no-op'ing — the failure it prevents is otherwise a mystifying
+arm64 compile error two steps later.
+
+Notably this was the *only* unguarded x86-ism in the tree: `minilzo.c`'s
+inline asm and `ctrl87.c`'s x87 control-word code are both already
+`#ifdef __i386__` and compile out by themselves.
+
+**Second-order bug found while fixing it:** `install-bb` deletes one
+tracked file (`config.cache`) and now patches another (`config.h`), which
+makes `git pull --ff-only` refuse the moment upstream touches either —
+turning a routine `--force` retry into a fetch failure. It now runs
+`git checkout -- .` before pulling. Both edits are ours and are reapplied
+immediately afterwards, so there is nothing to preserve.
+
+### 8. aafire scrolling instead of burning is aalib falling back to its `stdout` driver
+
+**Symptom:** `aafire` on the Mac scrolled the flames up the screen
+continuously instead of animating in one place — reported as "vertical
+sync isn't working", and initially suspected to be a tmux problem.
+
+**Root cause:** aalib chooses an output driver at runtime, trying slang,
+then curses, then `stdout`. The `stdout` driver does no in-place redraw
+whatsoever: it prints each frame as plain lines, so the terminal scrolls.
+Measured directly, the two modes are unmistakable — over three seconds of
+`aafire` in the same terminal:
+
+| driver | cursor-positioning escapes | newlines |
+|--------|---------------------------:|---------:|
+| a real driver (slang) | 455,808 | 32,669 |
+| `stdout` | 0 | 1,160,978 |
+
+So scrolling is not a sync or a tmux rendering issue; it is the signature
+of a machine where aalib found no real terminal driver. Which drivers
+exist is a build-time property, and Homebrew's aalib formula builds
+`--without-x` and depends on neither s-lang nor ncurses. A driver can also
+be compiled in but fail to initialise under tmux, where `TERM` may name a
+terminfo entry the linked curses doesn't carry — which is the one way tmux
+genuinely can be implicated.
+
+**Fix:** `whimsy-splash` asks aalib for the best driver it actually has
+(`aafire -help` lists them), passing `-driver slang`/`-driver curses` when
+present and nothing when neither is. Requesting one is free: aalib falls
+back on its own if it can't honour the request. Where neither real driver
+was compiled in, no argument helps and the answer is a differently-built
+aalib — the README says so at the point it applies.
+
 ### General lesson
 
 **A third-party fork's committed build artifacts are inputs to your build,
@@ -233,13 +304,24 @@ compiling autotools input — while the actual cause was committed history.
 Worth remembering the next time this repo builds anything from a fork:
 check what the fork commits, not just what it changed.
 
-**"Builds on modern X" has a date on it, even when it isn't written down.**
-Issue #6 is the same claim going stale: the fork really did build on the
+**"Builds on modern X" has a date on it — and an architecture.** Issues #6
+and #7 are the same claim going stale twice over, once against a newer
+compiler and once against a different CPU: the fork really did build on the
 Macs of its day, and nothing about it changed — the toolchain moved. A
 fork maintained to solve exactly your problem is still a snapshot of when
 someone last cared, so the interesting question isn't whether it claims to
 work but what has changed underneath it since. Here it was one clang
-release turning four warnings into errors.
+release turning four warnings into errors, and then the Apple Silicon
+transition making an x86-only attribute fatal.
+
+**A symptom that looks like a rendering bug can be a capability that was
+never compiled in.** Issue #8 presented as "vertical sync isn't working"
+and looked like a terminal or tmux problem; it was aalib quietly
+substituting a driver that cannot redraw at all. When something animated
+looks wrong rather than broken, ask what the program fell back *to* — and
+prefer measuring the output stream over squinting at it, since one
+`grep -c` of the escape sequences settled in seconds what watching flames
+could not.
 
 ## Related Commits
 
