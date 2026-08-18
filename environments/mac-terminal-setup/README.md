@@ -42,14 +42,17 @@ management:
    `WHIMSY_ENABLED=true`/`false` in `.env` yourself (see `.env.example`).
 3. **Installs packages** — always `packages.txt` (`tmux`, `fastfetch`);
    additionally `packages-whimsy.txt` (`cbonsai`, `cmatrix`, `asciiquarium`,
-   `cowsay`, `fortune`, `lolcat`) plus the `Acme::Scurvy::Whoreson::BilgeRat`
-   CPAN module if whimsy is enabled.
+   `cowsay`, `fortune`, `lolcat`, `genact`, `no-more-secrets`, `dialog`,
+   plus `figlet`/`pv`/`htop` for hollywood's panes) and the
+   `Acme::Scurvy::Whoreson::BilgeRat` CPAN module if whimsy is enabled.
 4. **Notes whether MacPorts is installed** — no automated installer exists
    for it (unlike Homebrew's one-liner), so this is informational only; the
    MacPorts `PATH` lines in `.bash_profile` are harmless no-ops without it.
 5. **Deploys `.tmux.conf` and `.bash_profile`**, and — only if whimsy is
-   enabled — the bundled `~/bin` scripts, calendar data, and TalkingMoose
-   phrase files (fetched from GitHub here, once, rather than on every shell).
+   enabled — the bundled `~/bin` scripts (including `whimsy-splash` and the
+   `whimsy-menu` picker), calendar data, TalkingMoose phrase files, and
+   hollywood (the last two fetched from GitHub here, once, rather than on
+   every shell).
 6. **Injects four `.bashrc` blocks**, always reassembled in this order:
    `prompt` → `tmux` → `fastfetch` → `whimsy` (only if enabled). The whole
    injected region is guarded behind `[[ $- == *i* ]] || return`, so
@@ -85,15 +88,80 @@ To restore: copy the file(s) you want back out of the relevant
 ## 🎭 Whimsical Login Extras
 
 Off by default. When enabled, a new interactive shell runs — strictly
-*after* tmux and fastfetch — one randomly-picked splash (`cbonsai`,
-`cmatrix`, `asciiquarium`, a `cowsay`+`fortune`+`lolcat` combo, or a
-random Talking Moose phrase piped through `cowsay -f moose`), then
-`fortune`, a BOFH excuse, a couple of network-sourced insults, today's
-entries from a bundled calendar-facts database, and the weather via
-`wttr.in`. The `cowsay`/Talking Moose splashes each pause on "Press any
-key to continue..." before the rest runs — without it the whole
-unpaused sequence below would scroll straight past the splash to the
-prompt before you could read it.
+*after* tmux and fastfetch — one randomly-picked splash (see the table
+below), then `fortune`, a BOFH excuse, a couple of network-sourced
+insults, today's entries from a bundled calendar-facts database, and the
+weather via `wttr.in`. The splashes that print rather than take over the
+screen pause on "Press any key to continue..." before the rest runs —
+without it the whole unpaused sequence below would scroll straight past
+the splash to the prompt before you could read it.
+
+### The Splashes
+
+| id | What it is | Ends when |
+|----|------------|-----------|
+| `bonsai` | [cbonsai](https://gitlab.com/jallbrit/cbonsai) grows a tree, branch by branch | any key |
+| `matrix` | [cmatrix](https://github.com/abishekvashok/cmatrix) rain, screensaver mode | any key |
+| `aquarium` | [asciiquarium](https://github.com/cmatsuoka/asciiquarium) | `q` |
+| `cowsay` | A `fortune` from a randomly-picked cow, through `lolcat` | prints once |
+| `moose` | A random Talking Moose phrase, via `cowsay -f moose` | prints once |
+| `hollywood` | [hollywood](https://github.com/dustinkirkland/hollywood) — split panes of logs, hex dumps, gauges and traffic | Ctrl-C |
+| `genact` | [genact](https://github.com/svenstaro/genact) — plausible-looking installs, builds and downloads | Ctrl-C |
+| `nms` | A `fortune` "decrypted" the way [Sneakers (1992)](https://github.com/bartobri/no-more-secrets) did it | plays once |
+
+The catalogue lives in `bin/whimsy-splash` — one file, used both by the
+random login pick and by the menu below, so the two can't drift apart. A
+splash whose tools aren't installed is skipped by the random pick rather
+than flashing an empty screen with a "command not found".
+
+`hollywood` and `genact` only ever end on Ctrl-C, which is fine when you
+launched one deliberately and unhelpful when a new terminal tab did. So on
+login — and only on login — they're given a time limit, 30 seconds by
+default: `export WHIMSY_SPLASH_SECONDS=60` to change it, `0` to remove it.
+
+### Launching One Yourself
+
+```bash
+~/bin/whimsy-menu             # pick from a TUI (dialog, same as deploy.sh)
+~/bin/whimsy-splash hollywood # or go straight to one
+~/bin/whimsy-splash --list    # what the ids are
+~/bin/whimsy-splash --help
+```
+
+`deploy.sh` reaches the same picker through this environment's **"Launch a
+whimsy splash..."** action. The menu lists every splash, marks the ones whose
+tools are missing as `[not installed]`, and runs each with the screen to
+itself — no time limit, since you asked for it.
+
+### About hollywood on macOS
+
+`hollywood` is the one splash with no Homebrew formula — upstream ships it
+as a Debian package — so `run.sh` fetches it into `~/bin/hollywood.d/`
+instead, the same way the Talking Moose phrases are fetched. It draws its
+panes by running small "widget" scripts out of its own widget directory,
+and only the ones that work on macOS are fetched: of upstream's twenty,
+seven need `ccze` (unmaintained, no formula) and most of the rest need a
+Linux-only tool or `/proc`, `/sys`, `/var/log/*.log`. A widget whose
+dependency is missing exits immediately and takes its pane with it, so the
+directory is curated rather than mirrored.
+
+Covering what the skipped widgets would have shown, this repo ships three
+of its own (`bin/hollywood-widgets/`, deployed alongside the fetched ones):
+
+| Widget | Shows |
+|--------|-------|
+| `mac-logs` | `log stream` — this Mac's real unified system log |
+| `mac-hexdump` | Hex dumps of random binaries out of `/usr/bin` |
+| `mac-netstat` | `netstat -w 1` — live interface throughput |
+
+Together with upstream's `cmatrix`, `figlet`, `htop` and `pv` widgets
+that's seven panes' worth, which is about what hollywood asks for.
+
+> **Not yet seen on a real Mac.** hollywood, `genact` and `nms` were added
+> and their plumbing tested on Linux; no `brew install` of the new formulas
+> and no hollywood pane has run on macOS itself. What's still worth
+> confirming, and how, is in
+> `docs/future-enhancements/mac-terminal-setup.md` #4.
 
 **Toggling it:**
 - Re-run `./run.sh` and answer differently — but it only asks once, so:
@@ -121,6 +189,13 @@ Where each whimsy piece comes from:
   through `cowsay -f moose`. Like the calendar facts below, the phrase
   files are fetched once by `./run.sh` into `~/bin/moose-phrases/` rather
   than hit live on every new shell.
+- **Hollywood hacker screen** — Dustin Kirkland's
+  [hollywood](https://github.com/dustinkirkland/hollywood) (Apache-2.0),
+  fetched by `./run.sh` into `~/bin/hollywood.d/` along with the four of
+  its widgets that run on macOS.
+- **Fake activity** — [genact](https://github.com/svenstaro/genact).
+- **Sneakers decryption effect** — Brian Barto's
+  [no-more-secrets](https://github.com/bartobri/no-more-secrets) (`nms`).
 - **BOFH excuse** (`bin/bofhexcuse`) — Jeff Ballard's
   [BOFH-style Excuse Server](https://pages.cs.wisc.edu/~ballard/bofh/).
 - **Programming Excuse** — [programmingexcuses.com](http://programmingexcuses.com).
@@ -177,7 +252,7 @@ that actually do something:
 | `FAST` | Install missing packages and update dotfiles/`.bashrc` blocks — safe to re-run any time |
 | `INFO` | No persistent data directories — shows useful commands |
 
-Plus the custom action described above (toggle whimsy).
+Plus the two custom actions described above (launch a splash, toggle whimsy).
 
 ---
 
@@ -196,6 +271,10 @@ grep -A3 'MAC TERMINAL WHIMSY START' ~/.bashrc
 
 # Current whimsy on/off setting
 cat environments/mac-terminal-setup/.env
+
+# Pick and launch a splash yourself
+~/bin/whimsy-menu
+~/bin/whimsy-splash --list
 
 # Most recent backups from this environment
 ls -t ~/.pi-bootstrap-backups/ | head

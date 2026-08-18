@@ -4,103 +4,20 @@
 (
 cd ~ || exit 0
 
-# Randomly pick between 1, 2, 3, 4, or 5
-case $((1 + RANDOM % 5)) in
-    1)
-        cbonsai --screensaver
-        ;;
-    2)
-        cmatrix -s
-        ;;
-    3)
-        asciiquarium
-        ;;
-    4)
-        # 1. Dynamically gather and parse available cow templates from cowsay -l
-        # (This strips out the header lines text and creates a clean index array)
-        cow_list=($(cowsay -l | tail -n +1))
-
-        # 2. Pick a completely random index number from the array
-        random_cow=${cow_list[$RANDOM % ${#cow_list[@]}]}
-
-        # 3. Output the fortune using the randomly selected template
-        fortune | cowsay -n -f "$random_cow" | lolcat
-        echo "$random_cow"
-        echo ""
-
-        # 4. macOS-safe pause mechanism — only if stdin is an actual terminal,
-        # otherwise this would hang forever waiting for a keypress that never
-        # comes (e.g. `ssh host command`, a script piping input in).
-        if [ -t 0 ]; then
-            echo -n "Press any key to continue..."
-            stty -icanon; dd ibs=1 count=1 status=none >/dev/null; stty icanon
-            echo ""
-        fi
-        ;;
-    5)
-        # Uli Kusterer's TalkingMoose (github.com/uliwitness/talkingmoose)
-        # phrase files — pre-fetched into ~/bin/moose-phrases by run.sh at
-        # install/redeploy time, NOT hit live over the network here. This
-        # block runs on every new interactive shell; curling GitHub from
-        # here would mean a raw.githubusercontent.com request on every
-        # login and every new terminal tab/pane, all day — the same
-        # reason bin/calendars is a local copy rather than fetched here.
-        shopt -s nullglob
-        moose_files=("$HOME"/bin/moose-phrases/*.phraseFile)
-        shopt -u nullglob
-        if [ ${#moose_files[@]} -gt 0 ]; then
-            moose_text=$(cat "${moose_files[$RANDOM % ${#moose_files[@]}]}" 2>/dev/null)
-        else
-            moose_text=""
-        fi
-
-        # Each *.phraseFile holds several activities (PAUSE, HELLO,
-        # GOODBYE, LAUNCH APPLICATION, etc.) as blank-line-delimited
-        # phrases under an ALL-CAPS header line — PAUSE is the idle-desk-
-        # toy one-liner activity this shortcut wants. awk in paragraph
-        # mode (RS="") turns each phrase, and each header, into one
-        # record; \x1e (ASCII record separator — never appears in the
-        # phrase text itself) re-joins just the PAUSE ones so `read -a`
-        # below can split them back into a bash array. %%-prefixed
-        # paragraphs are TalkingMoose's own non-text directives (e.g.
-        # "%%SOUNDFILE Blech"), not phrases — skipped. (run.sh only
-        # fetches files confirmed to have a PAUSE section, so in practice
-        # this always finds at least one — the fallback below is purely
-        # for a stale/partial cache, e.g. before the first re-run of
-        # run.sh after this feature was added.)
-        pause_phrases=$(printf '%s' "$moose_text" | awk '
-            BEGIN { RS=""; ORS="\x1e" }
-            $0 ~ /^[A-Z][A-Z ]*$/ { activity = $0; next }
-            activity == "PAUSE" && $0 !~ /^%%/ { print }
-        ')
-
-        if [ -n "$pause_phrases" ]; then
-            IFS=$'\x1e' read -r -d '' -a moose_phrase_arr < <(printf '%s\0' "$pause_phrases")
-            moose_phrase="${moose_phrase_arr[$RANDOM % ${#moose_phrase_arr[@]}]}"
-            # %s is TalkingMoose's own printf-style placeholder for
-            # whatever app/window prompted the phrase originally (rare in
-            # PAUSE specifically) — swapped for $USER since there's no
-            # such context here.
-            moose_phrase="${moose_phrase//%s/$USER}"
-            echo "$moose_phrase" | cowsay -f moose
-        else
-            # No cache yet (run.sh hasn't fetched it), or an empty/corrupt
-            # file slipped through — always show a moose regardless.
-            fortune | cowsay -f moose
-        fi
-
-        # Same pause as case 4 above, and for the same reason: without it,
-        # the moose bubble just printed gets immediately scrolled off by
-        # everything below (fortune, BOFH excuse, insults, calendar,
-        # weather — none of which pause either), so the whole shell looks
-        # like it "flashed straight to the prompt" with nothing shown.
-        if [ -t 0 ]; then
-            echo -n "Press any key to continue..."
-            stty -icanon; dd ibs=1 count=1 status=none >/dev/null; stty icanon
-            echo ""
-        fi
-        ;;
-esac
+# One randomly-picked splash, chosen from the ones actually installed on
+# this machine. The catalogue itself lives in ~/bin/whimsy-splash (deployed
+# by run.sh) rather than inline here, so the same list backs both this
+# random pick and the explicit-launch TUI, ~/bin/whimsy-menu — inline, the
+# two would drift the moment either was edited.
+#
+# --login is what tells it there's a whole sequence of output still to come
+# below (fortune, excuses, insults, calendar, weather): the splashes that
+# print rather than take over the screen pause for a keypress first, and
+# the ones that only ever end on Ctrl-C get a time limit so a new terminal
+# tab can't wedge itself open forever. See the script's --help.
+if [ -x "$HOME/bin/whimsy-splash" ]; then
+    "$HOME/bin/whimsy-splash" --login
+fi
 
 fortune
 

@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# hollywood widget: a live stream of this Mac's unified system log.
+#
+# Written for this repo, not upstream: hollywood's own `logs` widget tails
+# /var/log/*.log through ccze, and neither half of that exists on macOS
+# (the unified log replaced flat log files in Sierra, and ccze has no
+# Homebrew formula). Same idea, macOS's own plumbing.
+#
+# Widgets are just executables in hollywood's widget directory — it picks
+# them at random, one per pane — so the trap/loop shape below matches
+# upstream's, including its pkill cleanup of sibling widgets on Ctrl-C.
+
+[ "$(uname)" = "Darwin" ] || exit 1
+command -v log >/dev/null 2>&1 || exit 1
+
+trap "pkill -9 -f lib/hollywood/ >/dev/null 2>&1; exit" INT
+while true; do
+	# --style compact is the one-line-per-message format; the default
+	# style wraps every entry over several lines, which in a pane a few
+	# rows tall shows about one message at a time.
+	log stream --style compact 2>/dev/null
+	# Only reached if `log stream` exits (it normally doesn't) — pause
+	# rather than spin the CPU reconnecting in a tight loop.
+	sleep 2
+done

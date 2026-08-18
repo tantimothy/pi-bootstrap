@@ -1,0 +1,367 @@
+#!/usr/bin/env bash
+#
+# whimsy-splash — run one of the whimsical terminal splashes, either a
+# random one (what a new login shell does, via the WHIMSY block .bashrc.whimsy
+# injects) or a named one (what bin/whimsy-menu's TUI does).
+#
+# This script is the single source of truth for the splash catalogue: the
+# random login pick and the explicit-launch menu both go through it, so a
+# splash added here shows up in both without touching either caller. That
+# is the whole reason it exists as a file rather than staying inline in
+# .bashrc.whimsy — the two would otherwise drift the moment one is edited.
+#
+# Usage:
+#   whimsy-splash              # run a random available splash
+#   whimsy-splash <id>         # run one named splash
+#   whimsy-splash --login      # random, in login-shell mode (see below)
+#   whimsy-splash --list       # id<TAB>label<TAB>description, one per line
+#   whimsy-splash --available  # ids that can actually run on this machine
+#
+# Login mode differs from an explicit launch in two ways, both about the
+# fact that a login shell has a whole sequence of output still to print
+# after the splash returns (fortune, BOFH excuse, insults, calendar,
+# weather):
+#   1. The splashes that print rather than take over the screen pause on
+#      "Press any key to continue..." first — without it the rest scrolls
+#      straight past them to the prompt before they can be read.
+#   2. The splashes that never end on their own (hollywood, genact — both
+#      exit only on Ctrl-C) are given a time limit, so a new terminal tab
+#      can't wedge itself open forever. Override with, e.g.,
+#      WHIMSY_SPLASH_SECONDS=60 (0 disables the limit entirely).
+# Neither applies to an explicit launch: whimsy-menu does its own
+# "press Enter to return", and something you deliberately picked from a
+# menu should run until you quit it.
+#
+# Bash 3.2 compatible (macOS's shipped bash) — no associative arrays, no
+# mapfile. The catalogue is therefore a here-doc of pipe-delimited lines
+# plus case statements keyed by id, not a hash.
+
+WHIMSY_SPLASH_SECONDS="${WHIMSY_SPLASH_SECONDS:-30}"
+
+# id|label|description — the order here is the order whimsy-menu lists them
+# in. Descriptions are one line, and say how the splash ends (press a key,
+# q, Ctrl-C), since that's the thing you actually need to know before
+# starting one.
+_splash_catalogue() {
+    cat <<'EOF'
+bonsai|Bonsai tree|A bonsai grows forever (any key exits)
+matrix|Matrix rain|Green cmatrix rain (any key exits)
+aquarium|ASCII aquarium|Fish and sharks swim past (q exits)
+cowsay|Fortune cow|A fortune from a random cow, in lolcat
+moose|Talking Moose|A Talking Moose one-liner, via cowsay
+hollywood|Hollywood hacker|Split-pane logs, dumps, gauges (Ctrl-C)
+genact|Fake activity|Plausible installs and builds (Ctrl-C)
+nms|Sneakers decrypt|A fortune, decrypted Sneakers-style
+EOF
+}
+
+_splash_ids() { _splash_catalogue | cut -d'|' -f1; }
+
+_splash_label() { _splash_catalogue | awk -F'|' -v id="$1" '$1 == id { print $2 }'; }
+
+# hollywood has no Homebrew formula (it's a Debian package upstream), so
+# run.sh fetches it into ~/bin/hollywood.d instead — see run.sh's own
+# comment there. That copy is preferred over anything on $PATH because its
+# widget directory is the one this repo curates for macOS; a $PATH
+# hollywood (an apt install, on Linux) is used only as a fallback.
+_hollywood_bin() {
+    if [ -x "$HOME/bin/hollywood.d/bin/hollywood" ]; then
+        echo "$HOME/bin/hollywood.d/bin/hollywood"
+    else
+        command -v hollywood 2>/dev/null
+    fi
+}
+
+# hollywood's own cleanup (a trap in the process that just ended) covers
+# the normal Ctrl-C exit. It does not cover the two cases this script
+# creates: a login-mode time limit killing it, and the branch it takes when
+# it isn't already inside tmux — there it starts a detached session named
+# "hollywood", `exec`s a client attaching to it, and the session outlives
+# anything that happens to that client. Either way the widgets keep
+# running, invisibly, until something sweeps them. A no-op when hollywood
+# tidied up after itself, which is the common case.
+_hollywood_cleanup() {
+    tmux kill-session -t hollywood >/dev/null 2>&1
+    pkill -f 'lib/hollywood/' >/dev/null 2>&1
+    return 0
+}
+
+# True if the tools a given splash needs are present. Random picks are made
+# from this set only: with hollywood/genact/nms added to a catalogue that
+# used to be entirely brew-installable, "picked at random" and "installed"
+# stopped being the same thing (an older install predating them, a brew
+# install that failed, a hollywood fetch that couldn't reach GitHub), and
+# an unavailable pick would otherwise show as a blank splash with an
+# unexplained "command not found".
+_splash_available() {
+    case "$1" in
+        bonsai)    command -v cbonsai >/dev/null 2>&1 ;;
+        matrix)    command -v cmatrix >/dev/null 2>&1 ;;
+        aquarium)  command -v asciiquarium >/dev/null 2>&1 ;;
+        cowsay)    command -v cowsay >/dev/null 2>&1 && command -v fortune >/dev/null 2>&1 \
+                       && command -v lolcat >/dev/null 2>&1 ;;
+        moose)     command -v cowsay >/dev/null 2>&1 ;;
+        # tmux isn't optional for hollywood — the whole thing is panes in a
+        # tmux session it drives itself.
+        hollywood) [ -n "$(_hollywood_bin)" ] && command -v tmux >/dev/null 2>&1 ;;
+        genact)    command -v genact >/dev/null 2>&1 ;;
+        nms)       command -v nms >/dev/null 2>&1 && command -v fortune >/dev/null 2>&1 ;;
+        *)         return 1 ;;
+    esac
+}
+
+# What to install when _splash_available said no — shown by whimsy-menu
+# next to anything it can't run.
+_splash_install_hint() {
+    case "$1" in
+        bonsai)    echo "brew install cbonsai" ;;
+        matrix)    echo "brew install cmatrix" ;;
+        aquarium)  echo "brew install asciiquarium" ;;
+        cowsay)    echo "brew install cowsay fortune lolcat" ;;
+        moose)     echo "brew install cowsay" ;;
+        hollywood) echo "re-run this environment's run.sh (it fetches hollywood into ~/bin/hollywood.d)" ;;
+        genact)    echo "brew install genact" ;;
+        nms)       echo "brew install no-more-secrets fortune" ;;
+    esac
+}
+
+# Splashes that run until interrupted rather than ending on their own.
+# Only these get login mode's time limit.
+_splash_is_endless() {
+    case "$1" in
+        hollywood|genact) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# macOS-safe pause — only when stdin is a real terminal, otherwise this
+# would hang forever waiting for a keypress that never comes (e.g.
+# `ssh host command`, a script piping input in).
+_splash_pause() {
+    [ -t 0 ] || return 0
+    echo -n "Press any key to continue..."
+    stty -icanon; dd ibs=1 count=1 status=none >/dev/null; stty icanon
+    echo ""
+}
+
+# Run "$@", killing it after $1 seconds. macOS ships no `timeout`
+# (that's GNU coreutils), hence the watchdog rather than a one-liner.
+# The command runs in the background but this script is non-interactive,
+# so no separate process group is created and it keeps the terminal —
+# full-screen curses apps behave exactly as if run in the foreground.
+_splash_run_bounded() {
+    local secs="$1"; shift
+    # Anything that isn't a positive whole number (0, or a typo'd
+    # WHIMSY_SPLASH_SECONDS) means "no limit" — never "limit of garbage",
+    # which would `sleep` an invalid argument, fail instantly, and kill the
+    # splash the moment it started.
+    case "$secs" in
+        ''|*[!0-9]*|0) "$@"; return ;;
+    esac
+    # "$@" must be a real command, never one of this script's own shell
+    # functions. Backgrounding a function makes bash fork a subshell to run
+    # it, and $! is then that subshell — killing it leaves the actual splash
+    # running as an orphan (confirmed directly: the wrapper exited on
+    # schedule while the splash it was supposed to be bounding carried on,
+    # reparented to init). Backgrounding the command itself makes $! the
+    # thing the watchdog needs to kill.
+    "$@" &
+    local pid=$!
+    ( sleep "$secs"; kill -TERM "$pid" >/dev/null 2>&1 ) &
+    local watchdog=$!
+    wait "$pid" >/dev/null 2>&1
+    # Killing the watchdog subshell leaves its `sleep` to finish on its own
+    # — harmless (it exits into nothing), and the alternative is process
+    # group juggling that bash 3.2 makes more trouble than it's worth.
+    kill "$watchdog" >/dev/null 2>&1
+    wait "$watchdog" >/dev/null 2>&1
+    return 0
+}
+
+_run_bonsai()   { cbonsai --screensaver; }
+_run_matrix()   { cmatrix -s; }
+_run_aquarium() { asciiquarium; }
+
+_run_cowsay() {
+    # 1. Dynamically gather and parse available cow templates from cowsay -l
+    # (This strips out the header lines text and creates a clean index array)
+    local cow_list random_cow
+    cow_list=($(cowsay -l | tail -n +1))
+
+    # 2. Pick a completely random index number from the array
+    random_cow=${cow_list[$RANDOM % ${#cow_list[@]}]}
+
+    # 3. Output the fortune using the randomly selected template
+    fortune | cowsay -n -f "$random_cow" | lolcat
+    echo "$random_cow"
+    echo ""
+}
+
+_run_moose() {
+    # Uli Kusterer's TalkingMoose (github.com/uliwitness/talkingmoose)
+    # phrase files — pre-fetched into ~/bin/moose-phrases by run.sh at
+    # install/redeploy time, NOT hit live over the network here. This
+    # runs on every new interactive shell; curling GitHub from here would
+    # mean a raw.githubusercontent.com request on every login and every
+    # new terminal tab/pane, all day — the same reason bin/calendars is a
+    # local copy rather than fetched here.
+    local moose_files moose_text pause_phrases moose_phrase moose_phrase_arr
+    shopt -s nullglob
+    moose_files=("$HOME"/bin/moose-phrases/*.phraseFile)
+    shopt -u nullglob
+    if [ ${#moose_files[@]} -gt 0 ]; then
+        moose_text=$(cat "${moose_files[$RANDOM % ${#moose_files[@]}]}" 2>/dev/null)
+    else
+        moose_text=""
+    fi
+
+    # Each *.phraseFile holds several activities (PAUSE, HELLO, GOODBYE,
+    # LAUNCH APPLICATION, etc.) as blank-line-delimited phrases under an
+    # ALL-CAPS header line — PAUSE is the idle-desk-toy one-liner activity
+    # this splash wants. awk in paragraph mode (RS="") turns each phrase,
+    # and each header, into one record; \x1e (ASCII record separator —
+    # never appears in the phrase text itself) re-joins just the PAUSE ones
+    # so `read -a` below can split them back into a bash array.
+    # %%-prefixed paragraphs are TalkingMoose's own non-text directives
+    # (e.g. "%%SOUNDFILE Blech"), not phrases — skipped. (run.sh only
+    # fetches files confirmed to have a PAUSE section, so in practice this
+    # always finds at least one — the fallback below is purely for a
+    # stale/partial cache.)
+    pause_phrases=$(printf '%s' "$moose_text" | awk '
+        BEGIN { RS=""; ORS="\x1e" }
+        $0 ~ /^[A-Z][A-Z ]*$/ { activity = $0; next }
+        activity == "PAUSE" && $0 !~ /^%%/ { print }
+    ')
+
+    if [ -n "$pause_phrases" ]; then
+        IFS=$'\x1e' read -r -d '' -a moose_phrase_arr < <(printf '%s\0' "$pause_phrases")
+        moose_phrase="${moose_phrase_arr[$RANDOM % ${#moose_phrase_arr[@]}]}"
+        # %s is TalkingMoose's own printf-style placeholder for whatever
+        # app/window prompted the phrase originally (rare in PAUSE
+        # specifically) — swapped for $USER since there's no such context
+        # here.
+        moose_phrase="${moose_phrase//%s/$USER}"
+        echo "$moose_phrase" | cowsay -f moose
+    else
+        # No cache yet (run.sh hasn't fetched it), or an empty/corrupt file
+        # slipped through — always show a moose regardless.
+        fortune | cowsay -f moose
+    fi
+}
+
+_run_nms() {
+    # -a auto-decrypts instead of waiting for a keypress to *start* the
+    # effect; login mode's own pause afterwards holds the decrypted text
+    # on screen, which is the half that's actually worth reading. -c is
+    # deliberately not used: it restores (i.e. erases) the terminal
+    # afterwards, which would wipe the reveal the moment it finished.
+    fortune | nms -a -f green
+}
+
+# Prints one splash. Everything above is plumbing; this is the dispatch.
+_splash_run() {
+    local id="$1" login_mode="$2"
+    local limit=0
+    [ "$login_mode" = "login" ] && _splash_is_endless "$id" && limit="$WHIMSY_SPLASH_SECONDS"
+
+    case "$id" in
+        bonsai)    _run_bonsai ;;
+        matrix)    _run_matrix ;;
+        aquarium)  _run_aquarium ;;
+        cowsay)    _run_cowsay;  [ "$login_mode" = "login" ] && _splash_pause ;;
+        moose)     _run_moose;   [ "$login_mode" = "login" ] && _splash_pause ;;
+        nms)       _run_nms;     [ "$login_mode" = "login" ] && _splash_pause ;;
+        hollywood) _splash_run_bounded "$limit" "$(_hollywood_bin)"; _hollywood_cleanup ;;
+        genact)    _splash_run_bounded "$limit" genact ;;
+        *)
+            echo "whimsy-splash: unknown splash '$id'" >&2
+            echo "Known splashes: $(_splash_ids | tr '\n' ' ')" >&2
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+_splash_random() {
+    local id available=()
+    while IFS= read -r id; do
+        _splash_available "$id" && available+=("$id")
+    done < <(_splash_ids)
+    [ ${#available[@]} -eq 0 ] && return 1
+    echo "${available[$RANDOM % ${#available[@]}]}"
+}
+
+# --- ENTRY POINT ---
+LOGIN_MODE=""
+case "${1:-}" in
+    --list)
+        _splash_catalogue | tr '|' '\t'
+        exit 0
+        ;;
+    --available)
+        while IFS= read -r _id; do
+            _splash_available "$_id" && echo "$_id"
+        done < <(_splash_ids)
+        exit 0
+        ;;
+    -h|--help)
+        cat <<EOF
+whimsy-splash — run one of the whimsical terminal splashes.
+
+  whimsy-splash              Run a random splash that's actually installed
+  whimsy-splash <id>         Run one named splash
+  whimsy-splash --login      Random, in login-shell mode (pauses printed
+                             splashes, time-limits the endless ones)
+  whimsy-splash --list       id, label and description, tab-separated
+  whimsy-splash --available  Just the ids that can run on this machine
+
+Splashes:
+$(_splash_catalogue | awk -F'|' '{ printf "  %-10s %s\n", $1, $3 }')
+
+Environment:
+  WHIMSY_SPLASH_SECONDS  How long --login lets an endless splash
+                         (hollywood, genact) run. Default 30; 0 = no limit.
+
+Pick from these interactively instead with: whimsy-menu
+EOF
+        exit 0
+        ;;
+esac
+
+# --login and an explicit id compose ("--login matrix" — what a login shell
+# would do, but pinned to one splash), so this is a loop rather than a
+# single case on $1.
+SPLASH_ID=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --login) LOGIN_MODE="login" ;;
+        -*)
+            echo "whimsy-splash: unknown option '$1' (try --help)" >&2
+            exit 1
+            ;;
+        *) SPLASH_ID="$1" ;;
+    esac
+    shift
+done
+
+if [ -z "${SPLASH_ID:-}" ]; then
+    SPLASH_ID=$(_splash_random) || {
+        # Nothing installed at all. Silent in login mode (a login shell
+        # shouldn't nag on every new tab about an optional toy), loud when
+        # asked for a splash directly.
+        [ "$LOGIN_MODE" = "login" ] && exit 0
+        echo "whimsy-splash: none of the splashes are installed on this machine." >&2
+        echo "Install them by re-running this environment's run.sh with whimsy enabled." >&2
+        exit 1
+    }
+elif ! _splash_ids | grep -qx "$SPLASH_ID"; then
+    echo "whimsy-splash: unknown splash '$SPLASH_ID'" >&2
+    echo "Known splashes: $(_splash_ids | tr '\n' ' ')" >&2
+    exit 1
+elif ! _splash_available "$SPLASH_ID"; then
+    echo "⚠️  '$(_splash_label "$SPLASH_ID")' isn't available on this machine." >&2
+    echo "   Install it with: $(_splash_install_hint "$SPLASH_ID")" >&2
+    exit 1
+fi
+
+_splash_run "$SPLASH_ID" "$LOGIN_MODE"

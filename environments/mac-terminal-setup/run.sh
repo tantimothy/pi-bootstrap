@@ -162,6 +162,95 @@ if [ "$WHIMSY_ENABLED" = "true" ]; then
     _deploy_file "$SCRIPT_DIR/bin/bofhserver/excuses.txt" "$HOME/bin/bofhserver/excuses.txt"
     _deploy_dir "$SCRIPT_DIR/bin/calendars" "$HOME/bin/calendars"
 
+    # The splash catalogue (shared by the random login pick and the
+    # whimsy-menu TUI) and the TUI itself. locale-lib.sh rides along beside
+    # them because whimsy-menu sources it before dialog draws anything —
+    # deployed rather than duplicated so there's still exactly one copy of
+    # that logic in the repo (see lib/locale-lib.sh's own comment for the
+    # real macOS garbling it prevents).
+    _deploy_file "$SCRIPT_DIR/bin/whimsy-splash" "$HOME/bin/whimsy-splash"
+    chmod +x "$HOME/bin/whimsy-splash"
+    _deploy_file "$SCRIPT_DIR/bin/whimsy-menu" "$HOME/bin/whimsy-menu"
+    chmod +x "$HOME/bin/whimsy-menu"
+    _deploy_file "$REPO_DIR/lib/locale-lib.sh" "$HOME/bin/locale-lib.sh"
+
+    # --- HOLLYWOOD (github.com/dustinkirkland/hollywood) ---
+    #
+    # The one splash with no Homebrew formula: upstream ships it as a
+    # Debian package (`apt install hollywood`), and homebrew-core has never
+    # carried it. So it's fetched here — once, at install/redeploy time,
+    # exactly like the TalkingMoose phrases below and for the same reasons.
+    #
+    # Layout matters: hollywood resolves its widgets as
+    # `$(dirname $0)/../lib/hollywood`, so the script has to sit in a bin/
+    # with a sibling lib/ — hence ~/bin/hollywood.d/ rather than dropping it
+    # straight into ~/bin (where WIDGET_DIR would resolve to ~/lib/hollywood
+    # and every pane would come up empty). A symlink wouldn't work either,
+    # for the same $0-relative reason; bin/whimsy-splash therefore calls the
+    # full path.
+    #
+    # Only the widgets that can actually run on macOS are fetched. Of
+    # upstream's twenty, seven want ccze (unmaintained, no Homebrew
+    # formula), and most of the rest want a Linux-only tool (atop, bmon,
+    # apg), GNU find's -readable, or paths macOS doesn't have (/proc,
+    # /sys, /var/log/*.log). A widget whose dependency check fails exits
+    # immediately and its pane dies, so fetching them anyway would just
+    # thin out the screen — better to hand hollywood a widget directory
+    # where everything in it works. The three mac-* widgets deployed below
+    # (from this repo, not upstream) cover the ground the skipped ones
+    # would have: system logs, hex dumps, network throughput.
+    echo ""
+    echo "🎬 Fetching hollywood to ~/bin/hollywood.d..."
+    HOLLYWOOD_DIR="$HOME/bin/hollywood.d"
+    HOLLYWOOD_WIDGET_DIR="$HOLLYWOOD_DIR/lib/hollywood"
+    HOLLYWOOD_RAW="https://raw.githubusercontent.com/dustinkirkland/hollywood/master"
+    HOLLYWOOD_WIDGETS=(cmatrix figlet htop pv)
+    mkdir -p "$HOLLYWOOD_DIR/bin" "$HOLLYWOOD_WIDGET_DIR"
+
+    HOLLYWOOD_MISSING=false
+    [ -f "$HOLLYWOOD_DIR/bin/hollywood" ] || HOLLYWOOD_MISSING=true
+    for name in "${HOLLYWOOD_WIDGETS[@]}"; do
+        [ -f "$HOLLYWOOD_WIDGET_DIR/$name" ] || { HOLLYWOOD_MISSING=true; break; }
+    done
+    if [ "$HOLLYWOOD_MISSING" = "false" ]; then
+        echo "   ✅ Already cached (script + ${#HOLLYWOOD_WIDGETS[@]} widgets)."
+    else
+        # $1 = URL suffix under the repo root, $2 = destination path.
+        _fetch_hollywood_file() {
+            if curl --max-time 10 -fsSL "$HOLLYWOOD_RAW/$1" -o "$2.tmp"; then
+                mv "$2.tmp" "$2"
+                chmod +x "$2"
+                return 0
+            fi
+            rm -f "$2.tmp"
+            echo "   ⚠️  Couldn't fetch $1 — skipping." >&2
+            return 1
+        }
+        _fetch_hollywood_file "bin/hollywood" "$HOLLYWOOD_DIR/bin/hollywood" || true
+        HOLLYWOOD_OK=0
+        for name in "${HOLLYWOOD_WIDGETS[@]}"; do
+            _fetch_hollywood_file "lib/hollywood/$name" "$HOLLYWOOD_WIDGET_DIR/$name" \
+                && HOLLYWOOD_OK=$((HOLLYWOOD_OK + 1))
+        done
+        if [ -x "$HOLLYWOOD_DIR/bin/hollywood" ]; then
+            echo "   ✅ Fetched hollywood + $HOLLYWOOD_OK/${#HOLLYWOOD_WIDGETS[@]} upstream widgets."
+        else
+            # Not fatal, and deliberately not retried: whimsy-splash checks
+            # for the binary before offering hollywood, so a machine that
+            # couldn't reach GitHub simply never picks it (and whimsy-menu
+            # lists it as not installed) until the next run.sh.
+            echo "   ⚠️  hollywood itself wasn't fetched — it'll be skipped in the splash rotation."
+        fi
+    fi
+
+    # This repo's own macOS widgets, always redeployed (they're ours, so
+    # they track the repo rather than a cache).
+    for widget in "$SCRIPT_DIR"/bin/hollywood-widgets/*; do
+        [ -f "$widget" ] || continue
+        _deploy_file "$widget" "$HOLLYWOOD_WIDGET_DIR/$(basename "$widget")"
+        chmod +x "$HOLLYWOOD_WIDGET_DIR/$(basename "$widget")"
+    done
+
     # Uli Kusterer's TalkingMoose (github.com/uliwitness/talkingmoose)
     # phrase files, fetched here — once, at install/redeploy time — rather
     # than by .bashrc.whimsy on every new interactive shell. That runs on
