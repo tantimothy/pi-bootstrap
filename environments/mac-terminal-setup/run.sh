@@ -172,6 +172,8 @@ if [ "$WHIMSY_ENABLED" = "true" ]; then
     chmod +x "$HOME/bin/whimsy-splash"
     _deploy_file "$SCRIPT_DIR/bin/whimsy-menu" "$HOME/bin/whimsy-menu"
     chmod +x "$HOME/bin/whimsy-menu"
+    _deploy_file "$SCRIPT_DIR/bin/install-bb" "$HOME/bin/install-bb"
+    chmod +x "$HOME/bin/install-bb"
     _deploy_file "$REPO_DIR/lib/locale-lib.sh" "$HOME/bin/locale-lib.sh"
 
     # --- HOLLYWOOD (github.com/dustinkirkland/hollywood) ---
@@ -250,6 +252,22 @@ if [ "$WHIMSY_ENABLED" = "true" ]; then
         _deploy_file "$widget" "$HOLLYWOOD_WIDGET_DIR/$(basename "$widget")"
         chmod +x "$HOLLYWOOD_WIDGET_DIR/$(basename "$widget")"
     done
+
+    # --- BB (AA-lib's demo) ---
+    #
+    # The only splash nothing packages for macOS — no Homebrew formula, no
+    # MacPorts port — so it gets compiled instead of fetched. All the
+    # detail, including why a failed build isn't retried on every deploy,
+    # is in bin/install-bb itself; this is deliberately just the call.
+    #
+    # `|| true` because a compile of a 1997 codebase is the one step here
+    # genuinely likely to fail on somebody's machine, and whimsy is not
+    # worth failing a terminal-setup deploy over: whimsy-splash checks for
+    # the binary before offering bb, so a machine where this didn't work
+    # simply never picks it.
+    echo ""
+    echo "🎪 Checking bb (AA-lib demo)..."
+    bash "$SCRIPT_DIR/bin/install-bb" || true
 
     # Uli Kusterer's TalkingMoose (github.com/uliwitness/talkingmoose)
     # phrase files, fetched here — once, at install/redeploy time — rather

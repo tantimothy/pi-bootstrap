@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+#
+# install-bb — build AA-lib's BB demo into ~/bin/bb.d.
+#
+# BB is the one splash in whimsy-splash's catalogue that nothing packages
+# for macOS: no Homebrew formula, no MacPorts port (both checked). Upstream
+# is a 1997 autoconf-2.13 tarball on SourceForge; what's built here is
+# github.com/artyfarty/bb-osx, a fork whose whole purpose is making that
+# tree compile on a modern Mac. It ships a generated `configure`, so this
+# needs no autotools of its own — just a compiler, aalib and libmikmod.
+#
+# Everything lands under ~/bin/bb.d (source in src/, binary in bin/) with
+# --prefix, so nothing touches /usr/local and nothing needs sudo.
+#
+# Run by run.sh once, best-effort, when whimsy is enabled and bb isn't
+# already present. Run it yourself any time to retry:
+#
+#   ~/bin/install-bb            # build if not already built
+#   ~/bin/install-bb --force    # rebuild from scratch, ignoring a past failure
+#
+# A failed build writes .build-failed next to the log and is not retried
+# automatically — a compiler error on a 28-year-old codebase is not
+# something a fourth identical attempt at the next deploy will fix, and
+# silently burning a minute of every `run.sh` on it would be worse than
+# saying so once.
+
+set -u
+
+BB_DIR="$HOME/bin/bb.d"
+BB_SRC="$BB_DIR/src"
+BB_LOG="$BB_DIR/build.log"
+BB_FAILED="$BB_DIR/.build-failed"
+BB_REPO="https://github.com/artyfarty/bb-osx.git"
+
+FORCE=false
+[ "${1:-}" = "--force" ] && FORCE=true
+
+if [ -x "$BB_DIR/bin/bb" ] && [ "$FORCE" = "false" ]; then
+    echo "   ✅ bb already built ($BB_DIR/bin/bb)."
+    exit 0
+fi
+
+if [ -f "$BB_FAILED" ] && [ "$FORCE" = "false" ]; then
+    echo "   ⏭️  Skipping bb — a previous build failed. Details: $BB_LOG"
+    echo "      Retry with: ~/bin/install-bb --force"
+    exit 0
+fi
+
+# git and a compiler are the two things that can't be worked around here.
+# On a Mac both arrive together with the Xcode Command Line Tools, so a
+# machine missing one is generally missing both.
+for tool in git make cc; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "   ⚠️  bb needs '$tool', which isn't installed." >&2
+        echo "      On macOS: xcode-select --install" >&2
+        exit 1
+    fi
+done
+
+# aalib is what bb renders through; libmikmod is its music. Both are
+# Homebrew formulas. aalib is already in packages-whimsy.txt (aafire needs
+# it too); libmikmod is only ever needed to build bb, which is why it's
+# installed here rather than in the always-installed list.
+if command -v brew >/dev/null 2>&1; then
+    for formula in aalib libmikmod; do
+        brew list --formula "$formula" >/dev/null 2>&1 || {
+            echo "   📦 Installing $formula (bb build dependency)..."
+            brew install "$formula" || echo "   ⚠️  brew install $formula failed — continuing anyway." >&2
+        }
+    done
+else
+    echo "   ⚠️  Homebrew not found — bb needs aalib and libmikmod. Continuing anyway." >&2
+fi
+
+mkdir -p "$BB_DIR"
+rm -f "$BB_FAILED"
+
+echo "   🎬 Building bb from $BB_REPO..."
+{
+    echo "=== install-bb $(date) ==="
+    if [ -d "$BB_SRC/.git" ]; then
+        git -C "$BB_SRC" pull --ff-only
+    else
+        rm -rf "$BB_SRC"
+        git clone --depth 1 "$BB_REPO" "$BB_SRC"
+    fi
+} > "$BB_LOG" 2>&1 || {
+    echo "   ⚠️  Couldn't fetch the bb source — see $BB_LOG" >&2
+    touch "$BB_FAILED"
+    exit 1
+}
+
+# The fork commits its maintainer's own config.cache — confirmed directly:
+# it hardcodes ac_cv_path_AALIB_CONFIG=/usr/local/bin/aalib-config and
+# LIBMIKMOD_CONFIG=no. autoconf 2.13 loads that file before probing
+# anything, so on an Apple Silicon Mac (Homebrew at /opt/homebrew, not
+# /usr/local) configure would "find" an aalib-config that isn't there and
+# fail with "AALIB >= 1.4.0 not installed" no matter how correctly aalib
+# was installed. Deleted here and disabled with --cache-file=/dev/null, so
+# every probe is answered by this machine rather than by someone else's
+# from years ago.
+rm -f "$BB_SRC/config.cache"
+
+# git records no mtimes, so a fresh clone lands every generated autotools
+# file with an essentially random ordering relative to its own source —
+# and whenever aclocal.m4 comes out older than configure.in, make dutifully
+# tries to regenerate the lot with whatever aclocal/automake this machine
+# has. On a 1997 tree that fails outright (confirmed directly: "required
+# file './compile' not found", from a modern automake refusing a
+# two-argument AM_INIT_AUTOMAKE), and on a typical Mac it fails even
+# sooner, because nobody has autotools installed at all.
+#
+# Touching them in dependency order — source first, then each thing
+# derived from it — makes every generated file newer than its input, so
+# those rules never fire. The AUTO* overrides passed to make below are the
+# belt to this pair of braces.
+for generated in configure.in aclocal.m4 configure aconfig.h.in stamp-h.in Makefile.in; do
+    [ -f "$BB_SRC/$generated" ] && touch "$BB_SRC/$generated"
+done
+
+# --with-libmikmod-prefix is the one flag the fork's own README calls out
+# as sometimes needed; passing Homebrew's prefix unconditionally (when
+# there is one) costs nothing and covers the case it describes.
+CONFIGURE_ARGS=("--prefix=$BB_DIR" "--cache-file=/dev/null")
+if command -v brew >/dev/null 2>&1; then
+    BREW_PREFIX="$(brew --prefix 2>/dev/null)"
+    [ -n "$BREW_PREFIX" ] && CONFIGURE_ARGS+=("--with-libmikmod-prefix=$BREW_PREFIX")
+fi
+
+{
+    cd "$BB_SRC" || exit 1
+    echo "=== configure ${CONFIGURE_ARGS[*]} ==="
+    # LIBS=-lm: bb calls sqrt() and friends and never asks for libm, which
+    # was fine in 1997 and is still fine on macOS (libSystem carries the
+    # math functions, so the link resolves either way). glibc splits libm
+    # out, so on Linux the link fails without this — confirmed directly,
+    # and confirmed fixed by exactly this. Harmless on macOS, where -lm is
+    # an empty stub kept for precisely this kind of portability.
+    LIBS="${LIBS:-} -lm" ./configure "${CONFIGURE_ARGS[@]}" &&
+        echo "=== make ===" &&
+        # `:` is /bin/true — these turn automake's own regeneration rules
+        # into no-ops if the timestamp ordering above somehow still leaves
+        # one live. Nothing here should ever need regenerating: the fork
+        # ships every generated file already.
+        make ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=: &&
+        echo "=== make install ===" &&
+        make ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=: install
+} >> "$BB_LOG" 2>&1
+
+if [ -x "$BB_DIR/bin/bb" ]; then
+    echo "   ✅ Built bb — $BB_DIR/bin/bb"
+    exit 0
+fi
+
+# The realistic failure: clang rejecting something autoconf 2.13 and
+# 1997-era C got away with. Nothing to auto-repair, so record it and say
+# where to look.
+echo "   ⚠️  bb didn't build. Full output: $BB_LOG" >&2
+echo "      Everything else still works; bb just shows as [not installed]" >&2
+echo "      in whimsy-menu. Retry after fixing with: ~/bin/install-bb --force" >&2
+touch "$BB_FAILED"
+exit 1

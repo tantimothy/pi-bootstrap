@@ -118,6 +118,87 @@ actually read anyway).
   had both, so neither code path has actually executed. See
   `docs/future-enhancements/mac-terminal-setup.md`.
 
+## Session 2 (2026-08-18): building BB from source for the splash menu
+
+**Status:** found and fixed while implementing, not yet confirmed on
+macOS. Both issues below are real and were reproduced directly — but on
+Linux with gcc, since that's what was available; the fixes are what turned
+a build that failed twice into one that produces a working binary. The
+same build has never been run against clang on a Mac, which is the
+platform it's actually for. See
+`docs/future-enhancements/mac-terminal-setup.md` #4.
+
+Context: `bb` (AA-lib's demo) was added to the whimsy splash catalogue
+alongside `aafire`, `sl` and `tty-clock`. The other three are Homebrew
+formulas; `bb` is packaged nowhere for macOS — not homebrew-core, not
+MacPorts — so `bin/install-bb` compiles it from
+[artyfarty/bb-osx](https://github.com/artyfarty/bb-osx), a fork that exists
+to build the 1997 tree on modern Macs. Neither problem below is that
+fork's headline "does it compile" question; both are the kind of thing
+that makes a build fail before the compiler is ever reached.
+
+### 4. The fork ships its maintainer's `config.cache`, pinning aalib to `/usr/local`
+
+**Symptom:** `configure` failed with
+`*** AALIB >= 1.4.0 not installed - please install first ***`, having
+"found" aalib-config at `/usr/local/bin/aalib-config` — a path that did
+not exist on the machine, on a machine where nothing had ever put one
+there.
+
+**Root cause:** `config.cache` is committed to the fork's git history
+(`git show HEAD:config.cache` confirms it), carrying
+`ac_cv_path_AALIB_CONFIG=/usr/local/bin/aalib-config` and
+`LIBMIKMOD_CONFIG=no` from whatever machine last ran `configure` there.
+autoconf 2.13 loads that file *before* probing anything, so every clone
+inherits someone else's answers. On an Apple Silicon Mac the same trap is
+waiting with different coordinates: Homebrew lives at `/opt/homebrew`, so
+a correctly `brew install`ed aalib would still be "found" at the cached
+`/usr/local` path and the build would fail exactly this way.
+
+**Fix:** `bin/install-bb` deletes `config.cache` after the clone and
+passes `--cache-file=/dev/null`, so every probe is answered by the machine
+doing the building.
+
+### 5. A git clone's arbitrary mtimes make automake try to regenerate a 1997 tree
+
+**Symptom:** `make` immediately ran `aclocal`, then `automake`, then died:
+`configure.in:7: error: required file './compile' not found`, from a
+modern automake refusing the tree's two-argument `AM_INIT_AUTOMAKE`.
+
+**Root cause:** git records no mtimes, so a fresh clone writes every file
+with essentially arbitrary ordering relative to every other. The fork
+ships all its generated autotools files (`aclocal.m4`, `configure`,
+`Makefile.in`), but whenever `aclocal.m4` happens to land older than
+`configure.in`, make's regeneration rules fire and hand a 1997 tree to a
+2026 automake. On a typical Mac this fails even earlier and more
+confusingly: nobody has autotools installed, so it's `aclocal: command not
+found`.
+
+**Fix:** `touch` the generated files in dependency order after the clone
+(source first, each derived file after its input), so nothing looks stale,
+plus `make ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=:` as a second line
+of defence — nothing in this tree ever needs regenerating.
+
+**Also, separately:** the link then failed on `sqrt` (`DSO missing from
+command line`). bb never asks for libm, which was fine in 1997 and is
+still fine on macOS, where libSystem carries the math functions; glibc
+splits libm out. `LIBS=-lm` fixes it and is harmless on macOS, where `-lm`
+is an empty stub kept for exactly this. Not listed as a numbered issue
+because it's a platform difference rather than a defect, but it's the
+third thing that had to be right before a binary appeared.
+
+### General lesson
+
+**A third-party fork's committed build artifacts are inputs to your build,
+not neutral files.** Both issues here came from the same root: state that
+belongs to one machine (`config.cache`) or one moment (mtimes) being
+carried in git and silently believed by the build system. The tell in both
+cases was a failure that pointed at the *local* machine — "aalib not
+installed" when it was, "compile not found" when nothing should have been
+compiling autotools input — while the actual cause was committed history.
+Worth remembering the next time this repo builds anything from a fork:
+check what the fork commits, not just what it changed.
+
 ## Related Commits
 
 All of the following were merged directly to `master` by the user (local

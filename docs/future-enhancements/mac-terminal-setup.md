@@ -68,9 +68,10 @@ this on a schedule and opens a PR on drift would close the gap for good,
 but is likely more machinery than a once-a-year manual check justifies for
 what's ultimately a whimsy feature.
 
-## 4. Confirm the three new splashes actually behave on a real Mac
+## 4. Confirm the seven new splashes actually behave on a real Mac
 
-`hollywood`, `genact` and `nms` were added to the splash catalogue
+`hollywood`, `genact`, `nms`, `aafire`, `bb`, `sl` and `tty-clock` were
+added to the splash catalogue
 (`environments/mac-terminal-setup/bin/whimsy-splash`) along with
 `bin/whimsy-menu`, the TUI for launching any of them on demand. The
 scripts' own mechanics were exercised directly on Linux — catalogue
@@ -82,10 +83,27 @@ everything into the right layout under a throwaway `$HOME`. None of it has
 run on macOS, which is the only OS this environment supports, so what's
 below is reasoned-from-upstream-source rather than seen working:
 
-- **`brew install genact no-more-secrets dialog figlet pv htop`** — every
-  one of those formula names was confirmed to exist in `homebrew-core`
-  (and `hollywood` confirmed *not* to, which is why `run.sh` fetches it),
-  but no `brew install` has actually been run.
+- **`brew install genact no-more-secrets sl tty-clock aalib dialog figlet
+  pv htop`** — every one of those formula names was confirmed to exist in
+  `homebrew-core` (and `hollywood` and `bb` confirmed *not* to, which is
+  why `run.sh` fetches one and compiles the other), but no `brew install`
+  has actually been run.
+- **The `bb` build** — the only step in this environment that compiles
+  anything. `bin/install-bb` builds `artyfarty/bb-osx` (a fork of a 1997
+  autoconf-2.13 tree) against aalib and libmikmod. This one is *partly*
+  verified: it was run end to end on Linux with gcc, where it now produces
+  a working binary — but only after fixing two real blockers that would
+  have hit macOS just as hard, and one Linux-only link error (all three in
+  `docs/lessons-learned/mac-terminal-setup.md`, session 2). What's left
+  unverified is the compiler itself: clang is stricter than gcc about the
+  implicit function declarations this vintage of C used freely, and the
+  fork's claim to build on "modern Macs" dates from whenever it was last
+  touched. The failure is fully contained (`|| true`, a logged
+  `.build-failed` marker, and `bb` showing as `[not installed]`), so the
+  question isn't whether a failure breaks anything — it's whether it
+  succeeds. If it doesn't, the options are patching the fork, adding
+  `-Wno-implicit-function-declaration`, or dropping `bb` back to a
+  documented manual build.
 - **hollywood inside this environment's own tmux** — `.bashrc.tmux`
   auto-attaches tmux before the whimsy block runs, so on a real login
   `$TMUX` is always set and hollywood takes its "already in tmux" branch:
@@ -107,7 +125,7 @@ below is reasoned-from-upstream-source rather than seen working:
   turns up on macOS, the widget whose tool is missing is the thing to find.
 
 **Close this out by:** enabling whimsy on a real Mac, running
-`~/bin/whimsy-menu`, and launching all eight splashes from it — then
+`~/bin/whimsy-menu`, and launching all twelve splashes from it — then
 opening a few new terminal tabs to see the random login pick, including at
 least one that lands on `hollywood` or `genact` and hits the
 `WHIMSY_SPLASH_SECONDS` limit.

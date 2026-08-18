@@ -42,9 +42,10 @@ management:
    `WHIMSY_ENABLED=true`/`false` in `.env` yourself (see `.env.example`).
 3. **Installs packages** — always `packages.txt` (`tmux`, `fastfetch`);
    additionally `packages-whimsy.txt` (`cbonsai`, `cmatrix`, `asciiquarium`,
-   `cowsay`, `fortune`, `lolcat`, `genact`, `no-more-secrets`, `dialog`,
-   plus `figlet`/`pv`/`htop` for hollywood's panes) and the
-   `Acme::Scurvy::Whoreson::BilgeRat` CPAN module if whimsy is enabled.
+   `cowsay`, `fortune`, `lolcat`, `genact`, `no-more-secrets`, `sl`,
+   `tty-clock`, `aalib`, `dialog`, plus `figlet`/`pv`/`htop` for
+   hollywood's panes) and the `Acme::Scurvy::Whoreson::BilgeRat` CPAN
+   module if whimsy is enabled.
 4. **Notes whether MacPorts is installed** — no automated installer exists
    for it (unlike Homebrew's one-liner), so this is informational only; the
    MacPorts `PATH` lines in `.bash_profile` are harmless no-ops without it.
@@ -52,7 +53,8 @@ management:
    enabled — the bundled `~/bin` scripts (including `whimsy-splash` and the
    `whimsy-menu` picker), calendar data, TalkingMoose phrase files, and
    hollywood (the last two fetched from GitHub here, once, rather than on
-   every shell).
+   every shell) — then builds `bb`, the one splash nothing packages for
+   macOS.
 6. **Injects four `.bashrc` blocks**, always reassembled in this order:
    `prompt` → `tmux` → `fastfetch` → `whimsy` (only if enabled). The whole
    injected region is guarded behind `[[ $- == *i* ]] || return`, so
@@ -108,16 +110,22 @@ the splash to the prompt before you could read it.
 | `hollywood` | [hollywood](https://github.com/dustinkirkland/hollywood) — split panes of logs, hex dumps, gauges and traffic | Ctrl-C |
 | `genact` | [genact](https://github.com/svenstaro/genact) — plausible-looking installs, builds and downloads | Ctrl-C |
 | `nms` | A `fortune` "decrypted" the way [Sneakers (1992)](https://github.com/bartobri/no-more-secrets) did it | plays once |
+| `aafire` | [AA-lib](https://aa-project.sourceforge.net/aalib/)'s `aafire` — flames burn up the terminal | any key |
+| `bb` | [BB](https://aa-project.sourceforge.net/bb/), AA-lib's own audio-visual demo | Ctrl-C (or its own ending, minutes later) |
+| `sl` | [sl](https://github.com/mtoyoda/sl) — a steam locomotive, in one of five random variants | runs once, ~5s |
+| `ttyclock` | [tty-clock](https://github.com/xorg62/tty-clock) in screensaver mode, centred and coloured | any key |
 
 The catalogue lives in `bin/whimsy-splash` — one file, used both by the
 random login pick and by the menu below, so the two can't drift apart. A
 splash whose tools aren't installed is skipped by the random pick rather
 than flashing an empty screen with a "command not found".
 
-`hollywood` and `genact` only ever end on Ctrl-C, which is fine when you
-launched one deliberately and unhelpful when a new terminal tab did. So on
-login — and only on login — they're given a time limit, 30 seconds by
-default: `export WHIMSY_SPLASH_SECONDS=60` to change it, `0` to remove it.
+`hollywood` and `genact` only ever end on Ctrl-C, and `bb`'s demo runs for
+minutes — fine when you launched one deliberately, unhelpful when a new
+terminal tab did. So on login, and only on login, those three get a time
+limit: 30 seconds by default, `export WHIMSY_SPLASH_SECONDS=60` to change
+it, `0` to remove it. `sl` is left alone; it ignores Ctrl-C by design and
+leaves on its own after about five seconds.
 
 ### Launching One Yourself
 
@@ -157,11 +165,38 @@ of its own (`bin/hollywood-widgets/`, deployed alongside the fetched ones):
 Together with upstream's `cmatrix`, `figlet`, `htop` and `pv` widgets
 that's seven panes' worth, which is about what hollywood asks for.
 
-> **Not yet seen on a real Mac.** hollywood, `genact` and `nms` were added
-> and their plumbing tested on Linux; no `brew install` of the new formulas
-> and no hollywood pane has run on macOS itself. What's still worth
-> confirming, and how, is in
+> **Not yet seen on a real Mac.** hollywood, `genact`, `nms`, `aafire`,
+> `bb`, `sl` and `tty-clock` were added and their plumbing tested on Linux;
+> no `brew install` of the new formulas and no hollywood pane has run on
+> macOS itself. What's still worth confirming, and how, is in
 > `docs/future-enhancements/mac-terminal-setup.md` #4.
+
+### About bb on macOS
+
+`bb` is the one splash with no package at all — not in homebrew-core, not
+in MacPorts (both checked). `run.sh` therefore *compiles* it, via
+`bin/install-bb`, from [artyfarty/bb-osx](https://github.com/artyfarty/bb-osx),
+a fork of the 1997 AA-project tarball that exists specifically to build on
+modern Macs. Everything lands under `~/bin/bb.d` with `--prefix`, so no
+sudo and nothing in `/usr/local`.
+
+That build was run end to end on Linux, where it produces a working
+binary — but only after `install-bb` works around two things the fork
+ships that would break it anywhere (a committed `config.cache` pinning
+aalib to `/usr/local`, and autotools regeneration triggered by a clone's
+arbitrary mtimes; both written up in
+`docs/lessons-learned/mac-terminal-setup.md`). It has not been run against
+clang on a Mac, which is stricter than gcc about code of this vintage.
+
+It's called with `|| true` so it can never fail a deploy, records its
+output in `~/bin/bb.d/build.log`, and marks `.build-failed` so it isn't
+retried on every subsequent `run.sh`. When it fails, `bb` simply shows as
+`[not installed]` in the menu and never comes up in the random rotation.
+To retry after fixing something:
+
+```bash
+~/bin/install-bb --force
+```
 
 **Toggling it:**
 - Re-run `./run.sh` and answer differently — but it only asks once, so:
@@ -194,6 +229,13 @@ Where each whimsy piece comes from:
   fetched by `./run.sh` into `~/bin/hollywood.d/` along with the four of
   its widgets that run on macOS.
 - **Fake activity** — [genact](https://github.com/svenstaro/genact).
+- **Burning terminal / BB demo** — Jan Hubicka's
+  [AA-lib](https://aa-project.sourceforge.net/aalib/) (`aafire`) and
+  [BB](https://aa-project.sourceforge.net/bb/), the latter built from
+  [artyfarty/bb-osx](https://github.com/artyfarty/bb-osx)'s
+  modern-macOS fork.
+- **Steam locomotive** — Toyoda Masashi's [sl](https://github.com/mtoyoda/sl).
+- **Digital clock** — [tty-clock](https://github.com/xorg62/tty-clock).
 - **Sneakers decryption effect** — Brian Barto's
   [no-more-secrets](https://github.com/bartobri/no-more-secrets) (`nms`).
 - **BOFH excuse** (`bin/bofhexcuse`) — Jeff Ballard's
