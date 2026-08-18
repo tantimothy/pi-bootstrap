@@ -367,6 +367,36 @@ matter how many drivers the new aalib had. `install-bb` now records which
 aalib it built against and rebuilds when that changes, and `run.sh` builds
 aalib first so a single pass is enough.
 
+### 10. A dialog menu two rows too short silently drops its last entry
+
+**Symptom:** reported as `tty-clock` having been left out of the splash
+menu and the random rotation — twice, because it looked that way. It had
+been in the catalogue since it was added, and both the menu and the random
+pick read that same catalogue.
+
+**Root cause:** `whimsy-menu` sizes its dialog box as
+`list_height + <chrome>`, capped to the terminal. The chrome allowance was
+7 rows, estimated. It is 9 — borders, title, prompt, the blank rows around
+the list, and the button row. Two rows short, and dialog doesn't complain
+or refuse to draw; it silently scrolls the list, showing 12 of 13 entries.
+The one it drops is the last, which is whatever splash was added most
+recently. Measured directly at 80x24: box 20 renders 12 rows, box 22
+renders 13.
+
+The two-line prompt was the other half. It cost two rows of list on every
+terminal, and shortening it to one line fits the whole catalogue even at
+the old box height (measured: box 20 + one-line prompt = 13/13).
+
+**Fix:** chrome allowance corrected to a measured 9, and the prompt cut to
+one line. Verified by capturing the rendered pane at 24 and 30 rows and
+listing the entries actually drawn — all thirteen, `ttyclock` included.
+
+**Worth noting about the earlier fix:** moving `random` to the top of the
+list, done when this sizing was first written, was a response to the same
+bug seen from the other end — an entry falling off the bottom. It made
+`random` safe and left the bug in place for whatever entry inherited last
+position. A symptom moved is not a bug fixed.
+
 ### General lesson
 
 **A third-party fork's committed build artifacts are inputs to your build,
@@ -396,6 +426,13 @@ ran `aafire -help` on the actual Mac, and that one line was what turned
 "aalib probably has no real driver" into "aalib has no real driver, here
 is why, and here is the flag that fixes it". A one-command question
 answered in seconds what careful inference could only narrow down.
+
+**"It was never added" and "it's there but you can't see it" look
+identical from the outside.** Issue #10 was reported as a missing feature,
+twice, and the code plainly contained it — the temptation was to answer
+"it's already there" and move on, which would have been true and useless.
+The reporter is describing what they see; when that contradicts what the
+code says, something between the two is eating it.
 
 **A symptom that looks like a rendering bug can be a capability that was
 never compiled in.** Issue #8 presented as "vertical sync isn't working"
