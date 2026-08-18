@@ -174,6 +174,8 @@ if [ "$WHIMSY_ENABLED" = "true" ]; then
     chmod +x "$HOME/bin/whimsy-menu"
     _deploy_file "$SCRIPT_DIR/bin/install-bb" "$HOME/bin/install-bb"
     chmod +x "$HOME/bin/install-bb"
+    _deploy_file "$SCRIPT_DIR/bin/install-aalib" "$HOME/bin/install-aalib"
+    chmod +x "$HOME/bin/install-aalib"
     _deploy_file "$REPO_DIR/lib/locale-lib.sh" "$HOME/bin/locale-lib.sh"
 
     # --- HOLLYWOOD (github.com/dustinkirkland/hollywood) ---
@@ -265,6 +267,15 @@ if [ "$WHIMSY_ENABLED" = "true" ]; then
     # worth failing a terminal-setup deploy over: whimsy-splash checks for
     # the binary before offering bb, so a machine where this didn't work
     # simply never picks it.
+    # aalib before bb, deliberately: bb links against whatever aalib it
+    # finds at build time and inherits its drivers, so building a better
+    # aalib after bb would leave bb still streaming frames. install-bb
+    # notices the change and rebuilds, but only on the next run — doing
+    # them in this order means one pass is enough.
+    echo ""
+    echo "🔥 Checking aalib (aafire's renderer)..."
+    bash "$SCRIPT_DIR/bin/install-aalib" || true
+
     echo ""
     echo "🎪 Checking bb (AA-lib demo)..."
     bash "$SCRIPT_DIR/bin/install-bb" || true

@@ -120,28 +120,45 @@ random login pick and by the menu below, so the two can't drift apart. A
 splash whose tools aren't installed is skipped by the random pick rather
 than flashing an empty screen with a "command not found".
 
-### If `aafire` scrolls instead of burning in place
+### If `aafire` or `bb` scrolls instead of animating in place
 
 aalib picks its output driver at runtime — slang, then curses, then
 `stdout` — and the `stdout` driver does no in-place redraw at all: it
-prints each frame as plain lines, so the terminal scrolls. That is what a
-machine whose aalib has no real terminal driver looks like, and it is a
-property of how aalib was built, not of your terminal (Homebrew's formula
-builds it `--without-x` and depends on neither s-lang nor ncurses).
+prints each frame as plain lines, in a fixed 80x25 frame it can't resize.
+That's why an aafire in a tall window crawls up the screen, and why
+shrinking the terminal to about 30 rows appears to fix it.
 
-`whimsy-splash` asks for the best driver aalib actually has, so the usual
-case is handled. To see what yours has:
+**Homebrew's aalib has no other driver.** Its 1997 configure looks for
+curses in hardcoded paths like `/usr/include/ncurses.h`, and macOS hasn't
+had a `/usr/include` since 10.14 — headers moved into the SDK. Every test
+fails, the driver is dropped, and the build still succeeds. Check yours:
 
 ```bash
 aafire -help 2>&1 | grep -A1 'available drivers'
 ```
 
-If that lists only `stdout` and `stderr`, no argument can fix it — aalib
-itself needs rebuilding against ncurses or s-lang. If it lists `curses` or
-`slang` and the fire *still* scrolls, the driver is present but failing to
-initialise, and tmux is the likely reason: `TERM` inside tmux may name a
-terminfo entry the linked curses doesn't carry. Compare a run outside
-tmux, or with `TERM=xterm-256color`, to confirm.
+`run.sh` handles this by building a better one: **`bin/install-aalib`**
+compiles the same 1.4rc5 release Homebrew packages (checksum-verified,
+with Homebrew's own patch), adding `--with-ncurses=<prefix>` — an aalib
+option that skips the path hunt and wires up the include and library paths
+directly. Everything lands in `~/bin/aalib.d`, nothing system-wide, and
+`whimsy-splash` prefers that `aafire` when it exists. It's skipped
+entirely on a machine whose aalib already has a real driver.
+
+`bb` renders through aalib too, but through the copy it was *linked*
+against — so `install-bb` records which aalib that was and rebuilds when
+it changes, and `run.sh` builds aalib first so one pass is enough.
+
+Where no better aalib can be built, `whimsy-splash` falls back to passing
+the terminal's real size, so the streaming driver at least fills the
+window at any size instead of only at 25 rows. It still tears; that part
+is inherent.
+
+Retry the build by hand any time:
+
+```bash
+~/bin/install-aalib --force
+```
 
 `hollywood` and `genact` only ever end on Ctrl-C, and `bb`'s demo runs for
 minutes — fine when you launched one deliberately, unhelpful when a new

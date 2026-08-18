@@ -126,6 +126,9 @@ this on the user's Mac, one round at a time — each fix got the build one
 step further and revealed the next thing. Every fix is verified not to
 regress the gcc build; the macOS confirmation for #7 and #8 is still
 outstanding. See `docs/future-enhancements/mac-terminal-setup.md` #4.
+Issue #9 is the one that finally explains the aafire/bb rendering, and it
+was only reachable because the machine was asked what drivers it had
+rather than being reasoned about.
 
 Context: `bb` (AA-lib's demo) was added to the whimsy splash catalogue
 alongside `aafire`, `sl` and `tty-clock`. The other three are Homebrew
@@ -288,9 +291,79 @@ genuinely can be implicated.
 **Fix:** `whimsy-splash` asks aalib for the best driver it actually has
 (`aafire -help` lists them), passing `-driver slang`/`-driver curses` when
 present and nothing when neither is. Requesting one is free: aalib falls
-back on its own if it can't honour the request. Where neither real driver
-was compiled in, no argument helps and the answer is a differently-built
-aalib — the README says so at the point it applies.
+back on its own if it can't honour the request.
+
+**Follow-up, from the same Mac:** the driver request changed nothing there
+and `bb` scrolled the same way once it built — but with the detail that it
+"displays nice" at a terminal height of about 30 rows. That detail is the
+rest of the diagnosis. `aainfo -driver stdout` reports a fixed **80x25**
+frame: the streaming driver cannot ask the terminal how big it is, so it
+never adapts. In a taller window each 25-row frame stacks under the last
+instead of replacing it and the animation crawls upward; at ~25-30 rows a
+frame happens to fill the window and it looks stationary. Resizing the
+terminal wasn't a workaround for a rendering bug — it was the user
+manually matching the window to a hardcoded frame.
+
+So `whimsy-splash` now does that matching itself: with no real driver
+available it passes `-width`/`-height` taken from the actual terminal, and
+each frame then replaces exactly one screenful at any window size.
+Measured: a 45-row window renders 80-column frames by default and
+100-column frames with the size passed. It is still the streaming driver
+and still tears — the honest fix remains an aalib built against ncurses or
+s-lang — but it plays where it's put.
+
+The terminal size is read with `stty size < /dev/tty`, not `tput`: this
+runs inside a command substitution, so `tput`'s own stdout is a pipe and
+it answers from terminfo's static 80x24 rather than from the window.
+
+### 9. Homebrew's aalib has no terminal driver at all, because a 1997 configure looks for headers where macOS no longer keeps them
+
+**Symptom:** the machine's own answer, once asked directly:
+
+```
+$ aafire -help 2>&1 | grep -A1 'available drivers'
+                  available drivers:stdout stderr
+```
+
+No curses, no slang — only the streaming driver. So issue #8's mitigation
+(request the best driver) had nothing to request, and #8's follow-up
+(match the frame to the window) was as far as it could go.
+
+**Root cause:** aalib's configure hunts for curses by testing hardcoded
+paths — `/usr/include/ncurses.h`, `/usr/include/ncurses/ncurses.h`, and so
+on. macOS hasn't had a `/usr/include` since 10.14; its headers live inside
+the SDK, reachable only via `xcrun --show-sdk-path`. Every test fails, the
+driver is silently dropped, and the build succeeds — producing a working
+library that can't redraw a screen. Homebrew's formula declares no ncurses
+dependency and passes no override, so its bottle has this baked in on
+every Mac.
+
+**Fix:** `bin/install-aalib` builds aalib from the same 1.4rc5 tarball
+Homebrew uses (checksum-verified), with Homebrew's own patch applied, plus
+`--with-ncurses=<prefix>` — an option aalib has always had, which skips
+the path hunt entirely and wires up `-I`/`-L` itself. The prefix is
+Homebrew's ncurses when installed, else the SDK's. Result, measured on the
+same terminal that had been streaming: `available drivers:linux slang
+curses stdout stderr`, and 265,735 cursor-positioning escapes against 30
+newlines — genuine in-place rendering at an arbitrary window size.
+
+Two things had to be worked around inside that build:
+
+- **`aacurses.c` reads `stdscr->_maxx` / `->_maxy` directly.** ncurses 6
+  made `WINDOW` opaque, so it no longer compiles: *invalid use of
+  incomplete typedef 'WINDOW'*. `-DNCURSES_OPAQUE=0` does not help — the
+  generated `curses.h` defines that itself and its definition wins. The
+  fix is `getmaxyx()`, the accessor ncurses provides for exactly this,
+  which predates the code being patched and so works against macOS's own
+  ncurses 5.7 as well.
+- **The same clang-16 strictness as issue #6**, for the same reason: it is
+  the same vintage of C.
+
+**And then bb needed rebuilding.** bb renders through whatever aalib it
+was *linked* against, so a bb built earlier kept its driver-less one no
+matter how many drivers the new aalib had. `install-bb` now records which
+aalib it built against and rebuilds when that changes, and `run.sh` builds
+aalib first so a single pass is enough.
 
 ### General lesson
 
@@ -313,6 +386,14 @@ someone last cared, so the interesting question isn't whether it claims to
 work but what has changed underneath it since. Here it was one clang
 release turning four warnings into errors, and then the Apple Silicon
 transition making an x86-only attribute fatal.
+
+**Ask the machine, don't infer it.** Issue #8's diagnosis was reasoned out
+correctly from measurements taken elsewhere, and the fix it produced was
+the right fix for what was known — but three rounds went by before anyone
+ran `aafire -help` on the actual Mac, and that one line was what turned
+"aalib probably has no real driver" into "aalib has no real driver, here
+is why, and here is the flag that fixes it". A one-command question
+answered in seconds what careful inference could only narrow down.
 
 **A symptom that looks like a rendering bug can be a capability that was
 never compiled in.** Issue #8 presented as "vertical sync isn't working"

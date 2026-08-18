@@ -103,6 +103,19 @@ _bb_bin() {
     fi
 }
 
+# Homebrew's aalib has no curses or slang driver — its 1997 configure hunts
+# for curses in hardcoded paths like /usr/include, which modern macOS
+# doesn't have — so its aafire can only stream frames, never redraw in
+# place. bin/install-aalib builds one that can, into ~/bin/aalib.d; prefer
+# that aafire whenever it exists, exactly as with hollywood and bb.
+_aafire_bin() {
+    if [ -x "$HOME/bin/aalib.d/bin/aafire" ]; then
+        echo "$HOME/bin/aalib.d/bin/aafire"
+    else
+        command -v aafire 2>/dev/null
+    fi
+}
+
 # True if the tools a given splash needs are present. Random picks are made
 # from this set only: with hollywood/genact/nms added to a catalogue that
 # used to be entirely brew-installable, "picked at random" and "installed"
@@ -123,7 +136,7 @@ _splash_available() {
         hollywood) [ -n "$(_hollywood_bin)" ] && command -v tmux >/dev/null 2>&1 ;;
         genact)    command -v genact >/dev/null 2>&1 ;;
         nms)       command -v nms >/dev/null 2>&1 && command -v fortune >/dev/null 2>&1 ;;
-        aafire)    command -v aafire >/dev/null 2>&1 ;;
+        aafire)    [ -n "$(_aafire_bin)" ] ;;
         bb)        [ -n "$(_bb_bin)" ] ;;
         sl)        command -v sl >/dev/null 2>&1 ;;
         ttyclock)  command -v tty-clock >/dev/null 2>&1 ;;
@@ -143,7 +156,7 @@ _splash_install_hint() {
         hollywood) echo "re-run this environment's run.sh (it fetches hollywood into ~/bin/hollywood.d)" ;;
         genact)    echo "brew install genact" ;;
         nms)       echo "brew install no-more-secrets fortune" ;;
-        aafire)    echo "brew install aalib" ;;
+        aafire)    echo "brew install aalib (then ~/bin/install-aalib for a driver that redraws in place)" ;;
         bb)        echo "~/bin/install-bb (nothing packages bb for macOS — it gets built from source)" ;;
         sl)        echo "brew install sl" ;;
         ttyclock)  echo "brew install tty-clock" ;;
@@ -296,20 +309,45 @@ _run_moose() {
 # argument and aafire scrolls, because nothing here can fix that; see the
 # README's "if aafire scrolls" note.
 _aalib_driver_args() {
-    local drivers driver
+    local drivers driver size rows cols
     drivers=$("$1" -help 2>&1 | sed -n 's/.*available drivers:\(.*\)/\1/p' | head -n1)
     for driver in slang curses; do
         case " $drivers " in
             *" $driver "*) echo "-driver $driver"; return 0 ;;
         esac
     done
+
+    # No real driver on this machine, so aalib falls back to `stdout` —
+    # whose frame is a fixed 80x25, because that driver has no way to ask
+    # the terminal how big it is (confirmed with `aainfo -driver stdout`).
+    # In a taller window each frame stacks under the last instead of
+    # replacing it, so the animation crawls up the screen; at around 25-30
+    # rows a frame happens to fill the window and it looks stationary,
+    # which is why resizing the terminal appears to "fix" it.
+    #
+    # Sizing the frame to the window is that same trick applied
+    # automatically: each frame then replaces exactly one screenful, at
+    # whatever size the window happens to be. It's still the streaming
+    # driver — it tears where a real one wouldn't — but it plays where
+    # it's put.
+    #
+    # Measured through /dev/tty rather than with `tput`, which reports
+    # terminfo's static 80x24 when its own stdout isn't a terminal. This
+    # function is always called inside a command substitution, so its
+    # stdout never is.
+    size=$(stty size < /dev/tty 2>/dev/null)
+    rows="${size%% *}"
+    cols="${size##* }"
+    case "${rows:-x}" in *[!0-9]*) rows="" ;; esac
+    case "${cols:-x}" in *[!0-9]*) cols="" ;; esac
+    [ -n "$rows" ] && [ -n "$cols" ] && echo "-width $cols -height $rows"
     return 0
 }
 
 # Unquoted on purpose in both callers below: no driver available must
 # expand to no argument at all, not to an empty one.
 # shellcheck disable=SC2046
-_run_aafire() { aafire $(_aalib_driver_args aafire); }
+_run_aafire() { "$(_aafire_bin)" $(_aalib_driver_args "$(_aafire_bin)"); }
 
 _run_sl() {
     # sl's whole personality is its variants, and picking one at random
