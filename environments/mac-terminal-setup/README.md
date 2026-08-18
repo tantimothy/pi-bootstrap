@@ -120,6 +120,29 @@ random login pick and by the menu below, so the two can't drift apart. A
 splash whose tools aren't installed is skipped by the random pick rather
 than flashing an empty screen with a "command not found".
 
+### If `aafire` scrolls instead of burning in place
+
+aalib picks its output driver at runtime — slang, then curses, then
+`stdout` — and the `stdout` driver does no in-place redraw at all: it
+prints each frame as plain lines, so the terminal scrolls. That is what a
+machine whose aalib has no real terminal driver looks like, and it is a
+property of how aalib was built, not of your terminal (Homebrew's formula
+builds it `--without-x` and depends on neither s-lang nor ncurses).
+
+`whimsy-splash` asks for the best driver aalib actually has, so the usual
+case is handled. To see what yours has:
+
+```bash
+aafire -help 2>&1 | grep -A1 'available drivers'
+```
+
+If that lists only `stdout` and `stderr`, no argument can fix it — aalib
+itself needs rebuilding against ncurses or s-lang. If it lists `curses` or
+`slang` and the fire *still* scrolls, the driver is present but failing to
+initialise, and tmux is the likely reason: `TERM` inside tmux may name a
+terminfo entry the linked curses doesn't carry. Compare a run outside
+tmux, or with `TERM=xterm-256color`, to confirm.
+
 `hollywood` and `genact` only ever end on Ctrl-C, and `bb`'s demo runs for
 minutes — fine when you launched one deliberately, unhelpful when a new
 terminal tab did. So on login, and only on login, those three get a time
@@ -180,15 +203,21 @@ a fork of the 1997 AA-project tarball that exists specifically to build on
 modern Macs. Everything lands under `~/bin/bb.d` with `--prefix`, so no
 sudo and nothing in `/usr/local`.
 
-That build needs three workarounds, all in `install-bb` and all written up
-in `docs/lessons-learned/mac-terminal-setup.md`: the fork ships a
-committed `config.cache` pinning aalib to `/usr/local` (wrong on Apple
-Silicon), a clone's arbitrary mtimes make automake try to regenerate a
-1997 tree, and clang 16 rejects autoconf 2.13's own compiler test —
-`main(){return(0);}` is implicit-`int`, which Xcode 15's clang treats as an
-error rather than a warning. With those, it completes on Linux; the macOS
-retry after the clang fix hasn't happened yet, and bb's own sources are
-the next thing clang gets to look at.
+That build needs four workarounds, all in `install-bb` and all written up
+in `docs/lessons-learned/mac-terminal-setup.md`:
+
+1. The fork ships a committed `config.cache` pinning aalib to
+   `/usr/local` — wrong on Apple Silicon.
+2. A clone's arbitrary mtimes make automake try to regenerate a 1997 tree.
+3. Clang 16 rejects autoconf 2.13's own compiler test:
+   `main(){return(0);}` is implicit-`int`, an error since Xcode 15.
+4. bb declares functions `__attribute__((regparm(n)))`, an x86-32 calling
+   convention that arm64 clang rejects outright. Patched out — it is a
+   micro-optimisation, and the macro it lives in is the only place the
+   attribute appears.
+
+The first three are confirmed against a real Mac; the fourth is the error
+that machine hit next, fixed but not yet re-run there.
 
 It's called with `|| true` so it can never fail a deploy, records its
 output in `~/bin/bb.d/build.log`, and marks `.build-failed` so it isn't

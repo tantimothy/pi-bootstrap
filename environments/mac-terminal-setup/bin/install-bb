@@ -79,6 +79,14 @@ echo "   🎬 Building bb from $BB_REPO..."
 {
     echo "=== install-bb $(date) ==="
     if [ -d "$BB_SRC/.git" ]; then
+        # Discard our own edits first. This script deletes one tracked file
+        # (config.cache) and patches another (config.h) below, and
+        # `git pull` refuses to touch a tree with local modifications the
+        # moment upstream changes either of them — turning a routine
+        # --force retry into a fetch failure for no reason. Both edits are
+        # ours and are reapplied a few lines down, so there is nothing to
+        # preserve.
+        git -C "$BB_SRC" checkout -- .
         git -C "$BB_SRC" pull --ff-only
     else
         rm -rf "$BB_SRC"
@@ -117,6 +125,37 @@ rm -f "$BB_SRC/config.cache"
 for generated in configure.in aclocal.m4 configure aconfig.h.in stamp-h.in Makefile.in; do
     [ -f "$BB_SRC/$generated" ] && touch "$BB_SRC/$generated"
 done
+
+# bb declares its hot function pointers with __attribute__((regparm(n))),
+# via a REGISTERS() macro in config.h guarded only by `#ifdef __GNUC__` —
+# which in 1997 meant "x86", because GCC meant x86. regparm is an x86-32
+# calling convention: x86-64 clang ignores it with a warning, and Apple
+# Silicon clang rejects it outright ("'regparm' is not valid on this
+# platform"), on the very first file it compiles. Confirmed directly on an
+# arm64 Mac.
+#
+# Dropping the attribute is the whole fix — it's a micro-optimisation for
+# passing arguments in registers on 32-bit x86, the macro is the only
+# place it appears, and every declaration in the tree goes through that
+# macro, so nothing ends up half-converted. The rest of the x86 code in
+# here (minilzo.c's inline asm, ctrl87.c's x87 control word) is already
+# `#ifdef __i386__`-guarded and compiles out on its own.
+#
+# The anchor is checked rather than assumed: if upstream ever rewrites
+# that line, this says so and leaves the tree alone rather than silently
+# doing nothing and letting the same arm64 error come back unexplained.
+BB_REGPARM_ANCHOR='#define REGISTERS(n) __attribute__ ((regparm(n)))'
+if grep -qF "$BB_REGPARM_ANCHOR" "$BB_SRC/config.h" 2>/dev/null; then
+    # -i.bak, not -i '': the only form both BSD sed (macOS) and GNU sed take.
+    sed -i.pi-bootstrap.bak \
+        "s|$BB_REGPARM_ANCHOR|#define REGISTERS(n)  /* pi-bootstrap: regparm is x86-32 only */|" \
+        "$BB_SRC/config.h"
+    echo "   🔧 Patched out regparm (x86-32 only) for this platform."
+elif grep -q "regparm" "$BB_SRC/config.h" 2>/dev/null; then
+    echo "   ⚠️  config.h still mentions regparm but not in the form this script" >&2
+    echo "      patches — the build will fail on Apple Silicon until that's" >&2
+    echo "      looked at. See bin/install-bb's regparm comment." >&2
+fi
 
 # --with-libmikmod-prefix is the one flag the fork's own README calls out
 # as sometimes needed; passing Homebrew's prefix unconditionally (when
