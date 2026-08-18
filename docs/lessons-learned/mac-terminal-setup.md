@@ -359,6 +359,42 @@ Two things had to be worked around inside that build:
 - **The same clang-16 strictness as issue #6**, for the same reason: it is
   the same vintage of C.
 
+**Follow-up: which ncurses turned out to matter, and why.** The first
+build of this used the macOS SDK's ncurses, because that's what
+`install-aalib` fell back to when Homebrew's wasn't installed. The result
+rendered correctly in a plain Terminal window and scrolled the moment it
+was inside tmux — reported exactly that way, and initially suspected to be
+a tmux rendering problem.
+
+It's terminfo. aalib's curses driver calls `initscr()`, which needs a
+terminfo entry for `$TERM`; without one it fails and aalib falls back to
+the streaming driver, silently, which is what scrolling *is*. Inside tmux
+`$TERM` is `tmux-256color` — an entry macOS's own ncurses (5.7, from 2009)
+predates and doesn't carry. Outside tmux it's `xterm-256color`, which that
+database does have. Hence "works outside tmux, not inside".
+
+Confirmed after the fact from the machine's own state rather than from
+memory, which is the part worth keeping: `~/bin/aalib.d/build.log` records
+which ncurses each build used, and `~/.tmux.conf` could be diffed against
+the repo's copy to rule out a config change. The log said
+`/opt/homebrew/opt/ncurses` and the tmux config was untouched — so the
+successful build was the one against Homebrew's ncurses 6, whose terminfo
+database is current. Nothing about tmux had to change at all.
+
+`install-aalib` now installs that formula rather than quietly settling for
+the SDK's copy, the way `install-bb` installs libmikmod. The SDK path
+survives as a last resort for a machine with no Homebrew, and says out
+loud what it will and won't do.
+
+The general point, since it outlives this library: **a fallback that looks
+like sensible degradation can be broken in the only case that happens.**
+Accepting the SDK's ncurses when Homebrew's wasn't there read as obviously
+reasonable — an older library beats none. It wasn't, because `.bashrc.tmux`
+auto-attaches tmux before the whimsy block runs, so every splash on this
+environment runs inside tmux, which is precisely what that build can't do.
+Worth asking of any fallback whether the case it covers is the common one
+or the impossible one.
+
 **And then bb needed rebuilding.** bb renders through whatever aalib it
 was *linked* against, so a bb built earlier kept its driver-less one no
 matter how many drivers the new aalib had. `install-bb` now records which
