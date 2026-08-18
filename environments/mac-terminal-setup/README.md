@@ -180,13 +180,15 @@ a fork of the 1997 AA-project tarball that exists specifically to build on
 modern Macs. Everything lands under `~/bin/bb.d` with `--prefix`, so no
 sudo and nothing in `/usr/local`.
 
-That build was run end to end on Linux, where it produces a working
-binary — but only after `install-bb` works around two things the fork
-ships that would break it anywhere (a committed `config.cache` pinning
-aalib to `/usr/local`, and autotools regeneration triggered by a clone's
-arbitrary mtimes; both written up in
-`docs/lessons-learned/mac-terminal-setup.md`). It has not been run against
-clang on a Mac, which is stricter than gcc about code of this vintage.
+That build needs three workarounds, all in `install-bb` and all written up
+in `docs/lessons-learned/mac-terminal-setup.md`: the fork ships a
+committed `config.cache` pinning aalib to `/usr/local` (wrong on Apple
+Silicon), a clone's arbitrary mtimes make automake try to regenerate a
+1997 tree, and clang 16 rejects autoconf 2.13's own compiler test —
+`main(){return(0);}` is implicit-`int`, which Xcode 15's clang treats as an
+error rather than a warning. With those, it completes on Linux; the macOS
+retry after the clang fix hasn't happened yet, and bb's own sources are
+the next thing clang gets to look at.
 
 It's called with `|| true` so it can never fail a deploy, records its
 output in `~/bin/bb.d/build.log`, and marks `.build-failed` so it isn't

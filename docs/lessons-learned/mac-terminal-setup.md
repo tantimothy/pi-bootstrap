@@ -120,13 +120,11 @@ actually read anyway).
 
 ## Session 2 (2026-08-18): building BB from source for the splash menu
 
-**Status:** found and fixed while implementing, not yet confirmed on
-macOS. Both issues below are real and were reproduced directly — but on
-Linux with gcc, since that's what was available; the fixes are what turned
-a build that failed twice into one that produces a working binary. The
-same build has never been run against clang on a Mac, which is the
-platform it's actually for. See
-`docs/future-enhancements/mac-terminal-setup.md` #4.
+**Status:** issues #4 and #5 were found on Linux with gcc while
+implementing, and fixed there; #6 is the first one found by actually
+running this on the user's Mac, and its fix has been checked only for not
+regressing the gcc build. A confirming macOS run is still outstanding —
+see `docs/future-enhancements/mac-terminal-setup.md` #4.
 
 Context: `bb` (AA-lib's demo) was added to the whimsy splash catalogue
 alongside `aafire`, `sl` and `tty-clock`. The other three are Homebrew
@@ -187,10 +185,46 @@ is an empty stub kept for exactly this. Not listed as a numbered issue
 because it's a platform difference rather than a defect, but it's the
 third thing that had to be right before a binary appeared.
 
+### 6. Clang 16 rejects autoconf 2.13's own "does this compiler work" test
+
+**Symptom:** on a real Mac (Apple Silicon, Homebrew at `/opt/homebrew`),
+`~/bin/install-bb --force` failed with `configure` reporting:
+
+```
+checking for gcc... gcc
+checking whether the C compiler (gcc  ) works... no
+configure: error: installation or configuration problem: C compiler cannot create executables.
+```
+
+**Root cause:** not a configuration problem at all — the compiler is fine.
+autoconf 2.13's first check compiles this, verbatim, out of `configure`:
+
+```c
+main(){return(0);}
+```
+
+That's pre-ANSI C: `main` has no return type, so it defaults to `int`.
+Clang 16 (shipped with Xcode 15) promoted `-Wimplicit-int` — along with
+`-Wimplicit-function-declaration`, `-Wint-conversion` and
+`-Wincompatible-function-pointer-types` — from warning to hard error. So
+the check fails, and autoconf reports the only conclusion it has language
+for: your compiler can't build programs. Every one of those four patterns
+is ordinary 1997 C, and bb is ordinary 1997 C, so the same wall waits
+further in even once configure is past. The fork's "builds on modern
+Macs" claim was true when clang still defaulted the other way.
+
+**Fix:** `bin/install-bb` passes
+`-Wno-implicit-int -Wno-implicit-function-declaration -Wno-int-conversion
+-Wno-incompatible-function-pointer-types` as `CFLAGS` to `configure` —
+not to `make`, because the tree's `Makefile.am` is `CFLAGS=@CFLAGS@ ...`,
+so whatever configure resolves is what the real compile uses. One place
+covers both. The resolved `CFLAGS` is echoed into `build.log` so the next
+failure of this shape is one `grep` away.
+
 ### General lesson
 
 **A third-party fork's committed build artifacts are inputs to your build,
-not neutral files.** Both issues here came from the same root: state that
+not neutral files.** Issues #4 and #5 came from the same root: state that
 belongs to one machine (`config.cache`) or one moment (mtimes) being
 carried in git and silently believed by the build system. The tell in both
 cases was a failure that pointed at the *local* machine — "aalib not
@@ -198,6 +232,14 @@ installed" when it was, "compile not found" when nothing should have been
 compiling autotools input — while the actual cause was committed history.
 Worth remembering the next time this repo builds anything from a fork:
 check what the fork commits, not just what it changed.
+
+**"Builds on modern X" has a date on it, even when it isn't written down.**
+Issue #6 is the same claim going stale: the fork really did build on the
+Macs of its day, and nothing about it changed — the toolchain moved. A
+fork maintained to solve exactly your problem is still a snapshot of when
+someone last cared, so the interesting question isn't whether it claims to
+work but what has changed underneath it since. Here it was one clang
+release turning four warnings into errors.
 
 ## Related Commits
 

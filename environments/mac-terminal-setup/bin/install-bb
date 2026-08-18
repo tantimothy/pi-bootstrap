@@ -127,16 +127,38 @@ if command -v brew >/dev/null 2>&1; then
     [ -n "$BREW_PREFIX" ] && CONFIGURE_ARGS+=("--with-libmikmod-prefix=$BREW_PREFIX")
 fi
 
+# Clang 16 (Xcode 15) promoted a set of pre-ANSI C patterns from warnings
+# to hard errors: implicit int, implicit function declarations, int
+# conversions, incompatible function pointer types. All four are ordinary
+# 1997 C, and bb is ordinary 1997 C.
+#
+# This bites before any of bb's own code is reached. autoconf 2.13's very
+# first check compiles `main(){return(0);}` — implicit int — so configure
+# concludes "C compiler cannot create executables" and stops, on a machine
+# whose compiler is perfectly fine (confirmed directly: a real macOS run
+# failed at exactly that check, having already found gcc). Turning the four
+# back into warnings is what the fork's "builds on modern Macs" claim
+# quietly assumed, back when clang still defaulted that way.
+#
+# Set on configure rather than make because the tree's Makefile.am is
+# `CFLAGS=@CFLAGS@ -D SOUNDDIR=...` — whatever configure resolves is what
+# the real compile uses, so one place covers both. The :- default preserves
+# autoconf's own -g -O2 while letting a caller override it.
+BB_CFLAGS="-Wno-implicit-int -Wno-implicit-function-declaration"
+BB_CFLAGS="$BB_CFLAGS -Wno-int-conversion -Wno-incompatible-function-pointer-types"
+
 {
     cd "$BB_SRC" || exit 1
     echo "=== configure ${CONFIGURE_ARGS[*]} ==="
+    echo "=== CFLAGS: ${CFLAGS:--g -O2} $BB_CFLAGS ==="
     # LIBS=-lm: bb calls sqrt() and friends and never asks for libm, which
     # was fine in 1997 and is still fine on macOS (libSystem carries the
     # math functions, so the link resolves either way). glibc splits libm
     # out, so on Linux the link fails without this — confirmed directly,
     # and confirmed fixed by exactly this. Harmless on macOS, where -lm is
     # an empty stub kept for precisely this kind of portability.
-    LIBS="${LIBS:-} -lm" ./configure "${CONFIGURE_ARGS[@]}" &&
+    CFLAGS="${CFLAGS:--g -O2} $BB_CFLAGS" LIBS="${LIBS:-} -lm" \
+        ./configure "${CONFIGURE_ARGS[@]}" &&
         echo "=== make ===" &&
         # `:` is /bin/true — these turn automake's own regeneration rules
         # into no-ops if the timestamp ordering above somehow still leaves
