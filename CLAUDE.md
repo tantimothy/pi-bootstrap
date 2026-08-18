@@ -62,7 +62,7 @@ An `info.sh`/`install-desktop.sh` override only exists where real branching can'
 
 Both YAML files share a `${VAR}`/`${VAR:-default}` substitution mechanism (resolved against `.env` if present, plus synthetic `SCRIPT_DIR`/`HOST_IP`/`ENV_DIR` — **`.env.example` itself is never sourced**, so every marker needs its own explicit default). Full field-by-field schema for both files: `docs/environment-yaml-schemas.md`. `info.yaml`'s `custom_actions` is the extension point for adding new items to an environment's `deploy.sh` action menu beyond FAST/STOP/CLEAN/etc. — `deploy.sh` reads this field directly, independent of `lib/info-lib.sh`.
 
-`lib/yaml-lib.sh` holds the shared `_yaml_expand`/array-reading primitives both `info-lib.sh` and `desktop-lib.sh` build on. `lib/locale-lib.sh` forces a UTF-8 locale (emoji/em-dash output otherwise breaks under `dialog`/`less` in some non-interactive/SSH contexts).
+`lib/yaml-lib.sh` holds the shared `_yaml_expand`/array-reading primitives both `info-lib.sh` and `desktop-lib.sh` build on. Both loaders read their whole file in **one** `yq` call via `_yaml_read_fields`, driven by a `"<name>|<yq expression>"` field map plus a per-field handler — adding a field means adding a line to the map and a `case` arm to the handler, not another `_yq` call. (yq's startup dominates its parsing, and `backup.sh`/`install-desktop-entries.sh` run a loader per environment, so per-field calls cost hundreds of process startups per command.) `lib/locale-lib.sh` forces a UTF-8 locale (emoji/em-dash output otherwise breaks under `dialog`/`less` in some non-interactive/SSH contexts).
 
 ### `config/environments.yaml`
 

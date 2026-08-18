@@ -354,30 +354,51 @@ _load_desktop_entries_yaml() {
 
     [ -f "$env_dir/.env" ] && { set -a; source "$env_dir/.env"; set +a; }
 
-    MENU_ID=$(_yaml_expand "$(_yq '.menu.id' "$yaml")")
-    MENU_NAME=$(_yq '.menu.name' "$yaml")
-    MENU_ICON=$(_yq '.menu.icon // "utilities-terminal"' "$yaml")
+    _yaml_read_fields "$yaml" "$_DESKTOP_YAML_FIELDS" _load_desktop_field
+}
 
-    local _raw_ids _raw_targets i
-    _read_lines < <(_yq '.entries[].id' "$yaml"); _raw_ids=("${_LINES[@]}")
-    ENTRY_IDS=()
-    for i in "${!_raw_ids[@]}"; do
-        ENTRY_IDS[i]="$(_yaml_expand "${_raw_ids[$i]}")"
-    done
-    _read_lines < <(_yq '.entries[].name' "$yaml");     ENTRY_NAMES=("${_LINES[@]}")
-    _read_lines < <(_yq '.entries[].comment' "$yaml");  ENTRY_COMMENTS=("${_LINES[@]}")
-    _read_lines < <(_yq '.entries[].icon' "$yaml");     ENTRY_ICONS=("${_LINES[@]}")
-    _read_lines < <(_yq '.entries[].kind' "$yaml");     ENTRY_KINDS=("${_LINES[@]}")
-    _read_lines < <(_yq '.entries[].terminal // "false"' "$yaml"); ENTRY_TERMINAL=("${_LINES[@]}")
+# Field map for the read above — see _yaml_read_fields in lib/yaml-lib.sh.
+# Twelve fields, one yq invocation; install-desktop-entries.sh calls this
+# loader once per environment, so the per-field version cost ~250 yq startups
+# for a single run.
+_DESKTOP_YAML_FIELDS='
+menu.id|.menu.id
+menu.name|.menu.name
+menu.icon|.menu.icon // "utilities-terminal"
+entries.id|.entries[].id
+entries.name|.entries[].name
+entries.comment|.entries[].comment
+entries.icon|.entries[].icon
+entries.kind|.entries[].kind
+entries.terminal|.entries[].terminal // "false"
+entries.target|.entries[].target
+info.id|.info.id
+info.name|.info.name
+'
 
-    _read_lines < <(_yq '.entries[].target' "$yaml"); _raw_targets=("${_LINES[@]}")
-    ENTRY_TARGETS=()
-    for i in "${!_raw_targets[@]}"; do
-        ENTRY_TARGETS[i]="$(_yaml_expand "${_raw_targets[$i]}")"
-    done
-
-    INFO_ID=$(_yaml_expand "$(_yq '.info.id' "$yaml")")
-    INFO_NAME=$(_yq '.info.name' "$yaml")
+# Which fields get _yaml_expand applied is preserved verbatim from the twelve
+# individual calls this replaces: ids and targets are expanded, names/
+# comments/icons/kinds are not.
+_load_desktop_field() {
+    local i
+    case "$1" in
+        menu.id)          MENU_ID="$(_yaml_expand "$(_yaml_field_scalar)")" ;;
+        menu.name)        MENU_NAME="$(_yaml_field_scalar)" ;;
+        menu.icon)        MENU_ICON="$(_yaml_field_scalar)" ;;
+        entries.id)
+            ENTRY_IDS=()
+            for i in "${!_YAML_FIELD_LINES[@]}"; do ENTRY_IDS[i]="$(_yaml_expand "${_YAML_FIELD_LINES[$i]}")"; done ;;
+        entries.name)     ENTRY_NAMES=("${_YAML_FIELD_LINES[@]}") ;;
+        entries.comment)  ENTRY_COMMENTS=("${_YAML_FIELD_LINES[@]}") ;;
+        entries.icon)     ENTRY_ICONS=("${_YAML_FIELD_LINES[@]}") ;;
+        entries.kind)     ENTRY_KINDS=("${_YAML_FIELD_LINES[@]}") ;;
+        entries.terminal) ENTRY_TERMINAL=("${_YAML_FIELD_LINES[@]}") ;;
+        entries.target)
+            ENTRY_TARGETS=()
+            for i in "${!_YAML_FIELD_LINES[@]}"; do ENTRY_TARGETS[i]="$(_yaml_expand "${_YAML_FIELD_LINES[$i]}")"; done ;;
+        info.id)          INFO_ID="$(_yaml_expand "$(_yaml_field_scalar)")" ;;
+        info.name)        INFO_NAME="$(_yaml_field_scalar)" ;;
+    esac
 }
 
 # Generic driver for environments with no install-desktop.sh logic beyond
