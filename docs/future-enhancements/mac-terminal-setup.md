@@ -84,65 +84,60 @@ what's ultimately a whimsy feature.
 added to the splash catalogue
 (`environments/mac-terminal-setup/bin/whimsy-splash`) along with
 `bin/whimsy-menu`, the TUI for launching any of them on demand. The
-scripts' own mechanics were exercised directly on Linux — catalogue
-parsing, availability filtering, the dialog and plain-text menus, the
-login-mode time limit actually killing the process it bounds (an earlier
-version killed only the wrapper subshell and left the splash running as an
-orphan; fixed and re-confirmed), and `run.sh` deploying and fetching
-everything into the right layout under a throwaway `$HOME`. Since then the
-user has run it on their own Mac, which closed some of this out and turned
-the rest from "reasoned from upstream source" into "seen failing, fixed,
-awaiting a re-run" — see issues #6-#8 in
-`docs/lessons-learned/mac-terminal-setup.md`. What remains:
+scripts' own mechanics were exercised on Linux; everything platform-shaped
+about them was then found the hard way on the user's own Mac, one round at
+a time — four blockers in the `bb` build, and two in aalib's rendering, all
+written up as issues #4-#9 in
+`docs/lessons-learned/mac-terminal-setup.md`.
 
-- ~~**`brew install ...` of the new formulas**~~ — done: the deploy ran on
-  the user's Mac and `aafire` (from `aalib`) launched, so the whimsy
-  package list installs. `sl` and `tty-clock` haven't been individually
-  eyeballed but come from the same `brew install` line.
-- **The `bb` build** — the only step in this environment that compiles
-  anything, and the one that has needed the most rounds. `bin/install-bb`
-  builds `artyfarty/bb-osx` (a fork of a 1997 autoconf-2.13 tree) against
-  aalib and libmikmod, and now carries four workarounds: the fork's
-  committed `config.cache`, autotools regeneration from clone mtimes,
-  clang 16's promotion of implicit-`int` to an error, and `regparm` being
-  x86-32 only (issues #4-#7 in the lessons-learned file). On the Mac it
-  has got as far as compiling bb's own sources; the `regparm` fix is the
-  first thing the next run will test. Every fix so far is confirmed not to
-  regress the Linux/gcc build, which still completes. The honest state is
-  "no known remaining blocker", not "known to work" — each round has
-  revealed exactly one more thing. The failure stays fully contained
-  (`|| true`, a logged `.build-failed` marker, `bb` showing as
-  `[not installed]`), so if a round ever turns up something genuinely
-  unfixable, dropping `bb` back to a documented manual build costs
-  nothing else.
-- **Whether `aafire` renders in place on that Mac** — it scrolled, which
-  is the signature of aalib falling back to its `stdout` driver (issue
-  #8). `whimsy-splash` now requests the best driver aalib reports, but
-  whether Homebrew's aalib has a real terminal driver compiled in at all
-  is still unknown; `aafire -help` on the machine answers it. If it has
-  none, the fix is outside this repo — a differently-built aalib.
+**Mostly closed.** The user confirms `bb` builds and runs, and that
+`aafire` renders correctly — including inside tmux, which was the last
+thing failing. What that leaves:
+
+- ~~**`brew install ...` of the new formulas**~~ — done.
+- ~~**The `bb` build**~~ — done: builds and runs on Apple Silicon, after
+  four workarounds (the fork's committed `config.cache`, autotools
+  regeneration from clone mtimes, clang 16's implicit-`int` error, and
+  `regparm` being x86-32 only).
+- ~~**Whether `aafire` renders in place**~~ — done, via
+  `bin/install-aalib`. Homebrew's aalib has no terminal driver at all
+  (issue #9), so this environment now builds one that does.
+- ~~**Which fix made it work inside tmux**~~ — answered, from the
+  machine's own state rather than memory: `~/bin/aalib.d/build.log`
+  recorded `ncurses prefix: /opt/homebrew/opt/ncurses`, and `~/.tmux.conf`
+  still matched the repo. It was the ncurses route, and tmux was never
+  touched. The mechanism is terminfo — macOS's own ncurses predates the
+  `tmux-256color` entry, so aalib's `initscr()` fails inside tmux and falls
+  back to the streaming driver. `install-aalib` now installs Homebrew's
+  ncurses rather than settling for the SDK's copy, which was broken in the
+  only case this environment ever runs in (`.bashrc.tmux` auto-attaches
+  tmux before the splash). See issue #9's follow-up in the lessons-learned
+  file.
+- **The other nine splashes, individually** — `sl` and `tty-clock` come
+  from the same `brew install` line that worked, and nothing has been
+  reported wrong with the older five, but only `bb` and `aafire` have been
+  explicitly confirmed on that machine.
 - **hollywood inside this environment's own tmux** — `.bashrc.tmux`
   auto-attaches tmux before the whimsy block runs, so on a real login
   `$TMUX` is always set and hollywood takes its "already in tmux" branch:
   a new *window* in the user's own session rather than a session of its
-  own. Verified to work that way under a synthetic tmux session on Linux;
-  not seen against the real login sequence, where the window appearing and
-  then vanishing mid-login is the part worth eyeballing.
-- **How the seven curated widgets actually look** — four fetched from
-  upstream (`cmatrix`, `figlet`, `htop`, `pv`) and three written here
-  (`mac-logs`, `mac-hexdump`, `mac-netstat`). The three new ones are built
-  on `log stream`, `hexdump -C` and `netstat -w 1`; the commands are
-  right, but whether each is legible in a pane a few rows tall is a
-  judgement only a real screen can make.
-- **Upstream's own fragility, inherited** — hollywood opens its first pane
-  with one randomly-chosen widget and exits immediately if that widget
-  dies, which is exactly what a missing dependency does. Observed on Linux
-  (where most widgets can't run) and the reason the widget directory is
-  curated to things that work rather than mirrored wholesale. If it ever
-  turns up on macOS, the widget whose tool is missing is the thing to find.
+  own. Verified that way under a synthetic tmux session on Linux; the part
+  worth eyeballing on a real login is the window appearing and then
+  vanishing mid-sequence.
+- **How the seven curated hollywood widgets actually look** — four fetched
+  from upstream (`cmatrix`, `figlet`, `htop`, `pv`) and three written here
+  (`mac-logs`, `mac-hexdump`, `mac-netstat`), the latter built on `log
+  stream`, `hexdump -C` and `netstat -w 1`. The commands are right;
+  whether each is legible in a pane a few rows tall is a judgement only a
+  real screen can make.
+- **Upstream hollywood's own fragility, inherited** — it opens its first
+  pane with one randomly-chosen widget and exits immediately if that
+  widget dies, which is exactly what a missing dependency does. Observed
+  on Linux (where most widgets can't run) and the reason the widget
+  directory is curated rather than mirrored. If it turns up on macOS, the
+  widget whose tool is missing is the thing to find.
 
-**Close this out by:** running `~/bin/whimsy-menu` on that Mac and
-launching all twelve splashes from it — then
-opening a few new terminal tabs to see the random login pick, including at
-least one that lands on `hollywood` or `genact` and hits the
-`WHIMSY_SPLASH_SECONDS` limit.
+**Close this out by:** launching the remaining splashes from
+`~/bin/whimsy-menu` on that Mac, and opening a few new terminal tabs to
+see the random login pick — including at least one that lands on
+`hollywood` or `genact` and hits the `WHIMSY_SPLASH_SECONDS` limit.
