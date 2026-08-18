@@ -209,16 +209,23 @@ _local_image_config() {
     printf '%s|%s\n' "${env_dir}/${dockerfile}" "$apt_updates"
 }
 
-_dockerfile_for_image() {
+# Resolves an image's manifest entry ONCE, into $LOCAL_IMAGE_DOCKERFILE (empty
+# when this repo doesn't recognize the image as one of its own local builds)
+# and $LOCAL_IMAGE_APT_RELEVANT.
+#
+# Worth doing deliberately because the lookup is not cheap: local_image_metadata
+# walks every environments/*/maintenance.yaml, spawning a yq per file until it
+# matches. check_locally_built used to ask four separate times per image — twice
+# for the Dockerfile path, twice for the apt flag — for data that cannot change
+# while it runs.
+_resolve_local_image() {
     local config
+    LOCAL_IMAGE_DOCKERFILE=""
+    LOCAL_IMAGE_APT_RELEVANT=false
     config=$(_local_image_config "$1") || return 1
-    printf '%s\n' "${config%%|*}"
-}
-
-_apt_upgrade_relevant() {
-    local config
-    config=$(_local_image_config "$1") || return 1
-    [ "${config##*|}" = "true" ]
+    LOCAL_IMAGE_DOCKERFILE="${config%%|*}"
+    [ "${config##*|}" = "true" ] && LOCAL_IMAGE_APT_RELEVANT=true
+    return 0
 }
 
 # For an image with no matching upstream registry entry, "an update" means
@@ -237,8 +244,10 @@ _apt_upgrade_relevant() {
 check_locally_built() {
     local name="$1" image_ref="$2" container_id="$3" pull_output="$4"
 
-    local dockerfile
-    dockerfile=$(_dockerfile_for_image "$image_ref") || true
+    local dockerfile apt_relevant
+    _resolve_local_image "$image_ref" || true
+    dockerfile="$LOCAL_IMAGE_DOCKERFILE"
+    apt_relevant="$LOCAL_IMAGE_APT_RELEVANT"
 
     local has_apt=false
     $DOCKER exec "$container_id" sh -c 'command -v apt-get' >/dev/null 2>&1 && has_apt=true
@@ -265,14 +274,13 @@ check_locally_built() {
     fi
 
     local upgradable=""
-    if _apt_upgrade_relevant "$image_ref"; then
+    if [ "$apt_relevant" = "true" ]; then
         upgradable=$($DOCKER exec "$container_id" sh -c \
             'apt-get update -qq >/dev/null 2>&1 && apt list --upgradable 2>/dev/null' \
             | grep -v '^Listing' || true)
     fi
 
-    local base_msg="" dockerfile base_ref base_layers image_layers
-    dockerfile=$(_dockerfile_for_image "$image_ref") || true
+    local base_msg="" base_ref base_layers image_layers
     if [ -n "$dockerfile" ] && [ -f "$dockerfile" ]; then
         # The LAST `FROM` line, not the first (`grep -m1` — what this used
         # to do): NanoClaw's Dockerfile is multi-stage
@@ -328,10 +336,10 @@ check_locally_built() {
         UPDATES_AVAILABLE+=("$name")
         UPDATE_KINDS+=("local")
     else
-        if _apt_upgrade_relevant "$image_ref"; then
+        if [ "$apt_relevant" = "true" ]; then
             echo "✅  $name ($image_ref) — up to date (base image + all installed apt packages current)"
         else
-            echo "✅  $name ($image_ref) — up to date (base image current; apt packages not tracked — see _apt_upgrade_relevant)"
+            echo "✅  $name ($image_ref) — up to date (base image current; apt packages not tracked — see this environment's maintenance.yaml, updates.local_images[].apt_updates)"
         fi
         UP_TO_DATE=$((UP_TO_DATE + 1))
     fi

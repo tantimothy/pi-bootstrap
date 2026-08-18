@@ -70,33 +70,6 @@ simpler to read.
 
 ---
 
-## `backup.sh`'s `is_deployed()` is a manually-maintained `case` statement
-
-Every environment needs its own `case` arm in the root `backup.sh` (see
-the main `README.md`'s "Registering with `backup.sh`" section) — there's
-no way to discover "is this actually deployed" automatically the way
-`info.yaml`/`desktop-entries.yaml` are auto-discovered per-directory.
-Forgetting to add an environment here silently falls through to `*) true
-;;` (always treated as deployed) rather than failing loudly.
-
-**Why not fixed now:** genuinely out of scope for anything touched this
-session — noted here only because it's a real, pre-existing rough edge
-matching the same "manually-maintained per-environment registration"
-shape as `config/environments.yaml` (which at least has a documented
-fallback: an unlisted environment still shows up, just unsorted — see
-`config/environments.yaml`'s own header comment). `is_deployed()` has no
-equivalent safety net; a forgotten `case` arm is silently wrong rather
-than silently disorganized.
-
-**Revisit when:** someone's specifically working on `backup.sh` — a
-reasonable fix would be deriving a default check from `docker-compose.yml`'s
-own `container_name:`/service list when no explicit `case` arm exists,
-falling back to `*) true ;;` only when that can't be determined either.
-Not attempted here since it's unrelated to any of this session's actual
-tasks.
-
----
-
 ## `new-instance.sh` registers `config/environments.yaml` via a `sed -i.bak` line insertion, not a structured YAML edit
 
 `environments/claude-cli/new-instance.sh` adds a new instance to

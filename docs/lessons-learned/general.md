@@ -943,3 +943,74 @@ the one thing that governs what happens after the next automatic restart.
   because there's no incident to point at.** The two entries above cost real
   debugging time; this one was caught by asking whether a passing check
   actually answered the question it was being trusted to answer.
+
+---
+
+## `local_image_metadata()` never matched anything: a helper called with one argument too many (2026-08-17)
+
+**Status:** fixed. `lib/maintenance-lib.sh` — the local-image lookup behind
+`check-updates.sh`'s entire "this image was built here, so check its base
+image and its apt packages instead of pulling it" path.
+
+Found while deduplicating repeated calls to this function for performance,
+not by chasing a failure. Nothing was reported broken.
+
+**Symptom:** none that looked like a bug. `check-updates.sh` ran, produced
+plausible output, and reported every locally-built image — `darkstat`,
+`ntopng`, `dragonos-pi`, `pi-pentest*`, `nanoclaw-mnemon-orchestrator`,
+`claude-cli`, `aider`, `infinite-mac`, `classic-mac-vnc` — as either "not a
+recognized local build" or "not pullable and not apt-based". Both are real,
+legitimate-sounding outcomes, which is why this survived: the failure mode of
+the lookup and the honest answer for a genuinely unrecognized image are the
+same sentence.
+
+**Root cause (two independent bugs on one line).**
+
+1. `_yq()` is `yq eval "$1" "$2"` — exactly two positional parameters. Every
+   one of the ~40 `_yq` call sites in this repo passes two arguments except
+   this one, which passed three: `_yq -r '<expr>' "$manifest"`. So `-r`
+   became the expression, `<expr>` became the filename, and `$manifest` was
+   dropped on the floor. yq printed its usage banner to stderr and matched
+   nothing — for every image, on every scan, since the function was written.
+
+2. The expression also read `(.apt_updates // true)`. go-yq's `//` is jq's
+   alternative operator, and it treats `false` exactly like `null`. Every
+   manifest that explicitly declares `apt_updates: false` — `aider`,
+   `claude-cli`, `codex-cli`, `classic-mac-vnc`, `nanoclaw-mnemon`,
+   `openclaw` — would have been read as `true` had bug 1 not been masking it.
+   Six of the twelve declarations in the repo, i.e. the field was wrong more
+   often than it was right.
+
+**Fix:** drop the `-r` (raw scalars are go-yq eval's default anyway, as
+`_yq`'s own comment in `lib/yaml-lib.sh` already says), and drop the
+`// true`. The bash side of the same function already ends with
+`"${apt_updates:-true}"`, where an empty field means absent and a literal
+`false` survives intact — the default was in the right place all along, it
+was just being pre-empted in the wrong one.
+
+### General Lessons
+
+- **A shell function's arity is silent.** `f() { cmd "$1" "$2"; }` called as
+  `f a b c` does not warn, does not fail, and does not behave as written — it
+  quietly discards `c`. There is no equivalent of an arity error to catch it,
+  so a wrapper like `_yq` that fixes its parameter count is a trap for every
+  future caller. Either pass `"$@"` through, or make the call sites
+  impossible to get wrong; a wrapper that accepts more than it uses is worse
+  than no wrapper.
+- **`//` is not a null-coalescing operator in jq or go-yq, and a boolean
+  field is exactly where that bites.** `.x // default` means "if `.x` is
+  null OR false" — so `// true` on a boolean is always `true`, i.e. the
+  field cannot be turned off. Whenever the value being defaulted can
+  legitimately be `false`, apply the default outside the query.
+- **A wrong answer that reads like a legitimate answer will not be
+  reported.** Every prior `check-updates.sh` entry in this file (2026-08-06,
+  and both 2026-08-07 ones) was found because the script said something
+  visibly wrong — "update available" on a freshly-rebuilt image. This one
+  said "not a recognized local build," which is a sentence the script is
+  *supposed* to be able to say. The check that would have caught it is not a
+  sharper eye on the output, it's asserting once that the lookup returns
+  something for an image you know it should match.
+- **Optimization passes find correctness bugs, because "why is this called
+  four times?" forces you to read what it returns.** This was found by asking
+  why `check_locally_built()` resolved the same image four times, then
+  actually running the lookup once in isolation. Nobody had done that.

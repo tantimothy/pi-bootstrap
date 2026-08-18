@@ -252,6 +252,12 @@ unset _category_index _configured_name
 # bash 4+ only, and macOS ships bash 3.2 (GPL licensing, unmaintained by
 # Apple since 2007) with no associative array support at all. A handful of
 # environment directories makes the O(n^2) scan free in practice.
+#
+# Free, though, only because the comparison itself is now free: this used to
+# call basename inside the inner loop, so the "free" O(n^2) scan was really
+# O(n^2) fork+exec — a few hundred processes before the menu could be drawn.
+# ${var##*/} is the same operation as a builtin, and is exact here because
+# find emits no trailing slashes.
 ALL_SUBDIRS=()
 for _name in "${ENV_ORDER_PRIORITY[@]}"; do
     if [ -d "environments/$_name" ]; then
@@ -259,10 +265,10 @@ for _name in "${ENV_ORDER_PRIORITY[@]}"; do
     fi
 done
 while IFS= read -r _dir; do
-    _name=$(basename "$_dir")
+    _name="${_dir##*/}"
     _already_listed=false
     for _existing in "${ALL_SUBDIRS[@]}"; do
-        [ "$(basename "$_existing")" = "$_name" ] && { _already_listed=true; break; }
+        [ "${_existing##*/}" = "$_name" ] && { _already_listed=true; break; }
     done
     [ "$_already_listed" = "true" ] && continue
     ALL_SUBDIRS+=( "$_dir" )
@@ -276,7 +282,7 @@ if [ ${#ALL_SUBDIRS[@]} -eq 0 ]; then
 else
     DIAGNOSTIC_LOG="Scanned directories inside $PROJECT_DIR/environments:\n\n"
     for dir in "${ALL_SUBDIRS[@]}"; do
-        folder_name=$(basename "$dir")
+        folder_name="${dir##*/}"
         DIAGNOSTIC_LOG+="📁 /$folder_name -> REJECTED\n"
         
         if [ ! -f "$dir/run.sh" ] && [ ! -f "$dir/docker-compose.yml" ] && [ ! -f "$dir/Dockerfile" ]; then
@@ -315,7 +321,7 @@ ENV_COMPATS=()
 MAX_NAME_LEN=0
 
 for dir in "${ENV_DIRS[@]}"; do
-    folder_name=$(basename "$dir")
+    folder_name="${dir##*/}"
 
     # run.sh, when present, is itself one of several subtypes depending on
     # what it actually orchestrates underneath — shown here since "Custom
@@ -665,9 +671,11 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
     # ------------------------------------------
     if [ "$MGMT_TYPE" = "C" ]; then
         CONTAINER_LIST=()
-        while IFS= read -r line; do
-            CNAME=$(echo "$line" | awk -F'\t' '{print $1}')
-            CSTATUS=$(echo "$line" | awk -F'\t' '{print $2}')
+        # `read` splits the tab-delimited row itself — the fields were being
+        # cut back out with one `echo | awk` per field, i.e. two subshells
+        # and two awk processes per container, for data `read` had already
+        # been handed.
+        while IFS=$'\t' read -r CNAME CSTATUS; do
             [ -z "$CNAME" ] && continue
             CONTAINER_LIST+=( "$CNAME" "$CSTATUS" "off" )
         done < <($DOCKER_CMD ps -a --format '{{.Names}}\t{{.Status}}' 2>/dev/null)
@@ -729,12 +737,11 @@ if [ "$SELECTED_PATH" = "_manage" ]; then
     # ------------------------------------------
     elif [ "$MGMT_TYPE" = "I" ]; then
         IMAGE_LIST=()
-        while IFS= read -r line; do
-            IREPO=$(echo "$line" | awk -F'\t' '{print $1}')
-            ITAG=$(echo "$line"  | awk -F'\t' '{print $2}')
-            ISIZE=$(echo "$line" | awk -F'\t' '{print $3}')
-            IAGE=$(echo "$line"  | awk -F'\t' '{print $4}')
-            IID=$(echo "$line"   | awk -F'\t' '{print $5}')
+        # Same fix as the container loop above, and five fields deep here:
+        # this was ten processes per image row (five subshells, five awks) to
+        # re-split a line `read` can split for free. A host with a few dozen
+        # images paid several hundred process spawns just to paint this menu.
+        while IFS=$'\t' read -r IREPO ITAG ISIZE IAGE IID; do
             [ -z "$IID" ] && continue
             LABEL="${IREPO}:${ITAG}"
             IMAGE_LIST+=( "$IID" "$LABEL  ($ISIZE, $IAGE)" "off" )

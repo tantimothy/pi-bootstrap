@@ -69,18 +69,27 @@ _desktop_remove_all_for_menu() {
     local menu_id="$1"
     local tag="Categories=X-PiBootstrap-${menu_id};"
     local f
-    for f in "$APPS_DIR"/*.desktop "$DESKTOP_DIR"/*.desktop; do
-        [ -f "$f" ] || continue
-        grep -qF "$tag" "$f" 2>/dev/null && rm -f "$f"
-    done
-    # Without this, the function's own exit status is whatever the last
-    # grep happened to return — 1 ("no match") whenever the very last file
-    # in the glob isn't tagged for this environment. Called as a bare
-    # statement under set -e, that silently aborts the entire calling
-    # script (install-desktop.sh) the moment ANY other environment's
-    # desktop entries happen to exist in the same shared $APPS_DIR/
-    # $DESKTOP_DIR — which is the normal case with more than one
-    # environment installed.
+    # One grep over every candidate file, not one grep per file. $APPS_DIR
+    # and $DESKTOP_DIR are shared by all environments, so with the whole repo
+    # installed there are ~120 .desktop files in scope here — and this runs
+    # once per environment, so ./install-desktop-entries.sh was spawning
+    # thousands of greps to delete a handful of files.
+    #
+    # 2>/dev/null covers the case where a glob matches nothing and is passed
+    # through literally (an $APPS_DIR that doesn't exist yet, or holds no
+    # .desktop files at all); grep then finds nothing and prints nothing,
+    # which is exactly the right outcome.
+    while IFS= read -r f; do
+        [ -n "$f" ] && rm -f "$f"
+    done < <(grep -lF -- "$tag" "$APPS_DIR"/*.desktop "$DESKTOP_DIR"/*.desktop 2>/dev/null)
+    # Kept for the reason it was originally added: this function is called as
+    # a bare statement under set -e, and its natural exit status is an
+    # accident of what happened last — the final grep's "no match" before,
+    # the final rm now. Neither means failure, but either can silently abort
+    # the calling script (install-desktop.sh) the moment ANY other
+    # environment's desktop entries exist in the same shared $APPS_DIR/
+    # $DESKTOP_DIR — which is the normal case with more than one environment
+    # installed.
     return 0
 }
 
