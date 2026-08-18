@@ -124,7 +124,7 @@ the user on their own Mac. Not yet done:
   was untouched, so `bin/install-aalib` now installs that formula rather
   than falling back to the SDK's older copy, whose terminfo lacks the
   `tmux-256color` entry aalib needs. Still open: hollywood's panes haven't
-  been seen on a real screen, and nine of the twelve splashes haven't been
+  been seen on a real screen, and ten of the thirteen splashes haven't been
   confirmed individually. See `docs/future-enhancements/mac-terminal-setup.md` #4.
 
 ## nanoclaw-mnemon: per-group derived agent images — one restore path still unverified

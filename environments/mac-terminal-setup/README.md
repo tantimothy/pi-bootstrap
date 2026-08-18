@@ -114,6 +114,7 @@ the splash to the prompt before you could read it.
 | `bb` | [BB](https://aa-project.sourceforge.net/bb/), AA-lib's own audio-visual demo | Ctrl-C (or its own ending, minutes later) |
 | `sl` | [sl](https://github.com/mtoyoda/sl) — a steam locomotive, in one of five random variants | runs once, ~5s |
 | `ttyclock` | [tty-clock](https://github.com/xorg62/tty-clock) in screensaver mode, centred and coloured | any key |
+| `naas` | [No as a Service](https://noasaservice.lol) — a fetched, professionally-worded refusal, in large red letters | prints once |
 
 The catalogue lives in `bin/whimsy-splash` — one file, used both by the
 random login pick and by the menu below, so the two can't drift apart. A
@@ -284,6 +285,13 @@ Where each whimsy piece comes from:
   modern-macOS fork.
 - **Steam locomotive** — Toyoda Masashi's [sl](https://github.com/mtoyoda/sl).
 - **Digital clock** — [tty-clock](https://github.com/xorg62/tty-clock).
+- **Refusals** — [No as a Service](https://noasaservice.lol), built on
+  [hotheadhacker/no-as-a-service](https://github.com/hotheadhacker/no-as-a-service).
+  The only splash that talks to the network while it runs (the calendar and
+  Talking Moose data are both fetched once, at deploy time). It asks for one
+  line per launch, against a service that allows 120 requests a minute per
+  IP, and prints its own refusal if it can't reach either endpoint. Point it
+  somewhere else with `WHIMSY_NO_URL`.
 - **Sneakers decryption effect** — Brian Barto's
   [no-more-secrets](https://github.com/bartobri/no-more-secrets) (`nms`).
 - **BOFH excuse** (`bin/bofhexcuse`) — Jeff Ballard's
