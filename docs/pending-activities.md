@@ -119,12 +119,13 @@ the user on their own Mac. Not yet done:
   largely closed out: `bb` builds and runs on the user's Apple Silicon
   Mac, and `aafire` renders in place there including inside tmux, after
   six fixes found across as many rounds (issues #4-#9 in
-  `docs/lessons-learned/mac-terminal-setup.md`). Still open: which of two
-  candidate fixes made the tmux case work isn't recorded, so a fresh Mac
-  may hit it again — and if it was `brew install ncurses`, then
-  `bin/install-aalib` should install that formula rather than falling back
-  to the SDK's older copy. hollywood's panes also haven't been seen on a
-  real screen. See `docs/future-enhancements/mac-terminal-setup.md` #4.
+  `docs/lessons-learned/mac-terminal-setup.md`). The tmux case is
+  settled too: the build log named Homebrew's ncurses and the tmux config
+  was untouched, so `bin/install-aalib` now installs that formula rather
+  than falling back to the SDK's older copy, whose terminfo lacks the
+  `tmux-256color` entry aalib needs. Still open: hollywood's panes haven't
+  been seen on a real screen, and nine of the twelve splashes haven't been
+  confirmed individually. See `docs/future-enhancements/mac-terminal-setup.md` #4.
 
 ## nanoclaw-mnemon: per-group derived agent images — one restore path still unverified
 

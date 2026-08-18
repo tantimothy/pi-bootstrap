@@ -102,18 +102,17 @@ thing failing. What that leaves:
 - ~~**Whether `aafire` renders in place**~~ — done, via
   `bin/install-aalib`. Homebrew's aalib has no terminal driver at all
   (issue #9), so this environment now builds one that does.
-- **Which fix made it work inside tmux** — the open one, and it matters
-  for the *next* machine rather than this one. aalib's curses driver needs
-  a terminfo entry for `$TERM`; without one it silently falls back to the
-  streaming driver, which is what "fine outside tmux, scrolls inside it"
-  looks like. Two fixes were on the table — `brew install ncurses` plus an
-  `install-aalib --force` (Homebrew's ncurses carries a current terminfo
-  database), or pointing tmux's `default-terminal` at something macOS can
-  describe. Whichever it was isn't recorded, so a fresh Mac may well hit
-  the same wall. **If it was the ncurses one**, `install-aalib` should
-  install that formula itself rather than quietly falling back to the
-  SDK's older copy; today it only *prefers* Homebrew's ncurses when it
-  happens to be there.
+- ~~**Which fix made it work inside tmux**~~ — answered, from the
+  machine's own state rather than memory: `~/bin/aalib.d/build.log`
+  recorded `ncurses prefix: /opt/homebrew/opt/ncurses`, and `~/.tmux.conf`
+  still matched the repo. It was the ncurses route, and tmux was never
+  touched. The mechanism is terminfo — macOS's own ncurses predates the
+  `tmux-256color` entry, so aalib's `initscr()` fails inside tmux and falls
+  back to the streaming driver. `install-aalib` now installs Homebrew's
+  ncurses rather than settling for the SDK's copy, which was broken in the
+  only case this environment ever runs in (`.bashrc.tmux` auto-attaches
+  tmux before the splash). See issue #9's follow-up in the lessons-learned
+  file.
 - **The other nine splashes, individually** — `sl` and `tty-clock` come
   from the same `brew install` line that worked, and nothing has been
   reported wrong with the older five, but only `bb` and `aafire` have been
