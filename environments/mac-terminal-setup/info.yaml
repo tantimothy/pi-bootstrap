@@ -36,7 +36,7 @@ useful_commands: |2
         container or service runs, so there's nothing to STOP/TEARDOWN.
      🔑 Whimsical login extras (fortune-style sign-offs) default off;
         toggle them with this environment's own menu action. A new shell
-        then opens with one splash picked at random out of the twelve;
+        then opens with one splash picked at random out of the thirteen;
         "Launch a whimsy splash..." runs whichever one you want, whenever.
      🔑 bb and aalib are compiled from source (nothing packages them for
         macOS), so they're the two pieces that can need a rebuild. FAST
