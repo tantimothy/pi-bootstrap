@@ -1,7 +1,7 @@
 data_dirs: []
 install_dirs:
   - path: "${HOME}/bin"
-    description: "Bundled whimsy scripts (whimsy-splash, whimsy-menu, bofhexcuse, insulthost.pl, piratehost.pl, calendar data, TalkingMoose phrases, hollywood.d) — only present if whimsy extras are enabled"
+    description: "Bundled whimsy scripts (whimsy-splash, whimsy-menu, bofhexcuse, insulthost.pl, piratehost.pl, calendar data, TalkingMoose phrases) plus hollywood.d, bb.d and aalib.d — the fetched and compiled splashes. Only present if whimsy extras are enabled; bb.d is most of the size, being a source checkout"
 no_data_msg: "(none — mac-terminal-setup only installs packages and configures dotfiles)"
 no_delete_msg: "mac-terminal-setup has no persistent data directories to delete.\n   Existing dotfiles it overwrote are backed up under ${HOME}/.pi-bootstrap-backups/ —\n   restore one by copying it back from the most recent mac-terminal-setup-* folder there.\n   To undo package installations, remove them manually with:\n   brew uninstall <formula>"
 custom_actions:
@@ -18,6 +18,11 @@ useful_commands: |2
      ~/bin/whimsy-menu                                                 # Pick a splash to launch (same TUI as the action below)
      ~/bin/whimsy-splash --list                                        # Every splash, with what each one does
      ~/bin/whimsy-splash hollywood                                     # Launch one by name (see --list for the ids)
+     ./run.sh                                                          # Re-run setup; rebuilds bb/aalib if either needs it
+     ~/bin/install-bb --force                                          # Rebuild bb from source, ignoring a past failure
+     ~/bin/install-aalib --force                                       # Rebuild aalib with a real terminal driver
+     cat ~/bin/bb.d/build.log                                          # Why the last bb build did what it did
+     cat ~/bin/aalib.d/build.log                                       # Same, for aalib
      grep -A3 'MAC TERMINAL PROMPT START' ~/.bashrc                    # View injected .bashrc blocks
      grep -A3 'MAC TERMINAL WHIMSY START' ~/.bashrc
      source ~/.bash_profile                                            # Reload shell config
@@ -33,4 +38,9 @@ useful_commands: |2
         toggle them with this environment's own menu action. A new shell
         then opens with one splash picked at random out of the twelve;
         "Launch a whimsy splash..." runs whichever one you want, whenever.
+     🔑 bb and aalib are compiled from source (nothing packages them for
+        macOS), so they're the two pieces that can need a rebuild. FAST
+        does it automatically when something changed; --force is for
+        retrying a build that failed. Rebuild aalib before bb — bb renders
+        through whichever aalib it was linked against.
      🔑 Full details: environments/mac-terminal-setup/README.md
