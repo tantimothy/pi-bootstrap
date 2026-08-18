@@ -296,13 +296,38 @@ _run_moose() {
 # argument and aafire scrolls, because nothing here can fix that; see the
 # README's "if aafire scrolls" note.
 _aalib_driver_args() {
-    local drivers driver
+    local drivers driver size rows cols
     drivers=$("$1" -help 2>&1 | sed -n 's/.*available drivers:\(.*\)/\1/p' | head -n1)
     for driver in slang curses; do
         case " $drivers " in
             *" $driver "*) echo "-driver $driver"; return 0 ;;
         esac
     done
+
+    # No real driver on this machine, so aalib falls back to `stdout` —
+    # whose frame is a fixed 80x25, because that driver has no way to ask
+    # the terminal how big it is (confirmed with `aainfo -driver stdout`).
+    # In a taller window each frame stacks under the last instead of
+    # replacing it, so the animation crawls up the screen; at around 25-30
+    # rows a frame happens to fill the window and it looks stationary,
+    # which is why resizing the terminal appears to "fix" it.
+    #
+    # Sizing the frame to the window is that same trick applied
+    # automatically: each frame then replaces exactly one screenful, at
+    # whatever size the window happens to be. It's still the streaming
+    # driver — it tears where a real one wouldn't — but it plays where
+    # it's put.
+    #
+    # Measured through /dev/tty rather than with `tput`, which reports
+    # terminfo's static 80x24 when its own stdout isn't a terminal. This
+    # function is always called inside a command substitution, so its
+    # stdout never is.
+    size=$(stty size < /dev/tty 2>/dev/null)
+    rows="${size%% *}"
+    cols="${size##* }"
+    case "${rows:-x}" in *[!0-9]*) rows="" ;; esac
+    case "${cols:-x}" in *[!0-9]*) cols="" ;; esac
+    [ -n "$rows" ] && [ -n "$cols" ] && echo "-width $cols -height $rows"
     return 0
 }
 

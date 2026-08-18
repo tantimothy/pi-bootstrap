@@ -129,15 +129,25 @@ machine whose aalib has no real terminal driver looks like, and it is a
 property of how aalib was built, not of your terminal (Homebrew's formula
 builds it `--without-x` and depends on neither s-lang nor ncurses).
 
-`whimsy-splash` asks for the best driver aalib actually has, so the usual
-case is handled. To see what yours has:
+`whimsy-splash` asks for the best driver aalib actually has. Where there
+is none, it also passes the terminal's real size, because the `stdout`
+driver's frame is otherwise a fixed 80x25 that never adapts to the window
+— which is why an aafire or bb that scrolls in a tall window suddenly
+"displays nice" if you shrink the terminal to about 30 rows. That resizing
+is the workaround; passing the size does it for you at any window size.
+
+To see which case you're in:
 
 ```bash
 aafire -help 2>&1 | grep -A1 'available drivers'
 ```
 
-If that lists only `stdout` and `stderr`, no argument can fix it — aalib
-itself needs rebuilding against ncurses or s-lang. If it lists `curses` or
+If that lists only `stdout` and `stderr`, the frame-size fallback above is
+as good as it gets: the animation will play in place but tear, because the
+streaming driver redraws by printing rather than by moving the cursor. The
+real fix is outside this repo — an aalib built against ncurses or s-lang.
+Homebrew's formula builds it `--without-x` and declares neither, so a
+`brew install` alone won't get you one. If it lists `curses` or
 `slang` and the fire *still* scrolls, the driver is present but failing to
 initialise, and tmux is the likely reason: `TERM` inside tmux may name a
 terminfo entry the linked curses doesn't carry. Compare a run outside

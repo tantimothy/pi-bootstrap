@@ -288,9 +288,30 @@ genuinely can be implicated.
 **Fix:** `whimsy-splash` asks aalib for the best driver it actually has
 (`aafire -help` lists them), passing `-driver slang`/`-driver curses` when
 present and nothing when neither is. Requesting one is free: aalib falls
-back on its own if it can't honour the request. Where neither real driver
-was compiled in, no argument helps and the answer is a differently-built
-aalib — the README says so at the point it applies.
+back on its own if it can't honour the request.
+
+**Follow-up, from the same Mac:** the driver request changed nothing there
+and `bb` scrolled the same way once it built — but with the detail that it
+"displays nice" at a terminal height of about 30 rows. That detail is the
+rest of the diagnosis. `aainfo -driver stdout` reports a fixed **80x25**
+frame: the streaming driver cannot ask the terminal how big it is, so it
+never adapts. In a taller window each 25-row frame stacks under the last
+instead of replacing it and the animation crawls upward; at ~25-30 rows a
+frame happens to fill the window and it looks stationary. Resizing the
+terminal wasn't a workaround for a rendering bug — it was the user
+manually matching the window to a hardcoded frame.
+
+So `whimsy-splash` now does that matching itself: with no real driver
+available it passes `-width`/`-height` taken from the actual terminal, and
+each frame then replaces exactly one screenful at any window size.
+Measured: a 45-row window renders 80-column frames by default and
+100-column frames with the size passed. It is still the streaming driver
+and still tears — the honest fix remains an aalib built against ncurses or
+s-lang — but it plays where it's put.
+
+The terminal size is read with `stty size < /dev/tty`, not `tput`: this
+runs inside a command substitution, so `tput`'s own stdout is a pipe and
+it answers from terminfo's static 80x24 rather than from the window.
 
 ### General lesson
 
