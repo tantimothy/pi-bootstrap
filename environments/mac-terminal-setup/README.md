@@ -335,6 +335,11 @@ Where each whimsy piece comes from:
   calendar and Talking Moose data are both fetched once, at deploy time. It
   asks for one line per launch against a service that allows 120 requests a
   minute per IP, and prints its own refusal when it can't reach anything.
+
+  Each request carries a unique query parameter and no-cache headers. The
+  API picks a reason at random per request, but it sits behind a CDN, and a
+  cached response turns "random" into "the same refusal every time" — which
+  is exactly how it first behaved.
 - **Sneakers decryption effect** — Brian Barto's
   [no-more-secrets](https://github.com/bartobri/no-more-secrets) (`nms`).
 - **BOFH excuse** (`bin/bofhexcuse`) — Jeff Ballard's
