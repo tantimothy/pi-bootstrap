@@ -34,6 +34,17 @@ CACA_SHA256="8ad74babc63bf665b0b2378d95b4da65b7493c11bd9f3ac600517085b0c4acf2"
 FORCE=false
 [ "${1:-}" = "--force" ] && FORCE=true
 
+# Print the last few lines of the build log inline. A build that fails
+# silently and points at a file gets reported as "it says not installed"
+# — twice, in practice — so the error goes where the person is actually
+# looking. The full log stays on disk for anything the tail cuts off.
+_caca_show_log_tail() {
+    [ -s "$CACA_LOG" ] || return 0
+    echo "      ---- last lines of $CACA_LOG ----"
+    tail -n 12 "$CACA_LOG" | sed 's/^/      /'
+    echo "      ---- end ----"
+}
+
 _have_caca() {
     { [ -x "$CACA_DIR/bin/cacafire" ] || command -v cacafire >/dev/null 2>&1; } &&
     { [ -x "$CACA_DIR/bin/cacademo" ] || command -v cacademo >/dev/null 2>&1; }
@@ -46,6 +57,7 @@ if [ "$FORCE" = "false" ]; then
     fi
     if [ -f "$CACA_FAILED" ]; then
         echo "   ⏭️  Skipping libcaca — a previous build failed. Details: $CACA_LOG"
+        _caca_show_log_tail
         echo "      Retry with: ~/bin/install-libcaca --force"
         exit 0
     fi
@@ -118,9 +130,17 @@ BUILD_DIR="$CACA_SRC/libcaca-$CACA_VERSION"
     # cxx) and the image backends (x11, gl, imlib2) are all irrelevant to
     # two terminal demos, and each one is a dependency that can fail to
     # find something on a machine this has never run on.
+    #
+    # --disable-cocoa is the macOS-specific one, and it is not optional
+    # here. libcaca autodetects a Cocoa driver, which on a Mac means
+    # compiling Objective-C against the Cocoa framework — and a driver
+    # that opens its own window, when the entire point is drawing in the
+    # terminal. On Linux it autodetects to "no" and is invisible, which is
+    # exactly why building this here first proved nothing about it.
     echo "=== configure ==="
     CPPFLAGS="${CPPFLAGS:-} $CACA_CPPFLAGS" LDFLAGS="${LDFLAGS:-} $CACA_LDFLAGS" \
         ./configure --prefix="$CACA_DIR" \
+            --disable-cocoa \
             --disable-x11 --disable-gl --disable-imlib2 --disable-doc \
             --disable-python --disable-ruby --disable-java --disable-csharp \
             --disable-cxx || exit 1
@@ -155,6 +175,7 @@ if [ -x "$CACA_DIR/bin/cacafire" ] && [ -x "$CACA_DIR/bin/cacademo" ]; then
 fi
 
 echo "   ⚠️  libcaca didn't build. Full output: $CACA_LOG" >&2
+_caca_show_log_tail >&2
 echo "      Everything else still works; cacafire and cacademo just show as" >&2
 echo "      [not installed] in whimsy-menu. Retry: ~/bin/install-libcaca --force" >&2
 touch "$CACA_FAILED"
