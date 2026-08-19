@@ -465,9 +465,31 @@ _run_naas() {
     # API: its /no path returns the site's own HTML. If it turns out to
     # expose an endpoint of its own, point WHIMSY_NO_URL at it — the
     # response handling below takes JSON or plain text from anywhere.
-    local url body reason cols host
+    local url fetch body reason cols host nonce
+    # A nonce per launch, because the same reason arriving every time is
+    # what a cached response looks like — reported exactly that way. The
+    # API picks randomly per request, but it sits behind a CDN, and a CDN
+    # serving one machine's rejection to everyone for the next few minutes
+    # turns "random" into "fixed". A unique query parameter gives each
+    # request its own cache key; the no-cache headers ask anything else in
+    # the path to do the same.
+    nonce="$$$(date +%s 2>/dev/null)$RANDOM"
     for url in ${WHIMSY_NO_URL:+"$WHIMSY_NO_URL"} "https://naas.isalman.dev/no"; do
-        body=$(curl --max-time 5 -fsSL "$url" 2>/dev/null) || continue
+        # Only http(s) gets the cache-buster. A file:// URL with a query
+        # string is just a path that doesn't exist — which is how the
+        # tests fetch their fixtures.
+        case "$url" in
+            http://*|https://*)
+                case "$url" in
+                    *\?*) fetch="$url&_=$nonce" ;;
+                    *)    fetch="$url?_=$nonce" ;;
+                esac
+                ;;
+            *) fetch="$url" ;;
+        esac
+        body=$(curl --max-time 5 -fsSL \
+            -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
+            "$fetch" 2>/dev/null) || continue
         reason=$(_naas_reason_from "$body") || continue
         [ -n "$reason" ] && { host="$url"; break; }
     done
