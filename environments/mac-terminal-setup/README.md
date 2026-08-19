@@ -114,7 +114,7 @@ the splash to the prompt before you could read it.
 | `bb` | [BB](https://aa-project.sourceforge.net/bb/), AA-lib's own audio-visual demo | Ctrl-C (or its own ending, minutes later) |
 | `sl` | [sl](https://github.com/mtoyoda/sl) — a steam locomotive, in one of five random variants | runs once, ~5s |
 | `ttyclock` | [tty-clock](https://github.com/xorg62/tty-clock) in screensaver mode, centred and coloured | any key |
-| `naas` | [No as a Service](https://noasaservice.lol) — a fetched, professionally-worded refusal, in large red letters | prints once |
+| `naas` | [No as a Service](https://github.com/hotheadhacker/no-as-a-service) — a fetched, professionally-worded refusal, in large red letters | prints once |
 
 The catalogue lives in `bin/whimsy-splash` — one file, used both by the
 random login pick and by the menu below, so the two can't drift apart. A
@@ -322,13 +322,19 @@ Where each whimsy piece comes from:
   deliberately — `cacaview` and `img2txt` don't link in that release
   (`undefined reference to _caca_alloc2d`), and a plain `make` takes the
   whole build down with them.
-- **Refusals** — [No as a Service](https://noasaservice.lol), built on
-  [hotheadhacker/no-as-a-service](https://github.com/hotheadhacker/no-as-a-service).
-  The only splash that talks to the network while it runs (the calendar and
-  Talking Moose data are both fetched once, at deploy time). It asks for one
-  line per launch, against a service that allows 120 requests a minute per
-  IP, and prints its own refusal if it can't reach either endpoint. Point it
-  somewhere else with `WHIMSY_NO_URL`.
+- **Refusals** — [no-as-a-service](https://github.com/hotheadhacker/no-as-a-service),
+  the API behind [noasaservice.lol](https://noasaservice.lol). The splash
+  talks to the project's own endpoint rather than the website: the site is a
+  single-page app and answers `/no` with its own HTML, which is not a
+  rejection reason however convincingly it arrives with a 200. If it turns
+  out to expose an API of its own, point `WHIMSY_NO_URL` at that — the
+  response handling takes `{"reason": ...}` JSON or plain text from
+  anywhere, and rejects anything that looks like a web page.
+
+  This is the only splash that talks to the network *while it runs* — the
+  calendar and Talking Moose data are both fetched once, at deploy time. It
+  asks for one line per launch against a service that allows 120 requests a
+  minute per IP, and prints its own refusal when it can't reach anything.
 - **Sneakers decryption effect** — Brian Barto's
   [no-more-secrets](https://github.com/bartobri/no-more-secrets) (`nms`).
 - **BOFH excuse** (`bin/bofhexcuse`) — Jeff Ballard's

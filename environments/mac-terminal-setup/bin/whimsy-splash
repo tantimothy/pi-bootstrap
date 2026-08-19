@@ -415,38 +415,61 @@ _run_ttyclock() {
     tty-clock -S -c -s -b -C "$((1 + RANDOM % 7))"
 }
 
+# Turns a fetched body into a refusal, or fails. Split out from _run_naas
+# so the "is this actually a reason?" judgement is one thing in one place.
+_naas_reason_from() {
+    local body="$1" reason
+    [ -n "$body" ] || return 1
+
+    # A web page is not an API response. noasaservice.lol is a single-page
+    # app and serves its own index.html — with a 200 — for any path it
+    # doesn't recognise, so asking it for /no returns the site's HTML
+    # shell. Without this check that shell gets treated as plain text and
+    # read out as the rejection reason, `<!doctype html>` and all, which is
+    # exactly what happened the first time this shipped.
+    case "$body" in
+        '<'*|*'<html'*|*'<!doctype'*|*'<!DOCTYPE'*) return 1 ;;
+    esac
+    # A reason is a sentence. Anything the length of a document is
+    # something else that happens not to open with a tag.
+    [ "${#body}" -gt 1000 ] && return 1
+
+    case "$body" in
+        # The documented JSON shape. Extracted with sed rather than a JSON
+        # parser because macOS ships no jq and the object has exactly one
+        # key; the unescaping covers what a quoted sentence can contain.
+        *'"reason"'*)
+            reason=$(printf '%s' "$body" |
+                sed -n 's/.*"reason"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p')
+            reason=${reason//\\\"/\"}
+            reason=${reason//\\\//\/}
+            ;;
+        # Some other instance answering in plain text — fine, as long as it
+        # got past the checks above.
+        *) reason="$body" ;;
+    esac
+
+    [ -n "$reason" ] || return 1
+    printf '%s' "$reason"
+}
+
 _run_naas() {
-    # No as a Service (noasaservice.lol, built on
-    # github.com/hotheadhacker/no-as-a-service): one HTTP GET, one
-    # professionally-worded refusal. The upstream API answers /no with
-    # {"reason": "..."} and rate-limits to 120 requests a minute per IP,
-    # which a login shell picking one splash in thirteen is in no danger of
-    # troubling.
+    # No as a Service: one HTTP GET, one professionally-worded refusal.
     #
-    # Two endpoints are tried in order, the second being the project's own
-    # canonical instance — a rejection service that can't be reached is a
-    # joke that tells itself, but not twice. Override either with
-    # WHIMSY_NO_URL.
-    local url body reason cols
-    for url in "${WHIMSY_NO_URL:-https://noasaservice.lol/no}" "https://naas.isalman.dev/no"; do
+    # The endpoint is the project's own API (github.com/hotheadhacker/
+    # no-as-a-service), which answers /no with {"reason": "..."} and
+    # rate-limits to 120 requests a minute per IP — a login shell picking
+    # one splash in thirteen is in no danger of troubling it.
+    #
+    # noasaservice.lol is the same project's website rather than a second
+    # API: its /no path returns the site's own HTML. If it turns out to
+    # expose an endpoint of its own, point WHIMSY_NO_URL at it — the
+    # response handling below takes JSON or plain text from anywhere.
+    local url body reason cols host
+    for url in ${WHIMSY_NO_URL:+"$WHIMSY_NO_URL"} "https://naas.isalman.dev/no"; do
         body=$(curl --max-time 5 -fsSL "$url" 2>/dev/null) || continue
-        [ -n "$body" ] || continue
-        case "$body" in
-            # The documented JSON shape. Extracted with sed rather than a
-            # JSON parser because macOS ships no jq and the object has
-            # exactly one key; the unescaping below covers what a quoted
-            # sentence can actually contain.
-            *'"reason"'*)
-                reason=$(printf '%s' "$body" |
-                    sed -n 's/.*"reason"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p')
-                reason=${reason//\\\"/\"}
-                reason=${reason//\\\//\/}
-                ;;
-            # Anything else is taken at face value, so a differently-shaped
-            # instance still works instead of printing nothing.
-            *) reason="$body" ;;
-        esac
-        [ -n "$reason" ] && break
+        reason=$(_naas_reason_from "$body") || continue
+        [ -n "$reason" ] && { host="$url"; break; }
     done
 
     cols=$(tput cols 2>/dev/null); case "${cols:-x}" in ''|*[!0-9]*) cols=80 ;; esac
@@ -462,10 +485,16 @@ _run_naas() {
     if [ -n "$reason" ]; then
         echo "$reason" | fmt -w $(( cols > 12 ? cols - 4 : 72 )) | sed 's/^/  /'
         echo ""
-        echo "  — noasaservice.lol"
+        # Credit whichever host actually answered, rather than a name
+        # hardcoded here that a WHIMSY_NO_URL override would make wrong.
+        # A file:// URL has no host at all, which is worth naming something
+        # rather than printing a bare dash.
+        host=${host#*://}; host=${host%%/*}
+        [ -n "$host" ] || host="no-as-a-service"
+        echo "  — $host"
     else
-        # Offline, rate-limited, or the service is down. The answer does
-        # not change.
+        # Offline, rate-limited, or answering with something that isn't a
+        # reason. The answer does not change.
         echo "  No reason could be reached for comment."
         echo "  The answer is still no."
     fi
@@ -568,9 +597,9 @@ Splashes:
 $(_splash_catalogue | awk -F'|' '{ printf "  %-10s %s\n", $1, $3 }')
 
 Environment:
-  WHIMSY_NO_URL          Where the 'naas' splash fetches its refusal from.
-                         Default https://noasaservice.lol/no; the project's
-                         own instance is tried if that one can't be reached.
+  WHIMSY_NO_URL          An extra endpoint for the 'naas' splash, tried
+                         before the project's own API. Takes {"reason":...}
+                         JSON or plain text.
   WHIMSY_SPLASH_SECONDS  How long --login lets a splash that doesn't end
                          on its own (hollywood, genact, bb) run.
                          Default 30; 0 = no limit.
