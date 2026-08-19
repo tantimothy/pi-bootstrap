@@ -79,11 +79,15 @@ _launch_random() {
 
 # --- DIALOG FRONT END ---
 _menu_dialog() {
-    local choice exit_code menu_items=() i avail suffix
+    local choice exit_code menu_items=() i avail menuonly suffix
     while true; do
         # Availability is re-read on every pass, not cached: installing a
         # missing tool in another window and coming back should just work.
         avail=" $("$SPLASH" --available | tr '\n' ' ')"
+        # Which splashes the random pick skips, asked of whimsy-splash
+        # rather than listed again here — the menu offers them, so it says
+        # so, but the list of them lives in one place.
+        menuonly=" $("$SPLASH" --menu-only | tr '\n' ' ')"
         # random goes first, not last: on a 24-row terminal dialog can only
         # show about ten entries of a twelve-splash catalogue at once, and a
         # last-place entry is one nobody scrolls to. First place also makes
@@ -92,9 +96,12 @@ _menu_dialog() {
         menu_items=( "random" "Surprise me - any one that's installed" )
         for i in "${!IDS[@]}"; do
             suffix=""
+            case "$menuonly" in
+                *" ${IDS[$i]} "*) suffix=" [menu]" ;;
+            esac
             case "$avail" in
                 *" ${IDS[$i]} "*) ;;
-                *) suffix=" [not installed]" ;;
+                *) suffix="$suffix [not installed]" ;;
             esac
             menu_items+=( "${IDS[$i]}" "${DESCRIPTIONS[$i]}${suffix}" )
         done
@@ -150,18 +157,23 @@ _menu_dialog() {
 
 # --- PLAIN-TEXT FALLBACK (no dialog installed) ---
 _menu_plain() {
-    local i avail suffix choice
+    local i avail menuonly suffix choice
     while true; do
         avail=" $("$SPLASH" --available | tr '\n' ' ')"
+        menuonly=" $("$SPLASH" --menu-only | tr '\n' ' ')"
         echo ""
-        echo "🎭 Whimsy Splashes — the same list a new login shell picks from at random."
+        echo "🎭 Whimsy Splashes — what a new login shell picks from, plus the"
+        echo "   ones marked [menu], which it offers but never picks."
         echo ""
         printf "  %2s) %-10s %s\n" "r" "random" "Surprise me - any one that's installed"
         for i in "${!IDS[@]}"; do
             suffix=""
+            case "$menuonly" in
+                *" ${IDS[$i]} "*) suffix="  [menu]" ;;
+            esac
             case "$avail" in
                 *" ${IDS[$i]} "*) ;;
-                *) suffix="  [not installed]" ;;
+                *) suffix="$suffix  [not installed]" ;;
             esac
             printf "  %2d) %-10s %s%s\n" "$((i + 1))" "${IDS[$i]}" "${DESCRIPTIONS[$i]}" "$suffix"
         done

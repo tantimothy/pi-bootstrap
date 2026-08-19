@@ -176,6 +176,8 @@ if [ "$WHIMSY_ENABLED" = "true" ]; then
     chmod +x "$HOME/bin/install-bb"
     _deploy_file "$SCRIPT_DIR/bin/install-aalib" "$HOME/bin/install-aalib"
     chmod +x "$HOME/bin/install-aalib"
+    _deploy_file "$SCRIPT_DIR/bin/install-libcaca" "$HOME/bin/install-libcaca"
+    chmod +x "$HOME/bin/install-libcaca"
     _deploy_file "$REPO_DIR/lib/locale-lib.sh" "$HOME/bin/locale-lib.sh"
 
     # --- HOLLYWOOD (github.com/dustinkirkland/hollywood) ---
@@ -279,6 +281,13 @@ if [ "$WHIMSY_ENABLED" = "true" ]; then
     echo ""
     echo "🎪 Checking bb (AA-lib demo)..."
     bash "$SCRIPT_DIR/bin/install-bb" || true
+
+    # libcaca — AA-lib's colour successor, and the source of two more
+    # splashes. Independent of the aalib/bb pair above: nothing links
+    # against both, so the order between them doesn't matter.
+    echo ""
+    echo "🎨 Checking libcaca (cacafire, cacademo)..."
+    bash "$SCRIPT_DIR/bin/install-libcaca" || true
 
     # Uli Kusterer's TalkingMoose (github.com/uliwitness/talkingmoose)
     # phrase files, fetched here — once, at install/redeploy time — rather

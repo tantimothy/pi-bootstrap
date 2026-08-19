@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+#
+# install-libcaca — build libcaca's cacafire and cacademo into ~/bin/libcaca.d.
+#
+# libcaca is AA-lib's successor, by the same authors: colour instead of
+# monochrome, and drivers that work. cacafire is the fire demo in colour;
+# cacademo cycles through several scenes (plasma, matrix rain, moiré
+# patterns) and is the best-looking thing in the whole catalogue.
+#
+# Neither is packaged for macOS — libcaca has no Homebrew formula — so this
+# builds them, the same shape as install-aalib and install-bb: everything
+# under ~/bin/libcaca.d via --prefix, nothing system-wide, no sudo.
+#
+#   ~/bin/install-libcaca          # build if the binaries aren't there
+#   ~/bin/install-libcaca --force  # build regardless, ignoring a past failure
+#
+# Run by run.sh best-effort when whimsy is enabled. A failed build writes
+# .build-failed and isn't retried automatically.
+
+set -u
+
+CACA_DIR="$HOME/bin/libcaca.d"
+CACA_SRC="$CACA_DIR/src"
+CACA_LOG="$CACA_DIR/build.log"
+CACA_FAILED="$CACA_DIR/.build-failed"
+
+# The GitHub release rather than caca.zoy.org, which refuses plenty of
+# clients outright. Checksum verified because this arrives over the network
+# from a third party.
+CACA_VERSION="0.99.beta20"
+CACA_URL="https://github.com/cacalabs/libcaca/releases/download/v${CACA_VERSION}/libcaca-${CACA_VERSION}.tar.gz"
+CACA_SHA256="8ad74babc63bf665b0b2378d95b4da65b7493c11bd9f3ac600517085b0c4acf2"
+
+FORCE=false
+[ "${1:-}" = "--force" ] && FORCE=true
+
+_have_caca() {
+    { [ -x "$CACA_DIR/bin/cacafire" ] || command -v cacafire >/dev/null 2>&1; } &&
+    { [ -x "$CACA_DIR/bin/cacademo" ] || command -v cacademo >/dev/null 2>&1; }
+}
+
+if [ "$FORCE" = "false" ]; then
+    if _have_caca; then
+        echo "   ✅ cacafire and cacademo already available."
+        exit 0
+    fi
+    if [ -f "$CACA_FAILED" ]; then
+        echo "   ⏭️  Skipping libcaca — a previous build failed. Details: $CACA_LOG"
+        echo "      Retry with: ~/bin/install-libcaca --force"
+        exit 0
+    fi
+fi
+
+for tool in curl tar make cc; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "   ⚠️  Building libcaca needs '$tool', which isn't installed." >&2
+        echo "      On macOS: xcode-select --install" >&2
+        exit 1
+    fi
+done
+
+# Same ncurses question as install-aalib, and the same answer: libcaca's
+# ncurses driver calls initscr(), which needs a terminfo entry for $TERM,
+# and macOS's own ncurses (5.7) has none for tmux — where this environment
+# always is. Build against Homebrew's, whose terminfo database is current.
+CACA_CPPFLAGS=""
+CACA_LDFLAGS=""
+if command -v brew >/dev/null 2>&1; then
+    brew list --formula ncurses >/dev/null 2>&1 || {
+        echo "   📦 Installing ncurses (libcaca's driver needs its terminfo database)..."
+        brew install ncurses || echo "   ⚠️  brew install ncurses failed — continuing anyway." >&2
+    }
+    NCURSES_PREFIX="$(brew --prefix ncurses 2>/dev/null)"
+    if [ -d "$NCURSES_PREFIX/include" ]; then
+        CACA_CPPFLAGS="-I$NCURSES_PREFIX/include"
+        CACA_LDFLAGS="-L$NCURSES_PREFIX/lib"
+    fi
+fi
+
+mkdir -p "$CACA_DIR"
+rm -f "$CACA_FAILED"
+
+echo "   🎨 Building libcaca's cacafire and cacademo..."
+
+{
+    echo "=== install-libcaca $(date) ==="
+    echo "=== CPPFLAGS: $CACA_CPPFLAGS  LDFLAGS: $CACA_LDFLAGS ==="
+    rm -rf "$CACA_SRC"
+    mkdir -p "$CACA_SRC"
+    cd "$CACA_SRC" || exit 1
+
+    echo "=== fetching $CACA_URL ==="
+    curl --max-time 120 -fsSL "$CACA_URL" -o libcaca.tar.gz || exit 1
+
+    echo "=== verifying checksum ==="
+    if command -v shasum >/dev/null 2>&1; then
+        echo "$CACA_SHA256  libcaca.tar.gz" | shasum -a 256 -c - || exit 1
+    elif command -v sha256sum >/dev/null 2>&1; then
+        echo "$CACA_SHA256  libcaca.tar.gz" | sha256sum -c - || exit 1
+    else
+        echo "no shasum or sha256sum available to verify the download" >&2
+        exit 1
+    fi
+
+    tar xzf libcaca.tar.gz || exit 1
+} > "$CACA_LOG" 2>&1 || {
+    echo "   ⚠️  Couldn't fetch the libcaca source — see $CACA_LOG" >&2
+    touch "$CACA_FAILED"
+    exit 1
+}
+
+BUILD_DIR="$CACA_SRC/libcaca-$CACA_VERSION"
+
+{
+    cd "$BUILD_DIR" || exit 1
+
+    # Everything optional is off. The bindings (python, ruby, java, csharp,
+    # cxx) and the image backends (x11, gl, imlib2) are all irrelevant to
+    # two terminal demos, and each one is a dependency that can fail to
+    # find something on a machine this has never run on.
+    echo "=== configure ==="
+    CPPFLAGS="${CPPFLAGS:-} $CACA_CPPFLAGS" LDFLAGS="${LDFLAGS:-} $CACA_LDFLAGS" \
+        ./configure --prefix="$CACA_DIR" \
+            --disable-x11 --disable-gl --disable-imlib2 --disable-doc \
+            --disable-python --disable-ruby --disable-java --disable-csharp \
+            --disable-cxx || exit 1
+
+    # Deliberately not a plain `make && make install`. Two of the tools in
+    # src/ — cacaview and img2txt — don't link in this release: they call
+    # _caca_alloc2d, which the shared library doesn't export ("undefined
+    # reference to `_caca_alloc2d'", confirmed directly). That's upstream's
+    # bug in tools this repo doesn't want, and it takes the whole build
+    # down with it.
+    #
+    # So: build and install the library, then build only the two demos that
+    # are actually wanted, and install those through libtool so they get
+    # relinked against the installed library rather than the build tree.
+    echo "=== make -C caca (the library) ==="
+    make -C caca || exit 1
+    echo "=== make -C caca install ==="
+    make -C caca install || exit 1
+
+    echo "=== make -C src cacademo cacafire ==="
+    make -C src cacademo cacafire || exit 1
+
+    echo "=== installing the two demos ==="
+    mkdir -p "$CACA_DIR/bin"
+    ./libtool --mode=install install -c src/cacademo "$CACA_DIR/bin/cacademo" || exit 1
+    ./libtool --mode=install install -c src/cacafire "$CACA_DIR/bin/cacafire" || exit 1
+} >> "$CACA_LOG" 2>&1
+
+if [ -x "$CACA_DIR/bin/cacafire" ] && [ -x "$CACA_DIR/bin/cacademo" ]; then
+    echo "   ✅ Built cacafire and cacademo — $CACA_DIR/bin"
+    exit 0
+fi
+
+echo "   ⚠️  libcaca didn't build. Full output: $CACA_LOG" >&2
+echo "      Everything else still works; cacafire and cacademo just show as" >&2
+echo "      [not installed] in whimsy-menu. Retry: ~/bin/install-libcaca --force" >&2
+touch "$CACA_FAILED"
+exit 1

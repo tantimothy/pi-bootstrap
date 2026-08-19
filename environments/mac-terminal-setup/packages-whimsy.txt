@@ -9,6 +9,8 @@ genact
 no-more-secrets
 sl
 tty-clock
+lavat
+nyancat
 # aalib ships aafire (the burning-terminal splash) and is also what bb
 # renders through — see bin/install-bb, which builds bb itself since
 # nothing packages it for macOS. Note that this bottle has no terminal
