@@ -121,6 +121,13 @@ random login pick and by the menu below, so the two can't drift apart. A
 splash whose tools aren't installed is skipped by the random pick rather
 than flashing an empty screen with a "command not found".
 
+**Two of them are menu-only.** `bb` and `cacademo` are offered by
+`whimsy-menu` (marked `[menu]` there) and run when named, but the random
+login pick never chooses them — they're worth watching deliberately rather
+than being handed unprompted, `bb` because its demo runs for minutes and
+`cacademo` because it's the one to show someone. The list of them lives in
+`whimsy-splash` too, and the menu asks for it with `--menu-only`.
+
 ### If `aafire` or `bb` scrolls instead of animating in place
 
 aalib picks its output driver at runtime — slang, then curses, then
@@ -212,6 +219,26 @@ that's seven panes' worth, which is about what hollywood asks for.
 > macOS itself. What's still worth confirming, and how, is in
 > `docs/future-enhancements/mac-terminal-setup.md` #4.
 
+### About libcaca on macOS
+
+`libcaca` has no Homebrew formula, so `bin/install-libcaca` compiles
+`cacafire` and `cacademo` into `~/bin/libcaca.d` — same shape as the aalib
+and bb builds, and against Homebrew's ncurses for the same terminfo reason.
+Two upstream quirks it works around:
+
+- **Two of the tools in that release don't link.** `cacaview` and `img2txt`
+  reference `_caca_alloc2d`, which the shared library doesn't export. A
+  plain `make` fails on them and takes everything with it, so the build
+  makes the library, installs it, then builds only the two demos wanted.
+- **Everything optional is disabled** — x11, gl, imlib2, docs, and the
+  Python/Ruby/Java/C#/C++ bindings. None of it matters to two terminal
+  demos, and each is a dependency that can fail to resolve on a machine
+  this has never run on.
+
+```bash
+~/bin/install-libcaca --force
+```
+
 ### About bb on macOS
 
 `bb` is the one splash with no package at all — not in homebrew-core, not
@@ -285,6 +312,16 @@ Where each whimsy piece comes from:
   modern-macOS fork.
 - **Steam locomotive** — Toyoda Masashi's [sl](https://github.com/mtoyoda/sl).
 - **Digital clock** — [tty-clock](https://github.com/xorg62/tty-clock).
+- **Lava lamp** — [lavat](https://github.com/AngelJumbo/lavat).
+- **Nyan Cat** — [nyancat](https://github.com/klange/nyancat).
+- **Colour demos** — [libcaca](https://github.com/cacalabs/libcaca)'s
+  `cacafire` and `cacademo`, by the same authors as AA-lib and its
+  successor in every way that matters here: colour, and drivers that work.
+  No Homebrew formula, so `bin/install-libcaca` builds the two demos from
+  the upstream release (checksum-verified). It builds only those two
+  deliberately — `cacaview` and `img2txt` don't link in that release
+  (`undefined reference to _caca_alloc2d`), and a plain `make` takes the
+  whole build down with them.
 - **Refusals** — [No as a Service](https://noasaservice.lol), built on
   [hotheadhacker/no-as-a-service](https://github.com/hotheadhacker/no-as-a-service).
   The only splash that talks to the network while it runs (the calendar and

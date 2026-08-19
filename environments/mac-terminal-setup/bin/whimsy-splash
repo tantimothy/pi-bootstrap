@@ -16,6 +16,7 @@
 #   whimsy-splash --login      # random, in login-shell mode (see below)
 #   whimsy-splash --list       # id<TAB>label<TAB>description, one per line
 #   whimsy-splash --available  # ids that can actually run on this machine
+#   whimsy-splash --menu-only  # ids the random pick skips (menu only)
 #
 # Login mode differs from an explicit launch in two ways, both about the
 # fact that a login shell has a whole sequence of output still to print
@@ -42,7 +43,9 @@ WHIMSY_SPLASH_SECONDS="${WHIMSY_SPLASH_SECONDS:-30}"
 # id|label|description — the order here is the order whimsy-menu lists them
 # in. Descriptions are one line, and say how the splash ends (press a key,
 # q, Ctrl-C), since that's the thing you actually need to know before
-# starting one.
+# starting one. Keep them under about 40 characters: whimsy-menu appends
+# its own "[menu]" and "[not installed]" markers, and dialog truncates the
+# row rather than wrapping it.
 _splash_catalogue() {
     cat <<'EOF'
 bonsai|Bonsai tree|A bonsai grows forever (any key exits)
@@ -54,10 +57,14 @@ hollywood|Hollywood hacker|Split-pane logs, dumps, gauges (Ctrl-C)
 genact|Fake activity|Plausible installs and builds (Ctrl-C)
 nms|Sneakers decrypt|A fortune, decrypted Sneakers-style
 aafire|Burning terminal|AAlib flames burn upward (any key exits)
-bb|AA-lib's BB demo|The classic audio-visual demo (Ctrl-C)
+bb|AA-lib's BB demo|Classic audio-visual demo (Ctrl-C)
 sl|Steam locomotive|A train runs across the screen, once
 ttyclock|Big digital clock|A giant clock ticks (any key exits)
 naas|No as a Service|A professionally-worded refusal, fetched
+lavat|Lava lamp|Metaball blobs drift and merge (q exits)
+nyancat|Nyan Cat|Rainbow trail, indefinitely (Ctrl-C exits)
+cacafire|Colour fire|libcaca's fire, in colour (any key exits)
+cacademo|Colour demo scenes|Plasma, rain and moire, in colour
 EOF
 }
 
@@ -117,6 +124,29 @@ _aafire_bin() {
     fi
 }
 
+# libcaca has no Homebrew formula either, so bin/install-libcaca builds
+# cacafire and cacademo into ~/bin/libcaca.d. Same preference order as the
+# other three: this repo's copy first, then anything on $PATH.
+_caca_bin() {
+    if [ -x "$HOME/bin/libcaca.d/bin/$1" ]; then
+        echo "$HOME/bin/libcaca.d/bin/$1"
+    else
+        command -v "$1" 2>/dev/null
+    fi
+}
+
+# Splashes that whimsy-menu offers but the random login pick never chooses.
+# Nothing here is broken — they're the ones worth watching deliberately
+# rather than being handed unprompted: bb's demo runs for minutes, and
+# cacademo is the one to show someone rather than to find yourself in.
+# whimsy-menu reads this through --menu-only, so the two lists can't drift.
+_splash_menu_only() {
+    case "$1" in
+        bb|cacademo) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # True if the tools a given splash needs are present. Random picks are made
 # from this set only: with hollywood/genact/nms added to a catalogue that
 # used to be entirely brew-installable, "picked at random" and "installed"
@@ -145,6 +175,10 @@ _splash_available() {
         # unreachable network isn't a reason to hide the splash — see
         # _run_naas, which has something to say about that too.
         naas)      command -v curl >/dev/null 2>&1 ;;
+        lavat)     command -v lavat >/dev/null 2>&1 ;;
+        nyancat)   command -v nyancat >/dev/null 2>&1 ;;
+        cacafire)  [ -n "$(_caca_bin cacafire)" ] ;;
+        cacademo)  [ -n "$(_caca_bin cacademo)" ] ;;
         *)         return 1 ;;
     esac
 }
@@ -166,6 +200,10 @@ _splash_install_hint() {
         sl)        echo "brew install sl" ;;
         ttyclock)  echo "brew install tty-clock" ;;
         naas)      echo "nothing to install — it needs curl, which macOS ships" ;;
+        lavat)     echo "brew install lavat" ;;
+        nyancat)   echo "brew install nyancat" ;;
+        cacafire|cacademo)
+                   echo "~/bin/install-libcaca (libcaca isn't packaged for macOS — it gets built from source)" ;;
     esac
 }
 
@@ -176,7 +214,7 @@ _splash_is_endless() {
         # bb is finite in principle — its demo does end — but it runs for
         # several minutes, which on login is indistinguishable from
         # forever.
-        hollywood|genact|bb) return 0 ;;
+        hollywood|genact|bb|nyancat) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -433,6 +471,11 @@ _run_naas() {
     fi
 }
 
+_run_lavat() { lavat; }
+
+_run_cacafire() { "$(_caca_bin cacafire)"; }
+_run_cacademo() { "$(_caca_bin cacademo)"; }
+
 _run_nms() {
     # -a auto-decrypts instead of waiting for a keypress to *start* the
     # effect; login mode's own pause afterwards holds the decrypted text
@@ -463,6 +506,13 @@ _splash_run() {
         sl)        _run_sl ;;
         ttyclock)  _run_ttyclock ;;
         naas)      _run_naas;   [ "$login_mode" = "login" ] && _splash_pause ;;
+        lavat)     _run_lavat ;;
+        # -t drops nyancat's title bar, two rows of the program naming
+        # itself. It has no key handling at all, so login mode's time limit
+        # is the only thing that ends it short of Ctrl-C.
+        nyancat)   _splash_run_bounded "$limit" nyancat -t ;;
+        cacafire)  _run_cacafire ;;
+        cacademo)  _run_cacademo ;;
         *)
             echo "whimsy-splash: unknown splash '$id'" >&2
             echo "Known splashes: $(_splash_ids | tr '\n' ' ')" >&2
@@ -475,6 +525,7 @@ _splash_run() {
 _splash_random() {
     local id available=()
     while IFS= read -r id; do
+        _splash_menu_only "$id" && continue
         _splash_available "$id" && available+=("$id")
     done < <(_splash_ids)
     [ ${#available[@]} -eq 0 ] && return 1
@@ -494,6 +545,12 @@ case "${1:-}" in
         done < <(_splash_ids)
         exit 0
         ;;
+    --menu-only)
+        while IFS= read -r _id; do
+            _splash_menu_only "$_id" && echo "$_id"
+        done < <(_splash_ids)
+        exit 0
+        ;;
     -h|--help)
         cat <<EOF
 whimsy-splash — run one of the whimsical terminal splashes.
@@ -504,6 +561,8 @@ whimsy-splash — run one of the whimsical terminal splashes.
                              splashes, time-limits the endless ones)
   whimsy-splash --list       id, label and description, tab-separated
   whimsy-splash --available  Just the ids that can run on this machine
+  whimsy-splash --menu-only  Ids the random pick skips; the menu still
+                             offers them, and naming one still runs it
 
 Splashes:
 $(_splash_catalogue | awk -F'|' '{ printf "  %-10s %s\n", $1, $3 }')
