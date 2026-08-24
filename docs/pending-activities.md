@@ -1,7 +1,8 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-08-15** — though only the
-`okf-graph-wiki` entry was added in that pass; every older entry below
+A snapshot of open follow-ups as of **2026-08-24** — though only the
+Ollama reboot-recovery entry was revised in that pass, and the
+`okf-graph-wiki` entry in the 2026-08-15 one; every other entry below
 carries its 2026-08-09 state and was not re-verified, so treat anything
 else here as at least that stale. GitHub itself (PR/issue
 state) is always the authoritative source for anything below that
@@ -232,21 +233,33 @@ Ollama is reachable again. What's left:
   host) only exists in this repo's docs so far — the group agent that
   proposed it hasn't been told.
 
-## Ollama: outage closed on the host, one tool fix still open
+## Ollama: reboot recovery fixed in code, one host action required
 
-The 2026-08-15 outage is fully resolved on the host side — Ollama
-restarted and confirmed reachable from inside a group container, the
-watchdog scheduled through the `ollama` environment's own action, the
-schedule re-run after `.env` was confirmed so the plist carries the
-right bind address, and the boot question answered (that host
-auto-logs-in, so the LaunchAgent covers a reboot). Full account, and the
-note that auto-login is now a load-bearing prerequisite, in
-`docs/lessons-learned/general.md`.
+**The 2026-08-15 outage recurred on 2026-08-24** — same Mac, same
+symptom, and this time with the watchdog installed and auto-login on.
+Two launchd behaviours defeated it: a scheduled job's `PATH` excludes
+Homebrew, so the run could not find `ollama` or `brew`; and launchd kills
+a finished job's process group, taking with it the daemon the tick had
+just started and logged as successfully restarted. Both are fixed in
+`lib/ollama-lib.sh` and `ollama-watchdog.sh`; full account in the
+2026-08-24 entry of `docs/lessons-learned/general.md`.
 
+- **Re-run the schedule action on that Mac.** The two runtime fixes reach
+  an existing install on the next tick by themselves, but the plist's own
+  `PATH`/`AbandonProcessGroup` keys only arrive on a re-install:
+  `./deploy.sh` → Environments → ollama → *Watchdog: Schedule Automatic
+  Checks*. `ollama-watchdog.sh --status` prints `Plist version: OUTDATED`
+  until that is done, and `current` afterwards.
+- **Confirm it against a real reboot**, which is the transition this has
+  now failed twice and has never been deliberately tested. After
+  rebooting: `--status` (schedule installed, plist current, listeners
+  non-loopback) plus a container-side reach test, not just a host probe.
 - **`--status` reports the live bind address, not the scheduled one.**
-  The last thing left here, and it's a change to `ollama-watchdog.sh`
-  rather than anything on the host — scoped in
-  `docs/future-enhancements/ollama-watchdog-status-reporting.md`.
+  Still open, still a change to `ollama-watchdog.sh` rather than anything
+  on the host — scoped in
+  `docs/future-enhancements/ollama-watchdog-status-reporting.md`, which
+  now notes that `--status` does read the plist for the version marker,
+  so this no longer starts from nothing.
 
 ## Known, deliberately-deferred code quality items
 

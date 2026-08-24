@@ -129,13 +129,6 @@ an interactive chat choice.
 bash environments/ollama/scripts/manage-models.sh
 bash environments/ollama/scripts/manage-models.sh --resources
 bash environments/ollama/scripts/manage-models.sh --pull phi4-mini
-**Why a watchdog when Homebrew/systemd already supervises Ollama?** Because
-they catch different failures. A service supervisor restarts a process that
-*exited*; the incident this was built for had the process alive and only its
-HTTP API wedged, which no `KeepAlive` can see. They compose: the supervisor owns
-the process, the watchdog owns API health, and the watchdog now restarts through
-`brew services`/`systemctl` where those manage the daemon rather than `pkill`-ing
-something the supervisor immediately brings back.
 
 bash ollama-watchdog.sh --check     # is it responding right now?
 bash ollama-watchdog.sh --status    # bind address, schedule, health, listeners
@@ -144,3 +137,42 @@ bash ollama-watchdog.sh --stop      # kill any in-flight run and unschedule
 ```
 
 Exit an interactive model chat with `/exit` or `Ctrl+D`.
+
+**Why a watchdog when Homebrew/systemd already supervises Ollama?** Because
+they catch different failures. A service supervisor restarts a process that
+*exited*; the incident this was built for had the process alive and only its
+HTTP API wedged, which no `KeepAlive` can see. They compose: the supervisor owns
+the process, the watchdog owns API health, and the watchdog now restarts through
+`brew services`/`systemctl` where those manage the daemon rather than `pkill`-ing
+something the supervisor immediately brings back.
+
+## Coming back after a reboot (macOS)
+
+Ollama has no boot autostart of its own on a Mac once this repo has taken it out
+of Homebrew's supervision — which it does whenever `OLLAMA_SERVE_HOST` is set and
+Homebrew's service definition refuses to honour it (see the bind-address note
+above). The scheduled watchdog is what brings it back: its LaunchAgent has
+`RunAtLoad`, so it fires at login, finds nothing answering, and starts Ollama.
+
+Three prerequisites, none of which announce themselves when missing:
+
+- **The watchdog has to actually be scheduled.** `./deploy.sh` → Environments →
+  ollama → *Watchdog: Schedule Automatic Checks*. A watchdog that was never
+  installed is documentation, not a safeguard — that is exactly how the
+  2026-08-15 outage happened.
+- **The Mac has to log in on its own.** A LaunchAgent loads at *user login*, not
+  at boot. On a host that reboots to the login window and waits there, neither
+  Ollama nor the watchdog comes back. Auto-login is therefore load-bearing here;
+  turning it off silently re-opens the gap.
+- **The installed LaunchAgent has to be current.** The plist is written once at
+  install time and never re-read, so a fix to its *contents* reaches nobody who
+  already installed it. `ollama-watchdog.sh --status` prints
+  `Plist version: OUTDATED` when that has happened; re-run the schedule action to
+  pick it up. The 2026-08-24 reboot failure was two such content bugs — launchd
+  runs jobs with a PATH that excludes Homebrew, so the scheduled run could not
+  find `ollama` at all, and launchd killed the daemon a tick had just started,
+  seconds after that tick logged the restart as a success.
+
+`--status` is the one command that answers "will this survive the next reboot?":
+it reports the schedule, the plist version, the bind address, and what is
+actually listening.
