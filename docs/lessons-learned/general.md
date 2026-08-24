@@ -1014,3 +1014,149 @@ was just being pre-empted in the wrong one.
   four times?" forces you to read what it returns.** This was found by asking
   why `check_locally_built()` resolved the same image four times, then
   actually running the lookup once in isolation. Nobody had done that.
+
+---
+
+## Ollama stayed down after a Mac reboot again — this time the watchdog *was* installed, and launchd broke it two different ways (2026-08-24)
+
+**Status:** fixed in code. `lib/ollama-lib.sh` starts the daemon in its own
+process group and repairs `PATH` at source time; `ollama-watchdog.sh --install`
+writes a version-marked plist carrying `PATH` and `AbandonProcessGroup`, and
+`--status` now reports when the installed plist predates them. **An operator
+whose schedule was installed before this must re-run the schedule action** —
+see "The stale-plist half" below.
+
+### Summary
+
+Nine days after the 2026-08-15 outage was closed by installing the watchdog, the
+same Mac rebooted and Ollama again did not come back. The watchdog was installed
+this time, auto-login was on, the LaunchAgent loaded and fired. It still failed,
+because *every* recovery path in it depends on things that are true in a
+Terminal and false under launchd.
+
+### Symptom
+
+Same as last time from the outside — Ollama simply not there after a reboot.
+From the inside it should have looked different: the watchdog log would show
+either nothing useful, or, worse, a five-minutely run of
+`✅ Ollama responsive again after restart` for a daemon that was never up for
+more than a few seconds at a time.
+
+### Root cause
+
+Two independent launchd behaviours, both of which only bite on the one code path
+a healthy host never reaches.
+
+**1. launchd's PATH excludes Homebrew.** A LaunchAgent with no explicit `PATH`
+gets `/usr/bin:/bin:/usr/sbin:/sbin`. It does not source a login shell and does
+not consult `/etc/paths`. Homebrew puts `ollama` and `brew` in
+`/opt/homebrew/bin` (Apple Silicon) or `/usr/local/bin` (Intel) — neither is on
+that list. So in a scheduled run:
+
+- `command -v brew` fails, so `_ollama_brew_service()` reports "not a brew
+  service" and the brew-aware branches of `ollama_start`/`ollama_stop` are
+  skipped entirely;
+- `command -v ollama` fails, so the bare `ollama serve` fallback is
+  `command not found`, appended to `~/.ollama-server.log` where nothing reads it.
+
+**2. launchd kills the daemon the tick just started.** When a job's main process
+exits, launchd sends a kill to every process left in that job's process group,
+unless `AbandonProcessGroup` is set. `nohup`, `&` and `disown` do not change a
+process group: `nohup` only ignores SIGHUP and `disown` only edits the shell's
+own job table. The `ollama serve` started by a tick inherited the tick's PGID and
+was killed seconds after that tick exited.
+
+The ordering is what makes this so nasty. The watchdog starts Ollama, sleeps 5s,
+confirms it healthy, logs success — and *then* exits, which is the moment the
+daemon dies. Every observable signal says the restart worked.
+
+### Fix
+
+- **`lib/ollama-lib.sh`, `ollama_start()`:** wrap the bare-serve launch in
+  `set -m`. With job control on, bash puts each background job in its own process
+  group, outside the one launchd sweeps. Verified against a stand-in for launchd
+  (run the tick under `setsid`, then `kill -- -PGID` after it exits): the daemon
+  survives with the fix and is killed without it.
+- **`lib/ollama-lib.sh`, `ollama_ensure_path()`:** appends the standard Homebrew
+  and `/usr/local` bin directories to `PATH` at source time. Appended, not
+  prepended, so a deliberate operator choice still wins.
+- **`ollama-watchdog.sh`, generated plist:** now carries `PATH` (computed at
+  install time from where `ollama` and `brew` actually resolve) and
+  `AbandonProcessGroup`.
+- **`ollama-watchdog.sh`, healthy path:** `check_binding_drift()` — see below.
+
+### The stale-plist half, which is the part worth remembering
+
+Fixing the plist fixes nothing on a host that already installed one. The plist is
+generated once and never re-read; nothing re-runs `--install`. This is precisely
+the failure mode `environments/nanoclaw-mnemon/run.sh` already learned the hard
+way with its patch blocks, in a completely different part of the repo, and the
+same answer applies: the generated file carries a version marker
+(`pi-bootstrap:watchdog-plist v2`), `--status` reports `OUTDATED` against it, and
+a restart-path run logs a warning naming the action to re-run.
+
+It is also why the two runtime fixes matter more than the plist ones and were
+written to stand alone. `set -m` and `ollama_ensure_path()` live in a file the
+*already-scheduled* job sources on its very next tick, so an untouched install
+recovers by itself; the plist keys are belt-and-braces for new ones. **When a
+generated artifact and a sourced script can both carry a fix, put the
+load-bearing copy in the sourced script** — one reaches existing installs, the
+other reaches only future ones.
+
+### A reboot un-does `launchctl setenv`, too
+
+Found while tracing the above, and fixed in the same pass. On macOS the bind
+address reaches a launchd-supervised Ollama (Homebrew's service, Ollama.app) only
+via `launchctl setenv OLLAMA_HOST`, which is *session* state and does not survive
+a restart. A rebooted host therefore comes back with its supervisor starting
+Ollama on the default `127.0.0.1:11434` regardless of what
+`environments/ollama/.env` says — healthy on every host-side probe, refusing
+every container. Since `MNEMON_EMBED_ENDPOINT` on this install is a LAN IP, that
+is indistinguishable from Ollama not coming back at all.
+
+`do_check_and_restart()` now calls `check_binding_drift()` on the *healthy* path:
+if `OLLAMA_SERVE_HOST` is set and the live listeners do not satisfy it, it rebinds
+through `ollama_start()`. Rate-limited to one attempt an hour by a stamp file,
+because it restarts a daemon that by every other measure is working — enough to
+recover a reboot unattended, not enough to thrash if some host-specific reason
+means it can never be satisfied.
+
+### General Lessons
+
+- **A scheduled job is a different runtime, not the same script on a timer.**
+  Every one of these bugs is invisible interactively and certain under launchd.
+  `PATH`, process-group lifetime, the absence of a controlling terminal and of
+  `launchctl setenv` state are all properties of the *invocation*, and this repo
+  had tested only the invocation that works. If a script's real job is the
+  scheduled run, the scheduled run is the one to test.
+- **The path a watchdog only takes when something is broken is the path nobody
+  has ever run.** `is_healthy` returning 0 short-circuits before any of the
+  affected code. Both bugs sat latent through every green tick since install and
+  activated at exactly the moment recovery was needed. Health checks that exit
+  early hide the entire recovery path from routine exercise — exercise it
+  deliberately (`--restart` on a live host is one command).
+- **"Verified healthy, then exited" is a check ordering bug when exiting is what
+  breaks it.** The watchdog confirmed success and then caused the failure. Any
+  check whose subject can be affected by the checker's own teardown is measuring
+  the wrong window.
+- **An XML comment cannot contain a double hyphen.** The first draft of the
+  plist's version marker read `ollama-watchdog.sh --install`, which makes the
+  whole file unparseable and would have broken the schedule outright for anyone
+  who re-installed. Caught only by rendering the plist and parsing it back
+  (`plistlib`), not by reading it. Generated config deserves a parse test the
+  same way generated shell deserves `bash -n`.
+- **Reboot is still the transition nobody tests.** The 2026-08-15 entry above
+  says exactly this and closed with "no LaunchDaemon needed" — correct, and the
+  host still didn't come back, because the reasoning had stopped at *whether the
+  agent loads* and never reached *what the agent can do once loaded*. Answering
+  the question you framed is not the same as the outcome being safe.
+
+### Related
+
+- The 2026-08-15 entry above (the first outage, and why the watchdog exists).
+- The 2026-08-07 entry above (`OLLAMA_HOST`/`OLLAMA_SERVE_HOST`), which is why a
+  bind address has to be threaded through every install path at all.
+- `docs/future-enhancements/ollama-watchdog-status-reporting.md` — the remaining
+  `--status` work, and its boot-persistence section, updated in this pass.
+- `environments/ollama/README.md` — "Coming back after a reboot (macOS)", the
+  operator-facing version of the three prerequisites.

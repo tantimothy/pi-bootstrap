@@ -40,6 +40,47 @@ OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 # run.sh files two levels down.
 _OLLAMA_LIB_REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# ---------------------------------------------------------------------------------------
+# PATH repair — because the most important caller of this file does not run
+# from a login shell.
+#
+# ollama-watchdog.sh's whole reason to exist is the scheduled run, and on macOS
+# that run is a launchd LaunchAgent. launchd does NOT source a shell profile and
+# does not consult /etc/paths: a job with no explicit PATH gets exactly
+# /usr/bin:/bin:/usr/sbin:/sbin. Homebrew installs `ollama` and `brew` to
+# /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel), and NEITHER is on
+# that list.
+#
+# The consequence was invisible for as long as Ollama stayed up, because a
+# healthy check returns before any of this is reached. It only bites at the one
+# moment the watchdog is supposed to earn its keep — a reboot, where the daemon
+# really is down. There, under launchd:
+#   `command -v brew`   fails  -> _ollama_brew_service() says "not a brew service"
+#   `command -v ollama` fails  -> the bare `ollama serve` fallback below is
+#                                 "command not found", logged to a file nobody
+#                                 reads, and Ollama simply never comes back.
+# Run the exact same script from Terminal and it works perfectly, which is what
+# makes this so easy to miss.
+#
+# Appended, never prepended: an operator who deliberately put a different
+# `ollama` earlier on PATH keeps it, and OLLAMA_CMD still overrides everything.
+# ---------------------------------------------------------------------------------------
+ollama_ensure_path() {
+    local d
+    for d in /opt/homebrew/bin /opt/homebrew/sbin /usr/local/bin /usr/local/sbin; do
+        [ -d "$d" ] || continue
+        case ":${PATH}:" in
+            *":${d}:"*) ;;
+            *) PATH="${PATH}:${d}" ;;
+        esac
+    done
+    export PATH
+}
+# Done at source time rather than left to each caller: every function below that
+# shells out to `brew`, `ollama` or `pkill` depends on it, and a caller that
+# forgets gets the silent launchd failure above rather than an error.
+ollama_ensure_path
+
 # ONE source of truth for the bind address: environments/ollama/.env.
 #
 # That environment owns the daemon's lifecycle, so its .env owns the daemon's
@@ -387,12 +428,39 @@ ollama_start() {
     # inherited directly, so it is the one that must be scrubbed. See this
     # file's header for why leaking OLLAMA_HOST here is a real bug and not a
     # theoretical one.
+    #
+    # `set -m` is load-bearing, not tidiness. When this runs from the watchdog's
+    # LaunchAgent, launchd kills every surviving process in the JOB'S PROCESS
+    # GROUP the moment the job's main process exits — and `nohup` + `&` +
+    # `disown` do not change a process group. nohup only ignores SIGHUP,
+    # `disown` only edits this shell's job table; the daemon inherits the
+    # script's PGID either way and launchd SIGKILLs it seconds later.
+    #
+    # That produced the worst possible shape of failure: the watchdog started
+    # Ollama, waited 5s, confirmed it healthy, logged "✅ Ollama responsive
+    # again after restart" — and then died, taking Ollama with it. A log full of
+    # successful restarts, and a daemon that was never up for more than a few
+    # seconds after each one. Every five minutes, indefinitely.
+    #
+    # Turning on job control makes bash put each background job in its OWN
+    # process group, which puts the daemon outside the one launchd sweeps. It
+    # needs no controlling terminal, so it is safe in a non-interactive script,
+    # and it is scoped tightly around the launch so nothing else inherits job
+    # control. stdin comes from /dev/null because a process in a different
+    # process group that reads the terminal takes SIGTTIN.
+    #
+    # The plist written by ollama-watchdog.sh --install also sets
+    # AbandonProcessGroup, which fixes this from the other side. Both are here
+    # deliberately: the plist only helps once an operator re-runs --install,
+    # whereas this reaches an already-scheduled job on the next tick.
+    set -m
     if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
-        OLLAMA_HOST="$OLLAMA_SERVE_HOST" nohup "$cmd" serve >> "${OLLAMA_SERVE_LOG:-$HOME/.ollama-server.log}" 2>&1 &
+        OLLAMA_HOST="$OLLAMA_SERVE_HOST" nohup "$cmd" serve </dev/null >> "${OLLAMA_SERVE_LOG:-$HOME/.ollama-server.log}" 2>&1 &
     else
-        env -u OLLAMA_HOST nohup "$cmd" serve >> "${OLLAMA_SERVE_LOG:-$HOME/.ollama-server.log}" 2>&1 &
+        env -u OLLAMA_HOST nohup "$cmd" serve </dev/null >> "${OLLAMA_SERVE_LOG:-$HOME/.ollama-server.log}" 2>&1 &
     fi
     disown 2>/dev/null || true
+    set +m
 }
 
 # Waits up to $2 seconds (default 15) for the daemon to answer at $1.

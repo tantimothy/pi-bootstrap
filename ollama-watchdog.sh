@@ -51,6 +51,15 @@
 #   OLLAMA_WATCHDOG_TIMEOUT   Seconds before a health check counts as failed. Default: 10
 #   OLLAMA_WATCHDOG_INTERVAL  Seconds between scheduled runs, --install only. Default: 300
 #   OLLAMA_WATCHDOG_LOG       Log file path. Default: ~/.ollama-watchdog.log
+#   OLLAMA_REBIND_MIN_INTERVAL_MIN
+#                             Minutes between attempts to rebind an Ollama that
+#                             is responding but not on OLLAMA_SERVE_HOST — a
+#                             state a macOS reboot produces on its own, since
+#                             `launchctl setenv` does not survive one. Default:
+#                             60. Rate-limited because that restart interrupts a
+#                             daemon which is, by every other measure, working.
+#   OLLAMA_REBIND_STAMP       Where the above records its last attempt.
+#                             Default: ~/.ollama-watchdog-rebind.stamp
 #
 # What this does NOT catch: the health check hits Ollama's lightweight
 # /api/tags endpoint (list installed models) — enough to confirm the HTTP
@@ -95,6 +104,57 @@ PLIST_LABEL="com.pi-bootstrap.ollama-watchdog"
 PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 CRON_MARKER="# pi-bootstrap ollama-watchdog"
 
+# Version-marked generated file, same convention (and for the same reason) as
+# the patch blocks in environments/nanoclaw-mnemon/run.sh: an installed plist is
+# written once and then never looked at again, so a fix to its CONTENT reaches
+# nobody who already installed it. Bumping this makes the staleness visible —
+# see _plist_is_current() — instead of leaving an operator with a schedule that
+# is "installed" and quietly missing the fix. Bump it whenever the generated
+# plist below changes in a way that matters at runtime.
+#   v1  original: label, interval, RunAtLoad, log paths, Ollama env vars
+#   v2  PATH (launchd's default omits Homebrew) + AbandonProcessGroup
+#       (launchd was killing the daemon the tick started) — 2026-08-24
+PLIST_VERSION=2
+PLIST_VERSION_MARKER="pi-bootstrap:watchdog-plist v${PLIST_VERSION}"
+
+# PATH for the scheduled job. launchd hands a job /usr/bin:/bin:/usr/sbin:/sbin
+# and nothing else — no login shell, no /etc/paths — so `ollama` and `brew` are
+# both off-PATH for every scheduled run on a stock Homebrew install. Baked here
+# as well as repaired at runtime by lib/ollama-lib.sh's ollama_ensure_path():
+# this covers anything the plist runs before that file is sourced, and records
+# in the plist itself what the job actually needs.
+_watchdog_plist_path() {
+    local base="/usr/bin:/bin:/usr/sbin:/sbin" d out="" resolved
+    out="$base"
+    for resolved in "$(command -v "${OLLAMA_CMD:-ollama}" 2>/dev/null || true)" \
+                    "$(command -v brew 2>/dev/null || true)"; do
+        [ -n "$resolved" ] || continue
+        d="$(dirname "$resolved")"
+        case ":${out}:" in *":${d}:"*) ;; *) out="${out}:${d}" ;; esac
+    done
+    for d in /opt/homebrew/bin /opt/homebrew/sbin /usr/local/bin /usr/local/sbin; do
+        [ -d "$d" ] || continue
+        case ":${out}:" in *":${d}:"*) ;; *) out="${out}:${d}" ;; esac
+    done
+    printf '%s' "$out"
+}
+
+# Is the installed plist the one this script would write today? Only ever
+# reports; rewriting it from here would mean `launchctl unload` on the very job
+# this code is running as, which kills the run mid-way.
+_plist_is_current() {
+    [ -f "$PLIST_PATH" ] || return 1
+    grep -qF "$PLIST_VERSION_MARKER" "$PLIST_PATH" 2>/dev/null
+}
+
+_warn_if_plist_stale() {
+    [ "$OS_TYPE" = "macos" ] || return 0
+    [ -f "$PLIST_PATH" ] || return 0
+    _plist_is_current && return 0
+    _log "⚠️  The scheduled LaunchAgent predates this version of the watchdog and is missing fixes it needs."
+    _log "   Re-run: ./deploy.sh → Environments → ollama → 'Watchdog: Schedule Automatic Checks'"
+}
+
 _log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" | tee -a "$LOG_FILE"
 }
@@ -126,10 +186,69 @@ notify() {
     fi
 }
 
-do_check_and_restart() {
-    if is_healthy; then
+# A reboot is the one transition that reliably un-does `launchctl setenv`.
+#
+# On macOS the bind address reaches a launchd-supervised Ollama (Homebrew's
+# service, Ollama.app) only through `launchctl setenv OLLAMA_HOST`, and that is
+# SESSION state: it is gone after a restart. So a host that reboots comes back
+# with its supervisor dutifully starting Ollama on the default 127.0.0.1:11434,
+# no matter what environments/ollama/.env says — and every host-side check
+# passes, because they all probe localhost. From a container's point of view
+# Ollama did not come back at all; from this script's point of view nothing was
+# ever wrong. That gap is the entire reason this function exists rather than
+# `is_healthy` simply returning 0 and stopping there.
+#
+# Rate-limited because it restarts a daemon that is, by every other measure,
+# working. One attempt an hour: enough to recover a reboot automatically,
+# not enough to thrash if some host-specific reason means it can never be
+# satisfied.
+OLLAMA_REBIND_STAMP="${OLLAMA_REBIND_STAMP:-$HOME/.ollama-watchdog-rebind.stamp}"
+OLLAMA_REBIND_MIN_INTERVAL_MIN="${OLLAMA_REBIND_MIN_INTERVAL_MIN:-60}"
+
+_rebind_attempted_recently() {
+    [ -f "$OLLAMA_REBIND_STAMP" ] || return 1
+    # `find -mmin` rather than `stat`, for the same BSD/GNU portability reason
+    # lib/ollama-lib.sh's maintenance lock uses it.
+    [ -n "$(find "$OLLAMA_REBIND_STAMP" -mmin "-${OLLAMA_REBIND_MIN_INTERVAL_MIN}" 2>/dev/null)" ]
+}
+
+check_binding_drift() {
+    # Nothing configured means nothing to compare against, and a running daemon
+    # is left strictly alone — same rule as ollama_start().
+    [ -n "${OLLAMA_SERVE_HOST:-}" ] || return 0
+    ollama_binding_satisfies_serve_host && return 0
+    ollama_maintenance_active && return 0
+
+    if _rebind_attempted_recently; then
+        _log "⚠️  Ollama is up but still not bound to ${OLLAMA_SERVE_HOST} — containers are refused."
+        _log "   A rebind was already attempted in the last ${OLLAMA_REBIND_MIN_INTERVAL_MIN}m; not retrying this tick."
         return 0
     fi
+
+    _log "⚠️  Ollama is responding, but not on OLLAMA_SERVE_HOST=${OLLAMA_SERVE_HOST} — containers are refused."
+    ollama_listeners | sed 's/^/     currently: /' | tee -a "$LOG_FILE"
+    # Touched before the attempt, not after: a run that dies mid-restart must
+    # still count against the rate limit.
+    : > "$OLLAMA_REBIND_STAMP" 2>/dev/null || true
+    _log "🔄 Rebinding Ollama..."
+    ollama_start "$OLLAMA_HOST"
+    sleep 5
+    if is_healthy && ollama_binding_satisfies_serve_host; then
+        _log "✅ Ollama rebound to ${OLLAMA_SERVE_HOST}"
+        ollama_report_binding
+        notify "Ollama was bound to the wrong address after a restart — fixed."
+    else
+        _log "❌ Rebind did not take — Ollama is still not reachable on ${OLLAMA_SERVE_HOST}."
+        notify "Ollama is up but containers still can't reach it — check it manually."
+    fi
+}
+
+do_check_and_restart() {
+    if is_healthy; then
+        check_binding_drift
+        return 0
+    fi
+    _warn_if_plist_stale
     # A deploy is deliberately holding Ollama down (STOP/TEARDOWN/CLEAN).
     # Restarting here would fight it — potentially starting the daemon while
     # its binary is being removed — and would report a "recovery" that is
@@ -182,6 +301,10 @@ install_macos() {
     cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Generated by pi-bootstrap's ollama-watchdog.sh install action. Do not
+     hand-edit; a re-install overwrites this file wholesale. Note that an XML
+     comment may not contain a double hyphen, so no flag is spelled out here.
+     ${PLIST_VERSION_MARKER} -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
@@ -195,12 +318,22 @@ install_macos() {
     <integer>${INTERVAL}</integer>
     <key>RunAtLoad</key>
     <true/>
+    <!-- Without this, launchd kills everything left in the job's process group
+         when the job exits — including the \`ollama serve\` a tick just started,
+         seconds after that tick logged the restart as successful. See the
+         matching \`set -m\` in lib/ollama-lib.sh's ollama_start(), which fixes
+         the same thing from the daemon's side and, unlike this key, applies
+         without re-installing the schedule. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
     <key>StandardOutPath</key>
     <string>${LOG_FILE}</string>
     <key>StandardErrorPath</key>
     <string>${LOG_FILE}</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>PATH</key>
+        <string>$(_watchdog_plist_path)</string>
         <key>OLLAMA_HOST</key>
         <string>${OLLAMA_HOST}</string>
         <key>OLLAMA_SERVE_HOST</key>
@@ -324,6 +457,13 @@ case "${1:-}" in
             if [ -f "$PLIST_PATH" ]; then
                 echo "Schedule:      installed (launchd, every ${INTERVAL}s)"
                 echo "Plist:         $PLIST_PATH"
+                if _plist_is_current; then
+                    echo "Plist version: ${PLIST_VERSION_MARKER} (current)"
+                else
+                    echo "Plist version: OUTDATED — predates ${PLIST_VERSION_MARKER}"
+                    echo "               Re-run 'Watchdog: Schedule Automatic Checks' to pick up fixes"
+                    echo "               the installed job is missing (PATH, AbandonProcessGroup)."
+                fi
             else
                 echo "Schedule:      NOT installed — use 'Watchdog: Schedule Automatic Checks'"
             fi

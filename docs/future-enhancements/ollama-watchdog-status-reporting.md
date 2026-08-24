@@ -17,10 +17,14 @@ Two copies of `OLLAMA_SERVE_HOST` are in play:
   line's inline assignment on Linux — and this is what every scheduled restart
   actually runs with.
 
-`--status` prints the first (`ollama-watchdog.sh:321`) and never reads the
-second. Install the schedule before setting `.env`, then set `.env` afterwards,
-and the two disagree permanently while `--status` reports the value that isn't
-in charge.
+`--status` prints the first and never reads the second. Install the schedule
+before setting `.env`, then set `.env` afterwards, and the two disagree
+permanently while `--status` reports the value that isn't in charge.
+
+*Since 2026-08-24 `--status` does read the installed plist* — for the version
+marker, to report a schedule that predates a fix to the plist's contents. So the
+"read it back out of the plist" mechanics below no longer start from nothing;
+`_plist_is_current()` is the existing reader to extend.
 
 The divergence only takes effect on the next *watchdog-initiated* restart, which
 binds loopback, refuses every container, and reports healthy on every cycle
@@ -47,7 +51,7 @@ installed (launchd, every 300s)`, health responding, `Ollama is listening on:
   daemon is a worse failure than none, and `--status` is where an operator would
   look for it.
 
-## Boot persistence — closed, not a gap
+## Boot persistence — the *loading* half is closed; the rest was not, and is now fixed
 
 This file previously proposed a `--install-daemon` mode writing a system
 LaunchDaemon to `/Library/LaunchDaemons`, because `--install` writes a
@@ -56,19 +60,31 @@ host that rebooted to the login window, neither Ollama nor the watchdog would
 come back — which is exactly the 2026-08-15 outage.
 
 **That host auto-logs-in on reboot** (confirmed 2026-08-15), so the LaunchAgent
-loads at auto-login, `RunAtLoad` fires immediately, and Ollama is back within
-seconds. `--install` is sufficient; the LaunchDaemon proposal is dropped rather
-than left sitting here as if a gap existed.
-
-One dependency worth knowing, since it's now load-bearing and invisible:
-**this guarantee rests on auto-login staying enabled.** Disable it later — for a
-security review, a hardware change, a new operator — and the boot gap silently
-returns, with no warning from anything in this repo. If that ever changes, the
-LaunchDaemon design is recoverable from this file's history, along with its
+loads at auto-login and `RunAtLoad` fires immediately. That part still holds, and
+the LaunchDaemon proposal stays dropped. The dependency it rests on is worth
+knowing because it is load-bearing and invisible: **auto-login staying enabled.**
+Disable it later — for a security review, a hardware change, a new operator — and
+the boot gap silently returns, with no warning from anything in this repo. The
+LaunchDaemon design is recoverable from this file's history along with its
 constraints: a root-owned plist, `UserName` set to the operator's account
 (Ollama's models live in `~/.ollama`, so a root daemon starts fine and sees no
 pulled model), collision with Homebrew's own LaunchAgent, and `OLLAMA_SERVE_HOST`
 threaded through so a boot-time daemon doesn't come up bound to loopback.
+
+**What this section got wrong, and what the 2026-08-24 reboot cost.** It
+concluded "`--install` is sufficient" from the agent *loading*, and never asked
+what the agent could do once loaded. It could do very little: launchd hands a job
+a `PATH` without Homebrew on it, so the scheduled run could not find `ollama` or
+`brew` at all, and launchd kills whatever is left in a finished job's process
+group, so a tick that did manage to start the daemon had it killed seconds after
+logging the restart as successful. The host rebooted on 2026-08-24 and Ollama
+stayed down exactly as before. Both are fixed — `set -m` and `ollama_ensure_path()`
+in `lib/ollama-lib.sh`, `PATH` and `AbandonProcessGroup` in the generated plist —
+and the full account is the 2026-08-24 entry in `docs/lessons-learned/general.md`.
+
+The general form of the mistake is worth keeping in view for the rest of this
+file: a boot-persistence question is not answered by "the supervisor starts", it
+is answered by "the daemon is still serving five minutes later."
 
 ## Related
 
