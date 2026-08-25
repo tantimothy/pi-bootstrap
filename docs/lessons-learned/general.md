@@ -1160,3 +1160,60 @@ means it can never be satisfied.
   `--status` work, and its boot-persistence section, updated in this pass.
 - `environments/ollama/README.md` — "Coming back after a reboot (macOS)", the
   operator-facing version of the three prerequisites.
+
+---
+
+## `tput lines` inside `$(...)` silently reports terminfo's static 24x80 (2026-08-25)
+
+**Status:** fixed before shipping — caught while testing the new main-menu
+version footer against a range of terminal sizes, not in production.
+`deploy.sh`'s `paint_version_footer`.
+
+**Symptom:** the footer is meant to sit in the rows below `dialog`'s window.
+It did on an 80x24 terminal. On a 120x40 one it painted *inside* the menu box,
+straight over the item list; on a 15-row one it painted at all instead of
+standing down.
+
+**Root cause:** `rows=$(tput lines)`. Command substitution gives `tput` a pipe
+on stdout, and ncurses' `setupterm` measures the window with an ioctl on
+*stdout* — a pipe has no window, so it falls back to the terminfo entry's
+static `lines#24`/`cols#80`. `tput` neither warns nor fails: it prints 24 and
+exits 0, which is exactly right on the one terminal size that hides the bug.
+Every size calculation downstream then worked from a plausible lie, and
+`dialog` — which measures the real tty for itself — laid its box out somewhere
+else entirely.
+
+**Fix:** ask the terminal, not terminfo:
+
+```bash
+size=$(stty size < /dev/tty 2>/dev/null) || size=""
+rows=${size%% *}
+cols=${size##* }
+```
+
+`stty size` reads the fd it is *given*, so redirecting `/dev/tty` onto its
+stdin is enough, and it works on both Linux and macOS. When it can't answer,
+the footer draws nothing — a guessed screen size is worse than no footer,
+because the failure mode is scribbling over the menu rather than an empty
+corner.
+
+### General Lessons
+
+- **A command substitution changes what stdout *is*, and some tools answer
+  differently because of it.** Anything that inspects its own terminal —
+  `tput`, `stty` without a redirect, `isatty` checks, colour auto-detection —
+  is measuring the fd it was handed, and inside `$(...)` that fd is a pipe.
+  The tell is that the fallback value is often a *reasonable* one, so the bug
+  looks like correct behaviour until the environment stops matching the
+  fallback.
+- **Test screen geometry at more than one screen size.** Both the wrong-size
+  and the too-small cases were invisible at 80x24, which is both the default
+  terminfo answer and the most likely terminal to test on. A `script(1)` pty
+  plus `stty rows N cols M` and a terminal emulator library to render the
+  captured output makes this a cheap, repeatable check rather than a manual
+  resize-and-squint.
+
+### Related
+
+- `README.md` — "Which commit you're running", the operator-facing description
+  of the footer.
