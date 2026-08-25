@@ -419,7 +419,8 @@ MENU_OPTIONS+=( "U" "[Desktop] Uninstall Desktop Entries" )
 MENU_OPTIONS+=( "B" "[Backup] Create Backup Archive" )
 MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
 
-# Which commit of pi-bootstrap is actually running, shown on the main menu.
+# Which commit of pi-bootstrap is actually running, rendered at the bottom
+# right of the screen behind the main menu (see paint_version_footer below).
 # Normally this just echoes master, because startup hard-resets to
 # origin/master and re-execs before reaching here — the value is entirely in
 # the cases where it does NOT: a `--updated` re-run, a checkout deliberately
@@ -427,6 +428,7 @@ MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
 # Purely local; the fetch already happened above, so nothing here touches the
 # network (and the ahead/behind counts below are as fresh as that fetch).
 REPO_VERSION="not a git checkout"
+REPO_SUBJECT=""
 if command -v git >/dev/null 2>&1 &&
    git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     _repo_sha=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null)
@@ -435,12 +437,17 @@ if command -v git >/dev/null 2>&1 &&
         --format=%cd 2>/dev/null)
     [ "$_repo_branch" = "HEAD" ] && _repo_branch="detached"
 
-    # Deliberately ASCII-only, unlike most output in this repo: this string
-    # lands in a dialog --menu prompt, whose width dialog computes itself, and
-    # the comment at the top of this file records a real macOS session where
-    # multibyte text in dialog produced "Text has extra characters".
+    # This used to be deliberately ASCII-only, because it landed in a dialog
+    # --menu prompt whose width dialog computes itself, and the comment at the
+    # top of this file records a real macOS session where multibyte text in
+    # dialog produced "Text has extra characters". It is now written straight
+    # to the terminal instead, so that rule is lifted — which matters only for
+    # the commit subject, the one part not built from ASCII by construction.
+    # paint_version_footer measures with ${#...} under the UTF-8 locale forced
+    # at the top of this file, so that counts characters, not bytes.
     if [ -n "$_repo_sha" ]; then
         REPO_VERSION="${_repo_branch} @ ${_repo_sha}"
+        REPO_SUBJECT=$(git -C "$PROJECT_DIR" log -1 --format=%s 2>/dev/null)
         [ -n "$_repo_date" ] && REPO_VERSION="${REPO_VERSION} | ${_repo_date}"
 
         # Only meaningful for tracked files: an untracked scratch file says
@@ -466,6 +473,102 @@ if command -v git >/dev/null 2>&1 &&
     fi
     unset _repo_sha _repo_branch _repo_date _repo_counts _repo_ahead _repo_behind
 fi
+
+# The version line used to sit inside the top-level dialog's own prompt text.
+# It is reference material rather than part of the choice being made, so it now
+# goes on the raw screen at the bottom right — outside dialog's window entirely
+# — together with the subject line of that commit.
+#
+# dialog is a curses program that paints the whole terminal, so this can only be
+# drawn *after* dialog has painted; hence the backgrounded, briefly-delayed
+# writer at the menu call below. ncurses diffs every update against its own
+# model of the screen and never wrote these cells, so the footer survives the
+# repaints that menu navigation triggers. A terminal resize does force a full
+# redraw and drops it until the menu is next rebuilt.
+#
+# MENU_HEIGHT is shared with the dialog call so the geometry below stays in
+# step with the box it has to stay clear of.
+MENU_HEIGHT=13
+MENU_WIDTH=74
+
+VERSION_FOOTER=()
+VERSION_FOOTER+=("$REPO_VERSION")
+[ -n "$REPO_SUBJECT" ] && VERSION_FOOTER+=("$REPO_SUBJECT")
+
+paint_version_footer() {
+    [ -c /dev/tty ] || return 0
+    [ -n "${TERM:-}" ] && [ "$TERM" != "dumb" ] || return 0
+
+    # `tput lines`/`tput cols` are wrong here and fail silently: they run
+    # inside a command substitution, so ncurses sees a pipe on stdout, has no
+    # window to measure, and hands back terminfo's static 24x80. On a 40-row
+    # terminal that lands the footer squarely inside the menu box. Ask the tty
+    # itself. If stty can't answer, paint nothing — a guessed size is worse
+    # than no footer.
+    local rows cols size
+    size=$(stty size < /dev/tty 2>/dev/null) || size=""
+    rows=${size%% *}
+    cols=${size##* }
+    case "$rows" in ""|*[!0-9]*) return 0 ;; esac
+    case "$cols" in ""|*[!0-9]*) return 0 ;; esac
+
+    # dialog centres its window and draws a one-row shadow beneath it; the
+    # footer takes whatever rows are left below that, dropping its last line
+    # (the commit subject) first if only one row is going spare.
+    local box_top free_rows count
+    box_top=$(( (rows - MENU_HEIGHT) / 2 ))
+    [ "$box_top" -lt 0 ] && box_top=0
+    free_rows=$(( rows - box_top - MENU_HEIGHT - 1 ))
+    [ "$free_rows" -lt 1 ] && return 0
+    count=${#VERSION_FOOTER[@]}
+    [ "$count" -gt "$free_rows" ] && count=$free_rows
+
+    # One shared width for every line, so the block reads as a deliberate
+    # plate rather than ragged text, plus a hard cap so a long commit subject
+    # cannot run off the left edge.
+    local max_width block_width text fmt i
+    max_width=$(( cols - 4 ))
+    [ "$max_width" -gt 76 ] && max_width=76
+    [ "$max_width" -lt 16 ] && return 0
+
+    # bash 3.2 (macOS) is fussy about `local arr=()`; declare, then assign.
+    local footer_lines
+    footer_lines=()
+    block_width=0
+    i=0
+    while [ "$i" -lt "$count" ]; do
+        text=${VERSION_FOOTER[$i]}
+        [ ${#text} -gt "$max_width" ] && text="${text:0:$((max_width - 3))}..."
+        footer_lines+=("$text")
+        [ ${#text} -gt "$block_width" ] && block_width=${#text}
+        i=$((i + 1))
+    done
+
+    # Right-aligned, stopping one column short of the right edge: writing the
+    # very last cell of the last row makes some terminals scroll.
+    local start_row start_col
+    start_row=$(( rows - count ))
+    start_col=$(( cols - 1 - block_width - 2 ))
+    [ "$start_col" -lt 0 ] && start_col=0
+    fmt=" %-${block_width}s "
+
+    {
+        # sc/rc hand the cursor — and, on the terminals that implement it as
+        # DECSC/DECRC, the attributes dialog had set — straight back to dialog.
+        tput sc 2>/dev/null
+        tput sgr0 2>/dev/null
+        tput bold 2>/dev/null
+        i=0
+        while [ "$i" -lt "$count" ]; do
+            tput cup $((start_row + i)) "$start_col" 2>/dev/null
+            # shellcheck disable=SC2059  # fmt is built above, not user input
+            printf "$fmt" "${footer_lines[$i]}"
+            i=$((i + 1))
+        done
+        tput sgr0 2>/dev/null
+        tput rc 2>/dev/null
+    } > /dev/tty 2>/dev/null
+}
 
 # Remember the menu level that launched an action. A bare `continue` still
 # restarts this one outer loop, but MENU_CONTEXT makes it reopen that same
@@ -501,12 +604,20 @@ case "$MENU_CONTEXT" in
     *)
         MENU_CONTEXT="_top"
         TEMP_FILE=$(mktemp)
+        # Deliberately racing dialog's first paint — see paint_version_footer.
+        # Reaped immediately after dialog returns, because a user who answers
+        # the menu inside that window (holding Enter, say) would otherwise get
+        # the footer scribbled across whatever screen came next.
+        ( sleep 0.3; paint_version_footer ) &
+        FOOTER_PID=$!
         dialog --clear \
             --title " Raspberry Pi Deployment Center " \
-            --menu "Running: ${REPO_VERSION}\n\nChoose an action:" 17 74 6 \
+            --menu "Choose an action:" "$MENU_HEIGHT" "$MENU_WIDTH" 6 \
             "${MENU_OPTIONS[@]}" 2> "$TEMP_FILE"
 
         EXIT_STATUS=$?
+        kill "$FOOTER_PID" 2>/dev/null
+        wait "$FOOTER_PID" 2>/dev/null
         SELECTED_NUM=$(cat "$TEMP_FILE")
         rm -f "$TEMP_FILE"
 

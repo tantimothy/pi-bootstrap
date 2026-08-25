@@ -28,11 +28,17 @@ garbled commands instead of failing cleanly.
 
 ### Which commit you're running
 
-The main menu's first line reports it — branch, short SHA, and commit date:
+It's reported at the bottom right of the screen behind the main menu — outside the menu's own
+window, since it's reference material rather than part of the choice being made. Two lines:
+branch, short SHA and commit date, then that commit's subject line.
 
 ```
-Running: master @ c790912 | 2026-08-07 07:53
+                                       master @ c790912 | 2026-08-07 07:53
+                                       Add a pre-deploy hook for claude-cli
 ```
+
+On a terminal too short to fit both lines below the menu, the subject line is dropped first;
+on one too short for either, nothing is drawn.
 
 `deploy.sh` fetches and hard-resets to `origin/master` before re-executing itself on every
 normal start, so this is usually just "master, as of a few seconds ago". It earns its place in
