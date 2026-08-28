@@ -1290,10 +1290,14 @@ Both layers, in the places each one is actually reachable from:
   generates. Nothing under `lib/` is copied into an image, and the host's
   environment does not cross the container boundary, so there is nothing to
   source and nothing inherited.
-- `set -s escape-time 10` in the `.tmux.conf` that `mac-terminal-setup` and
-  `pi-barebones` deploy, which is what puts the setting on the *hosts*
-  `deploy.sh` actually runs on rather than only on whatever laptop is
-  ssh'ing in.
+- `set -s escape-time 10` in every `.tmux.conf` this repo deploys. On the
+  host (`mac-terminal-setup`, `pi-barebones`) that is what puts the setting
+  on the machines `deploy.sh` actually runs on, rather than only on whatever
+  laptop is ssh'ing in. Inside a container (`aider`, `claude-cli`,
+  `codex-cli`, `nanoclaw-mnemon`) it matters for a second reason: a tmux
+  running in the container adds its own 500ms on top of the host tmux's,
+  so an attach session was paying the wait twice before ncurses even
+  started counting.
 
 Neither value is `0`. A real `\e[A` normally arrives in one read, but over ssh
 or on a loaded Pi its bytes genuinely can split across reads, and a zero

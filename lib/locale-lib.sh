@@ -63,8 +63,10 @@ _ensure_utf8_locale() {
 # tmux's own `escape-time` is a SEPARATE wait on the same keystroke, and
 # setting it to 0 does not help on its own — tmux then just hands the \e
 # through sooner and ncurses starts its own second-long timer. Both layers
-# have to be lowered; the tmux half lives in the .tmux.conf files that
-# mac-terminal-setup and pi-barebones deploy. In-container menus need their
+# have to be lowered; the tmux half lives in every .tmux.conf this repo
+# deploys — mac-terminal-setup's and pi-barebones' on the host, and the
+# in-container ones for aider, claude-cli, codex-cli and nanoclaw-mnemon,
+# whose tmux stacks its own wait on top of the host's. In-container menus need their
 # own copy of this export (kali-pentest's entrypoint.sh, dragonos-sdr's
 # sdr-menu.sh) because nothing under lib/ is copied into an image, and the
 # host's environment doesn't cross the container boundary either.
