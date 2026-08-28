@@ -51,6 +51,20 @@ RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
 RUN cat << 'EOF' > /usr/local/bin/sdr-menu.sh
 #!/bin/bash
 
+# Escape (0x1b) is also the first byte of every arrow/function-key
+# sequence, so ncurses — which dialog is built on — waits ESCDELAY
+# milliseconds after a lone Escape byte to see whether more of a sequence
+# is still arriving. That default is a full 1000, which is why Esc in this
+# menu would otherwise feel broken while Ctrl-C (an unambiguous single
+# byte, turned into SIGINT by the tty itself) feels instant. Same guard as
+# lib/locale-lib.sh applies on the host side and kali-pentest's
+# entrypoint.sh in its own container, restated here rather than sourced:
+# nothing under lib/ is copied into this image, and the host's environment
+# does not cross the container boundary. 25ms rather than 0 so a "\e[A"
+# whose bytes split across reads is still read as an arrow key and not as
+# Escape followed by a literal "[A".
+export ESCDELAY=${ESCDELAY:-25}
+
 BOLD=$'\033[1m'
 CYAN=$'\033[36m'
 DIM=$'\033[2m'

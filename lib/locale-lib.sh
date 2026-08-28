@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# Shared guard for the two things every dialog/less-based entry point in
+# this repo silently assumes about the environment it inherits, neither of
+# which is reliably true: a UTF-8 locale, and an Escape key that responds
+# in less than a second. Both are forced here, so sourcing this one file
+# is all any entry point needs to do about either.
+#
+# Sourced (not called in a subshell) so the exports land in the caller's
+# own shell — the one that actually goes on to invoke dialog/less/echo.
+
+# --- 1. UTF-8 locale -------------------------------------------------------
+#
 # Every entry point in this repo prints emoji, arrows (→), and em-dashes
 # (—) freely — in dialog forms, INFO output, and deploy progress text — on
 # the assumption the terminal decodes UTF-8. That assumption breaks without
@@ -11,9 +22,6 @@
 # UTF-8 locale set — a bare `sh script.sh` invocation, certain
 # non-interactive/launchd/cron contexts, some SSH sessions without locale
 # forwarding — rather than assume one is, force one here.
-#
-# Sourced (not called in a subshell) so LANG/LC_ALL land in the caller's
-# own shell — the one that actually goes on to invoke dialog/less/echo.
 _ensure_utf8_locale() {
     # Already UTF-8 (either var set with that suffix, any case) — nothing to do.
     case "${LC_ALL:-}${LANG:-}" in
@@ -39,4 +47,44 @@ _ensure_utf8_locale() {
     # LC_ALL" warning on top of the original garbling.
     return 1
 }
+
+# --- 2. Escape key latency -------------------------------------------------
+#
+# Escape (0x1b) is also the first byte of every arrow key, function key,
+# and other \e[... sequence, so a key parser that has just read a lone \e
+# cannot yet tell "the user pressed Esc" from "the rest of an arrow key is
+# still in flight" — it has to wait. dialog is an ncurses program, and
+# ncurses waits ESCDELAY milliseconds, which defaults to a full 1000. That
+# is the entire reason Esc in deploy.sh's menus feels broken while Ctrl-C
+# feels instant: Ctrl-C is an unambiguous single byte handled by the tty
+# line discipline as SIGINT, so nothing anywhere has to wait to see whether
+# more of it is coming.
+#
+# tmux's own `escape-time` is a SEPARATE wait on the same keystroke, and
+# setting it to 0 does not help on its own — tmux then just hands the \e
+# through sooner and ncurses starts its own second-long timer. Both layers
+# have to be lowered; the tmux half lives in the .tmux.conf files that
+# mac-terminal-setup and pi-barebones deploy. In-container menus need their
+# own copy of this export (kali-pentest's entrypoint.sh, dragonos-sdr's
+# sdr-menu.sh) because nothing under lib/ is copied into an image, and the
+# host's environment doesn't cross the container boundary either.
+#
+# ncurses reads $ESCDELAY once at initscr() time and dialog exposes no
+# command-line flag for it, so exporting it before dialog runs is both
+# necessary and sufficient.
+_ensure_fast_escape() {
+    # An explicit value the caller already chose wins — including a
+    # deliberate `ESCDELAY=1000 ./deploy.sh` to get the old behaviour back.
+    [ -n "${ESCDELAY:-}" ] && return 0
+
+    # 25ms, not 0. A real "\e[A" normally arrives in a single read, but over
+    # ssh (or on a loaded Pi) its bytes genuinely can split across reads,
+    # and a zero timeout turns every arrow key into Escape followed by a
+    # literal "[A" typed into the menu. 25ms is well under the ~100ms at
+    # which a delay starts to feel like lag, and well over the transit time
+    # of the two bytes already on their way.
+    export ESCDELAY=25
+}
+
 _ensure_utf8_locale
+_ensure_fast_escape

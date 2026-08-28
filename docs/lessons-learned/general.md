@@ -1217,3 +1217,123 @@ corner.
 
 - `README.md` — "Which commit you're running", the operator-facing description
   of the footer.
+
+---
+
+## Escape in every `dialog` menu took a full second; Ctrl-C was instant (2026-08-28)
+
+**Status:** Fixed.
+
+### Summary
+
+`Esc` in `deploy.sh`'s menus (and every in-container `dialog` menu) sat idle
+for about a second before anything happened, while `Ctrl-C` in the same menu
+responded immediately. The operator had already set `escape-time 0` in tmux on
+their local machine and confirmed it with `tmux show-options -s escape-time`,
+which made the delay look like it had no remaining cause.
+
+### Symptom
+
+Pressing `Esc` to back out of a menu appeared to do nothing, then acted. Long
+enough to make you press it twice, which backs out two levels. `Ctrl-C` out of
+the same menu was instant.
+
+### Root cause
+
+Escape is 0x1b, which is also the *first byte of every* arrow key, function
+key, and `\e[...` sequence. A parser that has just read a lone `\e` cannot yet
+tell "the user pressed Esc" from "the rest of an arrow key is still in
+flight", so it must wait. `Ctrl-C` has no such ambiguity — it is a single
+unambiguous byte, and it never reaches the application's key parser at all:
+the tty line discipline sees `VINTR` and raises `SIGINT`. Nothing anywhere
+waits for it.
+
+Two independent layers each impose that wait, and only one of them had been
+turned off:
+
+| Layer | Knob | Default | State before the fix |
+|---|---|---|---|
+| tmux's input parser | `escape-time` (server option) | 500ms | 0 on the operator's laptop |
+| ncurses inside `dialog` | `ESCDELAY` (env var) | **1000ms** | unset — nothing in this repo ever set it |
+
+`escape-time 0` only stops *tmux* sitting on the byte. tmux then hands the
+`\e` straight through to `dialog`, which starts its own, longer, ncurses
+timer. The second that was actually being felt was ncurses', not tmux's — and
+the tmux setting that had been checked was the one that mattered least.
+
+Two further things hid it:
+
+- **`escape-time` is a *server* option (`-s`), and there is one tmux server
+  per user, per socket, per host.** `deploy.sh` runs on the Pi or the Mac,
+  often inside a tmux *there*. A `show-options -s` run on the laptop says
+  nothing about that server, which still had the 500ms default stacked on
+  top.
+- **`dialog` exposes no flag for it.** There is no `--escdelay`; ncurses reads
+  `$ESCDELAY` once at `initscr()` time. The fix has to be an exported
+  environment variable in whatever shell invokes `dialog`, which is why
+  nothing about it appears in any `dialog` command line in this repo.
+
+### Fix
+
+Both layers, in the places each one is actually reachable from:
+
+- `lib/locale-lib.sh` grew a second guard, `_ensure_fast_escape`, exporting
+  `ESCDELAY=25` unless the caller already chose a value. That file was already
+  the "force the environment `dialog` assumes but doesn't get" library sourced
+  by `deploy.sh`, `backup.sh`, `check-updates.sh`, `install-desktop-entries.sh`,
+  `ollama-watchdog.sh`, `whimsy-menu`, `ollama`'s `run.sh` and
+  `manage-models.sh`, `claude-cli`/`codex-cli`'s `new-instance.sh`, and
+  `nanoclaw-mnemon`'s `run.sh` — so the host side was one function and no new
+  sourcing anywhere.
+- In-container menus restate the export themselves — `kali-pentest`'s
+  `entrypoint.sh` and the `sdr-menu.sh` that `dragonos-sdr`'s Dockerfile
+  generates. Nothing under `lib/` is copied into an image, and the host's
+  environment does not cross the container boundary, so there is nothing to
+  source and nothing inherited.
+- `set -s escape-time 10` in the `.tmux.conf` that `mac-terminal-setup` and
+  `pi-barebones` deploy, which is what puts the setting on the *hosts*
+  `deploy.sh` actually runs on rather than only on whatever laptop is
+  ssh'ing in.
+
+Neither value is `0`. A real `\e[A` normally arrives in one read, but over ssh
+or on a loaded Pi its bytes genuinely can split across reads, and a zero
+timeout turns every arrow key into Escape followed by a literal `[A` typed
+into the menu. 25ms and 10ms are both far below the ~100ms at which a delay
+starts to read as lag.
+
+### General Lessons
+
+- **A latency that survives fixing the obvious cause usually has a second
+  layer, not a broken first one.** `escape-time 0` was correctly set and
+  correctly verified; it just wasn't the whole path. When a setting is
+  confirmed applied and the symptom is unchanged, the next question is what
+  *else* is on that path, not whether the setting really took.
+- **Compare against the fast case to find the mechanism.** "Esc is slow" alone
+  suggests a hundred causes. "Esc is slow but Ctrl-C is instant, in the same
+  menu, in the same terminal" narrows it to one property those two keys don't
+  share — ambiguity as a prefix — and that property names the fix.
+- **A per-server tmux option verified on the wrong server proves nothing.**
+  `show-options -s` answers for the server you're talking to. In a
+  laptop → ssh → Pi → tmux → `dialog` chain, ask on the host running the
+  program.
+- **Some settings are only reachable as environment variables.** Grepping the
+  codebase for how `dialog` is invoked would never have surfaced `ESCDELAY`,
+  because there is no command-line form of it to find. When a TUI's behaviour
+  has no visible knob at the call site, check the library's env vars before
+  concluding it isn't configurable.
+- **A shared "fix the inherited environment" library is worth more than the
+  one bug it was written for.** `locale-lib.sh` existed for UTF-8; the second
+  guard cost one function and instantly covered all eleven entry points that
+  already source it. The same
+  reasoning also flags where the coverage stops — inside a container image,
+  where nothing from `lib/` exists.
+
+### Related
+
+- `README.md` — the in-container `dialog` menu conventions, which now carry
+  the `export ESCDELAY=${ESCDELAY:-25}` rule.
+- `lib/locale-lib.sh` — both guards, with the full reasoning inline.
+- "Post-deploy summary garbling into raw hex-byte escapes" in
+  `docs/lessons-learned/nanoclaw-mnemon.md` — the UTF-8 half of the same
+  library, and the same "per-environment `run.sh` never sourced it" coverage
+  gap.
