@@ -10,6 +10,7 @@ BEGIN {
     hardware[1] = "Raspberry Pi 4/5 — 4 GB baseline"
     hardware[2] = "Apple Silicon Mac or Raspberry Pi 4/5 — 8 GB additions"
     hardware[3] = "Apple Silicon Mac — 16 GB additions"
+    hardware[4] = "Apple Silicon Mac — 32 GB additions"
 
     use_key[1] = "wiki"
     use_key[2] = "embeddings"
@@ -43,14 +44,16 @@ $0 !~ /^#/ {
         model_tier[count] = 1
     } else if (("," model_hardware[count] ",") ~ /,(mac8|pi8),/) {
         model_tier[count] = 2
-    } else {
+    } else if (("," model_hardware[count] ",") ~ /,mac16,/) {
         model_tier[count] = 3
+    } else {
+        model_tier[count] = 4
     }
 }
 END {
     print "| Model | Wiki | Embeddings | General | Coding | Reasoning | Fast | Multilingual | Long context | Description |"
     print "|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|"
-    for (tier = 1; tier <= 3; tier++) {
+    for (tier = 1; tier <= 4; tier++) {
         printf "| **%s** ", hardware[tier]
         for (column = 1; column <= 9; column++) {
             printf "| "
