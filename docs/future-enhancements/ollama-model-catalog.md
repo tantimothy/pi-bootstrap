@@ -51,7 +51,24 @@ operator will actually see. If MoE rows prove much faster than their dense
 neighbors of the same footprint, the `notes` column is where that belongs —
 the fit columns should stay conservative.
 
-## 4. Tag stability
+## 4. Vision tagging is read from model cards, not from a pulled model
+
+The `vision` use case marks the Gemma 4 family and the Qwen 3.5/3.8 line as
+accepting image input. That comes from Ollama's per-tag model pages and the
+upstream model cards; no image has actually been pushed through any of them
+here. Two things a real test would settle:
+
+- **Per-tag rather than per-family.** The tagging assumes a generation is
+  uniformly multimodal, which is what upstream claims for both families. A
+  quantized or distilled tag that drops the vision tower would be silently
+  mis-tagged — `devstral:24b` is the precedent, where exactly that happened to
+  a Mistral Small derivative.
+- **Audio is deliberately untracked.** Gemma 4's E-series accepts audio
+  upstream. Whether Ollama exposes it at all is unconfirmed, so the catalog
+  claims image input only. If Ollama does serve audio, that is a second column,
+  not a widening of this one.
+
+## 5. Tag stability
 
 `models.tsv` pins model *names*, not digests, and Ollama repoints a bare tag
 (`gemma4:12b`, `qwen3-coder:30b`) when it republishes. A download size in this

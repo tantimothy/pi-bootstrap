@@ -609,7 +609,8 @@ _choose_and_pull_model() {
                         "reasoning" "Reasoning, mathematics, and logic" \
                         "fast" "Fast/minimal resource use" \
                         "multilingual" "Multilingual work" \
-                        "long-context" "Long-context document work"
+                        "long-context" "Long-context document work" \
+                        "vision" "Image input — screenshots, photos, scanned pages"
                     status=$?
                     [ "$status" -eq "$MENU_BACK_STATUS" ] && break
                     [ "$status" -eq 0 ] || return "$status"

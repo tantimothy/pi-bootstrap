@@ -7,14 +7,14 @@ qwen2.5:3b	Qwen 2.5 3B	1.9 GB	2560	4096	mac8,mac16,mac32,pi8	general,multilingua
 qwen3:1.7b	Qwen 3 1.7B	1.4 GB	2048	3072	mac8,mac16,mac32,pi8,pi4	general,fast,multilingual	Extremely fast small multilingual model
 qwen3:4b	Qwen 3 4B	2.5 GB	3584	5120	mac8,mac16,mac32,pi8	general,reasoning,multilingual	Strong intelligence/speed balance; tight on an 8GB Mac or Pi
 qwen3:8b	Qwen 3 8B	5.2 GB	7168	10240	mac16,mac32	general,reasoning,multilingual	General-purpose 16GB Mac pick with strong multilingual ability
-qwen3.5:2b	Qwen 3.5 2B	2.7 GB	3072	4608	mac8,mac16,mac32,pi8,pi4	wiki,general,multilingual,long-context	256K context; the 4GB Pi tier is a stretch with short contexts only
-qwen3.5:4b	Qwen 3.5 4B	3.4 GB	4608	6656	mac8,mac16,mac32,pi8	wiki,general,reasoning,multilingual,long-context	256K context; useful for wiki and agent-style work
-qwen3.5:9b	Qwen 3.5 9B	6.6 GB	9216	12288	mac16,mac32	general,reasoning,multilingual,long-context	High-quality 16GB Mac option; keep context modest for headroom
-qwen3.8:27b	Qwen 3.8 27B	18 GB	20480	24576	mac32	general,reasoning,multilingual,long-context	256K context and image input; the general-purpose pick once 32GB is available
-gemma4:e2b-it-qat	Gemma 4 E2B-IT QAT	4.3 GB	5120	7168	mac8,mac16,mac32,pi8	general,reasoning,long-context	128K context; quantization-aware training replaces gemma3:4b in a smaller download
-gemma4:e4b	Gemma 4 E4B	9.6 GB	11264	15360	mac16,mac32	wiki,reasoning,long-context	128K context, tool calling, and agent logic; tight on 16GB, so keep context short
-gemma4:12b	Gemma 4 12B	7.6 GB	9216	11264	mac16,mac32	general,reasoning,long-context	256K context; replaces gemma3:12b with a smaller download and a longer context
-gemma4:26b	Gemma 4 26B	19 GB	20480	24576	mac32	general,reasoning,long-context	256K context; mixture-of-experts with 4B active parameters, so it decodes faster than its size suggests
+qwen3.5:2b	Qwen 3.5 2B	2.7 GB	3072	4608	mac8,mac16,mac32,pi8,pi4	wiki,general,multilingual,long-context,vision	256K context; the 4GB Pi tier is a stretch with short contexts only
+qwen3.5:4b	Qwen 3.5 4B	3.4 GB	4608	6656	mac8,mac16,mac32,pi8	wiki,general,reasoning,multilingual,long-context,vision	256K context; useful for wiki and agent-style work
+qwen3.5:9b	Qwen 3.5 9B	6.6 GB	9216	12288	mac16,mac32	general,reasoning,multilingual,long-context,vision	High-quality 16GB Mac option; keep context modest for headroom
+qwen3.8:27b	Qwen 3.8 27B	18 GB	20480	24576	mac32	general,reasoning,multilingual,long-context,vision	256K context; the general-purpose pick once 32GB is available
+gemma4:e2b-it-qat	Gemma 4 E2B-IT QAT	4.3 GB	5120	7168	mac8,mac16,mac32,pi8	general,reasoning,long-context,vision	128K context; quantization-aware training replaces gemma3:4b in a smaller download
+gemma4:e4b	Gemma 4 E4B	9.6 GB	11264	15360	mac16,mac32	wiki,reasoning,long-context,vision	128K context, tool calling, and agent logic; tight on 16GB, so keep context short
+gemma4:12b	Gemma 4 12B	7.6 GB	9216	11264	mac16,mac32	general,reasoning,long-context,vision	256K context; replaces gemma3:12b with a smaller download and a longer context
+gemma4:26b	Gemma 4 26B	19 GB	20480	24576	mac32	general,reasoning,long-context,vision	256K context; mixture-of-experts with 4B active parameters, so it decodes faster than its size suggests
 phi4-mini	Phi-4 Mini 3.8B	2.5 GB	3584	6144	mac8,mac16,mac32,pi8	wiki,reasoning,long-context	128K context; strong grounded wiki Q&A, math, and logic
 qwen2.5-coder:7b	Qwen 2.5 Coder 7B	4.7 GB	6656	9216	mac16,mac32	coding	Code generation, reasoning, and fixes on a 16GB Mac
 gpt-oss:20b	GPT-OSS 20B	14 GB	13312	16384	mac16,mac32	coding,long-context	128K context; MXFP4 weights make it the largest coding model that still fits 16GB, so keep context short

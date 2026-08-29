@@ -82,7 +82,8 @@ explicit. The final column summarizes what each model is best suited for.
 - Hardware: Apple Silicon Mac 32GB+, Apple Silicon Mac 16GB, Apple Silicon Mac
   8GB, Raspberry Pi 4/5 8GB, and Raspberry Pi 4/5 4GB.
 - Suggested use: wiki Q&A, Mnemon/RAG embeddings, general chat, coding,
-  reasoning/math, fast/minimal, multilingual, and long-context work.
+  reasoning/math, fast/minimal, multilingual, long-context work, and vision
+  (image input).
 
 The supplied wiki-model article's recommendations are represented explicitly:
 `phi4-mini`, `gemma4:e4b`, `qwen3.5:2b`, `qwen3.5:4b`, and
@@ -98,6 +99,26 @@ native dialog selector scrolls through the list and sorts it by live assessment
 (`FITS`, `CAUTION`, then `EXCEEDS`) and projected minimum RAM. The smaller
 hardware tiers filter out models whose projected working set is not practical
 for that class.
+
+### Vision is a capability of a whole generation, not one model
+
+`vision` marks a model Ollama will accept an image with — pass a file path to
+`ollama run`, or an `images` array through the API. It is a property of the
+model *generation* rather than a specialty tag: the entire Gemma 4 family
+(`e2b-it-qat`, `e4b`, `12b`, `26b`) and the entire Qwen 3.5/3.8 line
+(`qwen3.5:2b` through `qwen3.8:27b`) are natively multimodal, which is why the
+column has a checkmark in every hardware tier including the 4GB Pi. Nothing
+else in the catalog takes images: the Qwen 3, Llama, Phi, DeepSeek R1, and
+coding rows are all text-only, and Devstral drops the vision encoder its
+Mistral Small base had.
+
+That makes a separate vision specialist (`qwen3-vl`, `llama3.2-vision`,
+`llava`) unnecessary here — Qwen's own claim for 3.5 is that it matches or
+beats the Qwen3-VL line on visual understanding, so a dedicated VL model would
+be an older generation occupying the same memory. Two limits worth stating:
+Gemma 4's E-series accepts audio upstream, but the catalog tracks image input
+only, since that is what Ollama's vision capability covers; and no image has
+been pushed through any of these on a host this repo manages.
 
 ### Why 32GB is its own tier
 

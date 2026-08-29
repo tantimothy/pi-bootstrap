@@ -282,6 +282,9 @@ Open, with full context in
   read `CAUTION` on a healthy machine by design.
 - Catalog rows pin tags, not digests, so published download sizes can
   drift without any commit here. No action re-checks them.
+- Push an actual image through one Gemma 4 and one Qwen 3.5/3.8 tag. The
+  new `vision` use case is tagged from model cards alone, per family
+  rather than per tag.
 
 ## Known, deliberately-deferred code quality items
 

@@ -20,6 +20,7 @@ BEGIN {
     use_key[6] = "fast"
     use_key[7] = "multilingual"
     use_key[8] = "long-context"
+    use_key[9] = "vision"
 
     print "# Ollama Model Hardware and Use-Case Matrix"
     print ""
@@ -51,18 +52,18 @@ $0 !~ /^#/ {
     }
 }
 END {
-    print "| Model | Wiki | Embeddings | General | Coding | Reasoning | Fast | Multilingual | Long context | Description |"
-    print "|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|"
+    print "| Model | Wiki | Embeddings | General | Coding | Reasoning | Fast | Multilingual | Long context | Vision | Description |"
+    print "|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|"
     for (tier = 1; tier <= 4; tier++) {
         printf "| **%s** ", hardware[tier]
-        for (column = 1; column <= 9; column++) {
+        for (column = 1; column <= 10; column++) {
             printf "| "
         }
         print "|"
         for (row = 1; row <= count; row++) {
             if (model_tier[row] == tier) {
                 printf "| `%s` ", model[row]
-                for (use = 1; use <= 8; use++) {
+                for (use = 1; use <= 9; use++) {
                     printf "| %s ", (("," model_uses[row] ",") ~ ("," use_key[use] ",")) ? "✓" : ""
                 }
                 printf "| %s |\n", model_notes[row]

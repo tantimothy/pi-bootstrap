@@ -250,6 +250,29 @@ for wiki_model in phi4-mini gemma4:e4b qwen3.5:2b qwen3.5:4b llama3.2:3b; do
 done
 unset DIALOG_TEST_SEQUENCE_FILE
 
+# Image input is a use case in its own right, and the menu that offers it must
+# agree with the catalog column exactly — a model tagged vision has to be
+# listed, and a text-only one must not be.
+: > "$OLLAMA_LOG"
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' use vision BACK BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
+! grep -q '^pull ' "$OLLAMA_LOG"
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+vision_menu_log="$(grep 'Models for vision' "$DIALOG_LOG")"
+while IFS=$'\t' read -r model tagged; do
+    if [ "$tagged" = "yes" ]; then
+        grep -q "$model" <<< "$vision_menu_log"
+    elif grep -q "$model" <<< "$vision_menu_log"; then
+        echo "Expected the text-only $model to be absent from the vision menu" >&2
+        exit 1
+    fi
+done < <(awk -F '\t' '
+    $0 !~ /^#/ { print $1 "\t" ((("," $7 ",") ~ /,vision,/) ? "yes" : "no") }
+' "$ENV_DIR/models.tsv")
+unset DIALOG_TEST_SEQUENCE_FILE
+
 # Low pressure can soften a low-available-RAM result because macOS may still
 # have reclaimable/compressible capacity. Elevated pressure cannot.
 export OLLAMA_MANAGER_TOTAL_MIB=8192
