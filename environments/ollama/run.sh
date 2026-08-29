@@ -182,6 +182,11 @@ echo "🦙 Setting up the shared native Ollama service..."
 case "$POLICY" in
     STOP)
         _stop_ollama
+        # Say what STOP did and did not touch. Stopping the one daemon every AI
+        # environment shares looks a lot like losing the models it serves, and
+        # the tests have asserted this reassurance since they were written even
+        # though nothing printed it.
+        echo "✅ Ollama stopped. Downloaded models are unchanged."
         exit 0
         ;;
     TEARDOWN)
