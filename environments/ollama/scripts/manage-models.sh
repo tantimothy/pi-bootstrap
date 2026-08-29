@@ -576,7 +576,8 @@ _choose_and_pull_model() {
                 while true; do
                     _dialog_menu "Choose Hardware Tier" \
                         "Select the host class. RAM is checked live again before pull:" \
-                        "mac16" "Apple Silicon Mac — 16GB (all catalog models; scroll for more)" \
+                        "mac32" "Apple Silicon Mac — 32GB+ (all catalog models; scroll for more)" \
+                        "mac16" "Apple Silicon Mac — 16GB unified memory" \
                         "mac8" "Apple Silicon Mac — 8GB unified memory" \
                         "pi8" "Raspberry Pi 4/5 — 8GB RAM (CPU inference)" \
                         "pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)"

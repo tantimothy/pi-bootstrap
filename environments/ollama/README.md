@@ -76,11 +76,11 @@ tags and groups them in two independent ways:
 
 See [`MODEL-MATRIX.md`](MODEL-MATRIX.md) for a single pivot-style hardware and
 use-case table. Each model appears once under the minimum tier that introduces
-it, making the additional models unlocked by 8GB and 16GB hardware explicit.
-The final column summarizes what each model is best suited for.
+it, making the additional models unlocked by 8GB, 16GB, and 32GB hardware
+explicit. The final column summarizes what each model is best suited for.
 
-- Hardware: Apple Silicon Mac 16GB, Apple Silicon Mac 8GB, Raspberry Pi 4/5
-  8GB, and Raspberry Pi 4/5 4GB.
+- Hardware: Apple Silicon Mac 32GB+, Apple Silicon Mac 16GB, Apple Silicon Mac
+  8GB, Raspberry Pi 4/5 8GB, and Raspberry Pi 4/5 4GB.
 - Suggested use: wiki Q&A, Mnemon/RAG embeddings, general chat, coding,
   reasoning/math, fast/minimal, multilingual, and long-context work.
 
@@ -88,14 +88,34 @@ The supplied wiki-model article's recommendations are represented explicitly:
 `phi4-mini`, `gemma4:e4b`, `qwen3.5:2b`, `qwen3.5:4b`, and
 `llama3.2:3b`. Gemma 4 E4B's current Ollama artifact is much larger than the
 article anticipated, so it is limited to the 16GB Mac tier and marked as tight.
-The separate `gemma3:4b` recommendation from the hardware article remains in
-the catalog as its own model.
+The hardware article's `gemma3:4b` recommendation is carried by its Gemma 4
+successor, `gemma4:e2b-it-qat`, which is smaller on disk at the same tier.
 
-The 16GB Mac hardware tier intentionally contains the entire catalog. The
+The 32GB Mac hardware tier intentionally contains the entire catalog, and each
+smaller tier is a strict subset of the one above it — so every row carries
+`mac32`, and only the models that tier introduces carry nothing smaller. The
 native dialog selector scrolls through the list and sorts it by live assessment
 (`FITS`, `CAUTION`, then `EXCEEDS`) and projected minimum RAM. The smaller
 hardware tiers filter out models whose projected working set is not practical
 for that class.
+
+### Why 32GB is its own tier
+
+A 32GB Mac is not just "16GB with more headroom" here. Ollama 0.19 replaced its
+llama.cpp Metal backend with Apple's MLX on Apple Silicon and reported roughly
+double the decode rate, and that backend only activates at 32GB or more of
+unified memory — so the speedup is not something a 16GB Mac can reach by
+trimming context. Two caveats worth knowing before treating it as a guarantee:
+the MLX backend shipped as a preview covering a limited set of architectures
+(Qwen first), and none of this has been measured on the hosts this repo
+manages. The tier is drawn around what fits in memory, which is verifiable
+locally; the speed claim is upstream's.
+
+Sizes in `models.tsv` are Ollama's published download sizes for the default tag
+(quantization included). The working-RAM columns remain estimates, so a model
+listed under a tier can still assess as `CAUTION` on a machine of that class —
+`gpt-oss:20b` on a 16GB Mac is the clearest example, and it is in the tier
+because MXFP4 weights make it the largest coding model that fits there at all.
 
 Before a pull, the menu shows:
 

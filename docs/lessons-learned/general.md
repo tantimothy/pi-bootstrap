@@ -1341,3 +1341,61 @@ starts to read as lag.
   `docs/lessons-learned/nanoclaw-mnemon.md` — the UTF-8 half of the same
   library, and the same "per-environment `run.sh` never sourced it" coverage
   gap.
+
+## `environments/ollama`'s test suite had never run green — one stub and one assertion described behavior that did not exist (2026-08-29)
+
+**Status:** Fixed.
+
+### Summary
+
+`environments/ollama/tests/test-manage-models.sh` is the closest thing this
+repo has to an automated test, and it exits non-zero on `master`. Three of its
+platform assertions were checking for a `brew`/`run.sh` contract that either
+changed underneath it or was never implemented at all. Nothing noticed, because
+there is no CI and the failures are past the catalog assertions everyone
+actually edits.
+
+### Symptom
+
+`bash environments/ollama/tests/test-manage-models.sh` exits 1 with no message.
+`bash -x` puts the failure at `grep -q '^brew services start ollama$'` — a
+macOS start path that cannot run on the Linux host doing the editing, so the
+natural read is "environment-specific, ignore it".
+
+### Root cause
+
+Three separate drifts, each invisible on its own:
+
+- **The `brew` stub answers the wrong question.** `f19a571` changed
+  `_ollama_brew_service()` from `brew list ollama` to
+  `brew services list | awk '$1 == "ollama"'` — the right fix, since a formula
+  being installed is not the same as a service being registered. The stub still
+  printed nothing for `brew services list`, so every Darwin start path fell
+  through to the bare-`ollama serve` branch and the assertion could never match.
+- **`brew uninstall ollama` gained a `--formula`.** The teardown grew four
+  recognized install methods; the assertion still matched the two-word form.
+- **`grep -q 'Downloaded models are unchanged'` had no source at all.**
+  `git log -S` finds that string in no revision of `run.sh` or
+  `lib/ollama-lib.sh` — the assertion was written against intended output that
+  was never printed. STOP exited silently.
+
+### Fix
+
+Stub and assertion updated to the current `brew` contract; `run.sh`'s STOP
+branch now prints `✅ Ollama stopped. Downloaded models are unchanged.`, which
+is what the test always wanted and what the README already promises. The suite
+passes end to end for the first time.
+
+### General lessons
+
+- **A test that has never been observed passing is a specification, not a
+  test.** The third failure was not drift — it asserted a message nobody had
+  written. Run a suite to green once when you add it, or it starts life stale.
+- **Changing what a `lib/` helper shells out to breaks the fakes, not the
+  callers.** `_ollama_brew_service()`'s fix was correct and the callers were
+  fine; the only thing that broke was a stub two directories away that no diff
+  in that commit touched. Grep the test stubs for the command whose *arguments*
+  you just changed.
+- **Failures at the bottom of a long `set -e` script hide behind the platform
+  they test.** A Linux contributor sees a macOS assertion fail and files it
+  under "can't run here". Both readings are available; only one is checked.

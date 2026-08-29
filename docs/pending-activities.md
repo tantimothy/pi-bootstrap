@@ -1,7 +1,8 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-08-24** — though only the
-Ollama reboot-recovery entry was revised in that pass, and the
+A snapshot of open follow-ups as of **2026-08-29** — though only the
+Ollama model-catalog entry was added in that pass, the Ollama
+reboot-recovery entry revised in the 2026-08-24 one, and the
 `okf-graph-wiki` entry in the 2026-08-15 one; every other entry below
 carries its 2026-08-09 state and was not re-verified, so treat anything
 else here as at least that stale. GitHub itself (PR/issue
@@ -260,6 +261,27 @@ just started and logged as successfully restarted. Both are fixed in
   `docs/future-enhancements/ollama-watchdog-status-reporting.md`, which
   now notes that `--status` does read the plist for the version marker,
   so this no longer starts from nothing.
+
+## Ollama: 32GB model tier added from published figures, nothing measured
+
+Added 2026-08-29. `environments/ollama/models.tsv` grew a `mac32` tier
+(`qwen3.8:27b`, `gemma4:26b`, `devstral:24b`, `qwen3-coder:30b`,
+`deepseek-r1:32b`), retired the Gemma 3 rows in favor of Gemma 4, and
+dropped `phi3:mini` for `phi4-mini`. Every size, context length, and
+benchmark figure comes from Ollama's model pages and upstream release
+notes — no 32GB host has pulled any of them here.
+
+Open, with full context in
+`docs/future-enhancements/ollama-model-catalog.md`:
+
+- Confirm the MLX backend actually engages on a 32GB Mac, and for which
+  of these models. The tier's speed rationale is entirely upstream's
+  claim; only the memory ceiling is checkable locally.
+- Decide `gpt-oss:20b`'s tier from a real 16GB pull. It is the one row
+  whose projected minimum leaves almost nothing for macOS, and it will
+  read `CAUTION` on a healthy machine by design.
+- Catalog rows pin tags, not digests, so published download sizes can
+  drift without any commit here. No action re-checks them.
 
 ## Known, deliberately-deferred code quality items
 

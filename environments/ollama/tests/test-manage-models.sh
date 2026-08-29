@@ -130,7 +130,15 @@ cat > "$TMP_DIR/brew" <<'STUB'
 echo "brew $*" >> "$PLATFORM_TEST_LOG"
 case "${1:-}" in
     list) exit 0 ;;
-    services) touch "$FAKE_HEALTH_FILE" ;;
+    services)
+        case "${2:-}" in
+            # _ollama_brew_service() asks `brew services list` whether a
+            # service named ollama exists; `brew list` knowing the formula is
+            # not the same question and no longer decides this.
+            list) printf '%s\n%s\n' "Name   Status  User File" "ollama started tester -" ;;
+            start|restart) touch "$FAKE_HEALTH_FILE" ;;
+        esac
+        ;;
 esac
 exit 0
 STUB
@@ -220,7 +228,7 @@ model_menu_log="$(grep 'All Recommended Models' "$DIALOG_LOG")"
 awk -v menu="$model_menu_log" 'BEGIN {
     fits = index(menu, "nomic-embed-text [FITS]")
     caution = index(menu, "qwen3.5:4b [CAUTION]")
-    exceeds = index(menu, "gemma3:12b [EXCEEDS]")
+    exceeds = index(menu, "gemma4:12b [EXCEEDS]")
     exit !(fits > 0 && caution > fits && exceeds > caution)
 }'
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
@@ -352,23 +360,42 @@ printf '%s\n' hardware pi4 ESC BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
 unset DIALOG_TEST_SEQUENCE_FILE
 
-# The 16GB Mac tier is deliberately the complete catalog, and the native
-# dialog menu must include every model.
+# The 32GB Mac tier is deliberately the complete catalog — every row carries
+# mac32 — and the native dialog menu must include every model. Each smaller
+# tier is a strict subset, so a model that only fits 32GB must not appear in
+# the 16GB tier's menu.
 catalog_count="$(awk -F '\t' '$0 !~ /^#/ { count++ } END { print count + 0 }' "$ENV_DIR/models.tsv")"
-mac16_count="$(awk -F '\t' '
-    $0 !~ /^#/ && ("," $6 ",") ~ /,mac16,/ { count++ }
+mac32_count="$(awk -F '\t' '
+    $0 !~ /^#/ && ("," $6 ",") ~ /,mac32,/ { count++ }
     END { print count + 0 }
 ' "$ENV_DIR/models.tsv")"
-[ "$mac16_count" -eq "$catalog_count" ]
+[ "$mac32_count" -eq "$catalog_count" ]
+: > "$OLLAMA_LOG"
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' hardware mac32 BACK BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
+! grep -q '^pull ' "$OLLAMA_LOG"
+model_menu_log="$(grep 'Recommended for mac32' "$DIALOG_LOG")"
+for model in $(awk -F '\t' '$0 !~ /^#/ { print $1 }' "$ENV_DIR/models.tsv"); do
+    grep -q "$model" <<< "$model_menu_log"
+done
+[ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
+unset DIALOG_TEST_SEQUENCE_FILE
+
 : > "$OLLAMA_LOG"
 : > "$DIALOG_LOG"
 export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
 printf '%s\n' hardware mac16 BACK BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
 "$MANAGER" --pull >/dev/null
-! grep -q '^pull ' "$OLLAMA_LOG"
 model_menu_log="$(grep 'Recommended for mac16' "$DIALOG_LOG")"
-for model in $(awk -F '\t' '$0 !~ /^#/ { print $1 }' "$ENV_DIR/models.tsv"); do
-    grep -q "$model" <<< "$model_menu_log"
+for model in $(awk -F '\t' '
+    $0 !~ /^#/ && ("," $6 ",") !~ /,mac16,/ { print $1 }
+' "$ENV_DIR/models.tsv"); do
+    if grep -q "$model" <<< "$model_menu_log"; then
+        echo "Expected $model to be absent from the 16GB tier menu" >&2
+        exit 1
+    fi
 done
 [ ! -s "$DIALOG_TEST_SEQUENCE_FILE" ]
 unset DIALOG_TEST_SEQUENCE_FILE
@@ -428,7 +455,7 @@ grep -q 'downloaded models were preserved' "$TMP_DIR/linux-teardown.out"
 export FAKE_UNAME_S=Darwin
 REBUILD_POLICY=TEARDOWN PATH="$TMP_DIR:$PATH" "$RUNNER" >"$TMP_DIR/mac-teardown.out"
 grep -q '^brew services stop ollama$' "$PLATFORM_TEST_LOG"
-grep -q '^brew uninstall ollama$' "$PLATFORM_TEST_LOG"
+grep -q '^brew uninstall --formula ollama$' "$PLATFORM_TEST_LOG"
 grep -q 'downloaded models were preserved' "$TMP_DIR/mac-teardown.out"
 
 rm -f "$FAKE_HEALTH_FILE"
