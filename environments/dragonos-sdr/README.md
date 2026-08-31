@@ -25,7 +25,9 @@ None of this is expressible via `docker-compose.yml` either (Compose has no per-
 
 ## 🔧 Tools & Projects
 
-Base image: [debian:bookworm-slim](https://hub.docker.com/_/debian) — additional SDR tools from the Debian/Kali package catalog can be installed with `apt-get install` inside the container. The following are pre-installed by the Dockerfile:
+Base image: [debian:bookworm-slim](https://hub.docker.com/_/debian) — additional SDR tools from the Debian package catalog can be installed with `apt-get install` inside the container. The following are pre-installed by the Dockerfile:
+
+> **Note:** everything below comes from `apt` except **readsb** and **acarsdec**, which have no Debian package at all — the Dockerfile compiles those (plus `libacars`) from pinned upstream sources. See [Tools built from source](#tools-built-from-source) for the pins and what to change when bumping one.
 
 > **Note:** This container mirrors a subset of the [DragonOS](https://cemaxecuter.com) toolset. The full DragonOS distribution additionally includes SDR++ , CubicSDR, dump1090 (ADS-B), WSJT-X (FT8/FT4), Direwolf (APRS), gr-gsm (GSM), inspectrum, multimon-ng, rtl_433, and more — these can be added to the Dockerfile via `apt-get install`.
 
@@ -65,9 +67,10 @@ Receives aircraft position broadcasts on **1090 MHz** — any RTL-SDR dongle can
 | Tool | Link | Description |
 |------|------|-------------|
 | `dump1090` | [github.com/mutability/dump1090](https://github.com/mutability/dump1090) | ADS-B Mode S decoder — interactive terminal aircraft table + HTTP map on port 8080 |
-| `readsb` | [github.com/wiedehopf/readsb](https://github.com/wiedehopf/readsb) | Modern dump1090 fork — adds MLAT support, better performance, optional lat/lon for range rings on the web map |
+| `readsb` | [github.com/wiedehopf/readsb](https://github.com/wiedehopf/readsb) | Modern dump1090 fork — adds MLAT support and better decode performance; interactive terminal table plus Beast (30005) / SBS (30003) / raw (30002) network output. Built from source (see below) |
+| `viewadsb` | (ships with readsb) | readsb's terminal aircraft-table viewer — attaches to a running readsb over the network instead of opening the dongle itself |
 
-> **Note:** The web map (port 8080) requires the container to be started with `-p 8080:8080`. Add `"8080:8080"` to the ports section of the run config, or access the interactive terminal view without it.
+> **Note:** The HTTP map on port 8080 is dump1090's, not readsb's — readsb has no built-in web server, and a map for it means pointing [tar1090](https://github.com/wiedehopf/tar1090) at its `--write-json` output. No port publishing is needed for either: `run.sh` starts the container with `--net=host`, so a port opened inside it is already the host's port.
 
 ### Multi-Protocol RF Decoding
 
@@ -93,13 +96,53 @@ Receives aircraft position broadcasts on **1090 MHz** — any RTL-SDR dongle can
 
 | Tool | Link | Description |
 |------|------|-------------|
-| `acarsdec` | [github.com/szpajder/acarsdec](https://github.com/szpajder/acarsdec) | Multi-channel ACARS decoder — decodes text messages (weather, gate assignments, ops) transmitted by commercial aircraft on 129.125 / 130.025 / 130.450 / 131.550 MHz |
+| `acarsdec` | [github.com/TLeconte/acarsdec](https://github.com/TLeconte/acarsdec) | Multi-channel ACARS decoder — decodes text messages (weather, gate assignments, ops) transmitted by commercial aircraft. The menu scans 130.025 / 130.450 / 131.125 / 131.550 MHz. Built from source (see below) |
+
+> **Note:** acarsdec covers every frequency you give it from one tuned RTL-SDR, so they must all fall inside a single sample-rate-wide window — 1.95 MHz at its default 2 MS/s (`rtl.c` tests the span against the sample rate minus a 50 kHz guard band). The four above span 1.525 MHz. Anything wider is rejected at startup with `Frequencies too far apart` and a non-zero exit, not silently narrowed — which is what the previous 129.125 / 130.025 / 130.450 / 131.550 list (2.425 MHz) would have done.
 
 ### Hardware Abstraction
 
 | Tool | Link | Description |
 |------|------|-------------|
 | SoapySDR | [github.com/pothosware/SoapySDR](https://github.com/pothosware/SoapySDR) | Hardware-agnostic SDR abstraction layer — `SoapySDRUtil --find` probes all connected devices regardless of manufacturer |
+
+### Tools built from source
+
+`readsb` and `acarsdec` are not in the Debian bookworm archive. Listing them
+in the Dockerfile's `apt-get install` does not degrade gracefully — apt exits
+`100` with `Unable to locate package`, and the whole image build fails on that
+line, so nothing after it is built either. The Dockerfile compiles them (plus
+`libacars`, which acarsdec needs to decode the ATS/CPDLC/ADS-C payloads inside
+ACARS messages rather than just print the raw text) from upstream instead, each
+pinned to an exact ref via a build `ARG`:
+
+| Source | Pin (`ARG`) | Build |
+|--------|-------------|-------|
+| [wiedehopf/readsb](https://github.com/wiedehopf/readsb) | `READSB_VERSION=v3.16.16` | `make RTLSDR=yes`; no `install` target upstream, so `readsb` and `viewadsb` are copied to `/usr/local/bin` |
+| [szpajder/libacars](https://github.com/szpajder/libacars) | `LIBACARS_VERSION=v2.2.1` | CMake → `/usr/local`, then `ldconfig` so acarsdec's `pkg-config` lookup finds it |
+| [TLeconte/acarsdec](https://github.com/TLeconte/acarsdec) | `ACARSDEC_COMMIT=339f63eb…` | CMake with `-Drtl=ON` |
+
+Notes for anyone bumping these:
+
+- **acarsdec is pinned to a commit, not a tag, on purpose.** Its newest tag
+  (`acarsdec-3.7`, 2022) predates the CMake build the Dockerfile uses, and
+  upstream ended development at the pinned commit (*"The End"*, 2025-07-31) —
+  so the pin is the project's final state rather than a moving branch head.
+- **`-Drtl=ON` is what compiles in RTL-SDR support.** With no SDR option set,
+  acarsdec's CMakeLists prints `No sdr option set ! are you sure ?` and still
+  produces a binary — one that can only read from a file.
+- **acarsdec's CMakeLists hardcodes `-Ofast -march=native`**, so that binary is
+  tuned for whichever CPU built the image. Correct here (`run.sh` builds on the
+  Pi that runs it), but it means the image is not safely copyable to an older
+  or different CPU.
+- Override any pin at build time without editing the Dockerfile, e.g.
+  `docker build --build-arg READSB_VERSION=v3.16.16 -t dragonos-pi .`
+- These three add a few minutes to a cold build on a Pi. `REBUILD_POLICY=FAST`
+  reuses the cached layers; only `CLEAN` (`--no-cache`) recompiles them.
+- `check-updates.sh` does **not** see these pins. It compares this image's
+  `FROM` line and its apt packages against upstream, so a new readsb release
+  will never show up there — bump `READSB_VERSION` by hand and run a `CLEAN`
+  deploy.
 
 ---
 
@@ -212,11 +255,11 @@ Tool tags run **1-9, then continue A, B, C, ...** rather than going to two-digit
 | **9** | HackRF Utilities | hackrf_sweep | Fast spectrum scan — prompts for MHz bounds, sweeps up to 8 GHz/s |
 | **A** | HackRF Utilities | hackrf_transfer | IQ capture/replay submenu — receive to file or transmit from file |
 | **B** | ADS-B Aircraft Tracking | dump1090 | ADS-B decoder — live aircraft table in terminal + HTTP map on port 8080 |
-| **C** | ADS-B Aircraft Tracking | readsb | ADS-B decoder with MLAT — prompts for lat/lon for web map range rings |
+| **C** | ADS-B Aircraft Tracking | readsb | ADS-B decoder with MLAT — prompts for lat/lon for range/distance stats, serves Beast/SBS network output |
 | **D** | Signal Decoders | rtl_433 | Decode 433/868/915 MHz devices — weather sensors, remotes, meters |
 | **E** | Signal Decoders | multimon-ng | Digital mode decoder — prompts for frequency, decodes pagers/EAS/DTMF from rtl_fm pipe |
 | **F** | Signal Decoders | direwolf | APRS decoder — submenu for NA (144.390 MHz) or EU (144.800 MHz) frequency |
-| **G** | Signal Decoders | acarsdec | ACARS decoder — scans 129.125 / 130.025 / 130.450 / 131.550 MHz simultaneously |
+| **G** | Signal Decoders | acarsdec | ACARS decoder — scans 130.025 / 130.450 / 131.125 / 131.550 MHz simultaneously |
 | **H** | System Utilities | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
 | **I** | System Utilities | lsusb | List USB devices attached to the host |
 | **J** | Session | Bash Shell | Raw terminal inside the container — full access to all installed tools |

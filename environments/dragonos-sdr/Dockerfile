@@ -21,13 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsoapysdr-dev \
     gnuradio \
     gqrx-sdr \
-    # ADS-B Aircraft Tracking
+    # ADS-B Aircraft Tracking (readsb is compiled from source below)
     dump1090-mutability \
-    readsb \
     # Multi-protocol RF Decoder (433/868/915 MHz sensors, remotes)
     rtl-433 \
-    # ACARS aircraft data-link messages
-    acarsdec \
     # Terrestrial radio audio & digital mode decoding
     alsa-utils \
     sox \
@@ -41,8 +38,68 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pulseaudio-utils \
     dialog \
     less \
+    # Build-time dependencies for the from-source block below (readsb,
+    # libacars, acarsdec). cmake, git, build-essential, pkg-config and
+    # librtlsdr-dev are already in the list above and cover the rest.
+    libusb-1.0-0-dev \
+    libncurses-dev \
+    zlib1g-dev \
+    libzstd-dev \
+    libxml2-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# --- Tools with no Debian package: compiled from pinned upstream sources ---
+# Neither readsb nor acarsdec is in the Debian bookworm archive, and naming
+# them in the apt-get above failed the whole build with "Unable to locate
+# package" (apt reports every missing name at once, then exits 100 — nothing
+# after that line in the image ever gets built). Both are therefore built
+# here instead. Each is pinned to an exact upstream ref: an unpinned clone
+# would mean two builds of the same commit of this repo can produce
+# different images, and there is no lockfile anywhere else to notice that.
+# Sources are removed in the same layer they are built in, so only the
+# installed binaries survive into the image.
+
+# wiedehopf/readsb — the actively maintained dump1090 fork (MLAT, better
+# decode performance). Its Makefile has no `install` target, so the two
+# binaries `make` produces are copied by hand; `viewadsb` is a copy of
+# `readsb` that starts in the terminal aircraft-table view.
+ARG READSB_VERSION=v3.16.16
+RUN git clone --depth 1 --branch "${READSB_VERSION}" https://github.com/wiedehopf/readsb.git /tmp/readsb \
+    && make -C /tmp/readsb -j"$(nproc)" RTLSDR=yes \
+    && install -m 0755 /tmp/readsb/readsb /tmp/readsb/viewadsb /usr/local/bin/ \
+    && rm -rf /tmp/readsb
+
+# libacars is optional for acarsdec, but without it acarsdec only prints the
+# raw ACARS text — the ATS/CPDLC/ADS-C payloads carried inside those messages
+# stay undecoded. acarsdec's CMakeLists finds it through pkg-config
+# (libacars-2 >= 2.0.0), which is why it is installed, and `ldconfig` run,
+# before acarsdec is configured below.
+ARG LIBACARS_VERSION=v2.2.1
+RUN git clone --depth 1 --branch "${LIBACARS_VERSION}" https://github.com/szpajder/libacars.git /tmp/libacars \
+    && cmake -S /tmp/libacars -B /tmp/libacars/build -DCMAKE_INSTALL_PREFIX=/usr/local \
+    && cmake --build /tmp/libacars/build -j"$(nproc)" \
+    && cmake --install /tmp/libacars/build \
+    && ldconfig \
+    && rm -rf /tmp/libacars
+
+# TLeconte/acarsdec. Pinned to a commit rather than a tag on purpose: the
+# newest tag (acarsdec-3.7, 2022) predates the CMake build system this uses,
+# and upstream then ended development at the commit below ("The End",
+# 2025-07-31), so this pin is the project's final state, not a moving branch
+# head. -Drtl=ON is what pulls in rtl.c/librtlsdr; with no SDR option set at
+# all the build silently produces a binary that can only read from a file.
+# Note that upstream's CMakeLists hardcodes `-Ofast -march=native`, so this
+# one binary is tuned for whatever CPU built the image. That is exactly right
+# for this repo (run.sh builds on the Pi that then runs it) but means the
+# image is not safely copyable to an older/different CPU.
+ARG ACARSDEC_COMMIT=339f63eb91a890cfe5b199ad70814cfe86702d1e
+RUN git clone https://github.com/TLeconte/acarsdec.git /tmp/acarsdec \
+    && git -C /tmp/acarsdec checkout --quiet "${ACARSDEC_COMMIT}" \
+    && cmake -S /tmp/acarsdec -B /tmp/acarsdec/build -Drtl=ON -DCMAKE_INSTALL_PREFIX=/usr/local \
+    && cmake --build /tmp/acarsdec/build -j"$(nproc)" \
+    && cmake --install /tmp/acarsdec/build \
+    && rm -rf /tmp/acarsdec
 
 # Fix RTL-SDR Kernel Driver Conflict inside the container just in case
 RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
@@ -121,12 +178,12 @@ while true; do
                   A        " └── hackrf_transfer — Receive or transmit raw IQ data to/from file" \
                   adsb     "[ADS-B Aircraft Tracking]" \
                   B        " ├── dump1090 — ADS-B aircraft tracker (1090 MHz, interactive table)" \
-                  C        " └── readsb — ADS-B decoder with MLAT & web map (port 8080)" \
+                  C        " └── readsb — ADS-B decoder with MLAT & Beast/SBS network output" \
                   decoders "[Signal Decoders]" \
                   D        " ├── rtl_433 — Decode 433/868/915 MHz sensors, remotes & meters" \
                   E        " ├── multimon-ng — Decode pagers, EAS weather alerts & DTMF from FM" \
                   F        " ├── direwolf — APRS packet radio decoder / TNC (144.390/144.800 MHz)" \
-                  G        " └── acarsdec — ACARS aircraft data-link messages (129-131 MHz)" \
+                  G        " └── acarsdec — ACARS aircraft data-link messages (130-131.5 MHz)" \
                   sysutil  "[System Utilities]" \
                   H        " ├── SoapySDRUtil — Probe all connected SDR hardware (any vendor)" \
                   I        " └── lsusb — List physical USB connections on the host" \
@@ -235,19 +292,37 @@ INFOEOF
       fi
       read -p "Press Enter to return to menu..." ;;
     B)
+      # Debian's dump1090-mutability package installs its binary under that
+      # full name (debian/rules renames it on install so the forks can
+      # coexist), not as a plain "dump1090" — check both rather than assume.
+      dump1090_bin=$(command -v dump1090-mutability || command -v dump1090)
+      if [ -z "$dump1090_bin" ]; then
+        echo "No dump1090 binary found in this image."
+        read -p "Press Enter to return to menu..."
+        continue
+      fi
       echo "Starting dump1090 ADS-B receiver (interactive table view)..."
       echo "Listening on 1090 MHz for aircraft position broadcasts."
-      echo "HTTP map available at http://localhost:8080 if the port is published."
+      echo "HTTP map on http://localhost:8080 — the container runs with --net=host,"
+      echo "so that port is already reachable from the host without publishing it."
       echo "Ctrl+C to stop."
-      dump1090 --interactive --net --net-http-port 8080 --net-beast-output-port 30005
+      "$dump1090_bin" --interactive --net --net-http-port 8080 --net-beast-output-port 30005
       read -p "Press Enter to return to menu..." ;;
     C)
-      read -p "Your latitude  (optional, enables map range rings): " lat
-      read -p "Your longitude (optional, enables map range rings): " lon
-      args="--net --interactive"
+      # --device-type is not optional here: readsb deliberately ships no
+      # default SDR (sdr.c leaves it SDR_NONE), so without it readsb starts
+      # up perfectly happily and simply never looks at the dongle.
+      #
+      # readsb also has no built-in web server, unlike dump1090-mutability
+      # above — a map means pointing tar1090 (or similar) at its --write-json
+      # output. What it does offer straight away is the interactive table
+      # plus network output for other tools to consume.
+      read -p "Your latitude  (optional, enables range/distance stats): " lat
+      read -p "Your longitude (optional, enables range/distance stats): " lon
+      args="--device-type rtlsdr --net --interactive"
       [ -n "$lat" ] && args="$args --lat $lat"
       [ -n "$lon" ] && args="$args --lon $lon"
-      echo "Starting readsb — web map at http://localhost:8080 — Ctrl+C to stop."
+      echo "Starting readsb — Beast output on :30005, SBS on :30003 — Ctrl+C to stop."
       readsb $args
       read -p "Press Enter to return to menu..." ;;
     D)
@@ -272,9 +347,15 @@ INFOEOF
       rtl_fm -f "$dw_freq" -s 24000 - 2>/dev/null | direwolf -r 24000 -D 1 -
       read -p "Press Enter to return to menu..." ;;
     G)
-      echo "ACARS frequencies: 129.125 130.025 130.450 131.550 MHz (scanning all)"
+      # acarsdec covers every frequency listed here from a single tuned
+      # RTL-SDR, so they must all fit inside one sample-rate-wide window —
+      # 1.95 MHz at its default 2 MS/s. The previous list opened at 129.125
+      # and spanned 2.425 MHz, which acarsdec rejects outright ("Frequencies
+      # too far apart", non-zero exit). These four are the common North
+      # American ACARS channels and span 1.525 MHz.
+      echo "ACARS frequencies: 130.025 130.450 131.125 131.550 MHz (scanning all)"
       echo "Ctrl+C to stop."
-      acarsdec -r 0 129.125 130.025 130.450 131.550
+      acarsdec -r 0 130.025 130.450 131.125 131.550
       read -p "Press Enter to return to menu..." ;;
     H)
       echo "Probing connected SDR hardware via SoapySDR..."
