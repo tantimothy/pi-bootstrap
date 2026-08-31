@@ -1,9 +1,10 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-08-29** — though only the
-Ollama model-catalog entry was added in that pass, the Ollama
-reboot-recovery entry revised in the 2026-08-24 one, and the
-`okf-graph-wiki` entry in the 2026-08-15 one; every other entry below
+A snapshot of open follow-ups as of **2026-08-31** — though only the
+dragonos-sdr entry was added in that pass, the Ollama model-catalog entry
+in the 2026-08-29 one, the Ollama reboot-recovery entry revised in the
+2026-08-24 one, and the `okf-graph-wiki` entry in the 2026-08-15 one;
+every other entry below
 carries its 2026-08-09 state and was not re-verified, so treat anything
 else here as at least that stale. GitHub itself (PR/issue
 state) is always the authoritative source for anything below that
@@ -190,6 +191,33 @@ over-corrected "cancel never exits" symptom). Not yet confirmed live:
   change (`{{.CreatedSince}}`) is a one-line addition to an existing,
   already-working code path, but hasn't been visually confirmed against a
   real `dialog` render.
+
+## dragonos-sdr: image build unblocked, nothing built or run yet
+
+Full account in `docs/lessons-learned/dragonos-sdr.md`. The environment's
+`docker build` failed in its very first layer — `readsb` and `acarsdec` are
+not Debian packages, and `apt-get install` exits 100 on them — so the image
+had never been built and none of its menu code had ever run. Both tools are
+now compiled from pinned upstream sources in the Dockerfile, and four
+runtime bugs found while reading that menu code (readsb missing the
+mandatory `--device-type rtlsdr`, its non-existent "web map", an ACARS
+frequency list spanning more than acarsdec's 2 MHz window, and the
+`dump1090-mutability` binary name) are fixed alongside. Everything was
+verified against upstream's actual `Makefile`, `CMakeLists.txt`, `sdr.c`,
+`help.h` and Debian packaging at the pinned refs — no Docker daemon or
+ARM64 hardware was available. Not yet done:
+
+- **One real `CLEAN` deploy on a Pi** — confirm the three new compile
+  layers (readsb `v3.16.16`, libacars `v2.2.1`, acarsdec at its final
+  upstream commit) actually build on ARM64 against bookworm's toolchain,
+  and note how long they add to a cold build.
+- **Menu entries B, C and G against a real dongle** — dump1090, readsb and
+  acarsdec have never been launched from this menu at all.
+- **Whether Debian's `dump1090-mutability` provides a plain `dump1090`
+  alias** — could not be checked (`packages.debian.org` and
+  `sources.debian.org` are both unreachable from the session's egress
+  proxy). Entry B now resolves `dump1090-mutability` first and falls back,
+  so it works either way, but the fallback branch is untested.
 
 ## nanoclaw-mnemon: OKF graph wiki proposed by a group agent, nothing decided
 
