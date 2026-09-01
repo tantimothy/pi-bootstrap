@@ -240,6 +240,12 @@ chmod +x run.sh
 
 Upon launching, a blue screen TUI will load in your terminal. It's a single `dialog --menu` with category headers (`[SDR Receivers]`, `[ADS-B Aircraft Tracking]`, etc.) shown alongside their tools, each indented underneath its category with manual tree-branch markers (`├──`/`└──`) rather than one flat undifferentiated list — everything's visible on one screen. (An earlier version used `dialog --treeview` for this; that was reverted since `--treeview`'s rendering depends on the installed `dialog` build actually supporting it, and a build that doesn't can silently show every row — including category headers — with a selectable marker that looks like multi-select. A plain `--menu` has no such ambiguity.) Category header tags are the bare category word, not prefixed with anything — selecting one just silently redraws the menu, no popup. Cancel/Esc also just redraws the menu — it never exits — only the explicit "Exit" tag does that. The menu also remembers your last selection and re-highlights it on redraw, rather than always resetting to the top.
 
+The image sets `LANG` and `LC_ALL` to Debian's built-in `C.UTF-8` locale so
+`dialog`/ncurses renders those tree branches and em dashes as Unicode. If an
+older image shows byte-like sequences such as `~T~T` or `~@~T` in their place,
+rebuild the DragonOS environment with the CLEAN policy to pick up the locale
+fix; merely reattaching with FAST continues to use the existing image.
+
 Tool tags run **1-9, then continue A, B, C, ...** rather than going to two-digit numbers — every tag stays a single keystroke for dialog's own type-ahead.
 
 | Tag | Category | Tool | What it does |

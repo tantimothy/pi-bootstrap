@@ -4,6 +4,14 @@ FROM debian:bookworm-slim
 # Avoid prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
 
+# dialog/ncurses must know that the terminal is UTF-8. Without this, the
+# box-drawing branches and em dashes in the launcher are rendered as their
+# individual high-bit bytes (for example, "~T~T" and "~@~T") under the
+# default POSIX locale. Debian bookworm supplies C.UTF-8 in glibc, so this
+# does not require generating or installing an additional locale.
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
 # Update and install core SDR tools, utilities, libraries, and dialog
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
