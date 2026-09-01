@@ -266,10 +266,58 @@ Tool tags run **1-9, then continue A, B, C, ...** rather than going to two-digit
 | **E** | Signal Decoders | multimon-ng | Digital mode decoder — prompts for frequency, decodes pagers/EAS/DTMF from rtl_fm pipe |
 | **F** | Signal Decoders | direwolf | APRS decoder — submenu for NA (144.390 MHz) or EU (144.800 MHz) frequency |
 | **G** | Signal Decoders | acarsdec | ACARS decoder — scans 130.025 / 130.450 / 131.125 / 131.550 MHz simultaneously |
-| **H** | System Utilities | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
-| **I** | System Utilities | lsusb | List USB devices attached to the host |
-| **J** | Session | Bash Shell | Raw terminal inside the container — full access to all installed tools |
-| **K** | Session | Exit | Leave the menu (container keeps running in background) |
+| **H** | System Utilities | Select RTL-SDR device | Choose which dongle tags 4-7 and B-G use — see [Choosing between dongles](#choosing-between-dongles) |
+| **I** | System Utilities | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
+| **J** | System Utilities | lsusb | List USB devices attached to the host |
+| **K** | Session | Bash Shell | Raw terminal inside the container — full access to all installed tools |
+| **L** | Session | Exit | Leave the menu (container keeps running in background) |
+
+### Choosing between dongles
+
+Every RTL-SDR tool here defaults to "device 0" when told nothing, and device 0
+is a coin flip the moment a second dongle is attached — USB enumeration order
+is not stable across a reboot or a replug. That matters because the two
+dongles people typically own for this are not interchangeable:
+
+| Dongle | Good for | Not usable for |
+|--------|----------|----------------|
+| RTL-SDR Blog V3/V4 | Everything — 1 PPM TCXO, bias tee, HF via direct sampling, no filtering in the way | — |
+| FlightAware Pro Stick | 1090 MHz ADS-B (built-in LNA) | Nothing physically blocked, but the always-on LNA overloads easily on strong out-of-band signals — run it at much lower gain |
+| FlightAware Pro Stick **Plus** | 1090 MHz ADS-B (LNA + SAW filter) | Tags D-G — the 1090 MHz SAW filter rejects 433 MHz, ACARS, APRS and pager traffic outright |
+
+So the menu picks a dongle **once per session** and passes it explicitly to
+every tool that opens one (tags 4-7 and B-G). Selection happens lazily, on the
+first tool that actually needs a radio — with exactly one dongle attached it is
+chosen silently, with several you get a picker, and tag **H** re-opens that
+picker at any time. The current choice is shown in the menu's top line and on
+the tag **1** info screen.
+
+This is session state, never image state: nothing is written to disk or baked
+into the image, so swapping dongles needs a fresh menu session (or tag H) —
+**never** a rebuild.
+
+Tools that take a serial number get one, because a serial survives an
+unplug/replug within a session where an index does not. Two exceptions are
+handled automatically:
+
+- **`dump1090-mutability` only understands `--device-index`**, so tag B always
+  passes the index.
+- **Unprogrammed dongles share a serial.** Both an RTL-SDR Blog V3 and a
+  FlightAware Pro Stick leave the factory as `00000001`, so with two of them
+  attached a serial would resolve to whichever enumerated first. The picker
+  detects the collision and falls back to the index. To fix it permanently,
+  give each dongle its own serial once, on the host, with one dongle plugged
+  in at a time:
+
+  ```bash
+  rtl_eeprom -d 0 -s ADSB      # then replug the dongle for it to take effect
+  ```
+
+  After that the names show up in the picker and stay stable across reboots.
+
+GQRX (tag 2) and GNU Radio (tag 3) are untouched by this — both have their own
+device selection built in. The HackRF tools (tags 8-A) address different
+hardware entirely.
 
 ---
 

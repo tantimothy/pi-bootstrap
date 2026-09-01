@@ -2,8 +2,9 @@
 
 ## Session: image build failed outright on two apt packages that don't exist in Debian
 
-**Status:** Fixed (code); the rebuilt image itself is not yet verified on real
-hardware — see *Still unverified* below.
+**Status:** Fixed and confirmed — the image builds on a real Pi and the
+launcher menu comes up. The individual menu entries still have not been run
+against a dongle; see *Still unverified* below.
 
 **Summary:** `REBUILD_POLICY=FAST` on a fresh host got as far as
 `[COMPILE] Target image layer missing. Launching standard dependency-cached
@@ -66,12 +67,14 @@ Debian's packaging (`debian/rules`) installs the binary under the fork's full
 name so the forks can coexist, and nothing guarantees a plain `dump1090`
 alias exists.
 
-**Still unverified:** every claim above about *build* behaviour was checked
-against upstream's actual `Makefile`/`CMakeLists.txt`/`sdr.c` at the pinned
-refs, not against a completed build — no Docker daemon (and no ARM64 Pi) was
-available in the session that made the change. The three compile layers, and
-all four runtime fixes, still need one real `CLEAN` deploy on a Pi with a
-dongle attached to close out.
+**Confirmed since:** a real deploy on the Pi built the image through all three
+new compile layers and brought the launcher up, so readsb, libacars and
+acarsdec do compile on ARM64 against bookworm's toolchain at the pinned refs.
+
+**Still unverified:** the four runtime fixes. Every claim about them was
+checked against upstream's actual `Makefile`, `CMakeLists.txt`, `sdr.c`,
+`help.h` and `rtl.c` at the pinned refs, but no menu entry has yet been run
+with a dongle attached.
 
 ### General Lessons
 
@@ -95,3 +98,82 @@ dongle attached to close out.
   anywhere to notice. Where upstream's tags are unusable (acarsdec's newest tag
   predates its current build system), pin the commit and say in a comment why
   it isn't a tag.
+
+## Session: one dongle's worth of assumptions in a two-dongle setup
+
+**Status:** Fixed (code); the picker's own logic is unit-tested against a
+stubbed `rtl_test`, but has not been run against real hardware.
+
+**Summary:** Every RTL-SDR tool in the launcher was invoked with no device
+argument at all, which means each one silently opened "device 0". That is fine
+with a single dongle attached and quietly wrong with two, because USB
+enumeration order is not stable across a reboot or a replug — and the two
+dongles commonly paired here are not interchangeable. A FlightAware Pro Stick
+Plus has a 1090 MHz SAW filter ahead of its tuner, so if it lands on index 0
+the ACARS (G), APRS (F), rtl_433 (D) and pager (E) entries are pointed at
+hardware that physically cannot hear those bands, with no error — just a
+decoder that never decodes anything.
+
+**Fix:** The dongle is now chosen once per menu session and passed explicitly
+to all ten entries that open a radio (4-7, B-G). Selection is lazy — it happens
+on the first entry that actually needs a radio, not at startup, since the info,
+lsusb and shell entries need none and GQRX/GNU Radio do their own. With one
+dongle attached it is selected silently; with several, a `dialog` picker
+appears; menu tag **H** re-opens that picker on demand. The choice lives in
+shell variables only, so swapping dongles needs a new session, never a rebuild.
+
+**Three things that made this less trivial than it looks:**
+
+- **Enumerating dongles without opening one.** `rtl_test` with no `-d` opens
+  device 0 and starts sampling it, which fails outright whenever another tool
+  already holds the dongle — no good for a picker that may run while something
+  is streaming. librtlsdr's `verbose_device_search()` prints the complete
+  device list *before* it tries to match its argument and returns -1 (so
+  `rtl_test` exits before `rtlsdr_open()`) when nothing matches, so passing a
+  string that cannot match any index, serial or name gets the listing with
+  nothing opened. Confirmed in `convenience.c` and `rtl_test.c`, not assumed.
+- **Every tool spells device selection differently.** `rtl_*`, readsb and
+  acarsdec all take an index *or* a serial; `rtl_433` needs a serial prefixed
+  with a colon (`-d :ADSB`) to distinguish it from an index;
+  `dump1090-mutability` only understands `--device-index` and has no serial
+  option at all; and readsb's `--device` must appear *after* `--device-type
+  rtlsdr`, because it parses SDR-specific options against whichever type was
+  named before them. Each of these was read out of the tool's own source or
+  help table rather than guessed.
+- **Serials are not reliably unique.** Addressing by serial is preferable —
+  it survives an unplug/replug where an index does not — but both an RTL-SDR
+  Blog V3 and a FlightAware Pro Stick ship as `00000001`, so with two
+  unprogrammed dongles attached a serial match resolves to whichever
+  enumerated first, which is exactly the ambiguity the picker exists to remove.
+  The picker detects a duplicated or blank serial among the attached devices
+  and falls back to the index for that session. (`rtl_eeprom -d 0 -s ADSB`,
+  once per dongle on the host, fixes it permanently.)
+
+**Testing:** the picker's logic was exercised against a stub `rtl_test`
+reproducing librtlsdr's exact output format, plus a stub `dialog`, covering:
+zero devices, one device (silent auto-select), several devices, a cancelled
+picker, a cancelled *re-*pick (previous selection must survive), a forced
+re-pick with only one dongle, duplicate serials falling back to the index, and
+a dongle unplugged mid-session. All pass. What that does **not** cover is the
+real thing: whether each tool actually accepts the argument built for it.
+
+### General Lessons
+
+- **"It works with one" is not the same as "it works."** Every tool here
+  defaulted to device 0 and every one of them appeared correct, because there
+  was only ever one dongle plugged in while the menu was written. The failure
+  mode a second dongle introduces is not an error message — it is a decoder
+  pointed at hardware that cannot hear the band, producing silence that looks
+  exactly like a quiet frequency or a bad antenna.
+- **Read each tool's own option table before assuming a common convention.**
+  Four tools in one menu, four different spellings of "use this dongle", one of
+  which (readsb's `--device`) is order-dependent relative to another flag. A
+  plausible-looking uniform `-d "$dev"` across all of them would have been
+  wrong in three places, and wrong silently in at least one.
+- **A stub is enough to test the parts that are yours.** The picker's
+  enumeration, counting, serial extraction, duplicate-serial fallback and
+  cancel paths are all just shell, and a fake `rtl_test` reproducing
+  librtlsdr's exact output format exercises every one of them without
+  hardware. That does not verify the tools accept what is built for them —
+  but it does mean the half of the change that is this repo's own logic is not
+  riding on a live deploy to find a typo.

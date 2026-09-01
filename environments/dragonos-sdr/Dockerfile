@@ -135,6 +135,134 @@ CYAN=$'\033[36m'
 DIM=$'\033[2m'
 RESET=$'\033[0m'
 
+# --- RTL-SDR device selection ---------------------------------------------
+#
+# Every RTL-SDR tool below defaults to "device 0" when told nothing, and
+# device 0 is a coin flip as soon as more than one dongle is attached: USB
+# enumeration order is not stable across a reboot or a replug. That matters
+# because the dongles are not interchangeable — a FlightAware Pro Stick Plus
+# has a 1090 MHz SAW filter in front of its tuner, so it physically cannot
+# hear ACARS, APRS or 433 MHz traffic, while an RTL-SDR Blog V3 has no LNA
+# and wants a much higher gain on 1090 MHz than the FlightAware does. So the
+# dongle is picked once per menu session and then passed explicitly to
+# everything that opens one.
+#
+# Session state, not image state: nothing here is baked into the image or
+# written to disk, so swapping dongles needs a new menu session (or tag H),
+# never a rebuild.
+SDR_DEV_INDEX=""
+SDR_DEV_SERIAL=""
+SDR_DEV_LABEL=""
+
+# Lists attached dongles as "index|description" lines WITHOUT opening any of
+# them. librtlsdr's verbose_device_search() prints the full device list
+# before it tries to match its argument, so a string that cannot match any
+# index, serial or name gets us the listing and then an exit before
+# rtlsdr_open() is ever reached. Plain `rtl_test` with no -d would instead
+# open device 0 and start sampling it, which fails outright whenever another
+# tool already holds the dongle.
+list_rtl_devices() {
+  rtl_test -d __pi_bootstrap_device_list__ 2>&1 \
+    | sed -n 's/^  \([0-9][0-9]*\):  \(.*\)$/\1|\2/p'
+}
+
+# Picks the dongle for this session. Pass "force" to always show the picker;
+# without it a single attached dongle is selected silently, since there is
+# nothing to choose between.
+select_sdr_device() {
+  force="${1:-}"
+  devices=$(list_rtl_devices)
+
+  count=0
+  while IFS='|' read -r idx desc; do
+    [ -n "$idx" ] || continue
+    count=$((count + 1))
+  done < <(printf '%s\n' "$devices")
+
+  if [ "$count" -eq 0 ]; then
+    dialog --title " No RTL-SDR device found " --msgbox \
+      "No RTL-SDR dongle is visible inside this container.\n\nCheck that it is plugged in, that the host has dvb_usb_rtl28xxu blacklisted (see this environment's README), and that the container was started with --privileged and the USB bus mounted.\n\nHackRF tools and the GUI receivers do their own device selection and are unaffected." 15 74
+    return 1
+  fi
+
+  if [ "$count" -eq 1 ] && [ "$force" != "force" ]; then
+    choice=$(printf '%s\n' "$devices" | sed -n '1s/|.*$//p')
+  else
+    # Rebuilt into positional parameters rather than an array: this repo
+    # targets bash 3.2 (macOS's shipped default), where "${arr[@]}" is fine
+    # but the surrounding idioms are not, so "$@" keeps one convention.
+    set --
+    while IFS='|' read -r idx desc; do
+      [ -n "$idx" ] || continue
+      set -- "$@" "$idx" "$desc"
+    done < <(printf '%s\n' "$devices")
+
+    choice=$(dialog --clear --title " Select RTL-SDR device " \
+                    --menu "Which dongle should the RTL-SDR tools use this session?" \
+                    15 78 6 "$@" 3>&1 1>&2 2>&3) || return 1
+    [ -n "$choice" ] || return 1
+  fi
+
+  SDR_DEV_INDEX="$choice"
+  SDR_DEV_SERIAL=""
+  SDR_DEV_LABEL="device $choice"
+  while IFS='|' read -r idx desc; do
+    [ "$idx" = "$choice" ] || continue
+    SDR_DEV_LABEL="$idx: $desc"
+    case "$desc" in *"SN: "*) SDR_DEV_SERIAL="${desc##*SN: }" ;; esac
+  done < <(printf '%s\n' "$devices")
+
+  # Address the dongle by serial wherever the tool accepts one: a serial
+  # survives an unplug/replug within a session, an index does not. That only
+  # holds if the serial is actually unique, and it often isn't — both an
+  # RTL-SDR Blog V3 and a FlightAware Pro Stick leave the factory as
+  # "00000001", so with two unprogrammed dongles attached a serial match
+  # would quietly resolve to whichever one enumerated first. Fall back to the
+  # index when the chosen serial is blank or shared. `rtl_eeprom -d <n> -s
+  # <name>`, run once on the host, fixes it permanently.
+  if [ -n "$SDR_DEV_SERIAL" ]; then
+    same=0
+    while IFS='|' read -r idx desc; do
+      case "$desc" in
+        *"SN: "*) [ "${desc##*SN: }" = "$SDR_DEV_SERIAL" ] && same=$((same + 1)) ;;
+      esac
+    done < <(printf '%s\n' "$devices")
+    [ "$same" -gt 1 ] && SDR_DEV_SERIAL=""
+  fi
+
+  return 0
+}
+
+# Called by every tool that opens a dongle, so selection happens lazily on
+# first use rather than at startup — the info, lsusb and shell entries need
+# no radio at all, and GQRX and GNU Radio have their own device pickers.
+require_sdr_device() {
+  [ -n "$SDR_DEV_INDEX" ] && return 0
+  select_sdr_device || return 1
+  clear
+  return 0
+}
+
+# The device argument for tools that take either form (all the rtl_* tools,
+# readsb, acarsdec): the serial when we have a unique one, the index if not.
+sdr_dev_arg() {
+  if [ -n "$SDR_DEV_SERIAL" ]; then
+    printf '%s' "$SDR_DEV_SERIAL"
+  else
+    printf '%s' "$SDR_DEV_INDEX"
+  fi
+}
+
+# rtl_433 spells the same thing differently — a bare number is an index, a
+# serial has to be prefixed with a colon.
+sdr_dev_arg_rtl433() {
+  if [ -n "$SDR_DEV_SERIAL" ]; then
+    printf ':%s' "$SDR_DEV_SERIAL"
+  else
+    printf '%s' "$SDR_DEV_INDEX"
+  fi
+}
+
 # Check if standard input is attached to an active terminal socket
 if [ ! -t 0 ]; then
   echo "[DAEMON] Running in non-interactive pipeline context. Initializing background core engines safely..."
@@ -165,7 +293,7 @@ while true; do
   #
   # --default-item re-highlights whatever was last selected instead of
   # always resetting to the top of the list on redraw.
-  CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu" \
+  CHOICE=$(dialog --clear --backtitle "DragonOS Pi - SDR Launcher Menu   |   RTL-SDR: ${SDR_DEV_LABEL:-none selected yet}" \
                   --title " Select an SDR Tool " \
                   --visit-items \
                   --default-item "${DEFAULT_ITEM:-1}" \
@@ -193,11 +321,12 @@ while true; do
                   F        " ├── direwolf — APRS packet radio decoder / TNC (144.390/144.800 MHz)" \
                   G        " └── acarsdec — ACARS aircraft data-link messages (130-131.5 MHz)" \
                   sysutil  "[System Utilities]" \
-                  H        " ├── SoapySDRUtil — Probe all connected SDR hardware (any vendor)" \
-                  I        " └── lsusb — List physical USB connections on the host" \
+                  H        " ├── Select RTL-SDR device — which dongle the tools above use" \
+                  I        " ├── SoapySDRUtil — Probe all connected SDR hardware (any vendor)" \
+                  J        " └── lsusb — List physical USB connections on the host" \
                   session  "[Session]" \
-                  J        " ├── Bash Shell — Drop to a raw terminal inside the container" \
-                  K        " └── Exit" \
+                  K        " ├── Bash Shell — Drop to a raw terminal inside the container" \
+                  L        " └── Exit" \
                   3>&1 1>&2 2>&3)
 
   if [ $? -ne 0 ] || [ -z "$CHOICE" ]; then
@@ -224,6 +353,9 @@ while true; do
       cat <<INFOEOF | less -r
 ${BOLD}📡 DragonOS SDR — Environment Info${RESET}
 
+${BOLD}RTL-SDR device in use this session${RESET}:
+  ${CYAN}${SDR_DEV_LABEL:-none selected yet — chosen on first use, or from menu tag H}${RESET}
+
 ${BOLD}Data directories${RESET} (persisted on the host):
   ${CYAN}/workspace/captures${RESET}   ${DIM}—${RESET} SDR captures, signal recordings, analysis outputs
   ${CYAN}/workspace/msf_data${RESET}   ${DIM}—${RESET} Metasploit Framework data — workspace, loot, credentials
@@ -244,26 +376,30 @@ INFOEOF
       echo "Launching GNU Radio Companion..."
       gnuradio-companion ;;
     4)
+      require_sdr_device || continue
       echo "Testing RTL-SDR dongle..."
-      rtl_test -t
+      rtl_test -d "$(sdr_dev_arg)" -t
       echo ""
       read -p "Press Enter to return to menu..." ;;
     5)
+      require_sdr_device || continue
       read -p "Center frequency (e.g. 100.1M for 100.1 MHz FM): " freq
       echo "Demodulating $freq — piping audio to aplay. Press Ctrl+C to stop."
-      rtl_fm -f "$freq" -M wbfm -s 200000 -r 48000 - 2>/dev/null | aplay -r 48000 -f S16_LE 2>/dev/null
+      rtl_fm -d "$(sdr_dev_arg)" -f "$freq" -M wbfm -s 200000 -r 48000 - 2>/dev/null | aplay -r 48000 -f S16_LE 2>/dev/null
       read -p "Press Enter to return to menu..." ;;
     6)
+      require_sdr_device || continue
       read -p "Listen port [default 1234]: " port
       port=${port:-1234}
       echo "Starting RTL-TCP server on 0.0.0.0:$port"
       echo "Point GQRX or SDR# at this host:$port — press Ctrl+C to stop."
-      rtl_tcp -a 0.0.0.0 -p "$port" ;;
+      rtl_tcp -d "$(sdr_dev_arg)" -a 0.0.0.0 -p "$port" ;;
     7)
+      require_sdr_device || continue
       read -p "Start frequency (e.g. 88M): " start_freq
       read -p "End  frequency  (e.g. 108M): " end_freq
       echo "Scanning $start_freq:$end_freq — Ctrl+C to stop."
-      rtl_power -f "$start_freq:$end_freq:100k" -g 50 -i 1 -1 /tmp/power_scan.csv
+      rtl_power -d "$(sdr_dev_arg)" -f "$start_freq:$end_freq:100k" -g 50 -i 1 -1 /tmp/power_scan.csv
       head -30 /tmp/power_scan.csv
       read -p "Press Enter to return to menu..." ;;
     8)
@@ -300,6 +436,7 @@ INFOEOF
       fi
       read -p "Press Enter to return to menu..." ;;
     B)
+      require_sdr_device || continue
       # Debian's dump1090-mutability package installs its binary under that
       # full name (debian/rules renames it on install so the forks can
       # coexist), not as a plain "dump1090" — check both rather than assume.
@@ -314,9 +451,12 @@ INFOEOF
       echo "HTTP map on http://localhost:8080 — the container runs with --net=host,"
       echo "so that port is already reachable from the host without publishing it."
       echo "Ctrl+C to stop."
-      "$dump1090_bin" --interactive --net --net-http-port 8080 --net-beast-output-port 30005
+      # --device-index, not a serial: dump1090-mutability only understands
+      # an index (readsb below takes either).
+      "$dump1090_bin" --device-index "$SDR_DEV_INDEX" --interactive --net --net-http-port 8080 --net-beast-output-port 30005
       read -p "Press Enter to return to menu..." ;;
     C)
+      require_sdr_device || continue
       # --device-type is not optional here: readsb deliberately ships no
       # default SDR (sdr.c leaves it SDR_NONE), so without it readsb starts
       # up perfectly happily and simply never looks at the dongle.
@@ -327,24 +467,29 @@ INFOEOF
       # plus network output for other tools to consume.
       read -p "Your latitude  (optional, enables range/distance stats): " lat
       read -p "Your longitude (optional, enables range/distance stats): " lon
-      args="--device-type rtlsdr --net --interactive"
+      # --device has to come after --device-type: readsb parses SDR-specific
+      # options against whichever type was named before them.
+      args="--device-type rtlsdr --device $(sdr_dev_arg) --net --interactive"
       [ -n "$lat" ] && args="$args --lat $lat"
       [ -n "$lon" ] && args="$args --lon $lon"
       echo "Starting readsb — Beast output on :30005, SBS on :30003 — Ctrl+C to stop."
       readsb $args
       read -p "Press Enter to return to menu..." ;;
     D)
+      require_sdr_device || continue
       echo "Starting rtl_433 — decoding 433/868/915 MHz sensors, remotes, meters..."
       echo "Ctrl+C to stop."
-      rtl_433
+      rtl_433 -d "$(sdr_dev_arg_rtl433)"
       read -p "Press Enter to return to menu..." ;;
     E)
+      require_sdr_device || continue
       echo "Common frequencies: 152.240M (POCSAG pager), 162.400M (NOAA Weather/EAS)"
       read -p "Frequency to monitor: " freq
       echo "Decoding all digital modes from $freq — Ctrl+C to stop."
-      rtl_fm -f "$freq" -s 22050 - 2>/dev/null | multimon-ng -t raw -a ALL -
+      rtl_fm -d "$(sdr_dev_arg)" -f "$freq" -s 22050 - 2>/dev/null | multimon-ng -t raw -a ALL -
       read -p "Press Enter to return to menu..." ;;
     F)
+      require_sdr_device || continue
       dialog --title "direwolf APRS" --menu "Select APRS frequency:" 10 60 2 \
           "144390k" "144.390 MHz — North America" \
           "144800k" "144.800 MHz — Europe / rest of world" 2>/tmp/dw_freq
@@ -352,9 +497,10 @@ INFOEOF
       [ -z "$dw_freq" ] && dw_freq=144390k
       clear
       echo "Starting direwolf APRS decoder on ${dw_freq} — Ctrl+C to stop."
-      rtl_fm -f "$dw_freq" -s 24000 - 2>/dev/null | direwolf -r 24000 -D 1 -
+      rtl_fm -d "$(sdr_dev_arg)" -f "$dw_freq" -s 24000 - 2>/dev/null | direwolf -r 24000 -D 1 -
       read -p "Press Enter to return to menu..." ;;
     G)
+      require_sdr_device || continue
       # acarsdec covers every frequency listed here from a single tuned
       # RTL-SDR, so they must all fit inside one sample-rate-wide window —
       # 1.95 MHz at its default 2 MS/s. The previous list opened at 129.125
@@ -363,22 +509,28 @@ INFOEOF
       # American ACARS channels and span 1.525 MHz.
       echo "ACARS frequencies: 130.025 130.450 131.125 131.550 MHz (scanning all)"
       echo "Ctrl+C to stop."
-      acarsdec -r 0 130.025 130.450 131.125 131.550
+      acarsdec -r "$(sdr_dev_arg)" 130.025 130.450 131.125 131.550
       read -p "Press Enter to return to menu..." ;;
     H)
+      # "force" so this always shows the picker, including with a single
+      # dongle attached — picking it from here is an explicit request to
+      # choose, unlike the lazy selection require_sdr_device does.
+      select_sdr_device force
+      continue ;;
+    I)
       echo "Probing connected SDR hardware via SoapySDR..."
       SoapySDRUtil --find
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    I)
+    J)
       echo "USB devices attached to the host:"
       lsusb
       echo ""
       read -p "Press Enter to return to menu..." ;;
-    J)
+    K)
       echo "Dropping into Bash. Type 'exit' to return to the menu."
       /bin/bash ;;
-    K)
+    L)
       echo "Exiting DragonOS SDR launcher."
       break ;;
     *)
