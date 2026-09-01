@@ -1,10 +1,10 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-08-31** — though only the
-dragonos-sdr entry was added in that pass, the Ollama model-catalog entry
-in the 2026-08-29 one, the Ollama reboot-recovery entry revised in the
-2026-08-24 one, and the `okf-graph-wiki` entry in the 2026-08-15 one;
-every other entry below
+A snapshot of open follow-ups as of **2026-09-01** — though only the
+dragonos-sdr entry was revised in that pass (it was added in the 2026-08-31
+one), the Ollama model-catalog entry added in the 2026-08-29 one, the Ollama
+reboot-recovery entry revised in the 2026-08-24 one, and the
+`okf-graph-wiki` entry in the 2026-08-15 one; every other entry below
 carries its 2026-08-09 state and was not re-verified, so treat anything
 else here as at least that stale. GitHub itself (PR/issue
 state) is always the authoritative source for anything below that
@@ -192,32 +192,42 @@ over-corrected "cancel never exits" symptom). Not yet confirmed live:
   already-working code path, but hasn't been visually confirmed against a
   real `dialog` render.
 
-## dragonos-sdr: image build unblocked, nothing built or run yet
+## dragonos-sdr: image builds and the menu runs, no entry exercised with a dongle
 
-Full account in `docs/lessons-learned/dragonos-sdr.md`. The environment's
-`docker build` failed in its very first layer — `readsb` and `acarsdec` are
-not Debian packages, and `apt-get install` exits 100 on them — so the image
-had never been built and none of its menu code had ever run. Both tools are
-now compiled from pinned upstream sources in the Dockerfile, and four
-runtime bugs found while reading that menu code (readsb missing the
-mandatory `--device-type rtlsdr`, its non-existent "web map", an ACARS
-frequency list spanning more than acarsdec's 2 MHz window, and the
-`dump1090-mutability` binary name) are fixed alongside. Everything was
-verified against upstream's actual `Makefile`, `CMakeLists.txt`, `sdr.c`,
-`help.h` and Debian packaging at the pinned refs — no Docker daemon or
-ARM64 hardware was available. Not yet done:
+Full account in `docs/lessons-learned/dragonos-sdr.md` (two sessions). The
+build failure is closed out: `readsb` and `acarsdec` are not Debian packages,
+both are now compiled from pinned upstream sources, and a real deploy on the
+Pi built the image through all three new compile layers and brought the
+launcher up. The Unicode garbling that showed up on that first run was fixed
+separately (PR [#295](https://github.com/tantimothy/pi-bootstrap/pull/295) —
+`LANG`/`LC_ALL` set to `C.UTF-8` in the image). What is still open is
+everything downstream of "the menu appears":
 
-- **One real `CLEAN` deploy on a Pi** — confirm the three new compile
-  layers (readsb `v3.16.16`, libacars `v2.2.1`, acarsdec at its final
-  upstream commit) actually build on ARM64 against bookworm's toolchain,
-  and note how long they add to a cold build.
-- **Menu entries B, C and G against a real dongle** — dump1090, readsb and
-  acarsdec have never been launched from this menu at all.
+- **No menu entry has been run against a dongle yet.** The four runtime fixes
+  from the first session (readsb's mandatory `--device-type rtlsdr`, its
+  non-existent web map, the out-of-range ACARS frequency list, the
+  `dump1090-mutability` binary name) were all verified against upstream source
+  at the pinned refs, not by launching anything.
+- **The per-session RTL-SDR device picker** (menu tag H; selection passed to
+  tags 4-7 and B-G) is unit-tested against a stubbed `rtl_test` reproducing
+  librtlsdr's output format — zero/one/several devices, cancel, forced
+  re-pick, duplicate serials, mid-session unplug all pass — but no tool has
+  actually been handed a `-d`/`--device`/`-r` argument built by it. The
+  per-tool flag spellings came from each tool's own source.
+- **Only one dongle has been attached at a time so far**, so the case the
+  picker exists for (an RTL-SDR Blog V3 and a FlightAware stick both present,
+  both possibly serial `00000001`) is entirely untested end-to-end.
+- **`soapysdr-module-rtlsdr` is not installed**, so menu tag I
+  (`SoapySDRUtil --find`) may well find nothing at all — `soapysdr-tools` and
+  `libsoapysdr-dev` are in the image but no hardware support module is.
+  Unverified: the exact bookworm package name could not be checked
+  (`packages.debian.org` is unreachable from the session's egress proxy), and
+  a wrong package name in that apt list is precisely what broke the build in
+  the first place, so it was left alone rather than guessed at.
 - **Whether Debian's `dump1090-mutability` provides a plain `dump1090`
-  alias** — could not be checked (`packages.debian.org` and
-  `sources.debian.org` are both unreachable from the session's egress
-  proxy). Entry B now resolves `dump1090-mutability` first and falls back,
-  so it works either way, but the fallback branch is untested.
+  alias** — same reason, could not be checked. Entry B resolves
+  `dump1090-mutability` first and falls back, so it works either way, but the
+  fallback branch is untested.
 
 ## nanoclaw-mnemon: OKF graph wiki proposed by a group agent, nothing decided
 
