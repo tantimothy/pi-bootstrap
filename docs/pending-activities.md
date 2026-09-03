@@ -1,8 +1,9 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-09-01** — though only the
+A snapshot of open follow-ups as of **2026-09-03** — though only the
 dragonos-sdr entry was revised in that pass (it was added in the 2026-08-31
-one), the Ollama model-catalog entry added in the 2026-08-29 one, the Ollama
+one and last revised 2026-09-01), the Ollama model-catalog entry added in the
+2026-08-29 one, the Ollama
 reboot-recovery entry revised in the 2026-08-24 one, and the
 `okf-graph-wiki` entry in the 2026-08-15 one; every other entry below
 carries its 2026-08-09 state and was not re-verified, so treat anything
@@ -192,42 +193,36 @@ over-corrected "cancel never exits" symptom). Not yet confirmed live:
   already-working code path, but hasn't been visually confirmed against a
   real `dialog` render.
 
-## dragonos-sdr: image builds and the menu runs, no entry exercised with a dongle
+## dragonos-sdr: menu entries now being exercised against real hardware
 
-Full account in `docs/lessons-learned/dragonos-sdr.md` (two sessions). The
-build failure is closed out: `readsb` and `acarsdec` are not Debian packages,
-both are now compiled from pinned upstream sources, and a real deploy on the
-Pi built the image through all three new compile layers and brought the
-launcher up. The Unicode garbling that showed up on that first run was fixed
-separately (PR [#295](https://github.com/tantimothy/pi-bootstrap/pull/295) —
-`LANG`/`LC_ALL` set to `C.UTF-8` in the image). What is still open is
-everything downstream of "the menu appears":
+Full account in `docs/lessons-learned/dragonos-sdr.md` (three sessions). The
+image builds, the launcher runs, and the entries are being worked through one
+at a time against a real RTL-SDR (RTL2838UHIDIR / R820T). Six wrong
+invocations found and fixed that way so far — `rtl_test -t` (E4000-only),
+dump1090's `--net-beast-output-port` and `--net-http-port` (the latter not
+compiled into Debian's build), multimon-ng's non-existent `ALL` demodulator,
+`hackrf_transfer`'s Hz-only frequency parsing, and SoapySDR having no hardware
+modules installed. Confirmed working: `lsusb` (J), and the device enumeration
+behind the picker. Still open:
 
-- **No menu entry has been run against a dongle yet.** The four runtime fixes
-  from the first session (readsb's mandatory `--device-type rtlsdr`, its
-  non-existent web map, the out-of-range ACARS frequency list, the
-  `dump1090-mutability` binary name) were all verified against upstream source
-  at the pinned refs, not by launching anything.
-- **The per-session RTL-SDR device picker** (menu tag H; selection passed to
-  tags 4-7 and B-G) is unit-tested against a stubbed `rtl_test` reproducing
-  librtlsdr's output format — zero/one/several devices, cancel, forced
-  re-pick, duplicate serials, mid-session unplug all pass — but no tool has
-  actually been handed a `-d`/`--device`/`-r` argument built by it. The
-  per-tool flag spellings came from each tool's own source.
-- **Only one dongle has been attached at a time so far**, so the case the
-  picker exists for (an RTL-SDR Blog V3 and a FlightAware stick both present,
-  both possibly serial `00000001`) is entirely untested end-to-end.
-- **`soapysdr-module-rtlsdr` is not installed**, so menu tag I
-  (`SoapySDRUtil --find`) may well find nothing at all — `soapysdr-tools` and
-  `libsoapysdr-dev` are in the image but no hardware support module is.
-  Unverified: the exact bookworm package name could not be checked
-  (`packages.debian.org` is unreachable from the session's egress proxy), and
-  a wrong package name in that apt list is precisely what broke the build in
-  the first place, so it was left alone rather than guessed at.
-- **Whether Debian's `dump1090-mutability` provides a plain `dump1090`
-  alias** — same reason, could not be checked. Entry B resolves
-  `dump1090-mutability` first and falls back, so it works either way, but the
-  fallback branch is untested.
+- **Tags 2 and 3 (GQRX, GNU Radio) have never started.** The error was
+  previously wiped off screen before it could be read; that is fixed, and
+  `run.sh` now also mounts the host's X11 cookie file to `/root/.Xauthority`
+  (only when it exists) on the theory that a missing MIT-MAGIC-COOKIE is the
+  cause. **Unconfirmed** — nobody has yet seen the actual message.
+- **Tags 4, B, D, E, F, G re-run after their fixes.** Each fix was verified
+  against the tool's own upstream source at the installed version, not by
+  running it.
+- **Tag A (hackrf_transfer) has never been run at all** — no HackRF on hand.
+  Its MHz→Hz conversion is untested.
+- **The SoapySDR module package names are a fallback chain, not a verified
+  name** (`soapysdr0.8-module-*`, then `soapysdr-module-*`, then a build-time
+  warning). Debian's package indexes are unreachable from the sessions doing
+  this work, so which branch actually fires will only be known from a CLEAN
+  build's log.
+- **Two dongles have still never been attached at once**, so the device
+  picker's multi-device path and its duplicate-serial fallback remain
+  untested end-to-end.
 
 ## nanoclaw-mnemon: OKF graph wiki proposed by a group agent, nothing decided
 

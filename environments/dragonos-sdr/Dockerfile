@@ -57,6 +57,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# SoapySDR is only an abstraction layer: `SoapySDRUtil --find` reports "No
+# devices found!" — even with a working RTL-SDR attached — unless a
+# per-hardware module is installed beside it, and soapysdr-tools alone ships
+# none. Confirmed live on a Pi with a dongle the other tools could see.
+#
+# The names are tried rather than pinned. Debian ABI-versions these packages
+# (soapysdr0.8-module-rtlsdr under bookworm) and the unversioned alias is not
+# guaranteed to exist in every suite, and could not be checked from the
+# session that added this — packages.debian.org is unreachable behind its
+# egress proxy. A hardcoded name that turned out not to exist would fail the
+# entire image build, exactly as `readsb` and `acarsdec` originally did, so
+# the fallback chain ends in a warning instead: a missing module costs menu
+# tag I its output, not the image.
+RUN apt-get update \
+    && ( apt-get install -y --no-install-recommends soapysdr0.8-module-rtlsdr soapysdr0.8-module-hackrf \
+         || apt-get install -y --no-install-recommends soapysdr-module-rtlsdr soapysdr-module-hackrf \
+         || echo "WARNING: no SoapySDR hardware modules installed — 'SoapySDRUtil --find' (menu tag I) will report no devices. Every other tool talks to the hardware directly and is unaffected." ) \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # --- Tools with no Debian package: compiled from pinned upstream sources ---
 # Neither readsb nor acarsdec is in the Debian bookworm archive, and naming
 # them in the apt-get above failed the whole build with "Unable to locate
@@ -263,6 +283,53 @@ sdr_dev_arg_rtl433() {
   fi
 }
 
+# --- Graphical (X11) tools -------------------------------------------------
+#
+# GQRX and GNU Radio Companion are the only X11 applications in this menu, and
+# when they cannot reach a display they print their reason to stderr and exit
+# straight away. Every other entry here pauses before returning to the menu;
+# these two did not, so the loop's own `clear` wiped that reason off the screen
+# before it could be read and the menu simply reappeared, looking like nothing
+# had happened at all. Keep the output on screen, and dump the state that
+# actually decides whether an X client in a container can reach the host's
+# server — mounting the socket is only half of it, since the server also
+# demands the session's MIT-MAGIC-COOKIE.
+launch_gui_app() {
+  binary="$1"
+  label="$2"
+
+  echo "Launching ${label} (DISPLAY=${DISPLAY:-<unset>})..."
+  echo ""
+  "$binary"
+  rc=$?
+  [ "$rc" -eq 0 ] && return 0
+
+  echo ""
+  echo "${BOLD}${label} exited with status ${rc}.${RESET}"
+  echo "If the message above mentions a display, an X server, or a Qt 'xcb'"
+  echo "platform plugin, this container cannot reach the host's X server."
+  echo ""
+  echo "${BOLD}Inside this container:${RESET}"
+  printf '  DISPLAY      = %s\n' "${DISPLAY:-<unset>}"
+  printf '  XAUTHORITY   = %s\n' "${XAUTHORITY:-<unset>}"
+  if [ -d /tmp/.X11-unix ]; then
+    printf '  X11 sockets  = %s\n' "$(ls /tmp/.X11-unix 2>/dev/null | tr '\n' ' ')"
+  else
+    printf '  X11 sockets  = /tmp/.X11-unix is not mounted\n'
+  fi
+  if [ -s /root/.Xauthority ]; then
+    printf '  cookie file  = /root/.Xauthority present\n'
+  else
+    printf '  cookie file  = /root/.Xauthority missing or empty\n'
+  fi
+  echo ""
+  echo "${BOLD}On the HOST, in the desktop session that owns that display:${RESET}"
+  echo '  xhost +local:              # let local clients (this container) connect'
+  echo '  echo "$DISPLAY $XAUTHORITY" # should match what is listed above'
+  echo ""
+  echo "Full walkthrough: 'Graphical tools' in environments/dragonos-sdr/README.md"
+}
+
 # Check if standard input is attached to an active terminal socket
 if [ ! -t 0 ]; then
   echo "[DAEMON] Running in non-interactive pipeline context. Initializing background core engines safely..."
@@ -370,15 +437,37 @@ Full tool reference and deployment policies (FAST/CLEAN/etc.):
 INFOEOF
       ;;
     2)
-      echo "Launching GQRX..."
-      gqrx ;;
+      launch_gui_app gqrx "GQRX"
+      read -p "Press Enter to return to menu..." ;;
     3)
-      echo "Launching GNU Radio Companion..."
-      gnuradio-companion ;;
+      launch_gui_app gnuradio-companion "GNU Radio Companion"
+      read -p "Press Enter to return to menu..." ;;
     4)
       require_sdr_device || continue
-      echo "Testing RTL-SDR dongle..."
-      rtl_test -d "$(sdr_dev_arg)" -t
+      # NOT -t. That flag is specifically the Elonics E4000 tuner benchmark,
+      # and on any other tuner rtl_test prints "No E4000 tuner found,
+      # aborting." and quits — which is every dongle this environment
+      # realistically sees (R820T, R820T2, R828D). The two tests that do apply
+      # are rtl_test's default sample-loss check and its -p PPM measurement.
+      dialog --title "rtl_test" --menu "Which test?" 11 74 2 \
+          "loss" "Dropped-sample check — is the USB link keeping up?" \
+          "ppm"  "Oscillator error measurement in PPM (takes minutes)" 2>/tmp/rtl_test_mode
+      rtl_test_mode=$(cat /tmp/rtl_test_mode 2>/dev/null)
+      clear
+      case "$rtl_test_mode" in
+        loss)
+          echo "Streaming the dongle's test pattern and reporting anything dropped."
+          echo "No output means no lost samples. Ctrl+C to stop."
+          rtl_test -d "$(sdr_dev_arg)"
+          ;;
+        ppm)
+          echo "Measuring the oscillator's frequency error — one report every 10s."
+          echo "Give it a few minutes to settle. Ctrl+C to stop."
+          rtl_test -d "$(sdr_dev_arg)" -p
+          ;;
+        *)
+          continue ;;
+      esac
       echo ""
       read -p "Press Enter to return to menu..." ;;
     5)
@@ -421,17 +510,26 @@ INFOEOF
           "tx" "Transmit IQ samples from file to RF" 2>/tmp/hrf_mode
       hrf_mode=$(cat /tmp/hrf_mode 2>/dev/null)
       clear
+      # hackrf_transfer wants plain Hz for -f and -s, and parses them with
+      # strtod(), which stops at the first non-numeric character instead of
+      # rejecting it: "433.92M" is read as 433 Hz and "2M" as 2 samples/sec,
+      # with no error and no hint that anything is wrong. (The rtl_* tools do
+      # understand k/M/G suffixes — that asymmetry is what made this look
+      # right.) So prompt in MHz, which is what anyone actually has in mind,
+      # and convert here.
+      if [ "$hrf_mode" = "rx" ] || [ "$hrf_mode" = "tx" ]; then
+          [ "$hrf_mode" = "tx" ] && read -p "Path to IQ file to transmit: " iqfile
+          read -p "Center frequency in MHz (e.g. 433.92): " freq_mhz
+          read -p "Sample rate in MHz (e.g. 2):           " srate_mhz
+          freq=$(awk -v v="$freq_mhz" 'BEGIN { printf "%.0f", v * 1000000 }')
+          srate=$(awk -v v="$srate_mhz" 'BEGIN { printf "%.0f", v * 1000000 }')
+      fi
       if [ "$hrf_mode" = "rx" ]; then
-          read -p "Center frequency (e.g. 433.92M): " freq
-          read -p "Sample rate in MHz (e.g. 2M):     " srate
           outfile="/workspace/capture_$(date +%Y%m%d_%H%M%S).iq"
-          echo "Recording to $outfile — Ctrl+C to stop."
+          echo "Recording to $outfile at ${freq} Hz — Ctrl+C to stop."
           hackrf_transfer -r "$outfile" -f "$freq" -s "$srate" -l 32 -g 16
       elif [ "$hrf_mode" = "tx" ]; then
-          read -p "Path to IQ file to transmit: " iqfile
-          read -p "Center frequency (e.g. 433.92M): " freq
-          read -p "Sample rate in MHz (e.g. 2M):     " srate
-          echo "Transmitting $iqfile at $freq — Ctrl+C to stop."
+          echo "Transmitting $iqfile at ${freq} Hz — Ctrl+C to stop."
           hackrf_transfer -t "$iqfile" -f "$freq" -s "$srate" -x 47
       fi
       read -p "Press Enter to return to menu..." ;;
@@ -448,12 +546,22 @@ INFOEOF
       fi
       echo "Starting dump1090 ADS-B receiver (interactive table view)..."
       echo "Listening on 1090 MHz for aircraft position broadcasts."
-      echo "HTTP map on http://localhost:8080 — the container runs with --net=host,"
-      echo "so that port is already reachable from the host without publishing it."
+      # No --net-http-port and no --net-beast-output-port here, both learned
+      # the hard way from a live run. Debian compiles dump1090-mutability
+      # without ENABLE_WEBSERVER, so --net-http-port is parsed, warned about
+      # and discarded — this build serves no map at all; Debian ships the
+      # map's HTML at /usr/share/dump1090-mutability/html for a real web
+      # server to serve instead. And the Beast output flag is --net-bo-port,
+      # not --net-beast-output-port, which this build rejects outright with
+      # "Unknown or not enough arguments". Plain --net already opens every
+      # port named below on its default number, so neither needs restating.
+      echo "Network output: Beast :30005, SBS/BaseStation :30003, raw :30002."
+      echo "The container runs with --net=host, so those are the host's ports already."
+      echo "This build has no built-in map — see the README's ADS-B section for one."
       echo "Ctrl+C to stop."
       # --device-index, not a serial: dump1090-mutability only understands
       # an index (readsb below takes either).
-      "$dump1090_bin" --device-index "$SDR_DEV_INDEX" --interactive --net --net-http-port 8080 --net-beast-output-port 30005
+      "$dump1090_bin" --device-index "$SDR_DEV_INDEX" --interactive --net
       read -p "Press Enter to return to menu..." ;;
     C)
       require_sdr_device || continue
@@ -485,8 +593,14 @@ INFOEOF
       require_sdr_device || continue
       echo "Common frequencies: 152.240M (POCSAG pager), 162.400M (NOAA Weather/EAS)"
       read -p "Frequency to monitor: " freq
-      echo "Decoding all digital modes from $freq — Ctrl+C to stop."
-      rtl_fm -d "$(sdr_dev_arg)" -f "$freq" -s 22050 - 2>/dev/null | multimon-ng -t raw -a ALL -
+      # multimon-ng has no "ALL" demodulator — passing one makes it print
+      # `invalid mode "ALL"` followed by its usage and exit. Demodulators are
+      # added one -a at a time, from the list it prints; these are the ones
+      # this entry advertises. (-t raw is right: rtl_fm -s 22050 emits exactly
+      # the 22050 Hz signed 16-bit mono stream multimon-ng expects.)
+      echo "Decoding POCSAG, FLEX, EAS and DTMF from $freq — Ctrl+C to stop."
+      rtl_fm -d "$(sdr_dev_arg)" -f "$freq" -s 22050 - 2>/dev/null \
+        | multimon-ng -t raw -a POCSAG512 -a POCSAG1200 -a POCSAG2400 -a FLEX -a EAS -a DTMF -
       read -p "Press Enter to return to menu..." ;;
     F)
       require_sdr_device || continue

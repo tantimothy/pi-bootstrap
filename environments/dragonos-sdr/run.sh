@@ -31,6 +31,13 @@ HOST_SOUND_DEVICE="${HOST_SOUND_DEVICE:-/dev/snd}"
 HOST_XDG_RUNTIME_DIR="${HOST_XDG_RUNTIME_DIR:-/run/user/1000}"
 HOST_PULSE_NATIVE_SOCKET="${HOST_PULSE_NATIVE_SOCKET:-${HOST_XDG_RUNTIME_DIR}/pulse/native}"
 HOST_PULSE_COOKIE_PATH="${HOST_PULSE_COOKIE_PATH:-~/.config/pulse/cookie}"
+# X11 access control. Mounting the display socket is only half of what an X
+# client needs: the server also demands the session's MIT-MAGIC-COOKIE, which
+# lives in this file, so without it GQRX and GNU Radio Companion are refused
+# by the server and exit immediately. Prefers whatever the host session
+# actually set over the conventional path, since a Wayland/XWayland session
+# generally puts its cookie under /run/user/<uid>/ rather than in $HOME.
+HOST_XAUTHORITY_PATH="${HOST_XAUTHORITY_PATH:-${XAUTHORITY:-$HOME/.Xauthority}}"
 CONTAINER_ENTRYPOINT_COMMAND="${CONTAINER_ENTRYPOINT_COMMAND:-/usr/local/bin/sdr-menu.sh}"
 
 # Persistent volume application configurations
@@ -46,7 +53,7 @@ HOST_MSF_DATA_PATH="${HOST_MSF_DATA_PATH:-./workspace/msf_data}"
 # otherwise silently keep running with stale config. This hash lets FAST
 # notice that and reconcile instead.
 CONFIG_HASH_FILE="${SCRIPT_DIR}/.container-config-hash"
-CONFIG_FINGERPRINT="${DOCKER_IMAGE_TAG}|${HOST_USB_BUS_PATH}|${DISPLAY}|${HOST_X11_UNIX_PATH}|${HOST_SOUND_DEVICE}|${HOST_XDG_RUNTIME_DIR}|${HOST_PULSE_NATIVE_SOCKET}|${HOST_PULSE_COOKIE_PATH}|${CONTAINER_ENTRYPOINT_COMMAND}|${HOST_CAPTURES_PATH}|${HOST_MSF_DATA_PATH}"
+CONFIG_FINGERPRINT="${DOCKER_IMAGE_TAG}|${HOST_USB_BUS_PATH}|${DISPLAY}|${HOST_X11_UNIX_PATH}|${HOST_SOUND_DEVICE}|${HOST_XDG_RUNTIME_DIR}|${HOST_PULSE_NATIVE_SOCKET}|${HOST_PULSE_COOKIE_PATH}|${HOST_XAUTHORITY_PATH}|${CONTAINER_ENTRYPOINT_COMMAND}|${HOST_CAPTURES_PATH}|${HOST_MSF_DATA_PATH}"
 CONFIG_HASH=$(printf '%s' "${CONFIG_FINGERPRINT}" | sha256sum | awk '{print $1}')
 CONFIG_DRIFTED=false
 if [ -f "${CONFIG_HASH_FILE}" ] && [ "$(cat "${CONFIG_HASH_FILE}")" != "${CONFIG_HASH}" ]; then
@@ -184,6 +191,22 @@ bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || tru
 # have changed since.
 echo "${CONFIG_HASH}" > "${CONFIG_HASH_FILE}"
 
+# Mounted only when the file is really there: Docker creates a *directory* for
+# a bind-mount source that doesn't exist, and a directory where every X client
+# expects a cookie file is worse than no mount at all. (Same trap the
+# claude-cli environment's pre-deploy.sh exists to avoid.) An array rather
+# than a string so an empty value expands to no argument at all instead of an
+# empty one — safe here because this script sets -eo pipefail without -u.
+XAUTH_ARGS=()
+if [ -f "${HOST_XAUTHORITY_PATH}" ]; then
+    XAUTH_ARGS=(-v "${HOST_XAUTHORITY_PATH}:/root/.Xauthority:ro" -e XAUTHORITY=/root/.Xauthority)
+else
+    echo "[WARN] No X11 cookie file at ${HOST_XAUTHORITY_PATH}."
+    echo "       GQRX and GNU Radio (menu tags 2 and 3) will likely be refused by the"
+    echo "       host's X server. Either run 'xhost +local:' in the desktop session, or"
+    echo "       point HOST_XAUTHORITY_PATH in .env at the real cookie file."
+fi
+
 # -it (not -d): this container needs a real interactive session, not a
 # detached one — see the FAST/dormant-restore paths above, which attach to
 # it directly rather than exec-ing in.
@@ -197,6 +220,7 @@ echo "${CONFIG_HASH}" > "${CONFIG_HASH_FILE}"
   -e PULSE_SERVER="unix:${HOST_PULSE_NATIVE_SOCKET}" \
   -v "${HOST_PULSE_NATIVE_SOCKET}:${HOST_PULSE_NATIVE_SOCKET}" \
   -v "${HOST_PULSE_COOKIE_PATH}:/root/.config/pulse/cookie:ro" \
+  "${XAUTH_ARGS[@]}" \
   -v "${HOST_CAPTURES_PATH}:/workspace/captures" \
   -v "${HOST_MSF_DATA_PATH}:/workspace/msf_data" \
   --name "${CONTAINER_NAME}" \
