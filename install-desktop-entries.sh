@@ -36,6 +36,10 @@ export DESKTOP_DIR
 IS_DARWIN=false
 [[ "$(uname)" == "Darwin" ]] && IS_DARWIN=true
 
+# Collects environments whose dispatch failed, so one bad environment neither
+# aborts the run nor passes unnoticed. Also gates the orphan sweep below.
+FAILED_ENVS=""
+
 ACTION="${1:-install}"
 
 if [ "$ACTION" = "--uninstall" ]; then
@@ -44,8 +48,16 @@ if [ "$ACTION" = "--uninstall" ]; then
         rm -f "$APPS_DIR/pi-bootstrap.desktop"
         remove_desktop_icon "pi-bootstrap"
     fi
+    # `if !` rather than a bare call: under `set -e` a single environment
+    # exiting non-zero (a malformed desktop-entries.yaml, the wrong yq on
+    # $PATH) would abort this loop, silently skipping every environment
+    # alphabetically after it — so "uninstall" would remove some environments'
+    # entries and leave others behind with no indication which or why. Failures
+    # are collected and reported at the end instead.
     for env_dir in "$REPO_DIR"/environments/*/; do
-        bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}" --uninstall
+        if ! bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}" --uninstall; then
+            FAILED_ENVS="${FAILED_ENVS} $(basename "${env_dir%/}")"
+        fi
     done
     # The loop above can only reach environments that still exist. Anything
     # left carrying this repo's own markers belongs to one that was deleted
@@ -56,6 +68,12 @@ if [ "$ACTION" = "--uninstall" ]; then
         purge_menu_id "$menu_id"
         echo "  🧹  ${menu_id}: removed leftover entries (not claimed by any current environment)"
     done < <(installed_menu_ids)
+    if [ -n "$FAILED_ENVS" ]; then
+        echo ""
+        echo "⚠️  Could not read these environments:${FAILED_ENVS}"
+        echo "   The sweep above removed their entries anyway (it works from what is"
+        echo "   installed on disk, not from what those environments declare)."
+    fi
     echo "Done."
     exit 0
 fi
@@ -82,9 +100,13 @@ EOF
     echo "  ✓  pi-bootstrap (main dashboard)"
 fi
 
-# Delegate to each environment via the dispatcher
+# Delegate to each environment via the dispatcher. See the uninstall loop's
+# comment for why a failure is collected rather than allowed to abort the run.
 for env_dir in "$REPO_DIR"/environments/*/; do
-    bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}"
+    if ! bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}"; then
+        FAILED_ENVS="${FAILED_ENVS} $(basename "${env_dir%/}")"
+        echo "  ❌  $(basename "${env_dir%/}"): could not be read — its entries were left untouched"
+    fi
 done
 
 # An environment that is merely undeployed has already had its entries swept
@@ -93,11 +115,25 @@ done
 # entries would otherwise sit there forever, launching containers that no
 # longer exist. Compare what is installed against what the repo declares and
 # clean up the difference. Both lists are sorted, as comm requires.
-while IFS= read -r menu_id; do
-    [ -n "$menu_id" ] || continue
-    purge_menu_id "$menu_id"
-    echo "  🧹  ${menu_id}: environment no longer in this repo — removed its leftover entries"
-done < <(comm -23 <(installed_menu_ids) <(declared_menu_ids))
+#
+# Skipped outright if ANY environment above failed to load. This sweep deletes
+# whatever the declared set does not account for, so it is only ever as safe as
+# that set is complete: one unreadable environment (or a broken yq, which makes
+# every one of them unreadable) would otherwise turn a janitor into a shredder
+# and delete every entry on the machine. Refusing to guess is the only correct
+# behaviour when the comparison's other half is untrustworthy.
+if [ -n "$FAILED_ENVS" ]; then
+    echo ""
+    echo "⚠️  Could not read these environments:${FAILED_ENVS}"
+    echo "   Skipping the leftover-entry sweep — with an incomplete picture of what"
+    echo "   this repo declares, it could delete entries that are perfectly valid."
+else
+    while IFS= read -r menu_id; do
+        [ -n "$menu_id" ] || continue
+        purge_menu_id "$menu_id"
+        echo "  🧹  ${menu_id}: environment no longer in this repo — removed its leftover entries"
+    done < <(comm -23 <(installed_menu_ids) <(declared_menu_ids))
+fi
 
 echo ""
 if $IS_DARWIN; then
@@ -113,3 +149,9 @@ else
 fi
 echo ""
 echo "To uninstall:  $0 --uninstall"
+
+# Non-zero when anything was skipped, so a caller (or a human scrolling past
+# the tail of the output) can tell a partial run from a clean one. Every
+# in-repo caller invokes this best-effort with `|| true`, so this reports
+# rather than breaks anything.
+[ -z "$FAILED_ENVS" ]

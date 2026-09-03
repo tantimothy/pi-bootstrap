@@ -193,30 +193,33 @@ over-corrected "cancel never exits" symptom). Not yet confirmed live:
   already-working code path, but hasn't been visually confirmed against a
   real `dialog` render.
 
-## Desktop entries: orphan sweep added, three sibling run.sh files still have the marker bug
+## Desktop entries: three bugs fixed, one path still unexercised
 
-Full account in `docs/lessons-learned/general.md` ("Deleting an environment's
-folder stranded its desktop entries forever"). Deleting an environment folder
-used to orphan its desktop entries permanently — neither install nor
-`--uninstall` could reach them. Fixed and verified against a scratch `$HOME`
-(orphans purged, live entries with a customised `CONTAINER_NAME` correctly
-kept, `--uninstall` now leaves nothing behind). Still open:
+Full account in `docs/lessons-learned/general.md` ("Desktop entries: one
+environment's failure silently skipped every environment after it"). The
+reported symptom — after a TEARDOWN, install kept reinstalling icons and
+uninstall removed `kali-pentest`'s entries but not `legion`'s or
+`metasploit`'s — was `set -e` aborting the environment loop on one failure,
+silently skipping everything alphabetically after it. Fixed, along with the
+`.deployed` marker only being written on one of three code paths (all four
+custom `run.sh` environments) and a separate gap where deleting an
+environment's folder orphaned its entries permanently. All verified against a
+scratch `$HOME` with real go-yq: a broken environment no longer blocks the
+others, the orphan sweep is skipped when the declared set can't be trusted,
+live entries under a renamed `CONTAINER_NAME` are kept, and `--uninstall`
+leaves nothing behind. Still open:
 
-- **`kali-pentest`, `legion` and `metasploit` have the same `.deployed`
-  marker bug that `dragonos-sdr`'s `run.sh` was just fixed for** — their FAST
-  "container already running" shortcut `exit 0`s before the `touch
-  "$DEPLOYED_MARKER"` line, so on a fresh clone (the marker is gitignored)
-  those environments read as permanently undeployed and get no desktop
-  entries. Deliberately not fixed in the same pass: those three are being
-  removed from the deployment that reported this, so the fix may be churn on
-  code about to be deleted. One `_mark_deployed`-style helper each if they
-  stay.
-- **The orphan sweep has only been exercised on Linux.** The macOS half
-  (`.pi-bootstrap-webloc-manifest-<id>` discovery and `.webloc` removal) is
-  written and reasoned through but never run — no Mac in the loop.
-- **Why `dragonos-sdr`'s marker was missing in the first place is still
-  unconfirmed.** The fresh-clone theory above fits and the fix covers it, but
-  nobody has checked whether that is what actually happened on the Pi.
+- **The macOS half of the orphan sweep has never been run** —
+  `.pi-bootstrap-webloc-manifest-<id>` discovery and `.webloc` removal are
+  written and reasoned through, but there is no Mac in the loop.
+- **The FAST "container already running" marker path is untested on hardware.**
+  `_custom_run_mark_deployed()` is verified directly (it creates the marker and
+  installs entries), but nobody has yet attached to a running container on a
+  fresh clone and confirmed the entries appear as a result.
+- **What originally made an environment fail on the Pi is still unknown.** The
+  loop-abort mechanism is proven and fixed, but the specific trigger there — a
+  yaml problem, a `yq` on `$PATH`, something else — was never captured. The new
+  per-environment `❌` line will name it if it recurs.
 
 ## dragonos-sdr: menu entries now being exercised against real hardware
 
