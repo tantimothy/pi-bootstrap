@@ -1399,3 +1399,92 @@ passes end to end for the first time.
 - **Failures at the bottom of a long `set -e` script hide behind the platform
   they test.** A Linux contributor sees a macOS assertion fail and files it
   under "can't run here". Both readings are available; only one is checked.
+
+## Deleting an environment's folder stranded its desktop entries forever (2026-09-03)
+
+### Symptom
+
+Three environments (`kali-pentest`, `legion`, `metasploit`) had been removed,
+but their icons were still on the Desktop and in the application menu.
+`./install-desktop-entries.sh` left them there. `./install-desktop-entries.sh
+--uninstall` left them there too. Nothing in the repo could remove them, and
+clicking one launched a container that no longer existed. Separately,
+`dragonos-sdr` produced no entries at all.
+
+### Root cause
+
+Both the install and uninstall paths are the same loop:
+
+```bash
+for env_dir in "$REPO_DIR"/environments/*/; do
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}" [--uninstall]
+done
+```
+
+An environment's entries are only reachable through its own folder — the
+folder holds `desktop-entries.yaml`, the yaml holds `menu.id`, and the id is
+what `_desktop_remove_all_for_menu` matches on. Delete the folder and there is
+no id to sweep with, so the sweep is never even attempted. `--uninstall` was
+subject to exactly the same blindness as install, which is why "uninstall
+everything" could not remove them either.
+
+The design already anticipated *undeploying* an environment —
+`run_desktop_install`'s not-deployed branch sweeps that environment's entries,
+and `_desktop_remove_all_for_menu`'s own comment explains it is deliberately
+tag-driven rather than list-driven so a renamed entry can't be orphaned. The
+gap was one level up: a self-healing sweep is worth nothing if the only thing
+that can invoke it is the folder that just got deleted.
+
+### Fix
+
+`lib/desktop-lib.sh` gains three functions that read the installed state off
+the disk rather than from the repo:
+
+- `installed_menu_ids()` — every id present on this machine, from the
+  `Categories=X-PiBootstrap-<id>;` tag in each `.desktop` file plus the
+  `pi-bootstrap-<id>.directory` / `.menu` submenu fragments and macOS's
+  `.pi-bootstrap-webloc-manifest-<id>` files.
+- `declared_menu_ids()` — the ids the repo currently declares.
+- `purge_menu_id()` — removes every artefact for one id, on either platform.
+
+`install-desktop-entries.sh` then sweeps `comm -23 installed declared` on
+install, and everything still installed after the loop on `--uninstall`.
+
+One trap worth naming: three environments write their menu id as
+`${CONTAINER_NAME:-aider}`, so `declared_menu_ids()` has to resolve each id
+**exactly the way a real install resolves it** — sourcing that environment's
+`.env` — or a user who renamed their container would have had their live
+entries deleted as "orphans" by the very fix meant to clean up. It runs each
+resolution in its own subshell, because `_load_desktop_entries_yaml` sources
+`.env` with `set -a` and one environment's variables would otherwise leak into
+the next environment's defaults.
+
+### General lessons
+
+- **A cleanup routine that can only be reached through the thing being cleaned
+  up cannot clean it up.** The per-environment sweep was well designed and
+  correct; it was simply unreachable in the one case that needed it most. When
+  cleanup is keyed on a record, ask what happens when the record is the thing
+  that disappears.
+- **`--uninstall` deserves its own reasoning, not a flag threaded through the
+  install path.** Reusing the install loop meant uninstall silently inherited
+  install's blind spot. "Remove everything this tool ever created" is a
+  different question from "reconcile each thing this tool currently manages",
+  and only the first one can be answered from the disk.
+- **Resolve identifiers the same way in the cleanup path as in the write
+  path.** Comparing installed ids against unexpanded `${CONTAINER_NAME:-...}`
+  templates would have turned a janitor into a shredder for exactly the users
+  who customised something. When two code paths must agree on a name, have
+  them call the same resolver rather than two lookalike ones.
+- **A gitignored marker file is not a reliable "has this ever been deployed"
+  signal across clones.** `dragonos-sdr`'s missing entries traced to an absent
+  `.deployed`, which its `run.sh` wrote only on the full-deploy path — so on a
+  fresh clone of a repo whose image and container already exist, FAST's
+  attach/exec shortcuts skip straight past the line that recreates it, and the
+  environment reads as permanently undeployed with no error to explain why.
+  Every path that ends with a running container should assert the marker, not
+  just the one that built it.
+- **"Not deployed" messages should name what was looked for.** The
+  container-kind and systemd-kind messages named the container or unit; the
+  marker kind said only "not deployed", which is the one case where the thing
+  checked is invisible and written mid-deploy. It now names the file.

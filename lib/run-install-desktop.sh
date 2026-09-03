@@ -3,9 +3,10 @@
 # one, otherwise calls the generic YAML-driven driver
 # (lib/desktop-lib.sh's run_desktop_install_yaml) directly against its
 # desktop-entries.yaml. Every caller should invoke this instead of a
-# per-environment install-desktop.sh path — most environments no longer
-# have their own; only nanoclaw does, for host-vs-container deploy-mode
-# branching that isn't expressible as YAML data. An environment with
+# per-environment install-desktop.sh path. No environment currently ships
+# one — the hook stays for a case that genuinely can't be expressed as
+# static YAML, the way internet-pi's info.sh override does for info.yaml.
+# An environment with
 # neither file (internet-pi, pi-barebones — no desktop entries at all) is
 # a silent no-op, matching every call site's previous existence-guard
 # behavior.

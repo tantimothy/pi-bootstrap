@@ -47,6 +47,15 @@ if [ "$ACTION" = "--uninstall" ]; then
     for env_dir in "$REPO_DIR"/environments/*/; do
         bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}" --uninstall
     done
+    # The loop above can only reach environments that still exist. Anything
+    # left carrying this repo's own markers belongs to one that was deleted
+    # since it was installed, and --uninstall means all of it — so sweep by
+    # what is actually on disk rather than by what the repo still declares.
+    while IFS= read -r menu_id; do
+        [ -n "$menu_id" ] || continue
+        purge_menu_id "$menu_id"
+        echo "  🧹  ${menu_id}: removed leftover entries (not claimed by any current environment)"
+    done < <(installed_menu_ids)
     echo "Done."
     exit 0
 fi
@@ -77,6 +86,18 @@ fi
 for env_dir in "$REPO_DIR"/environments/*/; do
     bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}"
 done
+
+# An environment that is merely undeployed has already had its entries swept
+# by the loop above (run_desktop_install's not-deployed branch does that). An
+# environment whose FOLDER was deleted never enters that loop at all, so its
+# entries would otherwise sit there forever, launching containers that no
+# longer exist. Compare what is installed against what the repo declares and
+# clean up the difference. Both lists are sorted, as comm requires.
+while IFS= read -r menu_id; do
+    [ -n "$menu_id" ] || continue
+    purge_menu_id "$menu_id"
+    echo "  🧹  ${menu_id}: environment no longer in this repo — removed its leftover entries"
+done < <(comm -23 <(installed_menu_ids) <(declared_menu_ids))
 
 echo ""
 if $IS_DARWIN; then

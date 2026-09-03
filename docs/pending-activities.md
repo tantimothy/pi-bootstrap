@@ -193,6 +193,31 @@ over-corrected "cancel never exits" symptom). Not yet confirmed live:
   already-working code path, but hasn't been visually confirmed against a
   real `dialog` render.
 
+## Desktop entries: orphan sweep added, three sibling run.sh files still have the marker bug
+
+Full account in `docs/lessons-learned/general.md` ("Deleting an environment's
+folder stranded its desktop entries forever"). Deleting an environment folder
+used to orphan its desktop entries permanently — neither install nor
+`--uninstall` could reach them. Fixed and verified against a scratch `$HOME`
+(orphans purged, live entries with a customised `CONTAINER_NAME` correctly
+kept, `--uninstall` now leaves nothing behind). Still open:
+
+- **`kali-pentest`, `legion` and `metasploit` have the same `.deployed`
+  marker bug that `dragonos-sdr`'s `run.sh` was just fixed for** — their FAST
+  "container already running" shortcut `exit 0`s before the `touch
+  "$DEPLOYED_MARKER"` line, so on a fresh clone (the marker is gitignored)
+  those environments read as permanently undeployed and get no desktop
+  entries. Deliberately not fixed in the same pass: those three are being
+  removed from the deployment that reported this, so the fix may be churn on
+  code about to be deleted. One `_mark_deployed`-style helper each if they
+  stay.
+- **The orphan sweep has only been exercised on Linux.** The macOS half
+  (`.pi-bootstrap-webloc-manifest-<id>` discovery and `.webloc` removal) is
+  written and reasoned through but never run — no Mac in the loop.
+- **Why `dragonos-sdr`'s marker was missing in the first place is still
+  unconfirmed.** The fresh-clone theory above fits and the fix covers it, but
+  nobody has checked whether that is what actually happened on the Pi.
+
 ## dragonos-sdr: menu entries now being exercised against real hardware
 
 Full account in `docs/lessons-learned/dragonos-sdr.md` (three sessions). The

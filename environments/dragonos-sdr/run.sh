@@ -22,7 +22,7 @@ DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-dragonos-pi}"
 # Marks that this environment has actually been launched at least once.
 # Containers here run with --rm, so a lingering docker image (which can be
 # left over from a one-off build/test) isn't a reliable "deployed" signal —
-# install-desktop.sh checks this marker instead.
+# desktop-entries.yaml's deployed_check reads this marker instead.
 DEPLOYED_MARKER="${SCRIPT_DIR}/.deployed"
 DISPLAY="${DISPLAY:-:0}"
 HOST_USB_BUS_PATH="${HOST_USB_BUS_PATH:-/dev/bus/usb}"
@@ -75,6 +75,21 @@ POLICY="${REBUILD_POLICY:-FAST}"
 source "$REPO_DIR/lib/deploy-lib.sh"
 _selflog_start "$SCRIPT_DIR" "$POLICY"
 
+# Called by every path below that leaves a container actually running — not
+# just the full `docker run` at the bottom. The marker is gitignored, so it is
+# absent on a fresh clone (or after `git clean -xdf`) even on a machine that
+# has been running this environment for weeks; if only the full-deploy path
+# recreated it, FAST's attach/exec shortcuts below would short-circuit
+# straight past that line and the environment would read as permanently
+# "not deployed" to desktop-entries.yaml's deployed_check — no menu entries,
+# no Desktop icons, and no error to explain why.
+_mark_deployed() {
+    touch "${DEPLOYED_MARKER}"
+    # Best-effort and silenced: this runs immediately before an interactive
+    # handoff, so it must never delay or interrupt it.
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+}
+
 echo "[POLICY] Ingesting central orchestration lifecycle strategy: [${POLICY}]"
 
 # STOP: pause container (keep it, FAST can resume)
@@ -111,6 +126,7 @@ if [ "${POLICY}" = "FAST" ]; then
         fi
         echo "[BYPASS] FAST Policy Engaged: Container '${CONTAINER_NAME}' is currently active."
         echo "[LIFECYCLE] Attaching your session to the existing interactive container environment..."
+        _mark_deployed
         _selflog_stop
         exec "${DOCKER}" exec -it "${CONTAINER_NAME}" "${CONTAINER_ENTRYPOINT_COMMAND}"
         exit 0
@@ -128,6 +144,7 @@ if [ "${POLICY}" = "FAST" ]; then
         echo "[SHORTCUT] FAST Policy Engaged: Dormant container detected with complete cache layers."
         echo "[LIFECYCLE] Executing non-destructive restoration shortcut sequence..."
         "${DOCKER}" start "${CONTAINER_NAME}" >/dev/null
+        _mark_deployed
         _selflog_stop
         exec "${DOCKER}" attach "${CONTAINER_NAME}"
         exit 0
@@ -178,13 +195,10 @@ echo "[DEPLOY] Provisioning interactive foreground container environment..."
 mkdir -p "$HOME/.config/pulse"
 touch "$HOME/.config/pulse/cookie"
 
-# Record that this environment has actually been launched (see DEPLOYED_MARKER above)
-touch "${DEPLOYED_MARKER}"
-
-# Refresh desktop entries now — before the blocking interactive session below,
-# not after, since that's what install-desktop.sh's deployed-check actually
-# looks for. Best-effort: never blocks the actual deploy.
-bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+# Record that this environment has actually been launched, and refresh its
+# desktop entries now — before the blocking interactive session below, not
+# after, since the marker is exactly what those entries' deployed-check reads.
+_mark_deployed
 
 # Record the config this container is about to be launched with (see CONFIG
 # DRIFT DETECTION above) so a future FAST run can tell if run.sh's settings
