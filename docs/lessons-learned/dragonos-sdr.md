@@ -177,3 +177,76 @@ real thing: whether each tool actually accepts the argument built for it.
   hardware. That does not verify the tools accept what is built for them —
   but it does mean the half of the change that is this repo's own logic is not
   riding on a live deploy to find a typo.
+
+## Session: first real run of the menu — six wrong invocations in a row
+
+**Status:** Fixed. Found by running the menu entries one at a time against a
+real RTL-SDR (an RTL2838UHIDIR with an R820T tuner) on the Pi. `lsusb` (J) and
+the device enumeration behind the picker worked first time; almost nothing else
+did.
+
+**Summary:** With the image finally building, every menu entry got its first
+execution ever — and six of them were wrong. Not subtly: wrong flag names,
+flags the local build does not implement, a value silently parsed as something
+2000x off, and an argument that does not exist. Each had looked plausible, and
+each had survived review precisely because nothing had ever run it.
+
+| Tag | Symptom | Root cause |
+|-----|---------|------------|
+| 2, 3 | Error "flashes by too fast to be read", menu reappears | GQRX/GNU Radio Companion were the only entries with no pause before returning; the loop's own `clear` wiped the reason off the screen |
+| 4 | `No E4000 tuner found, aborting.` | `rtl_test -t` is *specifically* the Elonics E4000 tuner benchmark. On an R820T it aborts by design. The dongle was fine the whole time |
+| A | (unreached — no HackRF on hand) | `hackrf_transfer` parses `-f`/`-s` with `strtod()`, which stops at the first non-digit rather than erroring: the entry's own `433.92M` prompt would have tuned it to **433 Hz**, and `2M` would have set a 2 sample/sec rate, silently |
+| B | `--net-http-port not supported in this build` + `Unknown or not enough arguments for option '--net-beast-output-port'` | Debian compiles `dump1090-mutability` without `ENABLE_WEBSERVER`, and the Beast output flag is `--net-bo-port`. `--net-beast-output-port` does not exist in any build |
+| E | `invalid mode "ALL"` then usage, exit | multimon-ng has no `ALL` demodulator. Demodulators are added one `-a` at a time from the list it prints |
+| I | `No devices found!` with a working dongle attached | SoapySDR is only an abstraction layer; `soapysdr-tools` ships no hardware modules, and none were installed |
+
+**Fixes:** tags 2 and 3 keep their output and dump the X11 state that decides
+whether a containerised X client can reach the host's server; tag 4 became a
+submenu offering the two tests that *do* apply to these tuners (default
+sample-loss check, and `-p` PPM measurement); tag A prompts in MHz and converts
+to Hz itself; tag B drops both bad flags, since plain `--net` already opens
+every port on its default number; tag E names its six demodulators explicitly;
+and the image now installs SoapySDR's RTL-SDR and HackRF modules.
+
+`run.sh` also now mounts the host's X11 authority file to `/root/.Xauthority`
+and sets `XAUTHORITY` — mounting the display socket is only half of what an X
+client needs, since the server also demands the session's MIT-MAGIC-COOKIE.
+Mounted **only when the file exists**, because Docker materialises a missing
+bind-mount source as a *directory*, and a directory where every X client
+expects a cookie file is worse than no mount at all — the same trap
+`claude-cli`'s `pre-deploy.sh` exists to avoid. Whether that was the actual
+cause of the GUI failure is still unconfirmed: the error was never legible.
+
+**On the SoapySDR module names:** they are tried, not pinned — versioned names
+(`soapysdr0.8-module-rtlsdr`) first, unversioned aliases second, then a
+build-time warning. Debian ABI-versions these packages and the exact bookworm
+name could not be verified from the session that made the change
+(`packages.debian.org`, `sources.debian.org` and `deb.debian.org` are all
+unreachable behind its egress proxy). Hardcoding an unverified package name is
+exactly what broke this image's build in the first place; a fallback chain that
+ends in a warning cannot.
+
+### General Lessons
+
+- **A plausible flag is not a verified flag.** Six invocations, all of which
+  read correctly to anyone who knows the tools by reputation, and all of which
+  the respective upstream source contradicts in one line. Every fix in this
+  round came from reading `rtl_test.c`, `dump1090.c`, `unixinput.c`,
+  `hackrf_transfer.c` or `convenience.c` at the version actually installed —
+  which takes about a minute each and would have caught all six before the
+  first deploy.
+- **Same-family tools do not share a parser.** `rtl_fm`, `rtl_power` and
+  `rtl_tcp` accept `100.1M` because `convenience.c`'s `atofs()` understands
+  k/M/G suffixes. `hackrf_transfer`, three menu entries away, uses `strtod()`
+  and reads the same string as 433 Hz *without complaining*. Assuming one
+  tool's conveniences carry to its neighbours is how a silent 2000x error gets
+  written down and reviewed twice.
+- **A distribution's build flags are part of the tool's interface.** Upstream
+  `dump1090-mutability` has an HTTP server; Debian's build of it does not, and
+  ships the map's HTML for lighttpd to serve instead. Reading upstream's
+  documentation is not the same as reading what `apt install` actually gave
+  you.
+- **The entry that pauses tells you what happened; the one that doesn't hides
+  it.** Two entries out of twenty lacked the `read -p` every other one had, and
+  that inconsistency alone turned a one-line X11 error into an unreproducible
+  "it flashes by". Consistency in error handling is not cosmetic.

@@ -60,6 +60,28 @@ _custom_run_handle_stop_teardown() {
     fi
 }
 
+# Records that this environment has actually been launched on this machine,
+# and refreshes its desktop entries to match.
+#
+# Call it from EVERY path that leaves a container running, not just the one
+# that creates the container. These environments run with --rm, so a lingering
+# image proves nothing and desktop-entries.yaml's deployed_check reads
+# $DEPLOYED_MARKER instead — but the marker is gitignored, so it is absent on
+# a fresh clone (or after `git clean -xdf`) even on a machine that has been
+# running the environment for months. If only the full-deploy path wrote it,
+# FAST's "container already running" shortcut would exit before reaching that
+# line and the environment would read as permanently undeployed: no menu
+# entries, no Desktop icons, and no error saying why.
+#
+# Requires DEPLOYED_MARKER, REPO_DIR and SCRIPT_DIR, all of which every caller
+# sets near the top of its run.sh.
+_custom_run_mark_deployed() {
+    touch "$DEPLOYED_MARKER"
+    # Best-effort and silenced: this runs immediately before an interactive
+    # handoff, so it must never delay or interrupt it.
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+}
+
 # Fills CONTAINER_RUNNING/CONTAINER_EXISTS/IMAGE_EXISTS for the caller's
 # CONTAINER_NAME/IMAGE_NAME.
 _custom_run_query_state() {

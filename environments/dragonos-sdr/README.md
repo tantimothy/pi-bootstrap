@@ -38,6 +38,30 @@ Base image: [debian:bookworm-slim](https://hub.docker.com/_/debian) — addition
 | GQRX | [gqrx.dk](https://www.gqrx.dk) | Graphical SDR receiver — spectrum waterfall, FM/AM/SSB/CW demodulation, recording |
 | GNU Radio Companion | [gnuradio.org](https://www.gnuradio.org) | Visual flowgraph editor — build and run signal processing pipelines with drag-and-drop blocks |
 
+These two are the only X11 applications in the menu, and reaching the host's
+display from inside the container takes two things, not one:
+
+1. **The display socket** — `run.sh` mounts `/tmp/.X11-unix` and passes
+   `DISPLAY` through.
+2. **The session's MIT-MAGIC-COOKIE** — the X server refuses connections that
+   cannot present it. `run.sh` mounts the host's authority file to
+   `/root/.Xauthority` and sets `XAUTHORITY`, choosing the host's own
+   `$XAUTHORITY` if set and falling back to `~/.Xauthority`; override with
+   `HOST_XAUTHORITY_PATH` in `.env` when neither is right, which is common
+   under XWayland (the cookie often lives under `/run/user/1000/`). It is
+   mounted **only if the file exists** — Docker would otherwise create a
+   directory there, which is worse than no mount — and `run.sh` warns on
+   startup when it finds none.
+
+If a GUI tool still exits immediately, the menu now keeps its error on screen
+and prints what `DISPLAY`, `XAUTHORITY`, the socket directory and the cookie
+file actually look like inside the container. The usual one-line fix, run in
+the desktop session that owns the display:
+
+```bash
+xhost +local:      # allow local clients, including this container
+```
+
 ### RTL-SDR Utilities (`rtl-sdr` package)
 
 | Binary | Description |
@@ -66,11 +90,11 @@ Receives aircraft position broadcasts on **1090 MHz** — any RTL-SDR dongle can
 
 | Tool | Link | Description |
 |------|------|-------------|
-| `dump1090` | [github.com/mutability/dump1090](https://github.com/mutability/dump1090) | ADS-B Mode S decoder — interactive terminal aircraft table + HTTP map on port 8080 |
+| `dump1090` | [github.com/mutability/dump1090](https://github.com/mutability/dump1090) | ADS-B Mode S decoder — interactive terminal aircraft table plus Beast (30005) / SBS (30003) / raw (30002) network output |
 | `readsb` | [github.com/wiedehopf/readsb](https://github.com/wiedehopf/readsb) | Modern dump1090 fork — adds MLAT support and better decode performance; interactive terminal table plus Beast (30005) / SBS (30003) / raw (30002) network output. Built from source (see below) |
 | `viewadsb` | (ships with readsb) | readsb's terminal aircraft-table viewer — attaches to a running readsb over the network instead of opening the dongle itself |
 
-> **Note:** The HTTP map on port 8080 is dump1090's, not readsb's — readsb has no built-in web server, and a map for it means pointing [tar1090](https://github.com/wiedehopf/tar1090) at its `--write-json` output. No port publishing is needed for either: `run.sh` starts the container with `--net=host`, so a port opened inside it is already the host's port.
+> **Note:** **Neither tool serves a web map in this image**, so there is nothing on port 8080. readsb has no built-in web server at all. Debian compiles `dump1090-mutability` without one too (`--net-http-port` is accepted, warned about, then ignored) and instead ships the map's HTML at `/usr/share/dump1090-mutability/html` with lighttpd/nginx snippets in `/etc/lighttpd/conf-available`, for a real web server to serve. A map therefore means running one — either that packaged HTML against dump1090's JSON, or [tar1090](https://github.com/wiedehopf/tar1090) against readsb's `--write-json` output. What both tools do give straight away is the interactive terminal table and the network ports above; `run.sh` starts the container with `--net=host`, so those are already the host's ports with no publishing needed.
 
 ### Multi-Protocol RF Decoding
 
@@ -105,6 +129,16 @@ Receives aircraft position broadcasts on **1090 MHz** — any RTL-SDR dongle can
 | Tool | Link | Description |
 |------|------|-------------|
 | SoapySDR | [github.com/pothosware/SoapySDR](https://github.com/pothosware/SoapySDR) | Hardware-agnostic SDR abstraction layer — `SoapySDRUtil --find` probes all connected devices regardless of manufacturer |
+
+> **Note:** SoapySDR is *only* an abstraction layer. `soapysdr-tools` on its own
+> finds nothing at all — each piece of hardware needs its own module package, so
+> the Dockerfile installs the RTL-SDR and HackRF ones too. Debian ABI-versions
+> those (`soapysdr0.8-module-rtlsdr` under bookworm), so the Dockerfile tries the
+> versioned names first, the unversioned aliases second, and falls back to a
+> build-time warning rather than failing the image if neither exists in a future
+> base. Nothing else in this environment goes through SoapySDR — every other tool
+> talks to librtlsdr or libhackrf directly — so a missing module costs menu tag I
+> its output and nothing more.
 
 ### Tools built from source
 
@@ -253,21 +287,21 @@ Tool tags run **1-9, then continue A, B, C, ...** rather than going to two-digit
 | **1** | Info | Info | Environment info — data directory paths and useful host-side commands, since the outer `deploy.sh` `INFO` policy isn't reachable once you're attached in here. Colored and paged through `less -r`, like the outer `INFO` screen. |
 | **2** | SDR Receivers | GQRX | Graphical spectrum analyzer — spectrum waterfall, FM/AM/SSB demodulation |
 | **3** | SDR Receivers | GNU Radio Companion | Visual flowgraph editor for signal processing pipelines |
-| **4** | RTL-SDR Utilities | rtl_test | Benchmark RTL-SDR dongle, test sample rates, report dropped samples |
+| **4** | RTL-SDR Utilities | rtl_test | Submenu: dropped-sample check, or oscillator (PPM) error measurement. Deliberately *not* `rtl_test -t`, which is the Elonics E4000 tuner benchmark and aborts on the R820T/R828D tuners these dongles actually use |
 | **5** | RTL-SDR Utilities | rtl_fm | FM/AM/SSB demodulator — prompts for frequency, pipes audio to `aplay` |
 | **6** | RTL-SDR Utilities | rtl_tcp | Network SDR server — exposes the dongle over TCP for remote SDR clients |
 | **7** | RTL-SDR Utilities | rtl_power | Wideband power scan — prompts for frequency range, logs signal levels |
 | **8** | HackRF Utilities | hackrf_info | Read HackRF firmware version, serial number, hardware registers |
 | **9** | HackRF Utilities | hackrf_sweep | Fast spectrum scan — prompts for MHz bounds, sweeps up to 8 GHz/s |
-| **A** | HackRF Utilities | hackrf_transfer | IQ capture/replay submenu — receive to file or transmit from file |
-| **B** | ADS-B Aircraft Tracking | dump1090 | ADS-B decoder — live aircraft table in terminal + HTTP map on port 8080 |
+| **A** | HackRF Utilities | hackrf_transfer | IQ capture/replay submenu — receive to file or transmit from file. Prompts in MHz and converts to Hz, since `hackrf_transfer` takes raw Hz and silently reads `433.92M` as 433 Hz |
+| **B** | ADS-B Aircraft Tracking | dump1090 | ADS-B decoder — live aircraft table in terminal, Beast/SBS/raw network output (no web map in Debian's build — see above) |
 | **C** | ADS-B Aircraft Tracking | readsb | ADS-B decoder with MLAT — prompts for lat/lon for range/distance stats, serves Beast/SBS network output |
 | **D** | Signal Decoders | rtl_433 | Decode 433/868/915 MHz devices — weather sensors, remotes, meters |
-| **E** | Signal Decoders | multimon-ng | Digital mode decoder — prompts for frequency, decodes pagers/EAS/DTMF from rtl_fm pipe |
+| **E** | Signal Decoders | multimon-ng | Digital mode decoder — prompts for frequency, then decodes POCSAG512/1200/2400, FLEX, EAS and DTMF from an rtl_fm pipe (multimon-ng has no "all modes" switch; each demodulator is named explicitly) |
 | **F** | Signal Decoders | direwolf | APRS decoder — submenu for NA (144.390 MHz) or EU (144.800 MHz) frequency |
 | **G** | Signal Decoders | acarsdec | ACARS decoder — scans 130.025 / 130.450 / 131.125 / 131.550 MHz simultaneously |
 | **H** | System Utilities | Select RTL-SDR device | Choose which dongle tags 4-7 and B-G use — see [Choosing between dongles](#choosing-between-dongles) |
-| **I** | System Utilities | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor |
+| **I** | System Utilities | SoapySDRUtil | Probe all connected SDR hardware regardless of vendor. Needs SoapySDR's per-hardware modules, which the image installs alongside `soapysdr-tools` — without them this reports "No devices found!" even with a working dongle attached |
 | **J** | System Utilities | lsusb | List USB devices attached to the host |
 | **K** | Session | Bash Shell | Raw terminal inside the container — full access to all installed tools |
 | **L** | Session | Exit | Leave the menu (container keeps running in background) |

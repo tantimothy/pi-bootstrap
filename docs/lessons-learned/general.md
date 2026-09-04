@@ -1399,3 +1399,111 @@ passes end to end for the first time.
 - **Failures at the bottom of a long `set -e` script hide behind the platform
   they test.** A Linux contributor sees a macOS assertion fail and files it
   under "can't run here". Both readings are available; only one is checked.
+
+## Desktop entries: one environment's failure silently skipped every environment after it (2026-09-03)
+
+### Symptom
+
+After tearing down `kali-pentest`, `legion` and `metasploit` (TEARDOWN, not
+folder deletion — the environments were still in the repo):
+
+- `./install-desktop-entries.sh` still put their icons on the Desktop.
+- `./install-desktop-entries.sh --uninstall` removed `kali-pentest`'s entries
+  but left `legion`'s and `metasploit`'s behind.
+- `dragonos-sdr` produced no entries at all.
+
+### Root cause
+
+Three separate bugs, and the first diagnosis was wrong: the shape of the report
+("some removed, some not") was read as *deleted environment folders*, which is
+a real gap in this script but is not what happened here.
+
+**1. `set -e` plus a bare call in the loop.** Both paths are:
+
+```bash
+for env_dir in "$REPO_DIR"/environments/*/; do
+    bash "$REPO_DIR/lib/run-install-desktop.sh" "${env_dir%/}" [--uninstall]
+done
+```
+
+One environment exiting non-zero — a malformed `desktop-entries.yaml`, or the
+Debian Python `yq` shadowing go-yq on `$PATH` — aborts the whole loop. Every
+environment alphabetically *after* it is silently skipped, with no summary line
+saying so. `kali-pentest` sorts before `legion`, which sorts before
+`metasploit`: kali gets cleaned, the other two do not. That is the reported
+symptom exactly, and it reproduces on demand by breaking any single
+environment's yaml.
+
+**2. `.deployed` was written on one code path out of three.** All four custom
+`run.sh` environments run their containers with `--rm`, so a lingering image
+proves nothing and `desktop-entries.yaml`'s `deployed_check` reads a
+`.deployed` marker instead. But the marker is gitignored, and only the full
+`docker run` path created it — FAST's "container already running" shortcut
+`exit 0`s well before that line. On a fresh clone of a repo whose image and
+container already exist, the marker never comes back and the environment reads
+as permanently undeployed: no entries, no icons, no error.
+
+**3. Deleting an environment's folder orphaned its entries permanently.** Not
+what happened here, but found while investigating and real: an environment's
+entries are only reachable through its own folder (folder →
+`desktop-entries.yaml` → `menu.id` → the `Categories=X-PiBootstrap-<id>;` tag
+the sweep matches on). Delete the folder and there is no id to sweep with, so
+the sweep is never attempted — by install *or* by `--uninstall`. Undeploying
+was always handled; deleting was not.
+
+### Fix
+
+- The loops collect failures instead of aborting on them (`if ! bash ...`),
+  name each failed environment, and exit non-zero at the end.
+- `_custom_run_mark_deployed()` in `lib/custom-docker-run-lib.sh` (and its
+  equivalent in `dragonos-sdr`'s standalone `run.sh`) is now called from every
+  path that leaves a container running, not just the one that creates it.
+- `lib/desktop-lib.sh` gains `installed_menu_ids()`, `declared_menu_ids()` and
+  `purge_menu_id()`, which read installed state off the disk rather than from
+  the repo, so entries belonging to a deleted environment can still be swept.
+- A marker-kind `deployed_check` now names the file it looked for when it skips.
+
+Two safety properties the fix has to hold, both of which could have made things
+much worse than the bug:
+
+- **The orphan sweep is skipped entirely if any environment failed to load.**
+  It deletes whatever the declared set does not account for, so it is only as
+  safe as that set is complete. One unreadable environment — or a broken `yq`,
+  which makes *all* of them unreadable — would otherwise have turned a janitor
+  into a shredder and deleted every entry on the machine.
+- **`declared_menu_ids()` resolves each id exactly the way a real install
+  does**, sourcing that environment's `.env`, because three environments write
+  their id as `${CONTAINER_NAME:-...}`. Comparing against the unexpanded
+  template would delete the live entries of anyone who renamed a container.
+  Each resolution runs in its own subshell, since `_load_desktop_entries_yaml`
+  sources `.env` with `set -a` and one environment's variables would otherwise
+  leak into the next one's defaults.
+
+### General lessons
+
+- **`set -e` around a loop over independent items turns one failure into
+  silent partial completion.** Nothing printed "aborting"; the run just ended
+  early with a plausible-looking tail. When each iteration is independent,
+  failure should be collected and reported, never allowed to truncate the loop
+   — and the ordering makes it look like a per-item bug ("legion and metasploit
+  are broken") rather than the positional accident it is.
+- **Reproduce the reported shape before believing a root cause that explains
+  it.** "Some removed, some not" fit the deleted-folder theory well enough to
+  feel settled, and that theory produced a real fix for a real bug — just not
+  this one. The question that broke the tie was cheap: which environments, in
+  what order, and does the alphabet explain the split?
+- **A cleanup routine reachable only through the thing being cleaned up cannot
+  clean it up.** The per-environment sweep was well designed and self-healing;
+  it was simply unreachable in the one case that needed it most.
+- **A destructive reconciliation needs an explicit trust check on its input.**
+  "Delete everything not in list X" is only safe while X is known-complete. The
+  failure mode of computing X wrongly is not a missed cleanup, it is data loss,
+  so the empty/incomplete case deserves an explicit refusal rather than a
+  natural-looking fallthrough.
+- **A gitignored marker is not a reliable "has this ever been deployed" signal
+  across clones.** Every path that ends with a running container should assert
+  it, not just the one that built the container.
+- **"Not deployed" messages should name what was looked for.** The container
+  and systemd kinds named their container or unit; the marker kind — the one
+  case where the thing checked is invisible and written mid-deploy — said only
+  "not deployed".

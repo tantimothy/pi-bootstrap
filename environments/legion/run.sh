@@ -63,6 +63,7 @@ if [ "$POLICY" = "FAST" ] && [ -n "$CONTAINER_RUNNING" ]; then
         echo "   Not killing your active session automatically — run TEARDOWN then FAST (or CLEAN) to pick up the new config."
     fi
     echo "✅ [FAST Policy] Container '$CONTAINER_NAME' is already running."
+    _custom_run_mark_deployed
     _selflog_stop  # INFO summary itself is unlogged, same as the outer INFO policy
     bash "$REPO_DIR/lib/run-info.sh" "$SCRIPT_DIR" list
     exit 0
@@ -78,12 +79,10 @@ _custom_run_build_image
 # Container startup (headless — no interactive attach, see the FAST
 # shortcut's own comment above for why).
 
-# Record that this environment has actually been launched (see DEPLOYED_MARKER above)
-touch "$DEPLOYED_MARKER"
-
-# Refresh desktop entries now that the container (and its launch-legion.sh
-# entry) is about to actually exist. Best-effort: never blocks the deploy.
-bash "$REPO_DIR/lib/run-install-desktop.sh" "$SCRIPT_DIR" >/dev/null 2>&1 || true
+# Record that this environment has actually been launched, and refresh its
+# desktop entries now that the container (and its launch-legion.sh entry) is about
+# to actually exist. Best-effort: never blocks the deploy.
+_custom_run_mark_deployed
 
 # Record the config this container is about to be launched with (see CONFIG
 # DRIFT DETECTION above) so a future FAST run can tell if run.sh's settings

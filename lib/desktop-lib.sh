@@ -238,6 +238,84 @@ _webloc_remove_all_for_menu() {
     return 0
 }
 
+# --- Orphaned environments ------------------------------------------------
+#
+# Every artefact this library writes is either tagged with, or named after,
+# its environment's menu id: the Categories=X-PiBootstrap-<id>; line inside
+# each .desktop file, the pi-bootstrap-<id>.directory and .menu submenu
+# fragments, and the .pi-bootstrap-webloc-manifest-<id> file on macOS. So the
+# set of environments actually installed on this machine can be read straight
+# off the disk, without asking the repo what it believes should be there.
+#
+# That distinction is the whole point. Everything else in this file is driven
+# by iterating environments/*/, which means deleting an environment's folder
+# used to strand its entries permanently: no folder, no desktop-entries.yaml,
+# no menu id, and therefore no sweep — for install AND for --uninstall alike,
+# since both walk the same loop. The result was Desktop icons that launch a
+# container which no longer exists, that nothing in this repo could remove.
+# Undeploying an environment was always handled (run_desktop_install's
+# not-deployed branch sweeps it); deleting one was not.
+installed_menu_ids() {
+    local f id
+    {
+        # `|| true` because grep exits non-zero when nothing matches, which
+        # under this repo's `set -eo pipefail` callers would otherwise abort
+        # the whole group before the two loops below ever run.
+        grep -ho 'X-PiBootstrap-[^;]*' "$APPS_DIR"/*.desktop "$DESKTOP_DIR"/*.desktop 2>/dev/null \
+            | sed 's/^X-PiBootstrap-//' || true
+
+        # Listed in their own right rather than inferred from the .desktop
+        # files: an environment can legitimately have these left over after
+        # its .desktop files are already gone (a partial removal, or an
+        # earlier version of this repo that swept files but not submenus).
+        for f in "${HOME}/.local/share/desktop-directories"/pi-bootstrap-*.directory \
+                 "${HOME}/.config/menus/applications-merged"/pi-bootstrap-*.menu; do
+            [ -f "$f" ] || continue
+            id="${f##*/pi-bootstrap-}"
+            case "$id" in
+                *.directory) printf '%s\n' "${id%.directory}" ;;
+                *.menu)      printf '%s\n' "${id%.menu}" ;;
+            esac
+        done
+
+        for f in "$DESKTOP_DIR"/.pi-bootstrap-webloc-manifest-*; do
+            [ -f "$f" ] || continue
+            printf '%s\n' "${f##*/.pi-bootstrap-webloc-manifest-}"
+        done
+    } | sort -u
+}
+
+# The menu ids this repo currently declares, resolved exactly as a real
+# install resolves them — each in its own subshell, because
+# _load_desktop_entries_yaml sources that environment's .env and an id
+# written as "${CONTAINER_NAME:-aider}" becomes whatever that .env sets.
+# Comparing installed ids against the raw, unexpanded strings instead would
+# classify a renamed container's live entries as orphans and delete them.
+declared_menu_ids() {
+    local env_dir id
+    for env_dir in "$REPO_DIR"/environments/*/; do
+        env_dir="${env_dir%/}"
+        [ -f "$env_dir/desktop-entries.yaml" ] || continue
+        id=$( _load_desktop_entries_yaml "$env_dir" >/dev/null 2>&1 && printf '%s' "$MENU_ID" )
+        if [ -n "$id" ]; then
+            printf '%s\n' "$id"
+        fi
+    done | sort -u
+}
+
+# Removes every artefact belonging to one menu id, whichever platform wrote
+# it — .desktop files and submenu fragments on Linux, weblocs on macOS.
+# Deliberately does all of them regardless of the current platform: a Desktop
+# directory synced or copied between machines can carry either kind, and
+# removing something that was never there costs nothing.
+purge_menu_id() {
+    local menu_id="$1"
+    _desktop_remove_all_for_menu "$menu_id"
+    _webloc_remove_all_for_menu "$menu_id"
+    remove_submenu "$menu_id"
+    return 0
+}
+
 # Registers a custom application-menu submenu for an environment (instead
 # of its entries falling into an existing category folder like Internet or
 # System Tools), using the standard freedesktop Desktop Menu Specification
@@ -459,6 +537,12 @@ _desktop_not_deployed_msg() {
     case "$DEPLOYED_CHECK_KIND" in
         container) default_msg="container '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
         systemd)   default_msg="service '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first)" ;;
+        # Naming the file matters more here than in the two cases above: a
+        # missing marker is invisible (unlike `docker ps`, there is nothing to
+        # go and look at), and it is written by the environment's own run.sh
+        # partway through a deploy — so "not deployed" can mean the deploy
+        # failed before reaching that line, not that it was never attempted.
+        marker)    default_msg="marker '${DEPLOYED_CHECK_VALUE}' not found — skipping (deploy the environment first; run.sh creates this file)" ;;
         *)         default_msg="not deployed — skipping (deploy the environment first)" ;;
     esac
     echo "${NOT_DEPLOYED_MSG:-$default_msg}"
