@@ -40,6 +40,26 @@ HOST_PULSE_COOKIE_PATH="${HOST_PULSE_COOKIE_PATH:-~/.config/pulse/cookie}"
 HOST_XAUTHORITY_PATH="${HOST_XAUTHORITY_PATH:-${XAUTHORITY:-$HOME/.Xauthority}}"
 CONTAINER_ENTRYPOINT_COMMAND="${CONTAINER_ENTRYPOINT_COMMAND:-/usr/local/bin/sdr-menu.sh}"
 
+# Desktop entries use this script too, because it is the single source of
+# truth for the host's X11, PulseAudio, USB and persistent-data mounts. GUI
+# applications run as separate, disposable containers: the interactive menu
+# container may already be using CONTAINER_NAME, and a desktop launcher has no
+# terminal to satisfy docker run -it.
+GUI_COMMAND=""
+if [ "${1:-}" = "--gui" ]; then
+    GUI_COMMAND="${2:-}"
+    case "${GUI_COMMAND}" in
+        gqrx|gnuradio-companion) ;;
+        *)
+            echo "Usage: $0 --gui {gqrx|gnuradio-companion}" >&2
+            exit 2
+            ;;
+    esac
+elif [ -n "${1:-}" ]; then
+    echo "Usage: $0 [--gui {gqrx|gnuradio-companion}]" >&2
+    exit 2
+fi
+
 # Persistent volume application configurations
 HOST_CAPTURES_PATH="${HOST_CAPTURES_PATH:-./workspace/captures}"
 HOST_MSF_DATA_PATH="${HOST_MSF_DATA_PATH:-./workspace/msf_data}"
@@ -63,6 +83,44 @@ fi
 echo "[PRE-FLIGHT] Applying Pre-emptive Directory Creation Constraints on volume paths..."
 mkdir -p "${HOST_CAPTURES_PATH}"
 mkdir -p "${HOST_MSF_DATA_PATH}"
+
+if [ -n "${GUI_COMMAND}" ]; then
+    if [ -z "$("${DOCKER}" images -q "${DOCKER_IMAGE_TAG}" 2>/dev/null)" ]; then
+        echo "[FATAL] Docker image '${DOCKER_IMAGE_TAG}' is missing. Deploy DragonOS SDR first." >&2
+        exit 1
+    fi
+
+    GUI_XAUTH_ARGS=()
+    if [ -f "${HOST_XAUTHORITY_PATH}" ]; then
+        GUI_XAUTH_ARGS=(-v "${HOST_XAUTHORITY_PATH}:/root/.Xauthority:ro" -e XAUTHORITY=/root/.Xauthority)
+    else
+        echo "[WARN] No X11 cookie file at ${HOST_XAUTHORITY_PATH}; the host X server may refuse the connection." >&2
+    fi
+
+    GUI_AUDIO_ARGS=()
+    if [ -S "${HOST_PULSE_NATIVE_SOCKET}" ]; then
+        GUI_AUDIO_ARGS=(-e PULSE_SERVER="unix:${HOST_PULSE_NATIVE_SOCKET}" -v "${HOST_PULSE_NATIVE_SOCKET}:${HOST_PULSE_NATIVE_SOCKET}")
+        if [ -f "${HOST_PULSE_COOKIE_PATH}" ]; then
+            GUI_AUDIO_ARGS+=(-v "${HOST_PULSE_COOKIE_PATH}:/root/.config/pulse/cookie:ro")
+        fi
+    else
+        echo "[WARN] No PulseAudio/PipeWire socket at ${HOST_PULSE_NATIVE_SOCKET}; GUI audio may be unavailable." >&2
+    fi
+
+    exec "${DOCKER}" run --rm \
+      --privileged \
+      -v "${HOST_USB_BUS_PATH}:/dev/bus/usb" \
+      -e DISPLAY="${DISPLAY}" \
+      -v "${HOST_X11_UNIX_PATH}:/tmp/.X11-unix" \
+      --net=host \
+      --device "${HOST_SOUND_DEVICE}" \
+      "${GUI_AUDIO_ARGS[@]}" \
+      "${GUI_XAUTH_ARGS[@]}" \
+      -v "${HOST_CAPTURES_PATH}:/workspace/captures" \
+      -v "${HOST_MSF_DATA_PATH}:/workspace/msf_data" \
+      --entrypoint "${GUI_COMMAND}" \
+      "${DOCKER_IMAGE_TAG}"
+fi
 
 POLICY="${REBUILD_POLICY:-FAST}"
 
@@ -216,7 +274,7 @@ if [ -f "${HOST_XAUTHORITY_PATH}" ]; then
     XAUTH_ARGS=(-v "${HOST_XAUTHORITY_PATH}:/root/.Xauthority:ro" -e XAUTHORITY=/root/.Xauthority)
 else
     echo "[WARN] No X11 cookie file at ${HOST_XAUTHORITY_PATH}."
-    echo "       GQRX and GNU Radio (menu tags 2 and 3) will likely be refused by the"
+    echo "       GNU Radio (menu tag 2) will likely be refused by the"
     echo "       host's X server. Either run 'xhost +local:' in the desktop session, or"
     echo "       point HOST_XAUTHORITY_PATH in .env at the real cookie file."
 fi
