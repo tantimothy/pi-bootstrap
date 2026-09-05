@@ -285,8 +285,7 @@ Tool tags run **1-9, then continue A, B, C, ...** rather than going to two-digit
 | Tag | Category | Tool | What it does |
 |:---|:---|:---|:---|
 | **1** | Info | Info | Environment info — data directory paths and useful host-side commands, since the outer `deploy.sh` `INFO` policy isn't reachable once you're attached in here. Colored and paged through `less -r`, like the outer `INFO` screen. |
-| **2** | SDR Receivers | GQRX | Graphical spectrum analyzer — spectrum waterfall, FM/AM/SSB demodulation |
-| **3** | SDR Receivers | GNU Radio Companion | Visual flowgraph editor for signal processing pipelines |
+| **2** | SDR Receivers | GNU Radio Companion | Visual flowgraph editor for signal processing pipelines |
 | **4** | RTL-SDR Utilities | rtl_test | Submenu: dropped-sample check, or oscillator (PPM) error measurement. Deliberately *not* `rtl_test -t`, which is the Elonics E4000 tuner benchmark and aborts on the R820T/R828D tuners these dongles actually use |
 | **5** | RTL-SDR Utilities | rtl_fm | FM/AM/SSB demodulator — prompts for frequency, pipes audio to `aplay` |
 | **6** | RTL-SDR Utilities | rtl_tcp | Network SDR server — exposes the dongle over TCP for remote SDR clients |
@@ -349,9 +348,9 @@ handled automatically:
 
   After that the names show up in the picker and stay stable across reboots.
 
-GQRX (tag 2) and GNU Radio (tag 3) are untouched by this — both have their own
-device selection built in. The HackRF tools (tags 8-A) address different
-hardware entirely.
+GNU Radio (tag 2) is untouched by this — it has its own device selection built
+in. GQRX is launched from its desktop entry rather than the terminal-oriented
+SDR menu. The HackRF tools (tags 8-A) address different hardware entirely.
 
 ---
 
@@ -400,13 +399,20 @@ bash lib/run-install-desktop.sh environments/dragonos-sdr
 
 | Desktop entry | How it opens |
 |:---|:---|
-| **GQRX** | X11 socket passthrough — spectrum waterfall window appears directly on the Pi desktop |
-| **GNU Radio Companion** | X11 socket passthrough — flowgraph editor window on the Pi desktop |
-| **SDR Tools Menu** | Opens in your desktop's default terminal emulator |
+| **GQRX** | `run.sh --gui gqrx` — forwards X11, PulseAudio/PipeWire, USB and the environment's configured data paths |
+| **GNU Radio Companion** | `run.sh --gui gnuradio-companion` — forwards X11, PulseAudio/PipeWire, USB and the environment's configured data paths |
+| **SDR Tools Menu** | Opens `run.sh` in your desktop's default terminal emulator, preserving the same host-device configuration |
 
 The script only registers entries once you've actually launched this environment at least once — `run.sh` records that in a local `.deployed` marker file right before it starts the container. A cached `dragonos-pi` image on its own isn't enough, since an image built for a one-off test can otherwise linger indefinitely. Deploy this environment first, then re-run to install the entries; running `REBUILD_POLICY=TEARDOWN ./run.sh` clears the marker and the next install run removes the entries automatically.
 
-X11 entries use `DISPLAY=:0`, which is correct for a directly connected Pi desktop. For SSH with X forwarding, edit the installed `.desktop` files and replace `:0` with your `$DISPLAY` value.
+The GUI entries load `DISPLAY`, Xauthority, and PulseAudio/PipeWire paths from
+`environments/dragonos-sdr/.env`, with the same defaults as a normal
+deployment. If the host desktop uses different paths, set them there and
+reinstall the desktop entries; do not edit the generated `.desktop` files.
+
+After upgrading an existing deployment, use the **CLEAN** policy once. This
+installs GNU Radio Companion's GTK introspection runtime into the rebuilt image;
+FAST continues to use the old image.
 
 ---
 

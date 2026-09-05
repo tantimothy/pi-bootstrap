@@ -28,6 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     soapysdr-tools \
     libsoapysdr-dev \
     gnuradio \
+    # gnuradio-companion imports Gtk through GObject introspection at startup.
+    # The slim --no-install-recommends install leaves this namespace absent.
+    gir1.2-gtk-3.0 \
     gqrx-sdr \
     # ADS-B Aircraft Tracking (readsb is compiled from source below)
     dump1090-mutability \
@@ -285,10 +288,11 @@ sdr_dev_arg_rtl433() {
 
 # --- Graphical (X11) tools -------------------------------------------------
 #
-# GQRX and GNU Radio Companion are the only X11 applications in this menu, and
-# when they cannot reach a display they print their reason to stderr and exit
-# straight away. Every other entry here pauses before returning to the menu;
-# these two did not, so the loop's own `clear` wiped that reason off the screen
+# GNU Radio Companion is the only X11 application in this menu; GQRX is
+# available from its desktop entry instead. When GNU Radio cannot reach a
+# display it prints its reason to stderr and exits straight away. Every other
+# entry here pauses before returning to the menu; this one did not, so the
+# loop's own `clear` wiped that reason off the screen
 # before it could be read and the menu simply reappeared, looking like nothing
 # had happened at all. Keep the output on screen, and dump the state that
 # actually decides whether an X client in a container can reach the host's
@@ -368,8 +372,7 @@ while true; do
                   info     "[Info]" \
                   1        " └── Environment info: data dirs, useful commands" \
                   recv     "[SDR Receivers]" \
-                  2        " ├── GQRX — Graphical spectrum analyzer / FM/AM/SSB receiver" \
-                  3        " └── GNU Radio — Visual signal processing flowgraph editor" \
+                  2        " └── GNU Radio — Visual signal processing flowgraph editor" \
                   rtlsdr   "[RTL-SDR Utilities]" \
                   4        " ├── rtl_test — Benchmark & verify RTL-SDR dongle" \
                   5        " ├── rtl_fm — FM/AM/SSB demodulator to audio via aplay" \
@@ -437,9 +440,6 @@ Full tool reference and deployment policies (FAST/CLEAN/etc.):
 INFOEOF
       ;;
     2)
-      launch_gui_app gqrx "GQRX"
-      read -p "Press Enter to return to menu..." ;;
-    3)
       launch_gui_app gnuradio-companion "GNU Radio Companion"
       read -p "Press Enter to return to menu..." ;;
     4)
