@@ -366,7 +366,7 @@ unset DIALOG_TEST_SEQUENCE_FILE
 # the 16GB tier's menu.
 catalog_count="$(awk -F '\t' '$0 !~ /^#/ { count++ } END { print count + 0 }' "$ENV_DIR/models.tsv")"
 mac32_count="$(awk -F '\t' '
-    $0 !~ /^#/ && ("," $6 ",") ~ /,mac32,/ { count++ }
+    $0 !~ /^#/ && ("," $7 ",") ~ /,mac32,/ { count++ }
     END { print count + 0 }
 ' "$ENV_DIR/models.tsv")"
 [ "$mac32_count" -eq "$catalog_count" ]
@@ -390,7 +390,7 @@ printf '%s\n' hardware mac16 BACK BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
 "$MANAGER" --pull >/dev/null
 model_menu_log="$(grep 'Recommended for mac16' "$DIALOG_LOG")"
 for model in $(awk -F '\t' '
-    $0 !~ /^#/ && ("," $6 ",") !~ /,mac16,/ { print $1 }
+    $0 !~ /^#/ && ("," $7 ",") !~ /,mac16,/ { print $1 }
 ' "$ENV_DIR/models.tsv"); do
     if grep -q "$model" <<< "$model_menu_log"; then
         echo "Expected $model to be absent from the 16GB tier menu" >&2
@@ -475,5 +475,190 @@ printf 'y\n' | OLLAMA_CMD=missing-ollama PATH="$TMP_DIR:$PATH" \
     /bin/bash "$RUNNER" >"$TMP_DIR/linux-install.out"
 grep -q 'https://ollama.com/install.sh' "$CURL_TEST_LOG"
 grep -q '^systemctl enable --now ollama$' "$PLATFORM_TEST_LOG"
+
+# ---------------------------------------------------------------------------
+# Catalog schema: the active_gb column the speed estimate reads.
+# ---------------------------------------------------------------------------
+# Every non-comment row must carry exactly 9 fields. A row short by one silently
+# shifts `notes` into `uses` and every downstream reader misparses it.
+bad_width="$(awk -F '\t' '$0 !~ /^#/ && NF != 9 { print NR ": " NF " fields" }' "$ENV_DIR/models.tsv")"
+if [ -n "$bad_width" ]; then
+    echo "models.tsv rows with the wrong field count:" >&2
+    echo "$bad_width" >&2
+    exit 1
+fi
+# active_gb must be a positive number, and never larger than the download it is
+# derived from — it is "bytes read per token", which for a dense model equals
+# the weights and for an MoE model is a fraction of them.
+bad_active="$(awk -F '\t' '
+    $0 !~ /^#/ {
+        gb = $3
+        sub(/ .*/, "", gb)
+        if ($3 ~ / MB$/) gb = gb / 1024
+        if ($4 !~ /^[0-9]+\.?[0-9]*$/ || $4 + 0 <= 0 || $4 + 0 > gb + 0.05) print $1 " active_gb=" $4 " disk=" $3
+    }
+' "$ENV_DIR/models.tsv")"
+if [ -n "$bad_active" ]; then
+    echo "models.tsv rows with an implausible active_gb:" >&2
+    echo "$bad_active" >&2
+    exit 1
+fi
+# The two mixture-of-experts rows must actually be discounted, or the estimate
+# they exist for is not happening.
+awk -F '\t' '$1 == "gemma4:26b"     && $4 + 0 < 5 { ok = 1 } END { exit !ok }' "$ENV_DIR/models.tsv"
+awk -F '\t' '$1 == "qwen3-coder:30b" && $4 + 0 < 5 { ok = 1 } END { exit !ok }' "$ENV_DIR/models.tsv"
+
+# ---------------------------------------------------------------------------
+# Host profiling: detected tier and memory bandwidth.
+# ---------------------------------------------------------------------------
+# Tiers are RAM brackets. The thresholds sit below each nominal size because
+# neither platform reports all of it, so the boundary cases are what matter.
+tier_for() {
+    OLLAMA_MANAGER_TOTAL_MIB="$1" OLLAMA_MANAGER_AVAILABLE_MIB="$1" \
+        "$MANAGER" --resources 2>/dev/null | awk '/^   Tier:/ { print $2; exit }'
+}
+[ "$(tier_for 65536)" = "mac32" ]
+[ "$(tier_for 30720)" = "mac32" ]
+[ "$(tier_for 30719)" = "mac16" ]
+[ "$(tier_for 15360)" = "mac16" ]
+[ "$(tier_for 15359)" = "pi8" ]   # Linux under test; a Mac reports mac8 here
+[ "$(tier_for 7168)"  = "pi8" ]
+[ "$(tier_for 7167)"  = "pi4" ]
+[ "$(tier_for 3800)"  = "pi4" ]
+
+# This test host is neither an Apple Silicon Mac nor a Pi, so bandwidth must
+# come back unknown — and unknown must mean "show nothing", never a default
+# number that would look exactly as authoritative as a real one.
+unknown_host_output="$("$MANAGER" --resources 2>/dev/null)"
+grep -q "Bandwidth: unrecognized host" <<< "$unknown_host_output"
+grep -q "OLLAMA_HOST_BANDWIDTH_GBPS" <<< "$unknown_host_output"
+
+known_host_output="$(OLLAMA_HOST_BANDWIDTH_GBPS=300 "$MANAGER" --resources 2>/dev/null)"
+grep -q "Bandwidth: ~300 GB/s" <<< "$known_host_output"
+
+# ---------------------------------------------------------------------------
+# Speed estimates in the pull flow.
+# ---------------------------------------------------------------------------
+: > "$OLLAMA_LOG"
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' hardware pi4 qwen3:1.7b OK > "$DIALOG_TEST_SEQUENCE_FILE"
+OLLAMA_HOST_BANDWIDTH_GBPS=9 "$MANAGER" --pull >/dev/null
+# llama3.2:1b reads 1.3 GB per token, so 9 GB/s is ~7 tok/s: present, labelled,
+# and bracketed as "slow" rather than dressed up as a measurement.
+grep -q 'llama3.2:1b \[FITS\] ≈7 tok/s (slow) |' "$DIALOG_LOG"
+# qwen3:1.7b is the model the sequence above selects: 1.4 GB per token at
+# 9 GB/s is ~6 tok/s.
+grep -q 'Estimated speed: ≈6 tok/s (slow) — a rough figure' "$DIALOG_LOG"
+# An embedding model generates no tokens, so it gets no tok/s figure however
+# fast the arithmetic says it would be.
+grep -q 'nomic-embed-text \[FITS\] embeddings · wiki |' "$DIALOG_LOG"
+unset DIALOG_TEST_SEQUENCE_FILE
+
+# Past ~100 tok/s the bandwidth model stops predicting anything real — it
+# claims well over 200 tok/s for a 1B model on a fast Mac, about double what
+# one does — so it must stop quoting a specific number rather than publish one
+# it cannot support.
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' hardware pi4 BACK BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+OLLAMA_HOST_BANDWIDTH_GBPS=300 "$MANAGER" --pull >/dev/null
+grep -q 'llama3.2:1b \[FITS\] ≈100+ tok/s (fast) |' "$DIALOG_LOG"
+! grep -qE '≈[0-9]{3,} tok/s' "$DIALOG_LOG"
+unset DIALOG_TEST_SEQUENCE_FILE
+
+# Same walk on an unrecognized host: no estimate anywhere, and the summary
+# falls back to exactly the layout it had before speed existed.
+: > "$OLLAMA_LOG"
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' hardware pi4 qwen3:1.7b OK > "$DIALOG_TEST_SEQUENCE_FILE"
+"$MANAGER" --pull >/dev/null
+grep -q 'llama3.2:1b \[FITS\] general · fast |' "$DIALOG_LOG"
+! grep -q 'tok/s' "$DIALOG_LOG"
+! grep -q 'Estimated speed' "$DIALOG_LOG"
+unset DIALOG_TEST_SEQUENCE_FILE
+
+# ---------------------------------------------------------------------------
+# The pull menu leads with the detected tier, and choosing it skips the
+# "classify your own machine" step entirely.
+# ---------------------------------------------------------------------------
+: > "$OLLAMA_LOG"
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' detected llama3.2:1b OK > "$DIALOG_TEST_SEQUENCE_FILE"
+OLLAMA_MANAGER_TOTAL_MIB=3800 OLLAMA_MANAGER_AVAILABLE_MIB=3000 \
+    "$MANAGER" --pull >/dev/null
+grep -q 'detected Recommended for THIS host — detected 4GB Raspberry Pi' "$DIALOG_LOG"
+grep -q 'Recommended for this host (pi4)' "$DIALOG_LOG"
+grep -q '^pull llama3.2:1b$' "$OLLAMA_LOG"
+# A 4GB host must not be offered a 16GB model even though the tier menu still
+# exists for planning other machines.
+! grep -q 'Recommended for this host (pi4).*qwen3:8b' "$DIALOG_LOG"
+unset DIALOG_TEST_SEQUENCE_FILE
+
+# The manual tier list still works, and marks which one this host is.
+: > "$DIALOG_LOG"
+export DIALOG_TEST_SEQUENCE_FILE="$TMP_DIR/dialog-sequence"
+printf '%s\n' hardware BACK BACK > "$DIALOG_TEST_SEQUENCE_FILE"
+OLLAMA_MANAGER_TOTAL_MIB=3800 OLLAMA_MANAGER_AVAILABLE_MIB=3000 \
+    "$MANAGER" --pull >/dev/null
+grep -q 'pi4 Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)  ← this host' "$DIALOG_LOG"
+! grep -q 'mac32 Apple Silicon Mac — 32GB+ .*← this host' "$DIALOG_LOG"
+unset DIALOG_TEST_SEQUENCE_FILE
+
+# ---------------------------------------------------------------------------
+# lib/ollama-lib.sh: the systemd drop-in carrying bind address + tuning.
+# ---------------------------------------------------------------------------
+DROPIN_DIR="$TMP_DIR/dropin"
+mkdir -p "$DROPIN_DIR"
+cat > "$TMP_DIR/fake-sudo" <<'SUDO'
+#!/usr/bin/env bash
+[ "$1" = "systemctl" ] && exit 0
+exec "$@"
+SUDO
+chmod +x "$TMP_DIR/fake-sudo"
+
+(
+    export OLLAMA_SYSTEMD_DROPIN_DIR="$DROPIN_DIR"
+    export OLLAMA_SUDO="$TMP_DIR/fake-sudo"
+    # shellcheck source=/dev/null
+    source "$ENV_DIR/../../lib/ollama-lib.sh"
+
+    OLLAMA_SERVE_HOST=0.0.0.0:11434 OLLAMA_KEEP_ALIVE=2m OLLAMA_NUM_PARALLEL=1 \
+        _ollama_write_systemd_dropin >/dev/null
+    grep -q 'Environment="OLLAMA_HOST=0.0.0.0:11434"' "$DROPIN_DIR/pi-bootstrap.conf"
+    grep -q 'Environment="OLLAMA_KEEP_ALIVE=2m"' "$DROPIN_DIR/pi-bootstrap.conf"
+    grep -q 'Environment="OLLAMA_NUM_PARALLEL=1"' "$DROPIN_DIR/pi-bootstrap.conf"
+    # Not set, so it must not appear — a drop-in listing a value nobody
+    # configured is the stale state this file exists to avoid.
+    ! grep -q 'OLLAMA_MAX_LOADED_MODELS' "$DROPIN_DIR/pi-bootstrap.conf"
+
+    # A drop-in written by an older version of this library is superseded, not
+    # left behind applying a bind address .env no longer sets.
+    touch "$DROPIN_DIR/pi-bootstrap-bind.conf"
+    OLLAMA_SERVE_HOST=0.0.0.0:11434 _ollama_write_systemd_dropin >/dev/null
+    [ ! -f "$DROPIN_DIR/pi-bootstrap-bind.conf" ]
+
+    # Nothing configured REMOVES the file rather than skipping the write.
+    unset OLLAMA_SERVE_HOST OLLAMA_KEEP_ALIVE OLLAMA_NUM_PARALLEL OLLAMA_MAX_LOADED_MODELS
+    _ollama_write_systemd_dropin >/dev/null
+    [ ! -f "$DROPIN_DIR/pi-bootstrap.conf" ]
+
+    # And is silent when there was nothing to remove.
+    [ -z "$(_ollama_write_systemd_dropin)" ]
+
+    # Neither helper may report failure just because the LAST tuning key is
+    # unset — that would abort any caller running under `set -e`, which is most
+    # of them.
+    ollama_resolve_tuning
+    ollama_tuning_pairs >/dev/null
+
+    # Values already in the environment win over the .env file.
+    OLLAMA_KEEP_ALIVE=99m
+    ollama_resolve_tuning
+    [ "$OLLAMA_KEEP_ALIVE" = "99m" ]
+    [ "$(ollama_tuning_pairs)" = "OLLAMA_KEEP_ALIVE=99m" ]
+)
 
 echo "✅ Ollama model manager tests passed"

@@ -46,10 +46,19 @@ Two rows would especially benefit from a real measurement:
 `gemma4:26b` (4B active), `qwen3-coder:30b` (3.3B active), and `gpt-oss:20b`
 are MoE models: all experts must be resident, but only a fraction are active
 per token. The catalog sizes them by resident weights, which is the safe
-direction for a fit assessment, but it says nothing about the speed the
-operator will actually see. If MoE rows prove much faster than their dense
-neighbors of the same footprint, the `notes` column is where that belongs —
-the fit columns should stay conservative.
+direction for a fit assessment.
+
+Speed is now modelled separately rather than left unsaid: `models.tsv` carries
+an `active_gb` column (bytes read per generated token) and the pull menu shows
+an estimated tok/s from it. The fit columns stayed conservative, as they should
+have. Two things are still open here:
+
+- `gpt-oss:20b` is named as MoE in this section but states no active-parameter
+  ratio in its own `notes`, so `active_gb` leaves it dense and its speed
+  estimate is pessimistic. Adding the ratio to that row's notes fixes it.
+- The estimates themselves are unmeasured. See
+  [`ollama-speed-estimates.md`](ollama-speed-estimates.md), which also records
+  that §1's MLX claim, if true, halves the error in every `mac32` estimate.
 
 ## 4. Tag stability
 

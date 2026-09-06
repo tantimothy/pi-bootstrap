@@ -99,6 +99,86 @@ native dialog selector scrolls through the list and sorts it by live assessment
 hardware tiers filter out models whose projected working set is not practical
 for that class.
 
+### Which tier you are, without being asked
+
+The pull menu leads with **Recommended for THIS host**, resolved from measured
+RAM rather than from an operator classifying their own machine. The manual tier
+list is still there below it — useful for planning a machine you are not
+sitting at — and marks the detected tier with `← this host`.
+
+Tiers are really RAM brackets. The `mac8` and `pi8` tiers list a byte-for-byte
+identical set of models, so above 8GB the mac/pi half of the name is a label
+rather than a decision; below it, `pi4` is the only tier a 4GB host can use
+whatever that host is. `Show host RAM, CPU, disk, and loaded models` reports the
+detected tier alongside the RAM it was derived from.
+
+### Speed estimates
+
+"Does it fit" and "can I use it" are different questions, and until recently
+only the first was answered. The identical `mac8`/`pi8` membership above is
+exactly where that hurt: an 8GB M2 runs `qwen3:4b` at conversational speed and
+an 8GB Pi 5 runs the same model at walking pace, and nothing in the menu said
+so.
+
+Token generation is memory-bandwidth bound — every generated token reads the
+active weights once — so the catalog carries an `active_gb` column (gigabytes
+read per token) and the menu divides the host's memory bandwidth by it:
+
+```
+[FITS] ≈27 tok/s (fast) | general · wiki | RAM 2.5 GiB–4.0 GiB
+```
+
+Four things about these numbers, all of which they say for themselves on screen:
+
+- **They are estimates, never measurements.** They are labelled as such in the
+  menu and spelled out in the pull confirmation.
+- **They never change the verdict.** `FITS`/`CAUTION`/`EXCEEDS` remains a pure
+  RAM judgement; speed is shown beside it, not folded into it.
+- **An unrecognized host shows no estimate at all** rather than a default that
+  would look just as authoritative as a real one. Set
+  `OLLAMA_HOST_BANDWIDTH_GBPS` to that machine's effective memory bandwidth in
+  GB/s to switch them on. Recognized today: Apple Silicon M1–M4 (base/Pro/Max/
+  Ultra) and Raspberry Pi 4/5.
+- **`active_gb` is conservative.** It equals the download size for a dense
+  model, and is discounted only for a model whose own catalog notes state an
+  active-parameter count. Anything else is left dense, which understates its
+  speed rather than inventing a number for it.
+
+Two cases deliberately show no number at all, because one would be worse than
+none: **embedding models**, which generate no tokens (`nomic-embed-text`), and
+anything **past 100 tok/s**, where per-token overhead rather than bandwidth is
+the real limit and the formula starts over-predicting badly — a 1B model on an
+M1 Max computes to ~230 tok/s against a real figure around half that. Those
+read `≈100+ tok/s (fast)`, which is the honest content of any number up there.
+
+See [`docs/future-enhancements/ollama-speed-estimates.md`](../../docs/future-enhancements/ollama-speed-estimates.md)
+for what replacing the bandwidth table with measurements would take.
+
+### Runtime tuning (`OLLAMA_KEEP_ALIVE` and friends)
+
+One daemon serves every AI environment here at once, on hosts as small as a 4GB
+Pi, and Ollama's own defaults assume a machine with room to spare. Three
+settings in `.env` decide how much RAM it holds onto:
+
+| Setting | What it does | Suggested on 4–8GB |
+|---|---|---|
+| `OLLAMA_KEEP_ALIVE` | How long an idle model stays resident (default `5m`) | `30s`–`2m` |
+| `OLLAMA_MAX_LOADED_MODELS` | How many different models may be resident at once | `1` |
+| `OLLAMA_NUM_PARALLEL` | Concurrent requests per model, each costing its own KV cache | `1` |
+
+They are applied by whichever mechanism the host uses — the launchd session on
+macOS, a systemd drop-in on Linux, the process environment for a bare
+`ollama serve` — and take effect **on the next daemon start**. A FAST deploy
+that finds Ollama already healthy leaves it running and says so; use STOP then
+FAST, or CLEAN, to restart it with changed values.
+
+Unlike the bind address, there is no way to read back what a running daemon
+started with, so nothing can detect drift for you. What the repo does guarantee
+is that it never leaves a stale override behind: the Linux drop-in
+(`ollama.service.d/pi-bootstrap.conf`) is rewritten in full on every deploy and
+*removed* when nothing is configured, and macOS `launchctl unsetenv`s any
+setting `.env` no longer carries.
+
 ### Why 32GB is its own tier
 
 A 32GB Mac is not just "16GB with more headroom" here. Ollama 0.19 replaced its

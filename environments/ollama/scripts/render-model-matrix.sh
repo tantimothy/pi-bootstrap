@@ -37,9 +37,9 @@ BEGIN {
 $0 !~ /^#/ {
     count++
     model[count] = $1
-    model_hardware[count] = $6
-    model_uses[count] = $7
-    model_notes[count] = $8
+    model_hardware[count] = $7
+    model_uses[count] = $8
+    model_notes[count] = $9
     if (("," model_hardware[count] ",") ~ /,pi4,/) {
         model_tier[count] = 1
     } else if (("," model_hardware[count] ",") ~ /,(mac8|pi8),/) {

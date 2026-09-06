@@ -256,6 +256,145 @@ _fit_status() {
     fi
 }
 
+# ---------------------------------------------------------------------------------------
+# Speed, which RAM alone cannot tell you.
+#
+# The fit assessment above answers "does it fit", and for a long time that was
+# the only question this menu answered. It is not the same question as "can I
+# use this". The catalog itself shows why: the mac8 and pi8 hardware tiers have
+# byte-for-byte identical membership, because both are "8 GB". An 8 GB M2 runs
+# qwen3:4b at conversational speed; an 8 GB Pi 5 runs the same model at walking
+# pace, and nothing in the menu said so.
+#
+# Token generation is memory-bandwidth bound: every generated token reads the
+# active weights once, so tokens/second ≈ memory bandwidth ÷ active weight
+# bytes. That first-order model is what the estimates here use — it is coarse,
+# but it separates "fast", "usable" and "don't bother" on the hosts this repo
+# targets, which is the distinction the menu was missing.
+#
+# It is an ESTIMATE, labelled as one everywhere it is shown, and it never
+# changes the FITS/CAUTION/EXCEEDS verdict — that stays a pure RAM judgement.
+# See docs/future-enhancements/ollama-speed-estimates.md for what replacing
+# these with measurements would take.
+# ---------------------------------------------------------------------------------------
+
+# Effective (not theoretical) memory bandwidth in GB/s. Roughly 80% of the
+# published figure, which is about what a real inference run achieves.
+#
+# An UNRECOGNISED host returns nothing, and every caller then shows no estimate
+# at all rather than a made-up one — a wrong number here would be worse than no
+# number, because it would look just as authoritative as a right one. Set
+# OLLAMA_HOST_BANDWIDTH_GBPS to teach it a host it does not know.
+_host_bandwidth_gbps() {
+    if [ -n "${OLLAMA_HOST_BANDWIDTH_GBPS:-}" ]; then
+        printf '%s\n' "$OLLAMA_HOST_BANDWIDTH_GBPS"
+        return 0
+    fi
+    local chip=""
+    case "$(uname -s)" in
+        Darwin)
+            chip="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
+            case "$chip" in
+                *"M1 Ultra"*|*"M2 Ultra"*|*"M3 Ultra"*) echo 600 ;;
+                *"M1 Max"*|*"M2 Max"*|*"M3 Max"*)       echo 300 ;;
+                *"M4 Max"*)                             echo 437 ;;
+                *"M1 Pro"*|*"M2 Pro"*)                  echo 160 ;;
+                *"M3 Pro"*)                             echo 120 ;;
+                *"M4 Pro"*)                             echo 218 ;;
+                *"M1"*)                                 echo 55 ;;
+                *"M2"*|*"M3"*)                          echo 80 ;;
+                *"M4"*)                                 echo 96 ;;
+            esac
+            ;;
+        Linux)
+            # /proc/device-tree/model is the Pi's own self-description and is
+            # NUL-terminated, hence the tr. /proc/cpuinfo's "Model" line is the
+            # same string on Raspberry Pi OS and covers kernels without a
+            # device tree exposed.
+            if [ -r /proc/device-tree/model ]; then
+                chip="$(tr -d '\000' < /proc/device-tree/model 2>/dev/null || true)"
+            fi
+            [ -z "$chip" ] && chip="$(awk -F': ' '/^Model/ { print $2; exit }' /proc/cpuinfo 2>/dev/null || true)"
+            case "$chip" in
+                *"Raspberry Pi 5"*) echo 9 ;;
+                *"Raspberry Pi 4"*) echo 4 ;;
+            esac
+            ;;
+    esac
+}
+
+# "≈27 tok/s (fast)" for a model reading $1 GB per token whose use cases are
+# $2, or nothing at all when a figure would be meaningless or invented.
+_speed_estimate() {
+    local active_gb="$1" uses="${2:-}" bw
+    bw="$(_host_bandwidth_gbps)"
+    [ -n "$bw" ] || return 0
+    [ -n "$active_gb" ] || return 0
+    # An embedding model does not generate tokens, so tokens/second says
+    # nothing about it. nomic-embed-text is small enough that the arithmetic
+    # produces a spectacular number, which is exactly the kind of confident
+    # nonsense that costs a reader their trust in the other rows.
+    case ",$uses," in *,embeddings,*) return 0 ;; esac
+    awk -v bw="$bw" -v gb="$active_gb" 'BEGIN {
+        if (gb <= 0) exit
+        t = bw / gb
+        if (t >= 20)     label = "fast"
+        else if (t >= 8) label = "usable"
+        else if (t >= 3) label = "slow"
+        else             label = "very slow"
+        # Bandwidth alone stops predicting anything useful once a model is
+        # small enough that per-token overhead, not weight reads, is the
+        # limit: the formula happily claims 230 tok/s for a 1B model on an
+        # M1 Max, roughly double what one actually does. Rather than pretend
+        # to a precision this model does not have at the small end, say
+        # "past the point where it matters" — which is the honest content of
+        # any number up there anyway.
+        if (t >= 100) { printf "≈100+ tok/s (%s)\n", label; exit }
+        printf "≈%d tok/s (%s)\n", (t < 1 ? 1 : t + 0.5), label
+    }'
+}
+
+# Which catalog hardware tier this host actually is, so the pull menu can lead
+# with it instead of asking the operator to classify their own machine.
+#
+# Tiers are really RAM brackets: mac8 and pi8 list an identical set of models,
+# so above 8 GB the mac/pi half of the name is a label rather than a decision.
+# Below it, `pi4` is the only tier a 4 GB host can use, whatever it is.
+_detect_hardware_tier() {
+    DETECTED_TIER=""
+    _ram_values
+    [ -n "${RAM_TOTAL_MIB:-}" ] || return 1
+    # Thresholds sit below the nominal size because neither platform reports
+    # all of it: a "8 GB" Pi reports ~7.8 GiB of MemTotal once the GPU and
+    # firmware have taken their share.
+    if [ "$RAM_TOTAL_MIB" -ge 30720 ]; then
+        DETECTED_TIER="mac32"
+    elif [ "$RAM_TOTAL_MIB" -ge 15360 ]; then
+        DETECTED_TIER="mac16"
+    elif [ "$RAM_TOTAL_MIB" -ge 7168 ]; then
+        if [ "$(uname -s)" = "Darwin" ]; then DETECTED_TIER="mac8"; else DETECTED_TIER="pi8"; fi
+    else
+        DETECTED_TIER="pi4"
+    fi
+}
+
+_tier_label() {
+    case "$1" in
+        mac32) printf '%s\n' "32GB+ Apple Silicon Mac" ;;
+        mac16) printf '%s\n' "16GB Apple Silicon Mac" ;;
+        mac8)  printf '%s\n' "8GB Apple Silicon Mac" ;;
+        pi8)   printf '%s\n' "8GB Raspberry Pi (CPU inference)" ;;
+        pi4)   printf '%s\n' "4GB Raspberry Pi (small models only)" ;;
+        *)     printf '%s\n' "$1" ;;
+    esac
+}
+
+# " ← this host" for the detected tier, empty for the others.
+_tier_marker() {
+    [ "${DETECTED_TIER:-}" = "$1" ] && printf '%s' "  ← this host"
+    return 0
+}
+
 show_resources() {
     _ram_values
     echo "🖥️  Host Resources"
@@ -272,6 +411,19 @@ show_resources() {
     fi
     echo "   Pressure:  $(_pressure_summary)"
     echo "   CPU:       $(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo unknown) logical cores"
+    local bandwidth
+    bandwidth="$(_host_bandwidth_gbps)"
+    if [ -n "$bandwidth" ]; then
+        echo "   Bandwidth: ~${bandwidth} GB/s effective memory bandwidth (estimate; sets the tok/s ceiling)"
+    else
+        echo "   Bandwidth: unrecognized host — no speed estimates will be shown."
+        echo "              Set OLLAMA_HOST_BANDWIDTH_GBPS to this machine's effective"
+        echo "              memory bandwidth in GB/s to enable them."
+    fi
+    _detect_hardware_tier
+    if [ -n "$DETECTED_TIER" ]; then
+        echo "   Tier:      $DETECTED_TIER — $(_tier_label "$DETECTED_TIER")"
+    fi
     echo ""
     echo "💽 Storage for Ollama models"
     if [ -d "$HOME/.ollama" ]; then
@@ -446,6 +598,7 @@ _catalog_menu_for_filter() {
     local model
     local display_name
     local disk_size
+    local active_gb
     local ram_min
     local ram_max
     local hardware
@@ -457,12 +610,13 @@ _catalog_menu_for_filter() {
     local priority
     local summary
     local use_summary
+    local speed
     local sorted_rows=()
     local items=()
 
     _ram_values
     _memory_pressure_values
-    while IFS=$'\t' read -r model display_name disk_size ram_min ram_max hardware uses notes; do
+    while IFS=$'\t' read -r model display_name disk_size active_gb ram_min ram_max hardware uses notes; do
         [ -n "$model" ] || continue
         case "$model" in \#*) continue ;; esac
         if [ "$filter_column" = "hardware" ]; then
@@ -483,7 +637,14 @@ _catalog_menu_for_filter() {
                     *) priority=4 ;;
                 esac
                 use_summary="${uses//,/ · }"
-                summary="[$fit_label] $use_summary | RAM $(_format_gib "$ram_min")–$(_format_gib "$ram_max")"
+                # Speed goes immediately after the fit verdict because it is
+                # the other half of the same decision, and empty on a host
+                # whose bandwidth is unknown rather than filled with a guess.
+                speed="$(_speed_estimate "$active_gb" "$uses")"
+                summary="[$fit_label]${speed:+ $speed |} $use_summary | RAM $(_format_gib "$ram_min")–$(_format_gib "$ram_max")"
+                # Sort stays fit-then-smallest-first. Within one fit verdict,
+                # ascending RAM is already descending speed — the two orders
+                # agree, so adding speed as a sort key would only reorder ties.
                 sorted_rows+=("$priority"$'\t'"$ram_min"$'\t'"$model"$'\t'"$summary"$'\t'"$notes")
                 ;;
         esac
@@ -514,12 +675,15 @@ _pull_selected_model() {
     local row
     local display_name
     local disk_size
+    local active_gb
     local ram_min
     local ram_max
     local hardware
     local uses
     local notes
     local fit
+    local speed
+    local speed_line
     local total_text="unavailable"
     local available_text="unavailable"
     local pressure_text
@@ -530,12 +694,22 @@ _pull_selected_model() {
         echo "❌ '$model' is not in $CATALOG_FILE." >&2
         return 1
     fi
-    IFS=$'\t' read -r model display_name disk_size ram_min ram_max hardware uses notes <<< "$row"
+    IFS=$'\t' read -r model display_name disk_size active_gb ram_min ram_max hardware uses notes <<< "$row"
     _ram_values
     [ -n "${RAM_TOTAL_MIB:-}" ] && total_text="$(_format_gib "$RAM_TOTAL_MIB")"
     [ -n "${RAM_AVAILABLE_MIB:-}" ] && available_text="$(_format_gib "$RAM_AVAILABLE_MIB")"
     pressure_text="$(_pressure_summary)"
     fit="$(_fit_status "$ram_min" "$ram_max")"
+
+    # Built as its own variable rather than inline as ${speed:+...}: inside that
+    # expansion bash still processes quotes, so the apostrophe in "host's" would
+    # open a quoted section and swallow the rest of the script.
+    speed="$(_speed_estimate "$active_gb" "$uses")"
+    speed_line=""
+    if [ -n "$speed" ]; then
+        speed_line="
+Estimated speed: $speed — a rough figure from this host's memory bandwidth, not a measurement"
+    fi
 
     _confirm "Pull $display_name" \
 "Model: $model
@@ -546,7 +720,7 @@ Projected working RAM: $(_format_gib "$ram_min")–$(_format_gib "$ram_max")
 Host RAM total: $total_text
 Host RAM available now: $available_text
 Host memory pressure: $pressure_text
-Assessment: $fit
+Assessment: $fit$speed_line
 
 Pull this model? (Pulling downloads it but does not load it into RAM.)"
     status=$?
@@ -560,27 +734,55 @@ _choose_and_pull_model() {
     local browse
     local category
     local status
+    local top_items=()
+
+    # Lead with the tier this host actually is. Asking an operator to classify
+    # their own machine as "mac16" or "pi8" is asking them for something the
+    # script can measure — and getting it wrong silently shows them a list of
+    # models their hardware cannot run. The manual tiers stay available below
+    # for planning a machine you are not sitting at.
+    _detect_hardware_tier
+    if [ -n "$DETECTED_TIER" ]; then
+        top_items+=("detected" "Recommended for THIS host — detected $(_tier_label "$DETECTED_TIER")")
+    fi
+    top_items+=("hardware" "Hardware tier (RAM/device classification)")
+    top_items+=("use" "Suggested use (wiki, general chat, coding, reasoning, etc.)")
+    top_items+=("all" "All catalogued models")
 
     while true; do
         _dialog_menu "Pull a Recommended Model" \
             "Browse the article-derived recommendations by hardware or suggested use:" \
-            "hardware" "Hardware tier (RAM/device classification)" \
-            "use" "Suggested use (wiki, general chat, coding, reasoning, etc.)" \
-            "all" "All catalogued models"
+            "${top_items[@]}"
         status=$?
         [ "$status" -eq 0 ] || return "$status"
         browse="$DIALOG_CHOICE"
 
         case "$browse" in
+            detected)
+                while true; do
+                    _catalog_menu_for_filter "hardware" "$DETECTED_TIER" \
+                        "Recommended for this host ($DETECTED_TIER)" \
+                        "Select a model. RAM ranges include weights, runtime overhead, and a modest context:"
+                    status=$?
+                    [ "$status" -eq "$MENU_BACK_STATUS" ] && break
+                    [ "$status" -eq 0 ] || return "$status"
+                    _pull_selected_model "$SELECTED_MODEL"
+                    status=$?
+                    [ "$status" -eq "$MENU_BACK_STATUS" ] && continue
+                    return "$status"
+                done
+                ;;
             hardware)
                 while true; do
+                    local tier_items=()
+                    tier_items+=("mac32" "Apple Silicon Mac — 32GB+ (all catalog models; scroll for more)$(_tier_marker mac32)")
+                    tier_items+=("mac16" "Apple Silicon Mac — 16GB unified memory$(_tier_marker mac16)")
+                    tier_items+=("mac8" "Apple Silicon Mac — 8GB unified memory$(_tier_marker mac8)")
+                    tier_items+=("pi8" "Raspberry Pi 4/5 — 8GB RAM (CPU inference)$(_tier_marker pi8)")
+                    tier_items+=("pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)$(_tier_marker pi4)")
                     _dialog_menu "Choose Hardware Tier" \
                         "Select the host class. RAM is checked live again before pull:" \
-                        "mac32" "Apple Silicon Mac — 32GB+ (all catalog models; scroll for more)" \
-                        "mac16" "Apple Silicon Mac — 16GB unified memory" \
-                        "mac8" "Apple Silicon Mac — 8GB unified memory" \
-                        "pi8" "Raspberry Pi 4/5 — 8GB RAM (CPU inference)" \
-                        "pi4" "Raspberry Pi 4/5 — 4GB RAM (small/stretch models only)"
+                        "${tier_items[@]}"
                     status=$?
                     [ "$status" -eq "$MENU_BACK_STATUS" ] && break
                     [ "$status" -eq 0 ] || return "$status"
