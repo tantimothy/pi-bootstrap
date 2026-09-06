@@ -102,7 +102,24 @@ a long-context model far more than decode rate does. The catalog's
 figure alone. A second, separate figure would be honest; folding prefill into
 the existing one would not.
 
-### 6. Quantization is not selectable
+### 6. Per-model context tuning is advice, not configuration
+
+Several catalog rows carry context guidance in prose that nothing enforces:
+"keep context short", "the 4GB Pi tier is a stretch with short contexts only",
+"keep context modest for headroom". Meanwhile the same rows advertise 128K and
+256K context windows, and a consumer that asks for one gets it — the daemon
+tuning added alongside these estimates governs how many models stay resident,
+not how much context each is allowed.
+
+Making that real means a per-model, per-tier `num_ctx`, which in Ollama means
+generating a `Modelfile` and creating a derived tag at pull time. That is a
+larger change than it sounds: it puts a repo-generated artifact between the
+operator and the upstream tag, and this repo has learned twice over what a
+generated artifact nobody rebuilds costs (see `CLAUDE.md` on version-marked
+patches and derived images). It should not be built until someone actually
+wants it.
+
+### 7. Quantization is not selectable
 
 `models.tsv` pins one tag per model, so `active_gb` describes whatever
 quantization that tag currently resolves to. An operator who wants `q8_0` on a
