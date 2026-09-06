@@ -94,14 +94,128 @@ ollama_ensure_path
 # executing another environment's .env to pull one value is a much larger
 # action than reading one. Anything already set wins, so an explicit
 # OLLAMA_SERVE_HOST on the command line still overrides the file.
-ollama_resolve_serve_host() {
-    local f="${_OLLAMA_LIB_REPO_DIR}/environments/ollama/.env"
-    [ -n "${OLLAMA_SERVE_HOST:-}" ] && return 0
-    OLLAMA_SERVE_HOST=""
+_ollama_env_value() {
+    local key="$1" f="${_OLLAMA_LIB_REPO_DIR}/environments/ollama/.env"
     [ -f "$f" ] || return 0
-    OLLAMA_SERVE_HOST="$(grep -E '^[[:space:]]*OLLAMA_SERVE_HOST=' "$f" 2>/dev/null \
-        | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    grep -E "^[[:space:]]*${key}=" "$f" 2>/dev/null \
+        | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" \
+        | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+ollama_resolve_serve_host() {
+    [ -n "${OLLAMA_SERVE_HOST:-}" ] && return 0
+    OLLAMA_SERVE_HOST="$(_ollama_env_value OLLAMA_SERVE_HOST)"
     OLLAMA_SERVE_HOST="${OLLAMA_SERVE_HOST:-}"
+}
+
+# ---------------------------------------------------------------------------------------
+# Runtime tuning — the settings that decide how much RAM the daemon holds onto.
+#
+# These matter far more here than on a workstation, because this repo runs ONE
+# daemon shared by several consumers at once (mnemon embeddings, a chat
+# frontend, a gateway) on hosts as small as a 4GB Pi. Ollama's defaults are
+# tuned for a machine with room to spare:
+#
+#   OLLAMA_KEEP_ALIVE         how long an idle model stays resident. Default 5m.
+#                             On a 4GB Pi, five minutes of an idle 2.5GB model
+#                             pinned in RAM is the difference between the next
+#                             consumer working and the host swapping.
+#   OLLAMA_MAX_LOADED_MODELS  how many models may be resident at once. Several
+#                             consumers asking for different models is the
+#                             normal case here, not the exceptional one.
+#   OLLAMA_NUM_PARALLEL       concurrent requests per model. Each one costs its
+#                             own KV cache on top of the weights.
+#
+# Same single-source-of-truth rule as the bind address: the value lives in the
+# `ollama` environment's .env, and every caller reads it from there rather than
+# keeping a copy. Anything already set in the environment still wins.
+# ---------------------------------------------------------------------------------------
+OLLAMA_TUNING_KEYS="OLLAMA_KEEP_ALIVE OLLAMA_MAX_LOADED_MODELS OLLAMA_NUM_PARALLEL"
+
+# A literal newline, for building multi-line strings without a $'...' literal
+# inside an already heavily-quoted printf.
+_OLLAMA_NL='
+'
+
+ollama_resolve_tuning() {
+    local key value
+    for key in $OLLAMA_TUNING_KEYS; do
+        # Indirect expansion rather than eval: these names come from the
+        # constant above, but the VALUES come from a file, and eval would
+        # execute them. ${!key} is bash 3.2-safe.
+        value="${!key:-}"
+        [ -n "$value" ] && continue
+        value="$(_ollama_env_value "$key")"
+        [ -n "$value" ] && export "$key=$value"
+    done
+    # Explicit, because the loop's last statement is a test that is FALSE
+    # whenever the last key happens to be unset — which would make this
+    # function "fail" and abort any caller running under `set -e`.
+    return 0
+}
+
+# The tuning settings that actually have a value, as `KEY=VALUE` lines.
+ollama_tuning_pairs() {
+    local key value
+    for key in $OLLAMA_TUNING_KEYS; do
+        value="${!key:-}"
+        [ -n "$value" ] && printf '%s=%s\n' "$key" "$value"
+    done
+    return 0
+}
+
+# ---------------------------------------------------------------------------------------
+# The systemd drop-in that carries every setting this repo manages for the
+# daemon: the bind address and the tuning settings above.
+#
+# One file for all of them, rewritten in full on every deploy, because the
+# alternative — a file per setting, written only when that setting is set — is
+# the stale-patch failure this repo keeps re-learning. A drop-in nobody removes
+# goes on applying a value that .env no longer contains, and there is nothing on
+# the host to point at why: `systemctl show ollama` reports the value, .env
+# doesn't have it, and the two never get connected.
+#
+# So the empty case REMOVES the file rather than skipping the write, and the
+# single-purpose file an older version of this library wrote is removed
+# alongside it.
+# ---------------------------------------------------------------------------------------
+_ollama_write_systemd_dropin() {
+    local dir="${OLLAMA_SYSTEMD_DROPIN_DIR:-/etc/systemd/system/ollama.service.d}"
+    local sudo_cmd="${OLLAMA_SUDO:-sudo}"
+    local conf="$dir/pi-bootstrap.conf"
+    local legacy="$dir/pi-bootstrap-bind.conf"
+    local body="" pair
+
+    [ -n "${OLLAMA_SERVE_HOST:-}" ] &&
+        body="${body}Environment=\"OLLAMA_HOST=${OLLAMA_SERVE_HOST}\"${_OLLAMA_NL}"
+    while IFS= read -r pair; do
+        [ -n "$pair" ] || continue
+        body="${body}Environment=\"${pair}\"${_OLLAMA_NL}"
+    done <<OLLAMA_TUNING
+$(ollama_tuning_pairs)
+OLLAMA_TUNING
+
+    if [ -z "$body" ]; then
+        if [ -f "$conf" ] || [ -f "$legacy" ]; then
+            $sudo_cmd rm -f "$conf" "$legacy" 2>/dev/null || true
+            $sudo_cmd systemctl daemon-reload 2>/dev/null || true
+            echo "🔧 Removed the pi-bootstrap systemd drop-in — nothing is configured to override."
+        fi
+        return 0
+    fi
+
+    if $sudo_cmd mkdir -p "$dir" 2>/dev/null &&
+       printf '# Managed by pi-bootstrap — rewritten on every deploy.\n[Service]\n%s' "$body" \
+           | $sudo_cmd tee "$conf" >/dev/null 2>&1; then
+        $sudo_cmd rm -f "$legacy" 2>/dev/null || true
+        $sudo_cmd systemctl daemon-reload 2>/dev/null || true
+        echo "🔧 Applied via a systemd drop-in (ollama.service.d/pi-bootstrap.conf):"
+        printf '%s' "$body" | sed -e 's/^Environment="/     /' -e 's/"$//'
+    else
+        echo "⚠️  Couldn't write the systemd drop-in — is sudo available?" >&2
+        echo "   Apply it by hand:  sudo systemctl edit ollama" >&2
+        printf '%s' "$body" | sed 's/^/   adding:            /' >&2
+    fi
 }
 
 # ---------------------------------------------------------------------------------------
@@ -296,6 +410,7 @@ ollama_start() {
     # Every caller gets the same bind address without having to know where it
     # lives, and without keeping its own copy of it.
     ollama_resolve_serve_host
+    ollama_resolve_tuning
 
     if ollama_healthy "$probe_url"; then
         # Already running — but "running" is not the same as "running the way
@@ -312,6 +427,19 @@ ollama_start() {
         # there is nothing to compare against and a running daemon is left
         # strictly alone.
         if [ -z "${OLLAMA_SERVE_HOST:-}" ] || ollama_binding_satisfies_serve_host; then
+            # The bind address can be checked against reality — the listeners
+            # say what it is. The tuning settings cannot: Ollama exposes no API
+            # that reports the keep-alive or model-slot limits it started with,
+            # so there is nothing to compare a configured value against and no
+            # way to tell "already applied" from "set after this daemon
+            # started". Restarting a healthy shared daemon on the CHANCE that a
+            # setting drifted would interrupt every consumer of it, so say what
+            # is true and leave it running.
+            if [ -n "$(ollama_tuning_pairs)" ]; then
+                echo "ℹ️  Ollama is already running; its tuning settings are whatever it started with."
+                ollama_tuning_pairs | sed 's/^/     configured: /'
+                echo "     Run this environment's STOP then FAST (or CLEAN) to restart it with these."
+            fi
             return 0
         fi
         echo "♻️  Ollama is running, but not bound as configured (OLLAMA_SERVE_HOST=${OLLAMA_SERVE_HOST})."
@@ -321,15 +449,31 @@ ollama_start() {
         sleep 2
     fi
 
-    if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
-        # brew services and Ollama.app both launch via launchd, which does not
-        # inherit this shell's environment — launchctl's session environment is
-        # the only supported way to reach them. This is Ollama's own documented
-        # macOS procedure. It is session-wide, hence announced rather than silent.
-        if [[ "$(uname)" == "Darwin" ]]; then
+    # brew services and Ollama.app both launch via launchd, which does not
+    # inherit this shell's environment — launchctl's session environment is the
+    # only supported way to reach them. This is Ollama's own documented macOS
+    # procedure. It is session-wide, hence announced rather than silent.
+    if [[ "$(uname)" == "Darwin" ]]; then
+        if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
             echo "🔧 Setting OLLAMA_HOST=${OLLAMA_SERVE_HOST} in the launchd session so Ollama binds there."
             launchctl setenv OLLAMA_HOST "$OLLAMA_SERVE_HOST" 2>/dev/null || true
         fi
+        # unsetenv for anything NOT configured, not just setenv for what is.
+        # launchctl's session environment outlives this script and every deploy
+        # that set it: without the unset, commenting a value out of .env would
+        # leave the old one applying to every future launchd-started daemon,
+        # with nothing on the host pointing at why. That is the same stale-state
+        # trap as a systemd drop-in nobody removes.
+        local key value
+        for key in $OLLAMA_TUNING_KEYS; do
+            value="${!key:-}"
+            if [ -n "$value" ]; then
+                echo "🔧 Setting ${key}=${value} in the launchd session."
+                launchctl setenv "$key" "$value" 2>/dev/null || true
+            else
+                launchctl unsetenv "$key" 2>/dev/null || true
+            fi
+        done
     fi
 
     case "$(uname -s)" in
@@ -389,21 +533,9 @@ ollama_start() {
                 # survives package upgrades: a drop-in. So on a Pi the bind
                 # address is applied properly rather than falling back to an
                 # unsupervised daemon — the unit keeps restart-on-crash, and
-                # this file is rewritten from the current value on every deploy,
-                # so it cannot go stale the way a hand-edit would.
-                if [ -n "${OLLAMA_SERVE_HOST:-}" ]; then
-                    if sudo mkdir -p /etc/systemd/system/ollama.service.d 2>/dev/null &&
-                       printf '# Managed by pi-bootstrap — rewritten on every deploy.\n[Service]\nEnvironment="OLLAMA_HOST=%s"\n' \
-                            "$OLLAMA_SERVE_HOST" \
-                            | sudo tee /etc/systemd/system/ollama.service.d/pi-bootstrap-bind.conf >/dev/null 2>&1; then
-                        sudo systemctl daemon-reload 2>/dev/null || true
-                        echo "🔧 Applied OLLAMA_HOST=${OLLAMA_SERVE_HOST} via a systemd drop-in (ollama.service.d/pi-bootstrap-bind.conf)."
-                    else
-                        echo "⚠️  Couldn't write the systemd drop-in for OLLAMA_HOST — is sudo available?" >&2
-                        echo "   Apply it by hand:  sudo systemctl edit ollama" >&2
-                        echo "   adding:            Environment=\"OLLAMA_HOST=${OLLAMA_SERVE_HOST}\"" >&2
-                    fi
-                fi
+                # this file is rewritten from the current values on every
+                # deploy, so it cannot go stale the way a hand-edit would.
+                _ollama_write_systemd_dropin
                 sudo systemctl enable --now ollama >/dev/null 2>&1 || true
                 ollama_wait_healthy "$probe_url" 10 >/dev/null 2>&1 || true
 
