@@ -176,7 +176,7 @@ hypothetical one.
 |:---|:---|:---|:---|:---|
 | **executor** | MCP proxy — one endpoint fronting all integrations, credentials held server-side, per-tool allow / require-approval / block | MIT | Official image `ghcr.io/rhyssullivan/executor-selfhost` | Host service |
 | **opencode** | Terminal coding agent, native MCP | open source | Official installer, detects amd64/arm64 | Coding CLI environment |
-| **omp** | Coding agent with the IDE wired in — LSP on every file write, DAP debugger ops, 31 tools, 60+ providers. Substantially **Rust** — 462 `.rs` files, ~258k lines | MIT | `omp.sh` installer, brew tap, bun, nix | Coding CLI environment |
+| **omp** | Coding agent with the IDE wired in — LSP on every file write, DAP debugger ops, 31 tools, 60+ providers, **native MCP** (confirmed, v18.1.16). Substantially **Rust** — 462 `.rs` files, ~258k lines | MIT | `omp.sh` installer (releases ship `omp-linux-arm64` glibc and `omp-linux-musl-arm64` static — musl is the better container fit), brew tap, bun, nix | Coding CLI environment |
 | **pi** | Agent harness/SDK in TypeScript (`pi-agent-core`, `pi-ai`, `pi-tui`) plus the coding-agent CLI this environment deploys | MIT | npm or standalone binaries | Coding CLI environment |
 | **hermes** | Personal agent with a learning loop — writes its own skills from successful runs, persistent memory, ~20 channels, cron, subagents. One core across CLI, TUI, gateway and desktop app | MIT | Official image `nousresearch/hermes-agent`, multi-arch | Agent platform |
 | **herdr** | Rust terminal multiplexer aware of agent state — a PTY pane per agent, sidebar showing blocked / working / done / idle | Apache 2.0 | Official installer publishes `herdr-linux-aarch64` (musl, static); also brew, mise, cargo. No official image | Client environment |
@@ -272,6 +272,7 @@ Official image, no build, no host access, no security caveat.
 | Archetype | `docker-compose.yml`, generic path via `deploy_environment()` |
 | Container | `container_name: ${CONTAINER_NAME:-executor}` |
 | Port | `${EXECUTOR_PORT:-4788}:4788` |
+| Image tag | `ghcr.io/rhyssullivan/executor-selfhost:v1.6.8` — semver, confirmed, and on an active patch cycle; do not pin `latest` given `check-updates.sh` compares image IDs |
 | Volume | `${CONTAINER_NAME:-executor}_data:/data` — SQLite plus generated encryption keys; losing it loses every stored credential |
 | Env | `EXECUTOR_DATA_DIR`, `EXECUTOR_DB_PATH` — both default sanely |
 
@@ -295,7 +296,7 @@ inside. Three separate folders, three menu entries.
 | Field | Value |
 |:---|:---|
 | Packages | `pi` installs **`@earendil-works/pi-coding-agent`**; `omp` installs **`@oh-my-pi/pi-coding-agent`**. Those two are the correct scopes. Pin scope *and* version in each Dockerfile — see the footgun table above for why the scope alone is not enough. `opencode` uses its official installer, not npm |
-| Base image | **Node 24 for `pi` and `omp`**, which lack native MCP and therefore want `mcporter`. `opencode` has native MCP and needs neither — choose its base on its own merits |
+| Base image | **Node 24 for `pi`**, which lacks native MCP and wants `mcporter`. `opencode` and `omp` both have native MCP and need neither — choose their base on its own merits |
 | SSH ports | Next free after 2224 — 2225, 2226, 2227 |
 | Install | Official installers inside the image; `openclaw/Dockerfile` already sets this precedent |
 | Avoid | The `anomalyco/opencode` Docker Hub image is **third-party** — build from the official installer |
@@ -327,7 +328,7 @@ where the agent has no MCP of its own:
 | Agent | Native MCP | Needs mcporter | Cost |
 |:---|:---|:---|:---|
 | `pi` | No — by design, *available via extension* | **Yes, and preferably** | Free on a Node 24 base |
-| `omp` | Not evidenced (inferred) | **Likely** | Free on a Node 24 base |
+| `omp` | **Yes — native, confirmed** (v18.1.16 README: "on first run omp inherits whatever is already on disk: rules, skills, and MCP servers from .claude, .cursor, .windsurf, .gemini, .codex, .cline, .github/copilot, and .vscode") | **No (native MCP)** | — |
 | `aider` | No | Declined | Would need Node in `python:3.12-slim` — see decision 7 |
 | `opencode` | Yes | No | — |
 | `claude-cli` | Yes | No | — |
@@ -359,7 +360,8 @@ not `run.sh`.
 
 | Field | Value |
 |:---|:---|
-| Image | `nousresearch/hermes-agent:latest` — pin a version tag if one exists, since `check-updates.sh` compares running image IDs |
+| Image | `nousresearch/hermes-agent:v2026.9.7` — confirmed on Docker Hub, date-based version tags, pin rather than `latest`, since `check-updates.sh` compares running image IDs |
+| Port | `9119` (`hermes serve --port 9119`), confirmed from the wiki's tailscale setup page |
 | State | `~/.hermes` — memory and self-written skills. This is the whole value of the thing; back it up |
 | Dashboard | Protect with `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` / `_PASSWORD` — document as **required**, since the dashboard drives a real terminal |
 | Channels | Telegram, Discord, Slack and others — tokens in `.env`, same shape as `nanoclaw-mnemon` |
@@ -386,7 +388,7 @@ anything it overwrites into
 |:---|:---|
 | Archetype | `run.sh` sourcing `lib/deploy-lib.sh`, then `_selflog_start "$SCRIPT_DIR" "${REBUILD_POLICY:-FAST}"` |
 | OS handling | Detect and branch, not guard-and-exit — first dual-platform environment in this space |
-| Install | The official installer on both platforms; it resolves the platform from `uname -m` and **verifies the download's SHA-256 against the release manifest itself**. Pin a version. Precheck `uname -m` for `aarch64` and fail clearly on 32-bit (`armv7l`), which upstream does not build |
+| Install | The official installer on both platforms, or `brew install herdr` (confirmed official, in `homebrew/core`, v0.9.0 — not a tap) on macOS. The installer resolves the platform from `uname -m` and **verifies the download's SHA-256 against the release manifest itself**. Pin a version. Precheck `uname -m` for `aarch64` and fail clearly on 32-bit (`armv7l`), which upstream does not build |
 | Config | Repo-managed `config.toml` → `~/.config/herdr/config.toml`. **Must set a non-default prefix** — see below |
 | Deployed check | `kind: marker`, value = installed binary path |
 
@@ -1039,6 +1041,45 @@ against upstream produced three corrections and two rejections.
   — `generate-cli --compile` into a static binary — and revises the
   decision accordingly.
 
+### Second round of answers — 2026-09-10
+
+Six items from "Verify before writing code" came back answered. One is a
+significant correction rather than a confirmation:
+
+- **omp has native MCP — the mcporter matrix row was wrong.** The
+  "Not evidenced (inferred)" cell was the right way to flag it at the
+  time, but the answer itself was the opposite of what it implied. omp's
+  own v18.1.16 README says plainly: "on first run omp inherits whatever
+  is already on disk: rules, skills, and MCP servers from .claude,
+  .cursor, .windsurf, .gemini, .codex, .cline, .github/copilot, and
+  .vscode." omp does not need `mcporter` at all; the base-image guidance
+  above is corrected accordingly.
+- **`brew install herdr` is official** — in `homebrew/core`, v0.9.0, not
+  a tap.
+- **Hermes image confirmed on Docker Hub** — `nousresearch/hermes-agent`,
+  version tags are date-based, latest is `v2026.9.7`. Pinnable.
+- **Executor version tags are semver** — latest `v1.6.8`, pin as
+  `ghcr.io/rhyssullivan/executor-selfhost:v1.6.8` (or `1.6.8` without the
+  `v`). Active patch cycle, so expect this pin to need bumping often.
+- **mcporter on arm64 confirmed clean** — `cpu: any` in its
+  `package.json`, pure Node, no native bindings, runs wherever Node 24
+  runs.
+- **omp's arm64 installer confirmed** — releases ship both
+  `omp-linux-arm64` (glibc) and `omp-linux-musl-arm64` (static); musl is
+  the better fit inside a container, no glibc dependency to satisfy.
+- **Hermes port confirmed** — already documented in the wiki's tailscale
+  setup page: `9119` (`hermes serve --port 9119`).
+
+Still open from that same list: single-file mount needs across the new
+environments, whether the port map above is complete, Herdr's
+`session.json` schema, Herdr's version floor for firstmate's
+"presentation spaces", how many concurrent crewmates a machine sustains,
+firstmate's crewmate-worktree path flexibility, whether
+`npx skills@latest add` runs non-interactively, the minimum PAT scope for
+firstmate, that `restore.sh` has never been exercised against Executor's
+or Hermes's state, pstack's community-fork port ambiguity, and Herdr's
+licence.
+
 ### Follow-ups worth adopting
 
 1. **Start the Pi evaluation from a curated config, not bare.**
@@ -1122,24 +1163,36 @@ two as findings this research produced rather than inherited.
   placeholder on `claude-cli`'s pattern. Directory volumes are
   unaffected.
 - **A port map**, now that roughly eight services co-locate on one Mac:
-  SSH 2222–2227, Executor 4788, whatever Hermes publishes, plus the
-  existing environments.
-- Is `brew install herdr` the official tap or a third-party formula? (The
-  installer path is confirmed; the brew path is not.)
+  SSH 2222–2227, Executor 4788, Hermes 9119 (`hermes serve --port 9119`,
+  confirmed from the wiki's tailscale setup page), plus the existing
+  environments. Still open: whether that covers every service, or more
+  ports surface once the rest of the environments are speced.
+- ~~Is `brew install herdr` the official tap or a third-party formula?~~
+  **Confirmed: `brew install herdr` is official, in `homebrew/core`,
+  v0.9.0 — not a tap.**
 - Which Herdr release version to pin — the installer tracks latest by
   default.
-- Do Executor and Hermes publish version tags, or only `latest`?
-  `check-updates.sh` compares running image IDs. (Both images are
-  confirmed to exist and to carry `linux/arm64`; only the tagging
-  practice is open.)
+- ~~Do Executor and Hermes publish version tags, or only `latest`?~~
+  **Confirmed: both do.** Hermes (`nousresearch/hermes-agent`) tags are
+  date-based — latest is `v2026.9.7`, pin that. Executor
+  (`ghcr.io/rhyssullivan/executor-selfhost`) tags are semver — latest is
+  `v1.6.8` (pin as `v1.6.8` or `1.6.8`); it's on an active patch cycle,
+  so expect to bump this pin more often than most images in this repo.
 - Herdr's `session.json` schema — can a session be generated as a file,
   or must panes be created through the socket/CLI API at runtime? Decides
   whether the generator writes a file or drives a command.
-- `omp`'s installer behaviour on arm64, and whether the brew tap or the
-  bun package is the better fit inside a container.
-- Confirm at build time that `omp` really has no MCP — the only inferred
-  cell in the mcporter matrix.
-- That `mcporter` runs cleanly on arm64 under Node 24.
+- ~~`omp`'s installer behaviour on arm64, and whether the brew tap or the
+  bun package is the better fit inside a container.~~ **Confirmed:** omp's
+  releases ship both `omp-linux-arm64` (glibc) and `omp-linux-musl-arm64`
+  (static). The musl variant is the better fit inside a container — no
+  glibc dependency to satisfy in the image.
+- ~~Confirm at build time that `omp` really has no MCP — the only
+  inferred cell in the mcporter matrix.~~ **Confirmed, and the answer
+  flips the matrix cell: omp has native MCP** (see the mcporter matrix
+  above). It does not need `mcporter` at all.
+- ~~That `mcporter` runs cleanly on arm64 under Node 24.~~ **Confirmed:**
+  `mcporter`'s `package.json` declares `cpu: any` — pure Node, no native
+  bindings, so it runs wherever Node 24 runs, arm64 included.
 - Whether `npx skills@latest add` can run non-interactively with a pinned
   skill selection — decides whether skills provisioning is an existing
   tool or a bespoke build.

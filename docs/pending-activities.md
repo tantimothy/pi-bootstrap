@@ -1,7 +1,10 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-09-10** — though only the
-agent-control-environments entry was added in that pass. The dragonos-sdr
+A snapshot of open follow-ups as of **2026-09-10** — the
+agent-control-environments entry was added in that pass and revised again
+later the same day, when six of its open verification items came back
+answered (one of them, omp's native MCP support, a correction rather than
+a confirmation). The dragonos-sdr
 entry was revised in the 2026-09-03 one (it was added in the 2026-08-31
 one and last revised 2026-09-01), the Ollama model-catalog entry added in the
 2026-08-29 one, the Ollama
@@ -354,8 +357,23 @@ regrouping. No decisions outstanding; the doc records six that are
 settled. This is a research-phase evaluation, so several of these are
 expected never to ship.
 
-The verification items that could change the *design* rather than merely
-confirm it, summarized here for visibility:
+Six verification items came back answered on 2026-09-10, one of them a
+correction: **omp has native MCP** (confirmed from its own v18.1.16
+README), so the mcporter matrix's "Not evidenced (inferred)" row for omp
+flips from "Likely" to "No (native MCP)" — omp needs no mcporter
+install. Also confirmed: `brew install herdr` is official
+(`homebrew/core`, v0.9.0, not a tap); the Hermes image
+(`nousresearch/hermes-agent`, date-based tags, latest `v2026.9.7`,
+pinnable); Executor's version tags (semver, latest `v1.6.8`, active patch
+cycle); mcporter running cleanly on arm64 (`cpu: any`, pure Node); omp's
+arm64 installer (ships both glibc and musl arm64 binaries — musl is the
+better container fit); and Hermes's port (`9119`, already in the wiki's
+tailscale setup page). Full detail in
+`docs/future-enhancements/agent-control-environments.md`'s "Second round
+of answers — 2026-09-10" section.
+
+The verification items that could still change the *design* rather than
+merely confirm it, summarized here for visibility:
 
 - Whether `npx skills@latest add` runs non-interactively with a pinned
   skill selection — decides whether skills provisioning is an existing
@@ -366,11 +384,22 @@ confirm it, summarized here for visibility:
   or only shrink.
 - Herdr's `session.json` schema — whether a session can be generated as a
   file or must be driven through the socket/CLI API at runtime.
+- Herdr's version floor for firstmate's "presentation spaces" projection,
+  and Herdr's licence.
+- How many concurrent crewmates a machine actually sustains, and whether
+  firstmate's crewmate worktrees can be pointed somewhere other than
+  inside the bind-mounted workspace.
+- What a fine-grained PAT must be scoped to for firstmate to work end to
+  end, and pstack's community-fork port ambiguity.
+- That `restore.sh` has never been exercised against Executor's `/data`
+  or Hermes's `~/.hermes`.
 - Which of the new environments need a **single-file mount**. That is the
   OrbStack tripwire this repo has already been bitten by (see
   `docs/lessons-learned/nanoclaw-mnemon.md`); each one needs a
   `pre-deploy.sh` placeholder on `claude-cli`'s pattern.
-- A port map, now that roughly eight services would co-locate on one Mac.
+- Whether the port map (SSH 2222-2227, Executor 4788, Hermes 9119, plus
+  the existing environments) is now complete, now that roughly eight
+  services would co-locate on one Mac.
 
 Two standing cautions from the same doc, both independent of whether
 anything gets built:
