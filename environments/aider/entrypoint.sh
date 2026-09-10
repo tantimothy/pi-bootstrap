@@ -53,9 +53,19 @@ fi
 # entrypoint.sh (see that file's comment for why): PAM applies
 # /etc/environment to every future SSH login shell, unlike docker-compose's
 # `environment:` block, which only ever reaches PID 1's own process.
+#
+# `gh auth setup-git` is what makes the token actually usable: git has no
+# native notion of GH_TOKEN, so exporting it alone does nothing for
+# `git push`/`git clone` over HTTPS. setup-git wires git's own
+# credential.helper to call `gh auth git-credential`, which reads
+# GH_TOKEN straight from the environment — so no token file is ever
+# written under ~/.ssh or the aider user's home. Aider auto-commits by
+# default, which makes a working push path matter more here than it does
+# in claude-cli.
 if [ -n "${GH_TOKEN:-}" ]; then
     sed -i '/^GH_TOKEN=/d' /etc/environment
     echo "GH_TOKEN=${GH_TOKEN}" >> /etc/environment
+    runuser -u aider -- env GH_TOKEN="$GH_TOKEN" gh auth setup-git
 fi
 
 # Provider credentials/endpoint — see README's "Choosing a Provider" for

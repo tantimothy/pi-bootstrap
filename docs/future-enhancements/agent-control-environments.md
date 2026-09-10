@@ -641,13 +641,17 @@ new environments should copy it:
    plain `git push`/`clone` over HTTPS pick it up too. Changing it needs
    only `FAST`.
 
-> **Pre-existing bug worth fixing independently.** `aider`'s entrypoint
-> writes `GH_TOKEN` into `/etc/environment` using the same mechanism —
-> but the image **does not install `gh`**, never runs `gh auth
-> setup-git`, and the README documents none of it (only a bare
-> `#GH_TOKEN=` in `.env.example`). The token is exported into every login
-> shell where **nothing consumes it**. Exposure without function. It is
-> also exactly what blocks `aider` from running firstmate.
+> **Pre-existing bug, found while checking this and fixed in the same
+> change.** `aider`'s entrypoint wrote `GH_TOKEN` into
+> `/etc/environment` using the same mechanism as `claude-cli` — but the
+> image did **not** install `gh` and never ran `gh auth setup-git`. Since
+> git has no native notion of `GH_TOKEN`, nothing wired a credential
+> helper and the token sat in every login shell unused: exposure without
+> function. `aider` now installs `gh` from the same official apt repo the
+> other CLI environments use, runs `setup-git`, and documents the whole
+> path in its README's "Connecting to a GitHub Repo". Existing installs
+> need one `CLEAN` to pick up the binary. This also unblocks `aider` for
+> firstmate, which requires an authenticated `gh`.
 
 ### What none of this hides from the model
 

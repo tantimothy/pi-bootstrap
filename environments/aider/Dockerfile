@@ -19,6 +19,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         vim \
     && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI — official apt repo method (cli.github.com/packages), the
+# same install claude-cli and codex-cli use, so `apt install gh` resolves
+# the right binary for whatever architecture this image is built for
+# (amd64/arm64) without hand-picking a release asset. Needed for the
+# GH_TOKEN path to do anything at all: git has no native notion of
+# GH_TOKEN, so without `gh` (and the `gh auth setup-git` entrypoint.sh
+# runs with it) the token would sit in the environment unused. See
+# README's "Connecting to a GitHub Repo". Plain SSH-agent-forwarded git
+# doesn't need this.
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
 # pip install, not the aider-install curl script — this repo's other
 # CLI-tool environments (claude-cli, nanoclaw's Claude CLI) already
 # establish curl|bash as the pattern for tools that ship one; aider's own
