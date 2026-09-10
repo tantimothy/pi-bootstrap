@@ -1,7 +1,8 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-09-03** — though only the
-dragonos-sdr entry was revised in that pass (it was added in the 2026-08-31
+A snapshot of open follow-ups as of **2026-09-10** — though only the
+agent-control-environments entry was added in that pass. The dragonos-sdr
+entry was revised in the 2026-09-03 one (it was added in the 2026-08-31
 one and last revised 2026-09-01), the Ollama model-catalog entry added in the
 2026-08-29 one, the Ollama
 reboot-recovery entry revised in the 2026-08-24 one, and the
@@ -343,6 +344,44 @@ Open, with full context in
   read `CAUTION` on a healthy machine by design.
 - Catalog rows pin tags, not digests, so published download sizes can
   drift without any commit here. No action re-checks them.
+
+## Agent control environments: planned, nothing built
+
+Full proposal in `docs/future-enhancements/agent-control-environments.md`
+— seven candidate environments (`executor`, `opencode`, `omp`, `pi`,
+`hermes`, `herdr-client`, `collie-client`) plus a `config/environments.yaml`
+regrouping. No decisions outstanding; the doc records six that are
+settled. This is a research-phase evaluation, so several of these are
+expected never to ship.
+
+The verification items that could change the *design* rather than merely
+confirm it, summarized here for visibility:
+
+- Whether `npx skills@latest add` runs non-interactively with a pinned
+  skill selection — decides whether skills provisioning is an existing
+  tool or a bespoke build. Note `pi install` and Claude Code plugins make
+  three provisioning ecosystems, so no single mechanism covers the repo.
+- Whether GitHub-behind-Executor covers PR create, review and CI status —
+  decides whether `GH_TOKEN` can leave a container's environment entirely
+  or only shrink.
+- Herdr's `session.json` schema — whether a session can be generated as a
+  file or must be driven through the socket/CLI API at runtime.
+- Which of the new environments need a **single-file mount**. That is the
+  OrbStack tripwire this repo has already been bitten by (see
+  `docs/lessons-learned/nanoclaw-mnemon.md`); each one needs a
+  `pre-deploy.sh` placeholder on `claude-cli`'s pattern.
+- A port map, now that roughly eight services would co-locate on one Mac.
+
+Two standing cautions from the same doc, both independent of whether
+anything gets built:
+
+- **`restore.sh` has never been exercised** against Executor's `/data`
+  (credentials) or Hermes's `~/.hermes` (its entire accumulated value).
+  `backup.sh` covers them; the restore path is untested.
+- **Anything installed into a `nanoclaw-mnemon` agent image hits the
+  derived-image trap** — `CLEAN` rebuilds the base and stops there. MCP
+  registration via the `/add-ollama-tool` patch pattern is the proven
+  route in for that environment, not per-image installs.
 
 ## Known, deliberately-deferred code quality items
 

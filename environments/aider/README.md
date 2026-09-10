@@ -48,6 +48,18 @@ Same three options as `claude-cli` (see that README for the full writeup) — th
 
 ---
 
+## 🐙 Connecting to a GitHub Repo
+
+`AIDER_WORKSPACE_PATH` gets you one repo, already checked out on the host. Aider commits automatically after each change (`--auto-commits`, its own default), so a working *push* path matters more here than it does in `claude-cli`, where committing is something you ask for explicitly. Two ways to give it real GitHub access, lightest first:
+
+**SSH agent forwarding.** Forward your agent into the SSH session (`ssh -A -p ${SSH_PORT:-2223} aider@<host>`) and `git` over SSH works with no credential stored in the container at all — the key never enters it, and Aider can *use* it without being able to read it. This gets you `push`/`pull`/`clone`, but not the GitHub API.
+
+**`GH_TOKEN`.** For the GitHub API (`gh pr create`, checking CI) or for HTTPS git without a live agent forwarded in, set `GH_TOKEN` in `.env` to a [fine-grained personal access token](https://github.com/settings/tokens?type=beta) scoped to whichever repos you want reachable. `entrypoint.sh` writes it to `/etc/environment` — so PAM hands it to every future login shell, with no token file under `~/.ssh` or the `aider` user's home — and runs `gh auth setup-git` once, wiring git's own `credential.helper` to call `gh auth git-credential`. That last step is what makes plain `git push`/`git clone` over HTTPS pick the token up; git has no native notion of `GH_TOKEN`, so exporting it alone does nothing.
+
+> **Upgrading an existing install:** this needs one `CLEAN`, not just `FAST`. `gh` arrives with the image, so a container built before it was added won't have the binary — and without `gh`, `GH_TOKEN` sits in the environment unused.
+
+---
+
 ## 🔀 Choosing a Provider
 
 Set exactly one of these two modes in `.env` (see `.env.example` for the full field-by-field comments):
