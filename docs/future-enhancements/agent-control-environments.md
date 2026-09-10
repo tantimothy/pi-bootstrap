@@ -960,20 +960,15 @@ against upstream produced three corrections and two rejections.
 2. **Time-box the evaluation-exception PAT.** Set its expiry to the
    evaluation window itself, so the shared-comparison-repo token fails
    loudly rather than quietly outliving the exception that justified it.
-3. **Magnitude is worth reconsidering now the host is a Mac.** It
-   profiles Apple Silicon and tunes local model selection for agent
-   workloads. An earlier pass dismissed it as Apple-Silicon-only when the
-   Pi was assumed to be the host; that objection is gone. Unverified —
-   check it exists and does what is claimed before relying on it.
-4. **`pi-dispatch` versus Hermes cron is a duplicate-scheduling trap.**
+3. **`pi-dispatch` versus Hermes cron is a duplicate-scheduling trap.**
    Hermes has native cron; `pi-dispatch` brings its own. Decide the daily
    driver before building scheduling infrastructure twice.
-5. **Crewmate windows will appear in Herdr panes whether or not that is
+4. **Crewmate windows will appear in Herdr panes whether or not that is
    intended.** Grouped tmux sessions share the window list, so firstmate
    crewmates spawned inside a container become visible to any attached
    client. Decide at design time whether that is useful visibility or
    noise — it is not opt-in.
-6. **`no-mistakes` is effectively required for firstmate's full
+5. **`no-mistakes` is effectively required for firstmate's full
    automation**, not merely adjacent to it — consistent with the 203
    references to it across firstmate's `bin/`. Any firstmate adoption
    should treat it as part of the package rather than an optional extra.
@@ -986,8 +981,29 @@ hides a credential from the agent, and signetai's conflict with the
 no-shared-tokens rule. All four are already in this document — the last
 two as findings this research produced rather than inherited.
 
-**Not adopted:** CMux as a Herdr fallback. Herdr pinning has not proved
-difficult, so this solves a problem that has not appeared.
+### Not adopted
+
+- **CMux as a Herdr fallback.** Herdr pinning has not proved difficult,
+  so this solves a problem that has not appeared.
+- **Magnitude for local model selection.** Redundant: `environments/ollama/`
+  already does this, and does it better. `models.tsv` is a catalog
+  carrying `active_gb` (weights read per generated token), RAM min/max and
+  hardware tiers; `scripts/manage-models.sh` profiles the host through
+  `sysctl` (`hw.memsize`, `hw.pagesize`, `machdep.cpu.brand_string`),
+  returns a FITS / CAUTION / EXCEEDS verdict that accounts for **macOS
+  memory pressure** rather than free RAM alone, and estimates tokens per
+  second from memory bandwidth divided by active weight bytes. A "Pull a
+  Recommended Model" action is already wired into the menu.
+
+  It is also broader than Magnitude, which is Apple-Silicon-only. That
+  environment's own code comments explain why the extra dimension was
+  needed: the `mac8` and `pi8` tiers have byte-identical membership
+  because both are "8 GB", but an 8 GB M2 runs `qwen3:4b` at
+  conversational speed while an 8 GB Pi 5 runs it at walking pace — so a
+  pure RAM-fit answer was addressing the wrong question. Nothing in
+  Magnitude's pitch improves on that, and adopting it would add an
+  unverified third-party dependency to replace something already tested
+  in-repo.
 
 ---
 
