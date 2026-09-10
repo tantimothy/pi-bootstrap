@@ -84,6 +84,51 @@ Recorded here so they are not re-litigated:
 5. **The menu regrouping is approved** (see "Presentation").
 6. **`nanoclaw-mnemon` stays.** Hermes is evaluated alongside Pi and
    OpenCode as a possible daily driver, not as a replacement for it.
+7. **`aider` gets no MCP, and that is deliberate.** See below.
+
+### Decision 7 in full: aider stays without MCP
+
+Recorded at length because the gap will look like an oversight to anyone
+who notices it later, and because the reasoning is the interesting part.
+
+**The mechanics.** Executor exposes every integration as MCP tools behind
+one endpoint. Agents that speak MCP point at it directly; `pi` and `omp`
+reach it through `mcporter`, which turns an MCP tool into a shell
+command. That is free for them because both are npm-distributed and want
+a Node base anyway. **`aider` is `python:3.12-slim`** — no Node at all —
+so the same one-line addition means putting a second language runtime
+into a Python image: larger image, two ecosystems to keep current, one
+more update surface, for a single tool.
+
+**The escape hatch does not exist.** The obvious dodge is a sidecar —
+mcporter in its own container, aider talking to it over HTTP, Node stays
+out of the Python image. mcporter's own documentation rules it out: the
+daemon is deliberately *single-user*, its locator fixed at
+`~/.mcporter/daemon/user.sock`, and "configuration filenames, working
+directories, HOME, and XDG overrides do not select another production
+daemon". There is no HTTP bridge of that shape. (A `serve` mode is
+mentioned in passing in those docs and was not investigated; if it can
+expose tools across containers, this decision is worth revisiting.)
+
+**The question underneath is not "can we" but "would it use it".** Aider
+is a git-native pair programmer — architect/editor modes, auto-commits,
+working the repo in front of it. Its loop is read files, propose edit,
+commit. Executor's catalogue is issue trackers, APIs, browser
+automation: value for agents doing tasks *around* code, not agents making
+edits *to* it. Aider is the most specialised of the six, and that
+specialisation is the reason to keep it rather than a deficiency to
+correct.
+
+**The asymmetry that settles it.** `aider` already exists and works. This
+plan adds six new environments; `aider` is not one of them. Doing nothing
+costs zero, while adding Node modifies a working environment in service
+of a capability its paradigm may not want.
+
+**Revisit on a concrete trigger** — wanting aider to file an issue or
+check CI and being annoyed it cannot — not on noticing the gap. And note
+this is an evaluation: if `aider` does not survive as a daily driver the
+work was never worth doing, and if it does, there will be a real use case
+by then instead of a hypothetical one.
 
 ---
 
@@ -244,7 +289,7 @@ where the agent has no MCP of its own:
 |:---|:---|:---|:---|
 | `pi` | No — by design, *available via extension* | **Yes, and preferably** | Free on a Node 24 base |
 | `omp` | Not evidenced (inferred) | **Likely** | Free on a Node 24 base |
-| `aider` | No | **Yes** | Needs Node added to `python:3.12-slim` — a real decision |
+| `aider` | No | Declined | Would need Node in `python:3.12-slim` — see decision 7 |
 | `opencode` | Yes | No | — |
 | `claude-cli` | Yes | No | — |
 | `codex-cli` | Yes | No | — (base is already `node:24`) |
@@ -261,11 +306,10 @@ reads MCP server definitions from OpenCode, alongside Claude Code, Cursor
 and Codex — a tool only imports config from something that has config to
 import.
 
-**The one genuine trade is `aider`.** It lacks MCP and would benefit, but
-it is a Python image and gaining mcporter means adding a Node runtime.
-Given aider's git-native pair-programming paradigm is the most distinct
-of the six, it may simply be the environment that does not need the
-shared tool layer.
+**`aider` deliberately gets no MCP — see settled decision 7 below.** It
+lacks MCP and mcporter would supply it, but `aider` is a Python image and
+that means adding a whole Node runtime for one tool. The decision is to
+leave it alone.
 
 ### `environments/hermes/` — personal agent platform
 
