@@ -294,6 +294,7 @@ inside. Three separate folders, three menu entries.
 
 | Field | Value |
 |:---|:---|
+| Packages | `pi` installs **`@earendil-works/pi-coding-agent`**; `omp` installs **`@oh-my-pi/pi-coding-agent`**. Those two are the correct scopes. Pin scope *and* version in each Dockerfile — see the footgun table above for why the scope alone is not enough. `opencode` uses its official installer, not npm |
 | Base image | **Node 24 for `pi` and `omp`**, which lack native MCP and therefore want `mcporter`. `opencode` has native MCP and needs neither — choose its base on its own merits |
 | SSH ports | Next free after 2224 — 2225, 2226, 2227 |
 | Install | Official installers inside the image; `openclaw/Dockerfile` already sets this precedent |
