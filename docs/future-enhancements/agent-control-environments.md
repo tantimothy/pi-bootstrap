@@ -84,6 +84,89 @@ Recorded here so they are not re-litigated:
 5. **The menu regrouping is approved** (see "Presentation").
 6. **`nanoclaw-mnemon` stays.** Hermes is evaluated alongside Pi and
    OpenCode as a possible daily driver, not as a replacement for it.
+7. **`aider` gets no MCP, and that is deliberate.** See below.
+
+### Decision 7 in full: aider stays without MCP
+
+Recorded at length because the gap will look like an oversight to anyone
+who notices it later, and because the reasoning is the interesting part.
+
+**The mechanics.** Executor exposes every integration as MCP tools behind
+one endpoint. Agents that speak MCP point at it directly; `pi` and `omp`
+reach it through `mcporter`, which turns an MCP tool into a shell
+command. That is free for them because both are npm-distributed and want
+a Node base anyway. **`aider` is `python:3.12-slim`** — no Node at all —
+so the same one-line addition means putting a second language runtime
+into a Python image: larger image, two ecosystems to keep current, one
+more update surface, for a single tool.
+
+**The sidecar does not help, but not for the reason first given.** An
+earlier draft of this decision claimed no HTTP bridge existed. That was
+wrong, and the correction matters. `mcporter serve --http <port>` does
+exist: it "exposes daemon-managed keep-alive servers as one MCP server
+for clients that consume MCP over stdio or Streamable HTTP", with `/mcp`
+as an aggregate namespacing tools `server__tool` and `/mcp/<server>`
+preserving original names.
+
+The reason it does not help is subtler. **`serve` exposes MCP *to MCP
+clients* — and aider is not one.** A sidecar running it would hand aider
+an endpoint it cannot consume. mcporter has two halves, and the sidecar
+offers the wrong one: `serve` is the server side, while `call`/`list` —
+the half that turns an MCP tool into a shell command a non-MCP agent can
+run — has to execute *inside* the agent's own container.
+
+**The route that does work is `generate-cli --compile`.** mcporter can
+"produce a standalone CLI for a single MCP server", and `--compile`
+"invokes `bun build --compile` to create the native executable". So a
+multi-stage Docker build can generate and compile the CLI in a
+Bun-equipped builder stage and `COPY` a **static binary** into aider's
+final image — no Node runtime in the Python image at all, exactly the way
+`gh` is just a binary.
+
+**So the cost objection largely collapses, and this decision now rests on
+one argument rather than two.** Three real caveats remain, none
+decisive:
+
+- The generated CLI "embeds the resolved server definition and always
+  targets that snapshot (no external `--config` or `--server` overrides
+  at runtime)", so the binary is pinned at build time and must be
+  regenerated when the catalogue changes.
+- It is one CLI *per MCP server*. Since Executor is a single endpoint
+  fronting everything, that should mean one binary — worth confirming
+  rather than assuming.
+- The docs note generated CLIs register views with the single-user
+  daemon for embedded stdio servers. Whether an HTTP-backed target like
+  Executor needs the daemon at runtime is unverified, and it is the one
+  thing that could reintroduce a dependency.
+
+**The question underneath is not "can we" but "would it use it".** Aider
+is a git-native pair programmer — architect/editor modes, auto-commits,
+working the repo in front of it. Its loop is read files, propose edit,
+commit. Executor's catalogue is issue trackers, APIs, browser
+automation: value for agents doing tasks *around* code, not agents making
+edits *to* it. Aider is the most specialised of the six, and that
+specialisation is the reason to keep it rather than a deficiency to
+correct.
+
+**The asymmetry that settles it.** `aider` already exists and works. This
+plan adds six new environments; `aider` is not one of them. Doing nothing
+costs zero, while adding Node modifies a working environment in service
+of a capability its paradigm may not want.
+
+**Still declined, but on narrower grounds.** With the cost reduced to a
+builder stage and a `COPY`, this is no longer "too expensive" — it is
+"probably unwanted". That is a weaker position and the doc should say so
+rather than lean on an objection that no longer holds.
+
+**Revisit on a concrete trigger** — wanting aider to file an issue or
+check CI and being annoyed it cannot — not on noticing the gap. The
+implementation is now known, so revisiting is cheap: a Bun builder stage,
+`generate-cli --compile` against Executor, `COPY` the binary. Note also
+that Executor is phase 8, so there is nothing to point it at yet; this
+cannot be settled empirically until then. And this is an evaluation — if
+`aider` does not survive as a daily driver the work was never worth
+doing, and if it does, there will be a real use case by then instead of a
+hypothetical one.
 
 ---
 
@@ -211,6 +294,7 @@ inside. Three separate folders, three menu entries.
 
 | Field | Value |
 |:---|:---|
+| Packages | `pi` installs **`@earendil-works/pi-coding-agent`**; `omp` installs **`@oh-my-pi/pi-coding-agent`**. Those two are the correct scopes. Pin scope *and* version in each Dockerfile — see the footgun table above for why the scope alone is not enough. `opencode` uses its official installer, not npm |
 | Base image | **Node 24 for `pi` and `omp`**, which lack native MCP and therefore want `mcporter`. `opencode` has native MCP and needs neither — choose its base on its own merits |
 | SSH ports | Next free after 2224 — 2225, 2226, 2227 |
 | Install | Official installers inside the image; `openclaw/Dockerfile` already sets this precedent |
@@ -244,7 +328,7 @@ where the agent has no MCP of its own:
 |:---|:---|:---|:---|
 | `pi` | No — by design, *available via extension* | **Yes, and preferably** | Free on a Node 24 base |
 | `omp` | Not evidenced (inferred) | **Likely** | Free on a Node 24 base |
-| `aider` | No | **Yes** | Needs Node added to `python:3.12-slim` — a real decision |
+| `aider` | No | Declined | Would need Node in `python:3.12-slim` — see decision 7 |
 | `opencode` | Yes | No | — |
 | `claude-cli` | Yes | No | — |
 | `codex-cli` | Yes | No | — (base is already `node:24`) |
@@ -261,11 +345,10 @@ reads MCP server definitions from OpenCode, alongside Claude Code, Cursor
 and Codex — a tool only imports config from something that has config to
 import.
 
-**The one genuine trade is `aider`.** It lacks MCP and would benefit, but
-it is a Python image and gaining mcporter means adding a Node runtime.
-Given aider's git-native pair-programming paradigm is the most distinct
-of the six, it may simply be the environment that does not need the
-shared tool layer.
+**`aider` deliberately gets no MCP — see settled decision 7 below.** It
+lacks MCP and mcporter would supply it, but `aider` is a Python image and
+that means adding a whole Node runtime for one tool. The decision is to
+leave it alone.
 
 ### `environments/hermes/` — personal agent platform
 
@@ -946,16 +1029,15 @@ against upstream produced three corrections and two rejections.
   to a repository URL before putting its name in a Dockerfile.** Every
   one of these collisions installs cleanly and silently gives you
   something else.
-- **A cross-container mcporter sidecar is not supported as described.**
-  mcporter does have a daemon, but its docs describe a deliberately
-  *single-user* one whose locator is `~/.mcporter/daemon/user.sock` and
-  which explicitly cannot be redirected: "configuration filenames,
-  working directories, HOME, and XDG overrides do not select another
-  production daemon". There is no HTTP bridge mode of the shape
-  proposed. Sharing the socket into another container may be possible but
-  cuts against the stated design; the `aider` question stays as posed —
-  add Node, or accept that aider has no MCP. (A `serve` mode is mentioned
-  in passing and was not investigated.)
+- **A cross-container mcporter sidecar does not help — though the first
+  reason given for that was wrong.** `mcporter serve --http <port>` does
+  exist and does bridge over Streamable HTTP; an earlier note here said
+  otherwise, based on reading the daemon docs rather than `serve` itself.
+  The real objection is that `serve` exposes MCP **to MCP clients**, and
+  `aider` is not one, so a sidecar hands it an endpoint it cannot
+  consume. See decision 7, which also records the route that *does* work
+  — `generate-cli --compile` into a static binary — and revises the
+  decision accordingly.
 
 ### Follow-ups worth adopting
 
