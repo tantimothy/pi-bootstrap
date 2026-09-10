@@ -100,15 +100,44 @@ so the same one-line addition means putting a second language runtime
 into a Python image: larger image, two ecosystems to keep current, one
 more update surface, for a single tool.
 
-**The escape hatch does not exist.** The obvious dodge is a sidecar —
-mcporter in its own container, aider talking to it over HTTP, Node stays
-out of the Python image. mcporter's own documentation rules it out: the
-daemon is deliberately *single-user*, its locator fixed at
-`~/.mcporter/daemon/user.sock`, and "configuration filenames, working
-directories, HOME, and XDG overrides do not select another production
-daemon". There is no HTTP bridge of that shape. (A `serve` mode is
-mentioned in passing in those docs and was not investigated; if it can
-expose tools across containers, this decision is worth revisiting.)
+**The sidecar does not help, but not for the reason first given.** An
+earlier draft of this decision claimed no HTTP bridge existed. That was
+wrong, and the correction matters. `mcporter serve --http <port>` does
+exist: it "exposes daemon-managed keep-alive servers as one MCP server
+for clients that consume MCP over stdio or Streamable HTTP", with `/mcp`
+as an aggregate namespacing tools `server__tool` and `/mcp/<server>`
+preserving original names.
+
+The reason it does not help is subtler. **`serve` exposes MCP *to MCP
+clients* — and aider is not one.** A sidecar running it would hand aider
+an endpoint it cannot consume. mcporter has two halves, and the sidecar
+offers the wrong one: `serve` is the server side, while `call`/`list` —
+the half that turns an MCP tool into a shell command a non-MCP agent can
+run — has to execute *inside* the agent's own container.
+
+**The route that does work is `generate-cli --compile`.** mcporter can
+"produce a standalone CLI for a single MCP server", and `--compile`
+"invokes `bun build --compile` to create the native executable". So a
+multi-stage Docker build can generate and compile the CLI in a
+Bun-equipped builder stage and `COPY` a **static binary** into aider's
+final image — no Node runtime in the Python image at all, exactly the way
+`gh` is just a binary.
+
+**So the cost objection largely collapses, and this decision now rests on
+one argument rather than two.** Three real caveats remain, none
+decisive:
+
+- The generated CLI "embeds the resolved server definition and always
+  targets that snapshot (no external `--config` or `--server` overrides
+  at runtime)", so the binary is pinned at build time and must be
+  regenerated when the catalogue changes.
+- It is one CLI *per MCP server*. Since Executor is a single endpoint
+  fronting everything, that should mean one binary — worth confirming
+  rather than assuming.
+- The docs note generated CLIs register views with the single-user
+  daemon for embedded stdio servers. Whether an HTTP-backed target like
+  Executor needs the daemon at runtime is unverified, and it is the one
+  thing that could reintroduce a dependency.
 
 **The question underneath is not "can we" but "would it use it".** Aider
 is a git-native pair programmer — architect/editor modes, auto-commits,
@@ -124,11 +153,20 @@ plan adds six new environments; `aider` is not one of them. Doing nothing
 costs zero, while adding Node modifies a working environment in service
 of a capability its paradigm may not want.
 
+**Still declined, but on narrower grounds.** With the cost reduced to a
+builder stage and a `COPY`, this is no longer "too expensive" — it is
+"probably unwanted". That is a weaker position and the doc should say so
+rather than lean on an objection that no longer holds.
+
 **Revisit on a concrete trigger** — wanting aider to file an issue or
-check CI and being annoyed it cannot — not on noticing the gap. And note
-this is an evaluation: if `aider` does not survive as a daily driver the
-work was never worth doing, and if it does, there will be a real use case
-by then instead of a hypothetical one.
+check CI and being annoyed it cannot — not on noticing the gap. The
+implementation is now known, so revisiting is cheap: a Bun builder stage,
+`generate-cli --compile` against Executor, `COPY` the binary. Note also
+that Executor is phase 8, so there is nothing to point it at yet; this
+cannot be settled empirically until then. And this is an evaluation — if
+`aider` does not survive as a daily driver the work was never worth
+doing, and if it does, there will be a real use case by then instead of a
+hypothetical one.
 
 ---
 
@@ -990,16 +1028,15 @@ against upstream produced three corrections and two rejections.
   to a repository URL before putting its name in a Dockerfile.** Every
   one of these collisions installs cleanly and silently gives you
   something else.
-- **A cross-container mcporter sidecar is not supported as described.**
-  mcporter does have a daemon, but its docs describe a deliberately
-  *single-user* one whose locator is `~/.mcporter/daemon/user.sock` and
-  which explicitly cannot be redirected: "configuration filenames,
-  working directories, HOME, and XDG overrides do not select another
-  production daemon". There is no HTTP bridge mode of the shape
-  proposed. Sharing the socket into another container may be possible but
-  cuts against the stated design; the `aider` question stays as posed —
-  add Node, or accept that aider has no MCP. (A `serve` mode is mentioned
-  in passing and was not investigated.)
+- **A cross-container mcporter sidecar does not help — though the first
+  reason given for that was wrong.** `mcporter serve --http <port>` does
+  exist and does bridge over Streamable HTTP; an earlier note here said
+  otherwise, based on reading the daemon docs rather than `serve` itself.
+  The real objection is that `serve` exposes MCP **to MCP clients**, and
+  `aider` is not one, so a sidecar hands it an endpoint it cannot
+  consume. See decision 7, which also records the route that *does* work
+  — `generate-cli --compile` into a static binary — and revises the
+  decision accordingly.
 
 ### Follow-ups worth adopting
 
