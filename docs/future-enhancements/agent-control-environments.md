@@ -930,13 +930,22 @@ against upstream produced three corrections and two rejections.
 
 ### Two suggestions from the review that do not survive checking
 
-- **`npm i hunk` installs the wrong package.** The npm name `hunk`
-  resolves to `shannonmoeller/hunk` — "Multipart files, one hunk at a
-  time" — entirely unrelated to the terminal diff viewer at hunk.dev by
-  Herdr's author. This is the **third** name collision in this
-  research (two unrelated `pstack` projects, now `hunk`), which is
-  itself the lesson: in this ecosystem, resolve a tool to a repository
-  URL before putting its name in a Dockerfile.
+- **`npm i hunk` installs the wrong package** — but the tool is real and
+  the suggestion survives under its correct name. The npm name `hunk`
+  resolves to `shannonmoeller/hunk`, "Multipart files, one hunk at a
+  time", unrelated to any of this. The actual tool is
+  [modem-dev/hunk](https://github.com/modem-dev/hunk), published as
+  **`hunkdiff`** (`npm i -g hunkdiff`, `engines: node >=22`), also
+  available via `brew install hunk` or `mise use -g hunk`.
+
+  The name is genuinely crowded: alongside the unrelated npm package there
+  are several forks carrying an identical description, and a *different*
+  `smolcars/hunk` that is a GPUI diff viewer and Codex orchestrator. This
+  is the **third** name collision in this research after two unrelated
+  `pstack` projects, and the lesson is now unavoidable: **resolve a tool
+  to a repository URL before putting its name in a Dockerfile.** Every
+  one of these collisions installs cleanly and silently gives you
+  something else.
 - **A cross-container mcporter sidecar is not supported as described.**
   mcporter does have a daemon, but its docs describe a deliberately
   *single-user* one whose locator is `~/.mcporter/daemon/user.sock` and
@@ -960,15 +969,31 @@ against upstream produced three corrections and two rejections.
 2. **Time-box the evaluation-exception PAT.** Set its expiry to the
    evaluation window itself, so the shared-comparison-repo token fails
    loudly rather than quietly outliving the exception that justified it.
-3. **`pi-dispatch` versus Hermes cron is a duplicate-scheduling trap.**
+3. **Hunk (`hunkdiff`) is a good fit for the evaluation specifically.**
+   A "review-first terminal diff viewer for agentic coders" built on
+   OpenTUI — multi-file review stream, inline agent annotations beside
+   the code, watch mode for Git-backed reviews, and difftool support.
+   Comparing six coding agents means reading a great many
+   agent-authored diffs, which is exactly its use case. Free on the
+   Node 24 images (`pi`, `omp`); check the base before assuming it for
+   `opencode`, and it is a non-starter in `aider`'s Python image for the
+   same reason mcporter is.
+
+   It also ships an agent skill of its own — `hunk skill path` returns a
+   file you point an agent at so it can drive the live session. That
+   makes **four** upstream projects in this catalogue shipping agent
+   skills alongside their binaries (herdr, firstmate, pstack, hunk),
+   which is further evidence the provisioning question is not optional
+   for long.
+4. **`pi-dispatch` versus Hermes cron is a duplicate-scheduling trap.**
    Hermes has native cron; `pi-dispatch` brings its own. Decide the daily
    driver before building scheduling infrastructure twice.
-4. **Crewmate windows will appear in Herdr panes whether or not that is
+5. **Crewmate windows will appear in Herdr panes whether or not that is
    intended.** Grouped tmux sessions share the window list, so firstmate
    crewmates spawned inside a container become visible to any attached
    client. Decide at design time whether that is useful visibility or
    noise — it is not opt-in.
-5. **`no-mistakes` is effectively required for firstmate's full
+6. **`no-mistakes` is effectively required for firstmate's full
    automation**, not merely adjacent to it — consistent with the 203
    references to it across firstmate's `bin/`. Any firstmate adoption
    should treat it as part of the package rather than an optional extra.
