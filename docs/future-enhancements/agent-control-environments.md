@@ -93,7 +93,7 @@ Recorded here so they are not re-litigated:
 |:---|:---|:---|:---|:---|
 | **executor** | MCP proxy — one endpoint fronting all integrations, credentials held server-side, per-tool allow / require-approval / block | MIT | Official image `ghcr.io/rhyssullivan/executor-selfhost` | Host service |
 | **opencode** | Terminal coding agent, native MCP | open source | Official installer, detects amd64/arm64 | Coding CLI environment |
-| **omp** | Coding agent with the IDE wired in — LSP on every file write, DAP debugger ops, 31 tools, 60+ providers. ~80k lines of **Rust** | MIT | `omp.sh` installer, brew tap, bun, nix | Coding CLI environment |
+| **omp** | Coding agent with the IDE wired in — LSP on every file write, DAP debugger ops, 31 tools, 60+ providers. Substantially **Rust** — 462 `.rs` files, ~258k lines | MIT | `omp.sh` installer, brew tap, bun, nix | Coding CLI environment |
 | **pi** | Agent harness/SDK in TypeScript (`pi-agent-core`, `pi-ai`, `pi-tui`) plus the coding-agent CLI this environment deploys | MIT | npm or standalone binaries | Coding CLI environment |
 | **hermes** | Personal agent with a learning loop — writes its own skills from successful runs, persistent memory, ~20 channels, cron, subagents. One core across CLI, TUI, gateway and desktop app | MIT | Official image `nousresearch/hermes-agent`, multi-arch | Agent platform |
 | **herdr** | Rust terminal multiplexer aware of agent state — a PTY pane per agent, sidebar showing blocked / working / done / idle | Apache 2.0 | Official installer publishes `herdr-linux-aarch64` (musl, static); also brew, mise, cargo. No official image | Client environment |
@@ -104,14 +104,26 @@ Recorded here so they are not re-litigated:
 
 **Pi and omp are different products.** omp began as a fork of Pi but has
 diverged at the language level — Pi is TypeScript and designed to be
-embedded; omp is ~80k lines of Rust and a standalone coding agent.
+embedded; omp is a standalone coding agent whose core is Rust (462
+`.rs` files, ~258k lines measured on a fresh clone) alongside a large
+TypeScript surface.
 Installing one does not give you the other.
 
-> **Footgun:** the npm names differ only by scope —
-> `@earendil-works/pi-coding-agent` versus `@oh-my-pi/pi-coding-agent`.
-> Each Dockerfile must pin its own scope explicitly; the wrong one
-> installs a working agent that is simply not the intended one, with no
-> error to catch it.
+> **Footgun, and worse than it first looks.** Four scopes are live on npm
+> simultaneously, all installing without error:
+>
+> | Package | Version | What it is |
+> |:---|:---|:---|
+> | `@earendil-works/pi-coding-agent` | 0.85.1 | **current canonical Pi** |
+> | `@mariozechner/pi-coding-agent` | 0.73.1 | pre-acquisition Pi, still published, twelve minors behind |
+> | `@oh-my-pi/pi-coding-agent` | 18.1.16 | omp — a different product |
+> | `@badlogic/pi` | 0.1.1 | — |
+>
+> The dangerous one is not omp — its version scheme is so different that a
+> pinned version is unambiguous. It is **`@mariozechner/…`**, which older
+> guides still name: it installs cleanly and silently gives you a Pi
+> twelve minor versions stale, with nothing to catch it. Pin the scope
+> *and* the version explicitly in each Dockerfile.
 
 **Hermes has a CLI but is not a coding CLI.** It runs the same agent core
 across a terminal CLI, a TUI, a messaging gateway spanning roughly twenty
@@ -894,6 +906,91 @@ single operator evaluating candidates it is the *last* thing that pays.
 
 ---
 
+## Review pass — 2026-09-10
+
+An external review checked this doc against a separate knowledge base and
+flagged eight claims as unverified. Most were verified here originally by
+cloning the upstream repository; the review was measuring against its own
+wiki, not against primary sources. Re-checking the genuinely open ones
+against upstream produced three corrections and two rejections.
+
+### Corrections
+
+- **omp's size was wrong, and understated.** A fresh clone measures **462
+  `.rs` files, ~258k lines** — not the ~80k an earlier draft claimed. The
+  language claim holds; the number did not. Corrected above.
+- **The Pi npm footgun is worse than described.** Four scopes are live
+  simultaneously and the dangerous one is the *pre-acquisition* scope,
+  still published at v0.73.1 — twelve minors behind current — which older
+  guides still name. See the table above.
+- **Executor's image is confirmed, and is arm64.** An anonymous ghcr
+  manifest request for `ghcr.io/rhyssullivan/executor-selfhost:latest`
+  returns an OCI image index containing a `linux/arm64` manifest. That is
+  new information, not just confirmation.
+
+### Two suggestions from the review that do not survive checking
+
+- **`npm i hunk` installs the wrong package.** The npm name `hunk`
+  resolves to `shannonmoeller/hunk` — "Multipart files, one hunk at a
+  time" — entirely unrelated to the terminal diff viewer at hunk.dev by
+  Herdr's author. This is the **third** name collision in this
+  research (two unrelated `pstack` projects, now `hunk`), which is
+  itself the lesson: in this ecosystem, resolve a tool to a repository
+  URL before putting its name in a Dockerfile.
+- **A cross-container mcporter sidecar is not supported as described.**
+  mcporter does have a daemon, but its docs describe a deliberately
+  *single-user* one whose locator is `~/.mcporter/daemon/user.sock` and
+  which explicitly cannot be redirected: "configuration filenames,
+  working directories, HOME, and XDG overrides do not select another
+  production daemon". There is no HTTP bridge mode of the shape
+  proposed. Sharing the socket into another container may be possible but
+  cuts against the stated design; the `aider` question stays as posed —
+  add Node, or accept that aider has no MCP. (A `serve` mode is mentioned
+  in passing and was not investigated.)
+
+### Follow-ups worth adopting
+
+1. **Start the Pi evaluation from a curated config, not bare.**
+   [disler/pi-vs-claude-code](https://github.com/disler/pi-vs-claude-code)
+   ships working extensions — `damage-control.ts`, `agent-team.ts`,
+   `coms.ts`, `pi-pi.ts`, `purpose-gate.ts` — as a collection of
+   customised Pi harnesses. Evaluating Pi against a bare install
+   under-represents it, since its whole design is "everything else is
+   opt-in".
+2. **Time-box the evaluation-exception PAT.** Set its expiry to the
+   evaluation window itself, so the shared-comparison-repo token fails
+   loudly rather than quietly outliving the exception that justified it.
+3. **Magnitude is worth reconsidering now the host is a Mac.** It
+   profiles Apple Silicon and tunes local model selection for agent
+   workloads. An earlier pass dismissed it as Apple-Silicon-only when the
+   Pi was assumed to be the host; that objection is gone. Unverified —
+   check it exists and does what is claimed before relying on it.
+4. **`pi-dispatch` versus Hermes cron is a duplicate-scheduling trap.**
+   Hermes has native cron; `pi-dispatch` brings its own. Decide the daily
+   driver before building scheduling infrastructure twice.
+5. **Crewmate windows will appear in Herdr panes whether or not that is
+   intended.** Grouped tmux sessions share the window list, so firstmate
+   crewmates spawned inside a container become visible to any attached
+   client. Decide at design time whether that is useful visibility or
+   noise — it is not opt-in.
+6. **`no-mistakes` is effectively required for firstmate's full
+   automation**, not merely adjacent to it — consistent with the 203
+   references to it across firstmate's `bin/`. Any firstmate adoption
+   should treat it as part of the package rather than an optional extra.
+
+### Already covered, noted for completeness
+
+The review also raised the Executor-plus-SSH-forwarding combination,
+repo-name pane labels, SSH forwarding's status as the only mechanism that
+hides a credential from the agent, and signetai's conflict with the
+no-shared-tokens rule. All four are already in this document — the last
+two as findings this research produced rather than inherited.
+
+**Not adopted:** CMux as a Herdr fallback. Herdr pinning has not proved
+difficult, so this solves a problem that has not appeared.
+
+---
+
 ## Verify before writing code
 
 - `uname -m` on the Pi reports `aarch64`, not `armv7l`.
@@ -909,15 +1006,14 @@ single operator evaluating candidates it is the *last* thing that pays.
 - Which Herdr release version to pin — the installer tracks latest by
   default.
 - Do Executor and Hermes publish version tags, or only `latest`?
-  `check-updates.sh` compares running image IDs.
+  `check-updates.sh` compares running image IDs. (Both images are
+  confirmed to exist and to carry `linux/arm64`; only the tagging
+  practice is open.)
 - Herdr's `session.json` schema — can a session be generated as a file,
   or must panes be created through the socket/CLI API at runtime? Decides
   whether the generator writes a file or drives a command.
 - `omp`'s installer behaviour on arm64, and whether the brew tap or the
   bun package is the better fit inside a container.
-- Confirm the current canonical Pi package name before writing
-  `environments/pi/Dockerfile` — the scope moved with the Earendil
-  acquisition and older guides still name the pre-acquisition one.
 - Confirm at build time that `omp` really has no MCP — the only inferred
   cell in the mcporter matrix.
 - That `mcporter` runs cleanly on arm64 under Node 24.
