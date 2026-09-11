@@ -1,0 +1,34 @@
+# Linux-only; lib/desktop-lib.sh no-ops cleanly on macOS. Relevant because
+# the Pi can run collie-client too — on a Mac this file simply does nothing.
+menu:
+  id: collie-client
+  name: "Collie"
+  icon: phone
+deployed_check:
+  # marker, not container — this environment installs a binary, it does not
+  # run one. lib/desktop-lib.sh supports container | marker | systemd.
+  #
+  # Note systemd would ALSO match here (`collie start` writes a systemd --user
+  # unit on Linux), but only once the operator has started Collie, and a
+  # deploy deliberately does not start it. The config file is what exists iff
+  # this environment has been deployed.
+  kind: marker
+  value: "${HOME}/.config/collie/.env"
+entries:
+  - id: pi-bootstrap-collie-client-start
+    name: "Collie — Start"
+    comment: "Start the mobile bridge and print the tailnet URL. Collie is remote shell access to this machine from a phone — pair a device immediately after."
+    icon: phone
+    kind: exec
+    target: 'collie start'
+    terminal: true
+  - id: pi-bootstrap-collie-client-qr
+    name: "Collie — QR Code"
+    comment: "Print the tailnet URL as a scannable code"
+    icon: phone
+    kind: exec
+    target: 'collie qr'
+    terminal: true
+info:
+  id: pi-bootstrap-collie-client-info
+  name: "Collie Info"
