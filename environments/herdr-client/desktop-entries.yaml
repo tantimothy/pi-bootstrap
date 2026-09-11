@@ -1,0 +1,28 @@
+# Linux-only; lib/desktop-lib.sh no-ops cleanly on macOS. Relevant because
+# the Pi can run herdr-client too — on a Mac this file simply does nothing.
+menu:
+  id: herdr-client
+  name: "Herdr"
+  icon: utilities-terminal
+deployed_check:
+  # marker, not container — this environment installs a binary, it does not
+  # run one. lib/desktop-lib.sh supports container | marker | systemd, and
+  # marker (a path that exists once installed) is exactly this case.
+  #
+  # The config file rather than the binary: run.sh deploys config.toml on
+  # every FAST, so it exists iff this environment has been deployed, whereas
+  # the binary's location varies by install method (Homebrew prefix, ~/.local
+  # /bin, cargo) and there is no single path to test.
+  kind: marker
+  value: "${HOME}/.config/herdr/config.toml"
+entries:
+  - id: pi-bootstrap-herdr-client
+    name: "Herdr"
+    comment: "Agent-aware terminal multiplexer — one window over every deployed agent environment, with blocked/working/done state per pane"
+    icon: utilities-terminal
+    kind: exec
+    target: 'herdr'
+    terminal: true
+info:
+  id: pi-bootstrap-herdr-client-info
+  name: "Herdr Info"
