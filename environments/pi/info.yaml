@@ -50,10 +50,16 @@ useful_commands: |2
         design. Everything else is an extension, skill, prompt template or
         pi package you add.
      ⚠️  YOLO BY DEFAULT — no permission prompts, no sandbox. Upstream's
-        position is that "security in coding agents is mostly theater". The
-        container boundary and a SCOPED GH_TOKEN are the only things doing
-        that job here. Do not give this environment a token that can reach
-        another environment's repos.
+        position is that "security in coding agents is mostly theater". In
+        THIS IMAGE the container boundary and a SCOPED GH_TOKEN are the only
+        things doing that job. Do not give this environment a token that can
+        reach another environment's repos.
+     🧩 The container protects the HOST, not what is inside reach: your
+        mounted repo, the keys in /etc/environment, and whatever
+        host.docker.internal reaches. Third-party extensions cover some of
+        that — pi-sandbox (allow/deny lists + OS-level bash sandbox),
+        pi-secrets (masked prompt, redacted from context) and pi-guard (a
+        permission system). None is installed here. See the README.
      🔑 PI DOES NOT READ A .env FILE. Keys must already be in the shell
         environment when pi launches — the entrypoint writes them to
         /etc/environment, which PAM loads into every SSH login.

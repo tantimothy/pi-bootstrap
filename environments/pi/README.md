@@ -50,6 +50,33 @@ Pi does ask before trusting a project folder that carries project-local
 settings or extensions (`/trust`, `~/.pi/agent/trust.json`) — but that gates
 *Pi's own config loading*, not what the model's `bash` tool may run.
 
+### The community fills some of this gap
+
+Pi's answer to "no permissions" is the same as its answer to everything
+else: someone writes an extension. Three worth knowing about, none of them
+installed by this image and none from the Pi maintainers — **third-party
+packages, so pin them and read them**:
+
+| Package | What it does | Note |
+|:---|:---|:---|
+| [`pi-sandbox`](https://github.com/carderne/pi-sandbox) | Allow/deny lists for read/write/edit, plus OS-level network and filesystem control for `bash`, prompting instead of failing silently | Delegates to a fork of Anthropic's `sandbox-runtime`. **Needs `ripgrep`** — already in this image |
+| [`pi-secrets`](https://github.com/liamvinberg/pi-secrets) | The agent asks for a secret by name, you paste it into a masked prompt, the value becomes an env var for `bash` and is redacted from every tool result and session file. The model only ever learns the name and length | Its own README is explicit that this is **cooperative, not adversarial**: it stops accidental disclosure, not a malicious model, since anything that can run `bash` can exfiltrate what the process can reach |
+| [`pi-guard`](https://github.com/jdiamond/pi-guard) | A general-purpose permission system for bash and file tools, with matchers extensible to custom tools | |
+
+**These address what the container boundary does not.** The container
+protects the *host*. It does nothing about the three things actually within
+reach inside it: your bind-mounted repository, the credentials the
+entrypoint writes into `/etc/environment`, and whatever
+`host.docker.internal` reaches — `llm-gateways`, `ollama`, `executor`.
+
+> **Not installed, and not a casual addition.** `pi install` writes into
+> `~/.pi/agent/npm/`, which is a named volume — so installing at *build*
+> time would be masked by the empty volume on first run, the same class of
+> trap as `opencode`'s binary. The route that works with a volume is Pi's
+> ephemeral extension flag (`pi -e npm:pi-sandbox`) in the tmux attach
+> script, which loads without installing but pins nothing. Neither has been
+> tried here.
+
 ---
 
 ## 🔑 Credentials: Pi does not read a `.env` file
