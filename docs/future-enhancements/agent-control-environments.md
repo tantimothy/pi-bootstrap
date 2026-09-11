@@ -7,8 +7,10 @@ factual claim below was checked against a primary source except where
 explicitly marked inferred.
 
 Built so far: the menu regrouping, `herdr-client` (with its session
-generator), `collie-client`, `pi` and `opencode`. Still proposals:
-`hermes`, `executor`, the skills experiment, and `omp`.
+generator), `collie-client`, `pi`, `opencode`, `hermes` and `executor`.
+Still proposals: the skills experiment (phase 7) and `omp`, which was
+always conditional on Pi proving interesting enough to want its
+IDE-wired cousin.
 
 **Nothing built has been run against real Docker, a real Herdr or a real
 Tailscale.** Each was verified by `bash -n`, YAML parsing, offline
@@ -1076,6 +1078,48 @@ justified by calling the upstream org third-party.
   volume, `HOME` is the only lever that keeps the image-owned binary out of
   it — and keeping it out is what stops a CLEAN rebuild leaving the old
   version running while every check reports the new one.
+
+### Executor's image namespace moved
+
+The catalogue and the environment spec both name
+`ghcr.io/rhyssullivan/executor-selfhost`. Upstream's publish workflow now
+tags `ghcr.io/usefulsoftwareco/executor-selfhost` and **mirrors** each
+release to the `rhyssullivan` namespace as a legacy alias. Both resolve
+today; only one is where new work lands, so `environments/executor` uses
+the current one.
+
+Two things the spec table also missed, both off by default upstream and
+both worth a line rather than "no security caveat":
+
+- **`EXECUTOR_ALLOW_LOCAL_NETWORK`** lets sandboxed code reach loopback
+  and private addresses — which is precisely where this repo's `ollama`,
+  `llm-gateways`, `nanoclaw-mnemon` and every agent container live.
+- **`EXECUTOR_ALLOW_STDIO_MCP`** lets users configure MCP servers whose
+  commands execute on the host. Upstream labels it "trusted deployments
+  only" and honours it only as the exact string `true`.
+
+The spec's `EXECUTOR_PORT` is this repo's variable, not Executor's: the
+image reads `PORT` (defaulting to 4788) and sets `EXECUTOR_HOST=0.0.0.0`
+and `EXECUTOR_DATA_DIR=/data` itself.
+
+### `hermes` is one container here, not upstream's two
+
+Upstream's own `docker-compose.yml` runs the dashboard as a second service
+under `network_mode: host`, because its gateway-liveness detection needs a
+shared PID namespace. Host networking is a Linux-shaped assumption and the
+container host here is a Mac under OrbStack — and the published image
+already supervises the dashboard as an s6-rc service inside the gateway
+container when `HERMES_DASHBOARD=1`, which upstream's Docker guide
+documents as the normal shape.
+
+The dashboard caveat is also sharper than "protect it with basic auth".
+Upstream **removed** its own `--insecure` flag after an unauthenticated
+public dashboard was the entry point for the June 2026 MCP-config
+persistence campaign: scanners reached exposed dashboards and drove the
+agent into planting an SSH-key backdoor. Hermes now fails closed on any
+non-loopback bind with no auth provider — but it fails closed *inside the
+container*, as a dashboard that silently never comes up, which is why
+`environments/hermes/pre-deploy.sh` checks at deploy time instead.
 
 ### `maintenance.yaml` globs are first-match across all environments
 
