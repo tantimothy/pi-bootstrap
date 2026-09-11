@@ -1,10 +1,20 @@
 # Agent Control Environments — Herdr, Collie, Coding CLIs, Hermes, Executor
 
-**Status:** planning only — nothing built, no code written. This is a
-design proposal for seven candidate environments plus a menu regrouping,
-worked out against each upstream project's own repository rather than
-secondary write-ups. Every factual claim below was checked against a
-primary source except where explicitly marked inferred.
+**Status:** partly built. This started as a design proposal for seven
+candidate environments plus a menu regrouping, worked out against each
+upstream project's own repository rather than secondary write-ups. Every
+factual claim below was checked against a primary source except where
+explicitly marked inferred.
+
+Built so far: the menu regrouping, `herdr-client` (with its session
+generator), `collie-client`, `pi` and `opencode`. Still proposals:
+`hermes`, `executor`, the skills experiment, and `omp`.
+
+**Nothing built has been run against real Docker, a real Herdr or a real
+Tailscale.** Each was verified by `bash -n`, YAML parsing, offline
+exercise of the generator and config emitters, and reading upstream
+source — not by a deploy. See "Build pass — 2026-09-11" for what reading
+that source changed, including two corrections to this document.
 
 **Posture:** this is a *research* exercise first. The goal is to find out
 which of these tools earn a place; several will not. It becomes tooling
@@ -998,6 +1008,84 @@ single operator evaluating candidates it is the *last* thing that pays.
 - **Breadth is the point, temporarily.** "Why six coding CLIs" has an
   answer: to find out. The question returns once one is obviously the
   daily driver.
+
+---
+
+## Build pass — 2026-09-11
+
+Things that turned out differently once the environments were actually
+built and each upstream was read at the source rather than the doc. Both
+corrections below were wrong *in this document* first.
+
+### `pi` has no `OPENAI_API_BASE`-style override — the spec table was wrong
+
+The environment specs table above says all three new coding CLIs "take an
+`OPENAI_API_BASE`-style override". **That is false for Pi.** Pi has no
+base-URL environment variable at all. A non-built-in provider is declared
+in `~/.pi/agent/models.json` — a top-level `providers` object, each
+provider carrying `baseUrl`, `api`, `apiKey` and a `models` **array** of
+`{ id }` objects — and that is the only route.
+
+Two details that only show up in Pi's own `docs/models.md`:
+
+- **`apiKey` is required even when the endpoint ignores it.** Pi treats a
+  model as unavailable until auth is configured, so a keyless local
+  server's models would load and then stay invisible in `/model` with
+  nothing saying why. `environments/pi`'s entrypoint uses the placeholder
+  `gateway`.
+- **`compat.supportsDeveloperRole` / `compat.supportsReasoningEffort`**
+  exist for OpenAI-compatible servers that reject the `developer` role —
+  Ollama, vLLM, SGLang. Worth knowing before concluding a gateway is
+  broken.
+
+`opencode` does have a redirect, but also not an env var: a provider
+`baseURL` inside `opencode.json`. It additionally offers
+`OPENCODE_CONFIG_CONTENT`, an inline runtime override with the **highest
+precedence of any config source** — which is exactly why the environment
+does *not* use it. It would silently win over whatever the operator later
+writes into `opencode.json`.
+
+Only `aider` and `claude-cli` take the env-var form. The habit does not
+transfer, and both new environments seed a config file instead — **only
+when one does not already exist**, since both files live in persistent
+volumes and are edited by hand.
+
+### `anomalyco` is OpenCode's official home, not a third party
+
+The catalogue above says to avoid "the **third-party** `anomalyco/opencode`
+Docker image". The org part of that is wrong: `github.com/anomalyco/opencode`
+is where OpenCode's own README badges, Homebrew tap (`brew install
+anomalyco/tap/opencode`) and download links point, where its installer
+fetches release artifacts from, and where `sst/opencode` redirects to.
+
+The operative rule is unchanged — **build from the official installer
+rather than pulling someone's prebuilt image** — but it should not be
+justified by calling the upstream org third-party.
+
+### Two installer facts that changed the Dockerfiles
+
+- **OpenCode's installer does no checksum verification.** It downloads the
+  release archive and unpacks it. Herdr's and Collie's both fetch a
+  `.sha256` sidecar and refuse to install without one — which is why those
+  two environments deliberately add no verification of their own, and why
+  this one recommends pinning `OPENCODE_VERSION` more strongly than
+  elsewhere.
+- **`OPENCODE_INSTALL_DIR` is documented but not implemented.** OpenCode's
+  README shows it; the installer never reads it and hardcodes
+  `INSTALL_DIR=$HOME/.opencode/bin`. Since `/home/opencode` is a persistent
+  volume, `HOME` is the only lever that keeps the image-owned binary out of
+  it — and keeping it out is what stops a CLEAN rebuild leaving the old
+  version running while every check reports the new one.
+
+### `maintenance.yaml` globs are first-match across all environments
+
+`lib/maintenance-lib.sh` walks `environments/*/maintenance.yaml` in
+directory order and the **first matching glob wins**. A loose pattern in an
+early-sorting directory therefore captures a later environment's images.
+`environments/pi` is exactly that hazard: `"*pi*"` would have hijacked
+`pihole-wireguard`. Both new environments match on the Compose-derived
+image name instead (`pi-pi*`, `opencode-opencode*`); `deploy-lib.sh` passes
+no `-p`, so the project name is the directory name.
 
 ---
 

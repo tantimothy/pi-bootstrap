@@ -1,0 +1,16 @@
+deployment:
+  kind: container
+  value: ${CONTAINER_NAME:-opencode}
+
+updates:
+  local_images:
+    # Compose derives the image name from the project (this directory) and
+    # the service, giving opencode-opencode:latest. deploy-lib.sh passes
+    # no -p.
+    #
+    # A hit here means the BASE IMAGE moved. OpenCode itself moves by setting
+    # OPENCODE_VERSION in .env and running CLEAN (or by clearing it, which
+    # tracks latest on every CLEAN).
+    - image_pattern: "opencode-opencode*"
+      dockerfile: Dockerfile
+      apt_updates: true

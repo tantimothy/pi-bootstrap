@@ -1,0 +1,54 @@
+services:
+  opencode:
+    container_name: ${CONTAINER_NAME:-opencode}
+    build:
+      context: .
+      args:
+        # Empty means "latest". Pinning matters more here than in most of
+        # this repo's images: OpenCode's installer does no checksum
+        # verification, so a pin is what makes a build reproducible.
+        OPENCODE_VERSION: ${OPENCODE_VERSION:-}
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENCODE_MODEL=${OPENCODE_MODEL:-}
+      - OPENCODE_AGENT=${OPENCODE_AGENT:-}
+      - OPENCODE_AUTO_APPROVE=${OPENCODE_AUTO_APPROVE:-}
+      - OPENCODE_GATEWAY_BASE_URL=${OPENCODE_GATEWAY_BASE_URL:-}
+      - OPENCODE_GATEWAY_API_KEY=${OPENCODE_GATEWAY_API_KEY:-}
+    ports:
+      - "${SSH_PORT:-2225}:22"
+    volumes:
+      - "${OPENCODE_WORKSPACE_PATH}:/home/opencode/workspace"
+      - "${SSH_AUTHORIZED_KEYS_PATH}:/run/host-authorized_keys:ro"
+      # Preserve all runtime-created user settings: shell/tmux customisation,
+      # git and gh configuration, SSH known_hosts, and other dotfiles. The
+      # workspace and the two OpenCode mounts below are nested mounts with
+      # independent backup/WIPE semantics.
+      - "opencode_user_home:/home/opencode"
+      # Config: opencode.json, tui.json, and the agents/, commands/, modes/,
+      # plugins/, skills/, tools/ and themes/ directories.
+      - "opencode_config:/home/opencode/.config/opencode"
+      # State: auth.json (API keys and OAuth tokens from `opencode auth
+      # login`), session storage, and log/.
+      - "opencode_state:/home/opencode/.local/share/opencode"
+      # Preserve the server fingerprint across container recreation.
+      - "opencode_ssh_host_keys:/etc/ssh"
+
+volumes:
+  opencode_user_home:
+    name: ${CONTAINER_NAME:-opencode}_user_home
+  opencode_config:
+    name: ${CONTAINER_NAME:-opencode}_config
+  opencode_state:
+    name: ${CONTAINER_NAME:-opencode}_state
+  opencode_ssh_host_keys:
+    name: ${CONTAINER_NAME:-opencode}_ssh_host_keys
