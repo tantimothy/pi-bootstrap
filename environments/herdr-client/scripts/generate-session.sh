@@ -54,9 +54,9 @@ Discovery rules — an environment is included when ALL of these hold:
   * environments/<name>/.env exists (i.e. it has been configured), AND
   * that .env defines SSH_PORT.
 
-Environments with no SSH port (openclaw, nanoclaw-mnemon) are reported
-separately with the docker exec command to reach them, rather than being
-silently dropped.
+Environments with no SSH port (openclaw, nanoclaw-mnemon, hermes) are
+reported separately with the docker exec command to reach them, rather than
+being silently dropped.
 USAGE
 }
 
@@ -164,6 +164,13 @@ if [ -f "$ENVIRONMENTS_DIR/openclaw/.env" ]; then
 fi
 if [ -f "$ENVIRONMENTS_DIR/nanoclaw-mnemon/.env" ]; then
     NO_SSH="${NO_SSH}nanoclaw-admin	docker exec -it \${CONTAINER_NAME:-nanoclaw-mnemon} tmux attach -t claude
+"
+fi
+if [ -f "$ENVIRONMENTS_DIR/hermes/.env" ]; then
+    # The venv path, not a bare `hermes`: upstream's own Docker guide gives
+    # /opt/hermes/.venv/bin/hermes as the in-container invocation, and the
+    # `hermes` shim on PATH behaves differently under docker exec.
+    NO_SSH="${NO_SSH}hermes	docker exec -it \${CONTAINER_NAME:-hermes} /opt/hermes/.venv/bin/hermes
 "
 fi
 
