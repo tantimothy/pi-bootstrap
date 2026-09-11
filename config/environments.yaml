@@ -34,6 +34,11 @@ categories:
       - codex-cli
       - aider
       - opencode
+      # Not built yet, and deliberately listed anyway: deploy.sh guards every
+      # entry with `[ -d environments/<name> ]`, so a placeholder costs
+      # nothing and holds the slot. omp was always conditional on Pi proving
+      # interesting enough to want its IDE-wired cousin (LSP on every file
+      # write, debugger ops) — see the design doc's sequence, step 5.
       - omp
       - pi
   - id: agent-platforms
