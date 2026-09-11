@@ -115,17 +115,26 @@ offers the wrong one: `serve` is the server side, while `call`/`list` —
 the half that turns an MCP tool into a shell command a non-MCP agent can
 run — has to execute *inside* the agent's own container.
 
-**The route that does work is `generate-cli --compile`.** mcporter can
+**The route that should work is `generate-cli --compile`.** mcporter can
 "produce a standalone CLI for a single MCP server", and `--compile`
 "invokes `bun build --compile` to create the native executable". So a
-multi-stage Docker build can generate and compile the CLI in a
+multi-stage Docker build could generate and compile the CLI in a
 Bun-equipped builder stage and `COPY` a **static binary** into aider's
 final image — no Node runtime in the Python image at all, exactly the way
 `gh` is just a binary.
 
+**Designed, not demonstrated.** That paragraph is read from mcporter's
+documentation, not from a working build. Nobody has compiled this binary,
+pointed it at anything, or run it inside a Python image. It cannot be
+demonstrated yet either, since Executor is phase 8 and does not exist to
+point it at. Treat it as a plausible implementation sketch rather than a
+proven escape hatch — the difference matters, because the whole argument
+for reopening this decision rests on the cost being near zero, and an
+untested route could yet prove otherwise.
+
 **So the cost objection largely collapses, and this decision now rests on
-one argument rather than two.** Three real caveats remain, none
-decisive:
+one argument rather than two.** Three caveats remain, the last of which
+could reverse that:
 
 - The generated CLI "embeds the resolved server definition and always
   targets that snapshot (no external `--config` or `--server` overrides
@@ -135,9 +144,12 @@ decisive:
   fronting everything, that should mean one binary — worth confirming
   rather than assuming.
 - The docs note generated CLIs register views with the single-user
-  daemon for embedded stdio servers. Whether an HTTP-backed target like
-  Executor needs the daemon at runtime is unverified, and it is the one
-  thing that could reintroduce a dependency.
+  daemon for embedded stdio servers. **Whether an HTTP-backed target like
+  Executor needs that daemon at runtime is unverified.** If it does, the
+  static binary quietly reacquires a dependency, "no Node in the final
+  image" stops being true, and the cost objection this decision just
+  discarded comes back. This is the one caveat that is not merely
+  bookkeeping.
 
 **The question underneath is not "can we" but "would it use it".** Aider
 is a git-native pair programmer — architect/editor modes, auto-commits,
@@ -1151,6 +1163,12 @@ two as findings this research produced rather than inherited.
   designing anything around parallel agents.
 - Whether Executor can hold the provider keys the coding CLIs currently
   read from their own `.env`.
+- **Whether `mcporter generate-cli --compile` actually yields a
+  dependency-free binary** — specifically whether an HTTP-backed target
+  needs the single-user daemon at runtime. This is the escape hatch
+  decision 7 leans on to call its own cost objection obsolete, and it is
+  read from documentation rather than tested. Not testable until Executor
+  exists at phase 8.
 - Whether GitHub-behind-Executor covers what the agents actually need (PR
   create, review, CI status) — decides whether `GH_TOKEN` can leave the
   container environment entirely or only shrink.
