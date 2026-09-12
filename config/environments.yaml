@@ -5,24 +5,60 @@
 #
 # An environment folder not listed under any category here is appended
 # alphabetically under an "Other" submenu by deploy.sh's fallback pass — it
-# is never silently hidden from the menu just because this file was not updated.
+# is never silently hidden from the menu just because this file was not
+# updated.
+#
+# The AI-related categories below are grouped by WHAT YOU DO WITH THE TOOL,
+# not by vendor. Grouping by vendor stopped scaling once "AI Assistants"
+# held a dozen entries mixing an SSH-in coding CLI, an always-on channel
+# bot and an MCP proxy in one flat list. The four groups are:
+#
+#   Coding CLIs             — ssh in, land in tmux, write code
+#   Personal Agent Platforms — always on, channel-connected, persistent memory
+#   Model & Routing          — the inference plumbing everything above consumes
+#   Agent Control            — orchestration over all of it
+#
+# See docs/future-enhancements/agent-control-environments.md for the full
+# reasoning, and for why "Agent Control" rather than "Client Tools" (the
+# Pi can be the client, so a name built around "not the Pi" is wrong).
 categories:
   - id: setup
     name: "Host Setup"
     environments:
       - pi-barebones
       - mac-terminal-setup
-  - id: ai
-    name: "AI Assistants"
+  - id: coding-clis
+    name: "Coding CLIs"
     environments:
-      - ollama
-      - openclaw
-      - nanoclaw-mnemon
-      - chat-frontends
-      - llm-gateways
       - claude-cli
       - codex-cli
       - aider
+      - opencode
+      # Not built yet, and deliberately listed anyway: deploy.sh guards every
+      # entry with `[ -d environments/<name> ]`, so a placeholder costs
+      # nothing and holds the slot. omp was always conditional on Pi proving
+      # interesting enough to want its IDE-wired cousin (LSP on every file
+      # write, debugger ops) — see the design doc's sequence, step 5.
+      - omp
+      - pi
+  - id: agent-platforms
+    name: "Personal Agent Platforms"
+    environments:
+      - openclaw
+      - nanoclaw-mnemon
+      - hermes
+  - id: model-routing
+    name: "Model & Routing"
+    environments:
+      - ollama
+      - llm-gateways
+      - chat-frontends
+  - id: agent-control
+    name: "Agent Control"
+    environments:
+      - executor
+      - herdr-client
+      - collie-client
   - id: network-security
     name: "Networking & Security"
     environments:

@@ -1,0 +1,7 @@
+deployment:
+  kind: container
+  value: ${CONTAINER_NAME:-hermes}
+
+# No updates.local_images: nousresearch/hermes-agent is a REGISTRY image, not
+# one this repo builds, so check-updates.sh takes its normal
+# pull-and-compare path. local_images is only for locally-built images.

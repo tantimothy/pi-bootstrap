@@ -1,0 +1,58 @@
+services:
+  pi:
+    container_name: ${CONTAINER_NAME:-pi}
+    build:
+      context: .
+      args:
+        # Pinned here rather than in the Dockerfile alone so a version bump is
+        # a .env edit plus CLEAN, not an image edit. See the Dockerfile's own
+        # comment for why the SCOPE matters at least as much as the version.
+        PI_PACKAGE_VERSION: ${PI_PACKAGE_VERSION:-0.85.1}
+        MCPORTER_VERSION: ${MCPORTER_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      # Pi does NOT read a .env file. Keys have to already be in the shell
+      # environment when it launches, which is exactly what the entrypoint's
+      # /etc/environment writes deliver to every SSH login via PAM.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - PI_MODEL=${PI_MODEL:-}
+      - PI_THINKING=${PI_THINKING:-}
+      - PI_OFFLINE=${PI_OFFLINE:-}
+      - PI_TELEMETRY=${PI_TELEMETRY:-}
+      - PI_SKIP_VERSION_CHECK=${PI_SKIP_VERSION_CHECK:-}
+      - PI_GATEWAY_BASE_URL=${PI_GATEWAY_BASE_URL:-}
+      - PI_GATEWAY_API_KEY=${PI_GATEWAY_API_KEY:-}
+      - PI_GATEWAY_MODELS=${PI_GATEWAY_MODELS:-}
+    ports:
+      - "${SSH_PORT:-2227}:22"
+    volumes:
+      - "${PI_WORKSPACE_PATH}:/home/pi/workspace"
+      - "${SSH_AUTHORIZED_KEYS_PATH}:/run/host-authorized_keys:ro"
+      # Preserve all runtime-created user settings: shell/tmux customization,
+      # personal ~/.agents skills, Git/gh configuration, SSH known_hosts, and
+      # other dotfiles. The workspace and ~/.pi below are nested mounts with
+      # independent backup/WIPE semantics.
+      - "pi_user_home:/home/pi"
+      # Pi's own state: settings.json, auth.json, models.json, trust.json,
+      # keybindings.json, sessions/ (auto-saved, organised by working
+      # directory), skills/, extensions/, prompts/, themes/, and installed
+      # pi packages under npm/ and git/.
+      - "pi_agent_home:/home/pi/.pi"
+      # Preserve the server fingerprint across container recreation.
+      - "pi_ssh_host_keys:/etc/ssh"
+
+volumes:
+  pi_user_home:
+    name: ${CONTAINER_NAME:-pi}_user_home
+  pi_agent_home:
+    name: ${CONTAINER_NAME:-pi}_agent_home
+  pi_ssh_host_keys:
+    name: ${CONTAINER_NAME:-pi}_ssh_host_keys

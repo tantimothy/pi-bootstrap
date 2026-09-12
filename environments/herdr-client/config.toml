@@ -1,0 +1,48 @@
+# Repo-managed Herdr config, deployed to ~/.config/herdr/config.toml by
+# run.sh. Your previous file (if any) is backed up under
+# ~/.pi-bootstrap-backups/herdr-client-<timestamp>/ first.
+#
+# Edit it here rather than in place: run.sh overwrites the deployed copy on
+# every FAST, which is the point — the deploy reproduces what is in the repo.
+
+[keys]
+# THE LOAD-BEARING SETTING IN THIS FILE.
+#
+# Herdr's own default prefix is ctrl+b — which is also tmux's default, and
+# none of this repo's .tmux.conf files override it. Every agent environment
+# here auto-attaches you to a tmux session INSIDE its container, so any
+# Herdr pane into one of them is:
+#
+#     Herdr (ctrl+b) -> ssh/docker exec -> container tmux (ctrl+b)
+#
+# Two multiplexers stacked on the same prefix. Herdr is designed to be
+# polite about this — its docs note the keymap is "prefix-first so Herdr
+# does not steal input from shells, editors, tmux, or terminal apps" — but a
+# SHARED prefix still means the outer multiplexer consumes the keystroke the
+# inner one was waiting for.
+#
+# ctrl+a is the conventional tmux-user alternative and is what this repo
+# picks. If you already use ctrl+a for something (GNU screen users often
+# do), change it here rather than changing the containers' tmux configs:
+# one file in one environment, versus six existing environments.
+#
+# Herdr also documents a "vetted prefix-free setup" in its Keyboard docs,
+# which is worth evaluating if you dislike prefixes generally.
+prefix = "ctrl+a"
+
+[ui]
+# Show the blocked/working/done/idle state per pane. This sidebar is the
+# reason to run Herdr rather than plain tmux, so it is on deliberately.
+status_indicators = "symbols"
+show_agent_labels_on_pane_borders = true
+
+[ui.toast]
+# Notifications in the terminal rather than through the OS. Keeps a headless
+# or SSH-attached session behaving the same as a local one.
+delivery = "terminal"
+
+[theme]
+# No auto-switch: a session may be attached from several machines at once
+# (Herdr's Machines feature), and having the theme follow whichever client
+# last connected is more distracting than useful.
+auto_switch = false

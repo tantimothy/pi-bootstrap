@@ -1,7 +1,8 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-09-10** — though only the
-agent-control-environments entry was added in that pass. The dragonos-sdr
+A snapshot of open follow-ups as of **2026-09-11** — though only the
+agent-control-environments entry was revised in that pass (it was added in
+the 2026-09-10 one). The dragonos-sdr
 entry was revised in the 2026-09-03 one (it was added in the 2026-08-31
 one and last revised 2026-09-01), the Ollama model-catalog entry added in the
 2026-08-29 one, the Ollama
@@ -345,39 +346,77 @@ Open, with full context in
 - Catalog rows pin tags, not digests, so published download sizes can
   drift without any commit here. No action re-checks them.
 
-## Agent control environments: planned, nothing built
+## Agent control environments: built, none deployed
 
-Full proposal in `docs/future-enhancements/agent-control-environments.md`
-— seven candidate environments (`executor`, `opencode`, `omp`, `pi`,
-`hermes`, `herdr-client`, `collie-client`) plus a `config/environments.yaml`
-regrouping. No decisions outstanding; the doc records six that are
-settled. This is a research-phase evaluation, so several of these are
-expected never to ship.
+Design in `docs/future-enhancements/agent-control-environments.md`; its
+"Build pass — 2026-09-11" section records what building them corrected in
+the design.
 
-The verification items that could change the *design* rather than merely
-confirm it, summarized here for visibility:
+Built: the `config/environments.yaml` regrouping, `herdr-client` (with its
+session generator), `collie-client`, `pi`, `opencode`, `hermes`,
+`executor`. Not built: the skills experiment (phase 7, still an open
+design question) and `omp`, which was always conditional on Pi proving
+interesting enough to want its IDE-wired cousin.
+
+**Nothing has been run against real Docker, a real Herdr or a real
+Tailscale.** Verification so far is `bash -n`, YAML parsing, `lib/`
+dispatcher runs against real go-yq, offline exercise of the session
+generator and both config emitters, and reading each upstream's source —
+not a deploy. This is a research-phase evaluation, so several of these are
+still expected never to ship.
+
+### What a first real deploy should check, in order
+
+1. **`herdr-client`'s pane invocation is a placeholder.** The generator
+   emits a shell script whose single `herdr_pane()` function needs
+   confirming against `herdr --help` once. This was deliberate — Herdr's
+   own docs say the installed binary is the authority for command syntax,
+   and guessing a JSON session schema would fail silently.
+2. **`collie-client`'s funnel check** looks for `"AllowFunnel":{…true` in
+   `tailscale serve status --json`. Verified against synthetic JSON, never
+   against a real tailnet. It fails *closed*, so a false positive is a
+   refused deploy rather than an exposed Collie.
+3. **`pi` and `opencode` have never been built.** Neither Dockerfile has
+   run. `opencode`'s in particular depends on `HOME=/opt/opencode` being
+   honoured by an installer that hardcodes `INSTALL_DIR=$HOME/...`, which
+   is read from its source rather than demonstrated.
+4. **`hermes`'s single-container shape.** Upstream's own compose runs the
+   dashboard separately under `network_mode: host`; this uses the image's
+   in-container s6 supervision instead, which upstream documents but which
+   nobody here has watched come up.
+5. **`executor` on the Mac, not the Pi**, and its owner account created
+   before anything else can reach the port — a one-shot, irreversible
+   decision.
+
+### Still open from the original design
 
 - Whether `npx skills@latest add` runs non-interactively with a pinned
   skill selection — decides whether skills provisioning is an existing
   tool or a bespoke build. Note `pi install` and Claude Code plugins make
   three provisioning ecosystems, so no single mechanism covers the repo.
+  This is phase 7 and the reason it is not built.
 - Whether GitHub-behind-Executor covers PR create, review and CI status —
   decides whether `GH_TOKEN` can leave a container's environment entirely
-  or only shrink.
-- Herdr's `session.json` schema — whether a session can be generated as a
-  file or must be driven through the socket/CLI API at runtime.
-- Which of the new environments need a **single-file mount**. That is the
-  OrbStack tripwire this repo has already been bitten by (see
-  `docs/lessons-learned/nanoclaw-mnemon.md`); each one needs a
-  `pre-deploy.sh` placeholder on `claude-cli`'s pattern.
-- A port map, now that roughly eight services would co-locate on one Mac.
+  or only shrink. Now testable for the first time: `executor` exists.
+- Herdr's `session.json` schema — see item 1 above.
+- A port map, now that roughly eight services co-locate on one Mac.
+  Currently allocated by these: 2225 (`opencode`), 2227 (`pi`), 4788
+  (`executor`), 8642 + 9119 (`hermes`).
 
-Two standing cautions from the same doc, both independent of whether
-anything gets built:
+Resolved during the build, and no longer open:
+
+- **Which new environments need a single-file mount: none of them.** Every
+  new mount is a directory or a named volume, so the OrbStack tripwire in
+  `docs/lessons-learned/nanoclaw-mnemon.md` does not apply. `hermes` still
+  ships a `pre-deploy.sh`, for ownership and for refusing an
+  unauthenticated dashboard, not for that.
+
+Two standing cautions, both independent of what gets deployed:
 
 - **`restore.sh` has never been exercised** against Executor's `/data`
   (credentials) or Hermes's `~/.hermes` (its entire accumulated value).
-  `backup.sh` covers them; the restore path is untested.
+  `backup.sh` covers them; the restore path is untested. This matters more
+  now that both environments exist than it did when they were proposals.
 - **Anything installed into a `nanoclaw-mnemon` agent image hits the
   derived-image trap** — `CLEAN` rebuilds the base and stops there. MCP
   registration via the `/add-ollama-tool` patch pattern is the proven

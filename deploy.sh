@@ -136,6 +136,69 @@ else
     GIT_CMD=(git)
 fi
 
+# Force-syncs the checkout to the remote tip OF THE BRANCH IT IS ACTUALLY ON,
+# not to origin/master.
+#
+# This used to be a bare `git reset --hard origin/master` in both callers,
+# which made deploy.sh unusable for testing anything on a branch: every run
+# silently threw the checkout back to master's tip. Worse, `reset --hard`
+# takes uncommitted work with it, and a feature branch under test is exactly
+# where uncommitted work lives.
+#
+# Resolution order, each step falling back to the next:
+#   1. the branch's configured upstream (@{u}) — correct even when the
+#      remote branch is named differently from the local one;
+#   2. origin/<current-branch>, for a branch that exists on the remote but
+#      has no upstream configured (a plain `git fetch` + `git checkout -b`);
+#   3. origin/master, which is both the original behaviour and the only
+#      sensible answer for a detached HEAD.
+#
+# A LOCAL-ONLY branch (no remote counterpart) resolves to none of these and
+# is left alone, loudly. Resetting it to master would discard exactly the
+# work that made someone create it.
+_sync_to_remote_tip() {
+    local branch target counts
+
+    branch="$("${GIT_CMD[@]}" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+
+    if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
+        target="$("${GIT_CMD[@]}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+        if [ -z "$target" ] && \
+           "${GIT_CMD[@]}" rev-parse --verify --quiet "origin/$branch" >/dev/null 2>&1; then
+            target="origin/$branch"
+        fi
+        if [ -z "$target" ]; then
+            echo "⏭️  On branch '$branch', which has no remote counterpart — leaving it alone."
+            echo "   (A local-only branch is not synced to master; that would discard it.)"
+            return 0
+        fi
+    else
+        target="origin/master"
+        echo "ℹ️  Detached HEAD — syncing to $target."
+    fi
+
+    # `reset --hard` discards uncommitted changes. That is the documented
+    # intent of this step, but it must not happen by surprise to someone
+    # mid-edit — which is the whole reason for running deploy.sh from a
+    # branch in the first place. Skip loudly instead of destroying work.
+    if [ -n "$("${GIT_CMD[@]}" status --porcelain 2>/dev/null)" ]; then
+        echo "⏭️  Uncommitted changes present — NOT resetting to $target."
+        echo "   Your working tree is untouched and deploy.sh will run as it"
+        echo "   stands on disk. Commit or stash first for a clean sync, or"
+        echo "   force one yourself:"
+        echo "     git reset --hard $target"
+        return 0
+    fi
+
+    counts="$("${GIT_CMD[@]}" rev-list --left-right --count "HEAD...$target" 2>/dev/null)"
+    case "$counts" in
+        "0	0") echo "✅ Already at $target." ; return 0 ;;
+    esac
+
+    echo "🔄 Forcing workspace sync with $target..."
+    "${GIT_CMD[@]}" reset --hard "$target"
+}
+
 echo "🔍 Checking execution environment..."
 # Determine PROJECT_DIR unconditionally so it is always set, even on re-exec.
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -153,8 +216,7 @@ if [ "$1" != "--updated" ]; then
         echo "📥 Fetching latest upstream tree..."
         "${GIT_CMD[@]}" fetch --all --prune
 
-        echo "🔄 Forcing workspace sync with remote origin repository..."
-        "${GIT_CMD[@]}" reset --hard origin/master
+        _sync_to_remote_tip
     else
         echo "📂 Preparing project directory at $PROJECT_DIR..."
 
@@ -201,7 +263,7 @@ if [ "$1" != "--updated" ]; then
                 echo "❌ git fetch failed — see the error above." >&2
                 exit 1
             fi
-            "${GIT_CMD[@]}" reset --hard origin/master
+            _sync_to_remote_tip
         fi
     fi
 

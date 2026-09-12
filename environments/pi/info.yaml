@@ -1,0 +1,85 @@
+# 🧭 Pick this when you want a MINIMAL HARNESS you extend yourself.
+# Pi ships four tools (read, write, edit, bash) and a ~200-token system
+# prompt, then expects you to add TypeScript extensions, skills, prompt
+# templates and themes — or install someone else's as a pi package. It
+# deliberately omits sub-agents and plan mode. Compare: opencode
+# (batteries-included terminal agent), omp (IDE-grade — LSP on every write,
+# debugger ops), claude-cli / codex-cli (a vendor's own agent).
+data_dirs:
+  - path: "docker volume: ${CONTAINER_NAME:-pi}_agent_home"
+    description: "Pi's own state — settings.json, auth.json (any /login subscription credential), models.json, trust.json, and sessions/ auto-saved per working directory. Also your installed pi packages, skills, extensions, prompt templates and themes."
+  - path: "docker volume: ${CONTAINER_NAME:-pi}_user_home"
+    description: "The rest of the home directory — shell/tmux customisation, ~/.agents skills, git and gh configuration, SSH known_hosts"
+  - path: "${PI_WORKSPACE_PATH:-~/pi-workspace}"
+    description: "Your bind-mounted repository on the host. NOT deleted by WIPE — it is yours, not this environment's."
+install_dirs:
+  - path: "docker volume: ${CONTAINER_NAME:-pi}_ssh_host_keys"
+    description: "The container's SSH host keys, so its fingerprint survives recreation"
+no_data_msg: "(nothing yet — deploy and connect once)"
+no_delete_msg: "WIPE removes the three docker volumes (Pi's state, the home directory,\\n   the SSH host keys). It does NOT touch ${PI_WORKSPACE_PATH:-~/pi-workspace} —\\n   that is your repository on the host.\\n   WARNING: the agent_home volume holds any subscription credential saved by\\n   Pi's own /login. Wiping means logging in again."
+custom_actions:
+  - label: "Connect (SSH into the persistent Pi session)"
+    command: "ssh -p ${SSH_PORT:-2227} pi@localhost"
+  - label: "Which Pi is actually installed? (scope + version)"
+    command: "docker exec ${CONTAINER_NAME:-pi} npm ls -g --depth=0 2>/dev/null | grep -i pi-coding-agent || echo 'not found'"
+  - label: "List models Pi can currently reach"
+    command: "docker exec -u pi ${CONTAINER_NAME:-pi} pi --list-models"
+  - label: "Show the gateway provider config (models.json)"
+    command: "docker exec ${CONTAINER_NAME:-pi} cat /home/pi/.pi/agent/models.json 2>/dev/null || echo '(none - set PI_GATEWAY_BASE_URL and redeploy, or write it by hand)'"
+  - label: "List MCP servers mcporter can see"
+    command: "docker exec -u pi ${CONTAINER_NAME:-pi} mcporter list"
+useful_commands: |2
+     ssh -p ${SSH_PORT:-2227} pi@localhost        # Attach to the persistent tmux session
+     pi                                            # New session
+     pi -c                                         # Continue the most recent session here
+     pi -r                                         # Browse and pick a session
+     /model            (Ctrl+L)                    # Switch model; Ctrl+S saves one as the startup default
+     /login                                        # Subscription auth (Anthropic, ChatGPT, Copilot)
+     /trust                                        # Save a project-trust decision for this folder
+     /settings                                     # Edit settings.json interactively
+     pi --list-models                              # What this container can actually reach
+     pi install <source>                           # Install a pi package (npm or git)
+     pi list                                       # Installed packages
+     pi update --self                              # ⚠️  See the note below before using this
+     mcporter list                                 # MCP servers reachable from the bash tool
+     mcporter call <server> <tool> '<json>'        # Invoke one
+
+  📌 Notes:
+     🧭 Pick Pi when you want a minimal harness you extend yourself — four
+        tools, a ~200-token system prompt, no sub-agents and no plan mode by
+        design. Everything else is an extension, skill, prompt template or
+        pi package you add.
+     ⚠️  YOLO BY DEFAULT — no permission prompts, no sandbox. Upstream's
+        position is that "security in coding agents is mostly theater". In
+        THIS IMAGE the container boundary and a SCOPED GH_TOKEN are the only
+        things doing that job. Do not give this environment a token that can
+        reach another environment's repos.
+     🧩 The container protects the HOST, not what is inside reach: your
+        mounted repo, the keys in /etc/environment, and whatever
+        host.docker.internal reaches. Third-party extensions cover some of
+        that — pi-sandbox (allow/deny lists + OS-level bash sandbox),
+        pi-secrets (masked prompt, redacted from context) and pi-guard (a
+        permission system). None is installed here. See the README.
+     🔑 PI DOES NOT READ A .env FILE. Keys must already be in the shell
+        environment when pi launches — the entrypoint writes them to
+        /etc/environment, which PAM loads into every SSH login.
+     🔀 Routing through llm-gateways uses ~/.pi/agent/models.json, NOT an
+        OPENAI_API_BASE variable — Pi has no base-URL env var at all. Set
+        PI_GATEWAY_BASE_URL in .env and the entrypoint writes that file,
+        but only if it does not already exist.
+     📦 FOUR npm scopes publish "pi-coding-agent". @earendil-works is the
+        current canonical one and is what this image installs. @mariozechner
+        is the pre-acquisition Pi — still published, twelve minors behind,
+        still named by older guides, and it installs without complaint.
+     ⚠️  `pi update --self` updates Pi INSIDE the container, where the change
+        lives in a volume and is silently lost on the next CLEAN rebuild.
+        Bump PI_PACKAGE_VERSION in .env and run CLEAN instead — that is the
+        change that survives.
+     🔌 mcporter is installed because Pi has no native MCP by design: a tool
+        schema costs 7-14k tokens against that ~200-token prompt. mcporter
+        is a command, so it costs nothing until the bash tool invokes it.
+     🆚 environments/openclaw also embeds Pi — as its internal agent harness,
+        via the pi-agent-core SDK. The two are independent installs that
+        happen to share an upstream project. THEY CAN RUN DIFFERENT PI
+        VERSIONS AND THAT IS EXPECTED, not a bug. Never "align" them.
+     📖 Full details: environments/pi/README.md

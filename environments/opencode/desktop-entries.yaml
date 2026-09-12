@@ -1,0 +1,18 @@
+menu:
+  id: ${CONTAINER_NAME:-opencode}
+  name: "OpenCode"
+  icon: utilities-terminal
+deployed_check:
+  kind: container
+  from_compose_service: opencode
+entries:
+  - id: pi-bootstrap-${CONTAINER_NAME:-opencode}
+    name: "OpenCode (SSH)"
+    comment: "SSH into the standalone OpenCode container and attach to its persistent tmux session"
+    icon: utilities-terminal
+    kind: exec
+    target: 'bash -c "ssh -p ${SSH_PORT:-2225} opencode@localhost"'
+    terminal: true
+info:
+  id: pi-bootstrap-${CONTAINER_NAME:-opencode}-info
+  name: "OpenCode Info"
