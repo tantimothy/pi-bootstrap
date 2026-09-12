@@ -70,12 +70,23 @@ entrypoint writes into `/etc/environment`, and whatever
 `host.docker.internal` reaches — `llm-gateways`, `ollama`, `executor`.
 
 > **Not installed, and not a casual addition.** `pi install` writes into
-> `~/.pi/agent/npm/`, which is a named volume — so installing at *build*
-> time would be masked by the empty volume on first run, the same class of
-> trap as `opencode`'s binary. The route that works with a volume is Pi's
-> ephemeral extension flag (`pi -e npm:pi-sandbox`) in the tmux attach
-> script, which loads without installing but pins nothing. Neither has been
-> tried here.
+> `~/.pi/agent/npm/`, which lives in the `pi_agent_home` named volume. A
+> build-time install is not *blocked* by that — Docker seeds an empty named
+> volume from the image's content at that path, so it would work on first
+> run — but it goes **stale immediately afterwards**: once the volume has
+> content, later CLEAN rebuilds no longer seed it, and the container keeps
+> running whatever version first landed there. `codex-cli`'s Dockerfile
+> records this repo hitting exactly that, which is why it keeps its CLI in
+> `/opt` and out of the runtime-state mount.
+>
+> So there are two workable routes and each costs something:
+>
+> | Route | Cost |
+> |:---|:---|
+> | Pi's ephemeral flag, `pi -e npm:pi-sandbox`, in the tmux attach script | Loads fresh every session, so it never goes stale — but **pins nothing**, which is the footgun this environment already warns about for Pi's npm scopes |
+> | Vendor it: install at a pinned version into a path outside the volume, on `codex-cli`'s `/opt` pattern | Reproducible and CLEAN-correct, but more machinery, and these are third-party packages to read before baking in |
+>
+> Neither has been tried here.
 
 ---
 
