@@ -50,43 +50,85 @@ Pi does ask before trusting a project folder that carries project-local
 settings or extensions (`/trust`, `~/.pi/agent/trust.json`) — but that gates
 *Pi's own config loading*, not what the model's `bash` tool may run.
 
-### The community fills some of this gap
+### `pi-sandbox` is installed and on by default
 
-Pi's answer to "no permissions" is the same as its answer to everything
-else: someone writes an extension. Three worth knowing about, none of them
-installed by this image and none from the Pi maintainers — **third-party
-packages, so pin them and read them**:
+This image ships [`pi-sandbox`](https://github.com/carderne/pi-sandbox)
+(third-party, MIT, by Chris Arderne), pinned by the `PI_SANDBOX_VERSION`
+build arg. It adds what Pi deliberately omits:
 
-| Package | What it does | Note |
-|:---|:---|:---|
-| [`pi-sandbox`](https://github.com/carderne/pi-sandbox) | Allow/deny lists for read/write/edit, plus OS-level network and filesystem control for `bash`, prompting instead of failing silently | Delegates to a fork of Anthropic's `sandbox-runtime`. **Needs `ripgrep`** — already in this image |
-| [`pi-secrets`](https://github.com/liamvinberg/pi-secrets) | The agent asks for a secret by name, you paste it into a masked prompt, the value becomes an env var for `bash` and is redacted from every tool result and session file. The model only ever learns the name and length | Its own README is explicit that this is **cooperative, not adversarial**: it stops accidental disclosure, not a malicious model, since anything that can run `bash` can exfiltrate what the process can reach |
-| [`pi-guard`](https://github.com/jdiamond/pi-guard) | A general-purpose permission system for bash and file tools, with matchers extensible to custom tools | |
+- **allow/deny lists** in front of `read`/`write`/`edit`;
+- an **OS-level sandbox** in front of `bash`, via
+  [`bubblewrap`](https://github.com/containers/bubblewrap) — the same
+  confinement tool Flatpak uses. A `bash` command runs inside restricted
+  namespaces with a chosen view of the filesystem, so "the agent cannot read
+  `/etc/environment`" is kernel-enforced rather than merely asked for;
+- a **prompt to allow** a blocked action once or permanently, instead of a
+  silent failure.
 
-**These address what the container boundary does not.** The container
+**This addresses what the container boundary does not.** The container
 protects the *host*. It does nothing about the three things actually within
 reach inside it: your bind-mounted repository, the credentials the
 entrypoint writes into `/etc/environment`, and whatever
 `host.docker.internal` reaches — `llm-gateways`, `ollama`, `executor`.
 
-> **Not installed, and not a casual addition.** `pi install` writes into
-> `~/.pi/agent/npm/`, which lives in the `pi_agent_home` named volume. A
-> build-time install is not *blocked* by that — Docker seeds an empty named
-> volume from the image's content at that path, so it would work on first
-> run — but it goes **stale immediately afterwards**: once the volume has
-> content, later CLEAN rebuilds no longer seed it, and the container keeps
-> running whatever version first landed there. `codex-cli`'s Dockerfile
-> records this repo hitting exactly that, which is why it keeps its CLI in
-> `/opt` and out of the runtime-state mount.
->
-> So there are two workable routes and each costs something:
->
-> | Route | Cost |
-> |:---|:---|
-> | Pi's ephemeral flag, `pi -e npm:pi-sandbox`, in the tmux attach script | Loads fresh every session, so it never goes stale — but **pins nothing**, which is the footgun this environment already warns about for Pi's npm scopes |
-> | Vendor it: install at a pinned version into a path outside the volume, on `codex-cli`'s `/opt` pattern | Reproducible and CLEAN-correct, but more machinery, and these are third-party packages to read before baking in |
->
-> Neither has been tried here.
+#### ⚠️ It may not work, and the entrypoint tells you which
+
+**Bubblewrap needs unprivileged user namespaces, and the container runtime
+grants or withholds them — this image cannot decide it.** So the entrypoint
+runs a real `bwrap` invocation at startup and only registers the extension
+if it succeeds. On failure the container still comes up and Pi still runs;
+you get a loud block saying it is unsandboxed and why. Refusing to boot
+would trade a documented weakness for an outage.
+
+```
+✅ pi-sandbox active (bubblewrap verified).
+```
+
+Verified working under this repo's own container runtime; **not yet
+confirmed under OrbStack**, which is where this environment is meant to run.
+If you see the warning block instead, that is the answer — and
+`docs/pending-activities.md` is where it should be recorded.
+
+#### Where it is installed, and why that matters
+
+`/usr/local/lib/node_modules/pi-sandbox` — image-owned, **not** the `~/.pi`
+volume.
+
+`pi install` would put it in the volume, which works on first run (Docker
+seeds an empty named volume from the image) and then **goes stale forever**,
+because a populated volume is never seeded again. `codex-cli`'s Dockerfile
+records this repo hitting exactly that. Global also makes it a sibling of
+`@earendil-works/pi-coding-agent`, so its imports resolve by ordinary Node
+lookup.
+
+#### Two files it owns, both seeded and never overwritten
+
+| File | What |
+|:---|:---|
+| `~/.pi/agent/sandbox.json` | The policy. Seeded with container-appropriate paths — the shipped defaults `denyRead` `/home` wholesale, and here the workspace *is* under `/home` |
+| `~/.pi/agent/settings.json` | Gets `/usr/local/lib/node_modules/pi-sandbox` appended to its `extensions` array |
+
+The seeded policy denies `bash` read access to `/etc/environment` and
+`~/.ssh`, and write access to `.env`, `*.pem`, `*.key`.
+
+`settings.json` is **merged, not rewritten** — it also holds
+`defaultProjectTrust`, `defaultTools`, model choices. Invalid JSON there is
+left alone with a warning rather than clobbered. And `sandbox.json` is where
+pi-sandbox records your own "allow permanently" answers, so overwriting it
+each deploy would discard every decision you had made.
+
+**Registered in `settings.json` rather than via `pi -e` on the tmux line.**
+That covers every `pi` invocation in the container — a sandbox you can step
+around by typing `pi` in a second window is not one.
+
+Turn the whole layer off with `PI_SANDBOX_ENABLED=0`.
+
+### Two others, not installed
+
+| Package | What it does | Why not here |
+|:---|:---|:---|
+| [`pi-secrets`](https://github.com/liamvinberg/pi-secrets) | The agent asks for a secret by name, you paste it into a masked prompt, and it is redacted from every tool result and session file | Its own README calls it **cooperative, not adversarial** — it stops accidental disclosure, not a malicious model. This environment's keys are already in the shell environment, so it would mostly buy transcript redaction |
+| [`pi-guard`](https://github.com/jdiamond/pi-guard) | A general-purpose permission system for bash and file tools | Overlaps `pi-sandbox` without the OS-level enforcement |
 
 ---
 

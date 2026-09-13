@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         less \
         vim \
         ripgrep \
+        bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI, installed from its official architecture-aware apt repository.
@@ -68,6 +69,40 @@ RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_PACKAG
 # folder of its own, the same treatment gh gets.
 ARG MCPORTER_VERSION=latest
 RUN npm install -g "mcporter@${MCPORTER_VERSION}"
+
+# ─────────────────────────────────────────────────────────────────────────
+# pi-sandbox — the permission layer Pi does not ship.
+#
+# Pi is YOLO by default: no permission prompts, no sandbox. The container
+# protects the HOST, but inside it sit the mounted repository, the API keys
+# the entrypoint writes to /etc/environment, and whatever
+# host.docker.internal reaches. pi-sandbox puts allow/deny lists in front of
+# read/write/edit and an OS-level sandbox in front of bash.
+#
+# INSTALLED GLOBALLY, WHICH IS THE POINT. /usr/local/lib/node_modules is
+# image-owned and is NOT the ~/.pi named volume. Installing into the volume
+# instead (what `pi install` does) would work on first run — Docker seeds an
+# empty named volume from the image — and then go stale forever, because a
+# populated volume is never seeded again. codex-cli's Dockerfile records this
+# repo hitting exactly that. Global also puts it as a SIBLING of
+# @earendil-works/pi-coding-agent, so its imports resolve by ordinary Node
+# lookup.
+#
+# @earendil-works/pi-tui is a NON-optional peer dependency of pi-sandbox, and
+# is pinned to the same version as Pi itself so the two cannot drift apart in
+# one image.
+#
+# bubblewrap (bwrap) above is the Linux half of the OS-level sandbox.
+# @carderne/sandbox-runtime shells out to it, and ships its own prebuilt
+# seccomp helper for x64 and arm64. WHETHER BWRAP ACTUALLY WORKS DEPENDS ON
+# THE CONTAINER RUNTIME, not on this image — it needs unprivileged user
+# namespaces. The entrypoint therefore PROVES it at startup and refuses to
+# wire the extension in if it cannot, rather than leaving a sandbox that
+# silently does not sandbox.
+ARG PI_SANDBOX_VERSION=0.6.8
+RUN npm install -g \
+        "pi-sandbox@${PI_SANDBOX_VERSION}" \
+        "@earendil-works/pi-tui@${PI_PACKAGE_VERSION}"
 
 COPY .tmux.conf /home/pi/.tmux.conf
 RUN chown pi:pi /home/pi/.tmux.conf

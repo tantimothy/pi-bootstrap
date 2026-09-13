@@ -9,6 +9,7 @@ services:
         # comment for why the SCOPE matters at least as much as the version.
         PI_PACKAGE_VERSION: ${PI_PACKAGE_VERSION:-0.85.1}
         MCPORTER_VERSION: ${MCPORTER_VERSION:-latest}
+        PI_SANDBOX_VERSION: ${PI_SANDBOX_VERSION:-0.6.8}
     restart: unless-stopped
     environment:
       - PUID=${PUID:-1000}
@@ -31,6 +32,9 @@ services:
       - PI_GATEWAY_BASE_URL=${PI_GATEWAY_BASE_URL:-}
       - PI_GATEWAY_API_KEY=${PI_GATEWAY_API_KEY:-}
       - PI_GATEWAY_MODELS=${PI_GATEWAY_MODELS:-}
+      # Defaults ON. The entrypoint proves bubblewrap works before wiring the
+      # extension in, and degrades loudly rather than pretending.
+      - PI_SANDBOX_ENABLED=${PI_SANDBOX_ENABLED:-1}
     ports:
       - "${SSH_PORT:-2227}:22"
     volumes:

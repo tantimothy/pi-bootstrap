@@ -380,6 +380,14 @@ still expected never to ship.
    run. `opencode`'s in particular depends on `HOME=/opt/opencode` being
    honoured by an installer that hardcodes `INSTALL_DIR=$HOME/...`, which
    is read from its source rather than demonstrated.
+   **`pi` now also carries `pi-sandbox`, whose OS-level half needs
+   bubblewrap, which needs unprivileged user namespaces — and whether a
+   container gets those is the RUNTIME's decision.** Verified working
+   under this repo's own container runtime; **unverified under OrbStack**,
+   which is where it is meant to run. The entrypoint proves it with a real
+   `bwrap` call and degrades loudly rather than pretending, so the first
+   deploy answers this by itself:
+   `docker logs pi | grep -i sandbox`. Record the answer here.
 4. **`hermes`'s single-container shape.** Upstream's own compose runs the
    dashboard separately under `network_mode: host`; this uses the image's
    in-container s6 supervision instead, which upstream documents but which

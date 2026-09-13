@@ -135,4 +135,108 @@ if [ -n "${PI_GATEWAY_BASE_URL:-}" ] && [ ! -e "$PI_MODELS_JSON" ]; then
     echo "✅ Seeded $PI_MODELS_JSON pointing at $PI_GATEWAY_BASE_URL"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────
+# pi-sandbox — wire it in ONLY if it can actually sandbox.
+#
+# Pi has no permission prompts and no sandbox of its own. pi-sandbox adds
+# allow/deny lists in front of read/write/edit and an OS-level sandbox in
+# front of bash, via bubblewrap.
+#
+# BUBBLEWRAP NEEDS UNPRIVILEGED USER NAMESPACES, and whether a container gets
+# them is decided by the runtime, not by this image. So this PROVES it with a
+# real bwrap invocation instead of assuming. A security feature that silently
+# does not work is worse than none — that is the whole reason for the check.
+#
+# On failure the container still comes up, Pi still runs, and the message says
+# plainly that it is unsandboxed. Refusing to boot would trade a documented
+# weakness for an outage.
+# ─────────────────────────────────────────────────────────────────────────
+PI_SANDBOX_DIR="/usr/local/lib/node_modules/pi-sandbox"
+PI_SETTINGS_JSON="/home/pi/.pi/agent/settings.json"
+PI_SANDBOX_JSON="/home/pi/.pi/agent/sandbox.json"
+
+_pi_sandbox_usable() {
+    [ -d "$PI_SANDBOX_DIR" ] || { echo "   not installed at $PI_SANDBOX_DIR"; return 1; }
+    command -v bwrap >/dev/null 2>&1 || { echo "   bwrap not found"; return 1; }
+    # The real test: an actual namespace. --unshare-net is what the sandbox
+    # relies on and is the part a restrictive runtime blocks first.
+    local err
+    err="$(bwrap --ro-bind / / --unshare-net --dev /dev true 2>&1)" && return 0
+    echo "   bwrap failed: ${err:-unknown error}"
+    return 1
+}
+
+if [ "${PI_SANDBOX_ENABLED:-1}" = "0" ]; then
+    echo "ℹ️  pi-sandbox disabled by PI_SANDBOX_ENABLED=0 — Pi runs unsandboxed."
+elif SANDBOX_WHY="$(_pi_sandbox_usable)"; then
+    # Seed the policy, never overwrite it. pi-sandbox writes to this same file
+    # when you answer "allow permanently" at a prompt, so clobbering it on
+    # every deploy would silently discard every decision you had made.
+    #
+    # The shipped defaults are written for a laptop: they denyRead /home
+    # wholesale and allow ".". In this container the workspace IS under
+    # /home, so the paths are spelled out explicitly instead of relying on
+    # how those two interact.
+    if [ ! -e "$PI_SANDBOX_JSON" ]; then
+        cat > "$PI_SANDBOX_JSON" <<'SANDBOXJSON'
+{
+  "enabled": true,
+  "filesystem": {
+    "allowRead": ["/home/pi/workspace", "/home/pi/.pi", "/tmp"],
+    "allowWrite": ["/home/pi/workspace", "/tmp"],
+    "denyRead": ["/etc/environment", "/home/pi/.ssh"],
+    "denyWrite": [".env", ".env.*", "*.pem", "*.key", "/home/pi/.ssh"]
+  }
+}
+SANDBOXJSON
+        chown "$PUID:$PGID" "$PI_SANDBOX_JSON"
+        echo "   🧩 Seeded $PI_SANDBOX_JSON"
+    fi
+
+    # Register the extension in settings.json by ABSOLUTE PATH, which is what
+    # pi's `extensions` setting takes. Doing it here rather than with `pi -e`
+    # on the tmux line covers EVERY pi invocation in this container, not only
+    # the auto-started session — a sandbox you can step around by typing `pi`
+    # in a second window is not one.
+    #
+    # Merged with node rather than rewritten: settings.json is yours, and it
+    # already holds defaultProjectTrust, defaultTools, model choices and more.
+    # node is guaranteed present (this is a node base image); jq is not.
+    node -e '
+      const fs = require("fs");
+      const [file, dir] = [process.argv[1], process.argv[2]];
+      let cfg = {};
+      if (fs.existsSync(file)) {
+        try { cfg = JSON.parse(fs.readFileSync(file, "utf8")); }
+        catch (e) {
+          console.error("   ⚠️  " + file + " is not valid JSON — leaving it alone.");
+          console.error("      pi-sandbox is NOT registered. Fix the file and redeploy.");
+          process.exit(3);
+        }
+      }
+      if (!Array.isArray(cfg.extensions)) cfg.extensions = [];
+      if (!cfg.extensions.includes(dir)) {
+        cfg.extensions.push(dir);
+        fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+        console.log("   🧩 Registered pi-sandbox in " + file);
+      }
+    ' "$PI_SETTINGS_JSON" "$PI_SANDBOX_DIR" && chown "$PUID:$PGID" "$PI_SETTINGS_JSON" 2>/dev/null || true
+
+    echo "✅ pi-sandbox active (bubblewrap verified)."
+else
+    echo ""
+    echo "⚠️  ───────────────────────────────────────────────────────────────" >&2
+    echo "⚠️   pi-sandbox is NOT active. Pi is running UNSANDBOXED." >&2
+    echo "⚠️" >&2
+    echo "⚠️   $SANDBOX_WHY" >&2
+    echo "⚠️" >&2
+    echo "⚠️   bubblewrap needs unprivileged user namespaces, which the" >&2
+    echo "⚠️   container runtime grants or withholds — this image cannot" >&2
+    echo "⚠️   fix it. Pi still works; it just has no permission layer, so" >&2
+    echo "⚠️   the container boundary and a scoped GH_TOKEN are again the" >&2
+    echo "⚠️   only things limiting it." >&2
+    echo "⚠️ ───────────────────────────────────────────────────────────────" >&2
+    echo ""
+fi
+
 exec /usr/sbin/sshd -D -e
