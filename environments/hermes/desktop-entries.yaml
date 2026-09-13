@@ -1,0 +1,24 @@
+menu:
+  id: ${CONTAINER_NAME:-hermes}
+  name: "Hermes"
+  icon: system-users
+deployed_check:
+  kind: container
+  from_compose_service: hermes
+entries:
+  - id: pi-bootstrap-${CONTAINER_NAME:-hermes}-chat
+    name: "Hermes (Chat)"
+    comment: "Open an interactive chat session against the running Hermes agent"
+    icon: system-users
+    kind: exec
+    target: 'bash -c "docker exec -it ${CONTAINER_NAME:-hermes} /opt/hermes/.venv/bin/hermes"'
+    terminal: true
+  - id: pi-bootstrap-${CONTAINER_NAME:-hermes}-dashboard
+    name: "Hermes Dashboard"
+    comment: "The web dashboard. Only reachable when HERMES_DASHBOARD is enabled AND an auth provider is configured — it drives a real agent."
+    icon: system-users
+    kind: link
+    target: "http://${HERMES_BIND_ADDRESS:-127.0.0.1}:${HERMES_DASHBOARD_PORT:-9119}"
+info:
+  id: pi-bootstrap-${CONTAINER_NAME:-hermes}-info
+  name: "Hermes Info"

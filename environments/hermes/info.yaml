@@ -1,0 +1,69 @@
+# 🧭 A personal agent PLATFORM, not a coding CLI — though it has a terminal
+# CLI too. Its distinguishing feature is a learning loop: it writes its own
+# skills from successful runs and keeps persistent memory. One agent core
+# across a CLI, a TUI, a messaging gateway spanning ~20 platforms, and a
+# desktop app. Sibling to openclaw and nanoclaw-mnemon; evaluated ALONGSIDE
+# nanoclaw-mnemon, not as a replacement for it.
+data_dirs:
+  - path: "${HERMES_DATA_PATH:-~/.hermes}"
+    description: "⚠️ EVERYTHING. .env (API keys and platform tokens), config.yaml, SOUL.md (the agent's personality), sessions/, memories/, skills/ (including the ones it wrote itself), cron/, hooks/, logs/, and the per-profile home/ used by git/ssh/gh/npm and skill CLIs. The image is stateless and replaceable; this is not."
+install_dirs: []
+no_data_msg: "(nothing yet — deploy, then run the setup wizard)"
+no_delete_msg: "WIPE would delete ${HERMES_DATA_PATH:-~/.hermes}, which is the ENTIRE value of this\\n   environment: every memory, every skill Hermes wrote for itself, every\\n   session, every credential, and SOUL.md.\\n   The image holds nothing — a rebuild costs a pull. This directory cannot be\\n   recreated. Back it up (backup.sh already covers it) before considering WIPE."
+custom_actions:
+  - label: "Run the first-time setup wizard (interactive)"
+    command: 'docker run -it --rm -v "${HERMES_DATA_PATH:-$HOME/.hermes}:/opt/data" nousresearch/hermes-agent:${HERMES_IMAGE_TAG:-latest} setup'
+  - label: "Open an interactive chat session"
+    command: "docker exec -it ${CONTAINER_NAME:-hermes} /opt/hermes/.venv/bin/hermes"
+  - label: "Gateway logs (follow)"
+    command: "docker logs -f ${CONTAINER_NAME:-hermes}"
+  - label: "Dashboard URL reminder"
+    command: 'echo "http://${HERMES_BIND_ADDRESS:-127.0.0.1}:${HERMES_DASHBOARD_PORT:-9119}  (loopback by default - tunnel with: ssh -L 9119:localhost:9119 <host>)"'
+  - label: "What skills has Hermes written for itself?"
+    command: 'ls -1 "${HERMES_DATA_PATH:-$HOME/.hermes}/skills" 2>/dev/null || echo "(none yet)"'
+  - label: "Back up the data directory now"
+    command: "bash ${PROJECT_DIR}/backup.sh"
+useful_commands: |2
+     docker run -it --rm -v ~/.hermes:/opt/data \
+       nousresearch/hermes-agent setup            # ⚠️  First run — the setup wizard
+     docker exec -it ${CONTAINER_NAME:-hermes} /opt/hermes/.venv/bin/hermes   # Interactive chat
+     docker exec ${CONTAINER_NAME:-hermes} hermes --help                       # The CLI
+     docker logs -f ${CONTAINER_NAME:-hermes}                                  # Gateway + dashboard output
+     docker compose pull && docker compose up -d  # Update (from this env's folder)
+     ls ~/.hermes/skills/                          # Skills, including self-written ones
+     ls ~/.hermes/memories/                        # The persistent memory store
+     cat ~/.hermes/SOUL.md                         # The agent's personality
+
+  📌 Notes:
+     🧠 THE VALUE HERE IS ACCUMULATED STATE. The image is stateless and a
+        rebuild costs a pull. ${HERMES_DATA_PATH:-~/.hermes} cannot be
+        recreated — memories, self-written skills, sessions, SOUL.md.
+        backup.sh covers it; use it before you need it.
+     🧭 A platform, not a coding CLI — but it does have a terminal CLI and a
+        TUI running the same agent core. The Coding CLIs category would have
+        been the wrong shelf; the categorisation is a menu convenience, not a
+        claim about the software.
+     🔑 Platform tokens are NOT in this environment's .env. Hermes keeps its
+        own .env inside the data directory, written by its setup wizard.
+        Duplicating them would give you two places to rotate a token and one
+        of them silently stale.
+     ⚠️  THE DASHBOARD DRIVES A REAL AGENT — it can read every credential in
+        the data directory and run commands. Upstream removed its own
+        --insecure flag after an unauthenticated public dashboard was the
+        entry point for the June 2026 MCP-config persistence campaign.
+        pre-deploy.sh refuses to deploy it without an auth provider.
+     🔒 Published ports bind to 127.0.0.1 by default. The dashboard binds
+        0.0.0.0 INSIDE the container (it must, or the published port would be
+        unreachable), so the host-side bind is what decides reachability.
+        Tunnel instead: ssh -L 9119:localhost:9119 <host>
+     📌 PIN HERMES_IMAGE_TAG to a release. :latest moves on every push to
+        main, so check-updates.sh would report an update several times a week
+        and you would learn to ignore it.
+     ⬆️  `hermes update` REFUSES on an image-managed install (exit code 2) and
+        names `docker pull` instead — it reads a read-only provenance marker
+        the image bakes in. That refusal is correct, not a fault.
+     🔁 ONE container, not upstream's two. Upstream runs the dashboard
+        separately under network_mode: host so it can share the gateway's PID
+        namespace; the image supervises the dashboard in-container when
+        HERMES_DASHBOARD=1, which avoids a Linux-shaped assumption on a Mac.
+     📖 Full details: environments/hermes/README.md

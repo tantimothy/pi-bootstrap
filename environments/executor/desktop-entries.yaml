@@ -1,0 +1,17 @@
+menu:
+  id: ${CONTAINER_NAME:-executor}
+  name: "Executor"
+  icon: preferences-system-network
+deployed_check:
+  kind: container
+  from_compose_service: executor
+entries:
+  - id: pi-bootstrap-${CONTAINER_NAME:-executor}
+    name: "Executor"
+    comment: "MCP gateway — one endpoint fronting every integration, with credentials held server-side and per-tool allow/approve/block"
+    icon: preferences-system-network
+    kind: link
+    target: "${EXECUTOR_WEB_BASE_URL:-http://localhost:${EXECUTOR_PORT:-4788}}"
+info:
+  id: pi-bootstrap-${CONTAINER_NAME:-executor}-info
+  name: "Executor Info"

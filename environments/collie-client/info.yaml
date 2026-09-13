@@ -1,0 +1,65 @@
+# Static data for lib/info-lib.sh. The OS-dependent pieces (how the service
+# is supervised, and therefore where its log is) live in info.sh, which loads
+# this file first and then overrides just those.
+data_dirs:
+  - path: "${HOME}/.local/state/collie"
+    description: "Collie's own state — paired-device credentials, agent beacons, uploads, and audit.log (every keystroke, reply, upload and pane lifecycle event the bridge received)"
+install_dirs:
+  - path: "${HOME}/.local/share/collie"
+    description: "The Collie install — one directory per version, with `current` pointing at the active one. Removed by TEARDOWN."
+  - path: "${HOME}/.config/collie"
+    description: "Collie's .env (COLLIE_MUX, COLLIE_PORT, COLLIE_TRUSTED_USER, any VAPID push keypair) plus optional commands.toml / keys.toml / quick-replies.toml"
+no_data_msg: "(none yet — state appears under ~/.local/state/collie once Collie has run)"
+no_delete_msg: "collie-client's data is the pairing credentials, beacons and audit log under\\n   ${HOME}/.local/state/collie. TEARDOWN does NOT delete it — deleting pairings\\n   silently disables the write gate, and deleting audit.log destroys the only\\n   record of what was typed into your panes. Remove it by hand when you mean to."
+custom_actions:
+  - label: "Start Collie (publishes the tailnet URL)"
+    command: "collie start"
+  - label: "Pair this phone (the write credential — do this first)"
+    command: "collie pair"
+  - label: "Show the URL as a QR code"
+    command: "collie qr"
+  - label: "Status (readiness, version, URLs)"
+    command: "collie status"
+  - label: "List paired devices"
+    command: "collie devices list"
+  - label: "Check nothing is being funnelled to the internet"
+    command: "tailscale funnel status"
+  - label: "Doctor (diagnose a start that did not take)"
+    command: "collie doctor"
+useful_commands: |2
+     collie start                        # Build if needed, serve, print the tailnet URL
+     collie pair                         # ⚠️  The write credential — an 8-char code, valid 10 min
+     collie devices list                 # What holds a credential, and when each was last seen
+     collie devices revoke <label>       # Effective immediately, no restart
+     collie status                       # Readiness ✓/⚠, version, URLs
+     collie qr                           # The URL as a scannable code
+     collie stop                         # Pause the bridge (the serve mapping stays up)
+     collie unserve                      # Withdraw the tailnet mapping — STOP does both
+     collie update                       # Newest release of your major, then restart + verify
+     collie logs                         # Tail the journal / log file
+     collie doctor                       # Diagnose a start that did not take
+     collie skill                        # The agent-facing brief, printed from the binary
+     collie docs --all                   # All of Collie's docs, offline, from the binary
+     tailscale funnel status             # ⚠️  Must show nothing pointed at Collie
+     cat ${HOME}/.config/collie/.env     # Active config (seeded by this environment)
+
+  📌 Notes:
+     🔑 Client-side — installs a binary and a config on THIS machine. Nothing
+        is deployed to a remote host.
+     ⚠️  Collie is REMOTE SHELL ACCESS to this machine, from a phone, by
+        design. Anyone who reaches the URL can read every pane — source,
+        secrets, env vars, agent output — and run any command as you. There
+        is no sandbox and no command allow-list. With herdr-client deployed
+        the chain is: phone → Collie → Herdr → every agent pane.
+     🚫 NEVER `tailscale funnel` this. `serve` is tailnet-only; `funnel`
+        publishes to the open internet. run.sh refuses to install while any
+        funnel is enabled on this machine.
+     📱 `collie pair` is the write credential and the single most valuable
+        thing you can do after the first start. The write gate is INACTIVE
+        until at least one device is paired.
+     👤 COLLIE_TRUSTED_USER rejects any tailnet login but yours. Unset, Collie
+        runs in open single-user mode.
+     🐑 Depends on a running Herdr server — Collie bridges its socket. Note
+        herdr-client's STOP kills that server.
+     🔁 Collie reads its .env only at startup. `collie restart` after editing.
+     📖 Full details: environments/collie-client/README.md
