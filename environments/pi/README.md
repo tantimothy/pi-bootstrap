@@ -84,10 +84,29 @@ would trade a documented weakness for an outage.
 ✅ pi-sandbox active (bubblewrap verified).
 ```
 
-Verified working under this repo's own container runtime; **not yet
-confirmed under OrbStack**, which is where this environment is meant to run.
-If you see the warning block instead, that is the answer — and
-`docs/pending-activities.md` is where it should be recorded.
+#### ❌ Under OrbStack, it does not work — confirmed
+
+```
+⚠️  pi-sandbox is NOT active. Pi is running UNSANDBOXED.
+⚠️      bwrap failed: bwrap: Creating new namespace failed: Operation not permitted
+```
+
+OrbStack withholds the unprivileged user namespaces bubblewrap needs. The
+preflight caught it, Pi runs unsandboxed, and the log says so — which is the
+degradation working, not a bug.
+
+`docker-compose.override.yml.example` offers `seccomp=unconfined` as an
+opt-in. **Read its header before using it.** Docker's default seccomp
+profile is what blocks roughly 44 dangerous syscalls against the host
+kernel, so turning it off trades a host-facing protection for an
+agent-facing one. On a personal machine that is arguably a wash — the
+unsandboxed default is a defensible place to stay, and "the warning in the
+log is annoying" is not a reason to make the trade. It is also **untested**;
+nobody has confirmed it actually makes bwrap work here.
+
+The honest reading may be that **pi-sandbox is the wrong tool inside a
+container** — its value lands on a host-run Pi, where there is no container
+boundary already doing the outer job.
 
 #### Where it is installed, and why that matters
 

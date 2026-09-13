@@ -380,14 +380,20 @@ still expected never to ship.
    run. `opencode`'s in particular depends on `HOME=/opt/opencode` being
    honoured by an installer that hardcodes `INSTALL_DIR=$HOME/...`, which
    is read from its source rather than demonstrated.
-   **`pi` now also carries `pi-sandbox`, whose OS-level half needs
-   bubblewrap, which needs unprivileged user namespaces — and whether a
-   container gets those is the RUNTIME's decision.** Verified working
-   under this repo's own container runtime; **unverified under OrbStack**,
-   which is where it is meant to run. The entrypoint proves it with a real
-   `bwrap` call and degrades loudly rather than pretending, so the first
-   deploy answers this by itself:
-   `docker logs pi | grep -i sandbox`. Record the answer here.
+   **`pi` also carries `pi-sandbox`. ANSWERED: its OS-level half does NOT
+   work under OrbStack.** bwrap fails with "Creating new namespace failed:
+   Operation not permitted" — OrbStack withholds the unprivileged user
+   namespaces bubblewrap needs. The entrypoint's preflight caught it and
+   degraded loudly, as designed, so Pi runs unsandboxed and says so.
+
+   `environments/pi/docker-compose.override.yml.example` offers
+   `seccomp=unconfined` as an opt-in, **untested**, and deliberately not
+   the default: Docker's seccomp profile is what blocks ~44 dangerous
+   syscalls against the host kernel, so enabling it trades a host-facing
+   protection for an agent-facing one. For a coding agent on a personal
+   machine that is arguably a wash. **Open question, not a to-do:** whether
+   anyone wants to make that trade, or whether pi-sandbox is simply the
+   wrong tool inside a container and belongs on a host-run Pi instead.
 4. **`hermes`'s single-container shape.** Upstream's own compose runs the
    dashboard separately under `network_mode: host`; this uses the image's
    in-container s6 supervision instead, which upstream documents but which
@@ -411,13 +417,30 @@ still expected never to ship.
   Currently allocated by these: 2225 (`opencode`), 2227 (`pi`), 4788
   (`executor`), 8642 + 9119 (`hermes`).
 
-Resolved during the build, and no longer open:
+Resolved during the build:
 
-- **Which new environments need a single-file mount: none of them.** Every
-  new mount is a directory or a named volume, so the OrbStack tripwire in
-  `docs/lessons-learned/nanoclaw-mnemon.md` does not apply. `hermes` still
-  ships a `pre-deploy.sh`, for ownership and for refusing an
-  unauthenticated dashboard, not for that.
+- **Which new environments need a single-file mount — I got this wrong.**
+  This entry previously said "none of them". Both `pi` and `opencode` mount
+  `${SSH_AUTHORIZED_KEYS_PATH}` onto `/run/host-authorized_keys`, which is
+  a single FILE, and so does every pre-existing SSH environment
+  (`claude-cli`, `codex-cli`, `aider`). The claim was wrong because I
+  checked the mounts I had *added* and not the template I had copied.
+
+  It bit on the first real deploy, exactly as the lessons-learned file
+  describes: a Mac with no `~/.ssh/authorized_keys` got a Docker-created
+  **directory** there, the entrypoint's `[ -f ... ]` went false, an empty
+  `authorized_keys` was written, the container reported healthy, and `ssh`
+  failed with "Permission denied (publickey)" — which reads as a key
+  problem, not a missing-file one. Four misleading symptoms from one
+  unguarded mount.
+
+  `pi` and `opencode` now ship a `pre-deploy.sh` that refuses on missing,
+  directory, empty, or key-less `authorized_keys` and names the fix.
+  **`claude-cli`, `codex-cli` and `aider` are still unguarded** and will
+  reproduce this on any fresh host — worth porting the same guard.
+
+- **`hermes`'s `pre-deploy.sh`** is for directory ownership and for refusing
+  an unauthenticated dashboard, not for a single-file mount.
 
 Two standing cautions, both independent of what gets deployed:
 
