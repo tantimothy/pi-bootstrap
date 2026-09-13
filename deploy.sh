@@ -118,12 +118,80 @@ if ! command -v yq &>/dev/null || ! yq --version 2>/dev/null | grep -q "mikefara
     echo "✅ yq (go-yq) successfully installed!"
 fi
 
-# Fall back to sudo if the invoking user can't run docker directly.
+# Decide how to invoke docker — and DISTINGUISH "you lack permission" from
+# "the daemon isn't running", because the fix for each is different and the
+# old code treated both as the former.
+#
+# It ran a bare `if ! docker ps; then DOCKER_CMD="sudo docker"; fi`, which on
+# macOS is never right and actively makes things worse: Docker Desktop and
+# OrbStack expose a PER-USER socket at $HOME/.docker/run/docker.sock, so sudo
+# switches to root's environment where that path does not resolve. A stopped
+# OrbStack therefore surfaced as a sudo password prompt followed by
+# "failed to connect to the docker API at unix:///Users/<you>/.docker/run/
+# docker.sock" — two misleading things stacked on a simple "it isn't running".
+#
+# sudo-docker is a Linux/Raspberry-Pi pattern (the docker group), so that is
+# the only place it is attempted now.
 DOCKER_CMD="docker"
-if ! docker ps &>/dev/null; then
-    echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
-    DOCKER_CMD="sudo docker"
+if ! command -v docker >/dev/null 2>&1; then
+    echo "❌ docker is not installed, or not on \$PATH." >&2
+    case "$(uname -s)" in
+        Darwin) echo "   Install OrbStack (recommended here) or Docker Desktop." >&2 ;;
+        *)      echo "   Install Docker Engine, then re-run this script." >&2 ;;
+    esac
+    exit 1
 fi
+
+_docker_err="$(docker ps 2>&1 >/dev/null)"
+if [ -n "$_docker_err" ]; then
+    case "$_docker_err" in
+        *"permission denied"*|*"Permission denied"*)
+            # A real permission problem: the user is not in the docker group.
+            if [ "$(uname -s)" = "Darwin" ]; then
+                echo "❌ Cannot talk to the Docker daemon: permission denied." >&2
+                echo "   On macOS the socket is per-user, so sudo does not help." >&2
+                echo "   Details: $_docker_err" >&2
+                exit 1
+            fi
+            if ! command -v sudo >/dev/null 2>&1; then
+                echo "❌ Cannot run docker, and sudo is not available to escalate." >&2
+                echo "   Add yourself to the 'docker' group:  sudo usermod -aG docker \$USER" >&2
+                echo "   then log out and back in." >&2
+                exit 1
+            fi
+            echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
+            DOCKER_CMD="sudo docker"
+            # Verify the escalation actually works NOW, rather than letting
+            # every later docker call re-prompt and fail one at a time.
+            if ! sudo docker ps >/dev/null 2>&1; then
+                echo "❌ 'sudo docker' does not work either." >&2
+                echo "   Is the daemon running?  sudo systemctl status docker" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            # Anything else is the daemon not being reachable at all.
+            echo "❌ Cannot reach the Docker daemon." >&2
+            echo "   $_docker_err" >&2
+            echo "" >&2
+            case "$(uname -s)" in
+                Darwin)
+                    echo "   The daemon is almost certainly not running. Start OrbStack" >&2
+                    echo "   (or Docker Desktop) and re-run this script:" >&2
+                    echo "     open -a OrbStack" >&2
+                    echo "" >&2
+                    echo "   NOT a permissions problem, and sudo will not help — the" >&2
+                    echo "   macOS socket lives under your own home directory." >&2
+                    ;;
+                *)
+                    echo "   Start it with:  sudo systemctl start docker" >&2
+                    ;;
+            esac
+            exit 1
+            ;;
+    esac
+fi
+unset _docker_err
 
 # CURL_USER (format "username:token", matching curl -u) rewrites github.com
 # URLs to embed the token, so `git fetch` on a pre-existing local repo
