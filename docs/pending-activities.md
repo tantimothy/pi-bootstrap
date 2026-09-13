@@ -435,9 +435,20 @@ Resolved during the build:
   unguarded mount.
 
   `pi` and `opencode` now ship a `pre-deploy.sh` that refuses on missing,
-  directory, empty, or key-less `authorized_keys` and names the fix.
+  directory, empty, or key-less `authorized_keys` and names the fix, and
+  their entrypoints distinguish "directory" from "nothing mounted" from
+  "empty file" instead of one vague warning.
   **`claude-cli`, `codex-cli` and `aider` are still unguarded** and will
-  reproduce this on any fresh host — worth porting the same guard.
+  reproduce this on any fresh host — worth porting both changes.
+
+  **Second half of the same confusion, worth remembering separately:** the
+  entrypoint copies `authorized_keys` once, at container START. Creating
+  the host file afterwards changes nothing until the container is
+  **recreated** — and if the mount source was a directory, recreation is
+  required regardless, because Docker fixes a bind source's
+  file-vs-directory type at creation time. A `restart` is not enough, which
+  is why a "fixed" host file can still produce "Permission denied
+  (publickey)".
 
 - **`hermes`'s `pre-deploy.sh`** is for directory ownership and for refusing
   an unauthenticated dashboard, not for a single-file mount.

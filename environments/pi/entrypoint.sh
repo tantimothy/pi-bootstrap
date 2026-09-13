@@ -36,11 +36,48 @@ find /home/pi -path /home/pi/workspace -prune \
 chown "$PUID:$PGID" /home/pi/workspace
 
 ssh-keygen -A
+# SSH IS THE ONLY WAY INTO THIS CONTAINER, so an unusable authorized_keys
+# makes it inert — and the symptom you get is "Permission denied
+# (publickey)", which reads as a key problem rather than a missing-file one.
+# Name the actual cause here, loudly, and distinguish the two ways it fails.
+#
+# NOTE THE TIMING, which is the other half of the confusion: this copy runs
+# once, at container START. Creating the host file afterwards changes
+# nothing until the container is RECREATED — and if the mount source was a
+# directory, recreation is required anyway, since Docker fixes the
+# source's file-vs-directory type when the container is created.
 if [ -f /run/host-authorized_keys ]; then
     cp /run/host-authorized_keys /home/pi/.ssh/authorized_keys
+    if [ ! -s /home/pi/.ssh/authorized_keys ]; then
+        echo "⚠️  The mounted authorized_keys is EMPTY — sshd will refuse every login." >&2
+        echo "   Add a key to it on the HOST, then recreate this container." >&2
+    fi
 else
-    echo "⚠️  No authorized_keys file found; SSH login is unavailable until the configured host file exists." >&2
     : > /home/pi/.ssh/authorized_keys
+    echo "" >&2
+    echo "⚠️  ───────────────────────────────────────────────────────────────" >&2
+    echo "⚠️   NO SSH KEYS. This container is unreachable." >&2
+    echo "⚠️" >&2
+    if [ -d /run/host-authorized_keys ]; then
+        echo "⚠️   /run/host-authorized_keys is a DIRECTORY, not a file." >&2
+        echo "⚠️   Docker created it because the host path did not exist —" >&2
+        echo "⚠️   its auto-create for a bind-mount source never makes a file." >&2
+        echo "⚠️" >&2
+        echo "⚠️   On the HOST:  rmdir <SSH_AUTHORIZED_KEYS_PATH>" >&2
+        echo "⚠️                 (rmdir refuses if it is not empty, so it is safe)" >&2
+    else
+        echo "⚠️   Nothing is mounted at /run/host-authorized_keys." >&2
+        echo "⚠️   Check SSH_AUTHORIZED_KEYS_PATH in this environment's .env." >&2
+    fi
+    echo "⚠️" >&2
+    echo "⚠️   Then, on the HOST:" >&2
+    echo "⚠️     cat ~/.ssh/id_ed25519.pub >> <SSH_AUTHORIZED_KEYS_PATH>" >&2
+    echo "⚠️     chmod 600 <SSH_AUTHORIZED_KEYS_PATH>" >&2
+    echo "⚠️" >&2
+    echo "⚠️   Then RECREATE this container — a restart is NOT enough:" >&2
+    echo "⚠️     docker compose down && docker compose up -d" >&2
+    echo "⚠️ ───────────────────────────────────────────────────────────────" >&2
+    echo "" >&2
 fi
 chown -R "$PUID:$PGID" /home/pi/.ssh
 chmod 700 /home/pi/.ssh
