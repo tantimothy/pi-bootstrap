@@ -422,9 +422,14 @@ Two caveats, one closed and one deliberately left open — full analysis in
   matters most for `codex` (its top-priority `working` rule is
   title-based, so a busy codex could read as idle). Every agent
   environment's `.tmux.conf` now sets `set-titles on` +
-  `set-titles-string "#{pane_title}"`. **Unverified against a real Herdr
-  session** — cheapest check is watching whether `codex` shows `working`
-  while it plainly is.
+  `set-titles-string "#{pane_title}"`. Measured per manifest, the impact is
+  very uneven: **`codex-cli` is the only one that was actually broken** —
+  `osc_title_idle` is its ONLY idle rule, so codex could never report idle
+  — `claude-cli` gets meaningfully better, and `pi`/`opencode` have no OSC
+  rules at all. **`aider` will never show state regardless: herdr ships no
+  aider manifest.** **Unverified against a real Herdr session** — cheapest
+  check is whether `codex` ever shows `idle`, since that state has no other
+  source.
 - **`herdr integration install` hooks cannot cross the container boundary**
   and are not worth forcing. They need `HERDR_PANE_ID`, a `herdr` binary
   and this host's Unix socket inside the container; and the deeper blocker

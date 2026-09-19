@@ -82,11 +82,23 @@ for a containerized agent the same as a local one. Manifests ship for
 
 **OSC title rules, unless tmux forwards them.** tmux owns the outer terminal
 title and by default reports itself, so title-region rules silently never
-fire. A minority, but not a trivial one: claude has 2 of 16 rules there and
-codex 3 of 9, including codex's highest-priority "working" signal — without
-it, a busy codex can look idle. **This repo now sets `set-titles on` plus
-`set-titles-string "#{pane_title}"` in every agent environment's
-`.tmux.conf`**, which forwards the inner application's title outward.
+fire. **This repo now sets `set-titles on` plus `set-titles-string
+"#{pane_title}"` in every agent environment's `.tmux.conf`**, forwarding the
+inner application's title outward.
+
+How much that matters is very uneven, and it is worth knowing which of your
+environments actually depends on it:
+
+| Environment | Without title forwarding |
+|:---|:---|
+| **`codex-cli`** | **Breaks.** `osc_title_idle` is its **only** idle rule, so codex could never report idle. Its `working` signal also drops from the title rule (priority 1050) to a rule literally named `screen_working_fallback` (priority 500) |
+| **`claude-cli`** | Degrades, gracefully. Loses its fastest `working` path (priority 1100) and two low-priority idle fallbacks, but screen rules cover working, blocked **and** idle — `live_prompt_box` (950) outranks the OSC idle rules (250) anyway |
+| `pi` | No effect — zero OSC rules of its 2 |
+| `opencode` | No effect — zero OSC rules of its 3 |
+| `aider` | **No effect ever — herdr ships no `aider` manifest.** Aider is not in herdr's supported-agent list, so it gets no state detection at all and shows as a plain pane. The `set-titles` line is in its `.tmux.conf` for consistency and a nicer terminal title, nothing more |
+
+So: **`codex-cli` is the one that was actually broken**, `claude-cli` is the
+one that gets meaningfully better, and the rest are unaffected.
 
 **The hook integrations.** `herdr integration install claude` writes a hook
 into the agent's own config that calls `herdr pane report-agent` back over

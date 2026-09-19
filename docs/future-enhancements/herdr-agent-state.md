@@ -43,17 +43,20 @@ OSC **title** and **progress** sequences are a separate detection region,
 and tmux owns the outer terminal title — by default it reports itself, so
 title-region rules silently never fire through a container's tmux.
 
-A minority of rules, but not evenly distributed:
+Counting rules understates it — what matters is whether a *state* has any
+other source. Measured per manifest:
 
-| Agent | OSC-title rules / total |
-|:---|:---|
-| `claude` | 2 / 16 |
-| `codex` | 3 / 9 — including its highest-priority `working` rule |
-| `pi` | 0 / 2 |
-| `opencode` | 0 / 3 |
+| Agent | OSC / total | What is actually lost without forwarding |
+|:---|:---|:---|
+| `codex` | 3 / 9 | **`idle` becomes unreachable.** `osc_title_idle` is its ONLY idle rule. `working` also falls back from the title rule (prio 1050) to `screen_working_fallback` (prio 500) |
+| `claude` | 3 / 16 | Its fastest `working` path (prio 1100) and two idle fallbacks (prio 250). Screen rules still cover working, blocked and idle — `live_prompt_box` (950) outranks the lost idle rules anyway |
+| `pi` | 0 / 2 | Nothing |
+| `opencode` | 0 / 3 | Nothing |
+| `aider` | — | Nothing, ever. **Herdr ships no `aider` manifest**, so aider gets no state detection at all regardless of titles |
 
-Without forwarding, a busy `codex` can read as idle. Every agent
-environment's `.tmux.conf` now sets:
+So the fix is load-bearing for exactly one environment — `codex-cli` — and a
+genuine improvement for one more. Every agent environment's `.tmux.conf`
+now sets:
 
 ```tmux
 set -g set-titles on
@@ -61,9 +64,19 @@ set -g set-titles-string "#{pane_title}"
 ```
 
 **Unverified against a real Herdr session** — it follows from how tmux
-titles work, not from an observed sidebar change. Worth confirming on the
-first real use, and the cheapest confirmation is watching whether `codex`
-shows `working` while it is plainly working.
+titles work, not from an observed sidebar change. The cheapest confirmation
+uses `codex`, because it is the one with a state that has no other source:
+**does codex ever show `idle`?** If it does, titles are crossing. `working`
+is a weaker test, since a screen fallback can produce it either way.
+
+### `aider` will never show agent state
+
+Worth stating outright so nobody spends time debugging it. Herdr's
+supported-agent list covers amp, antigravity, claude, cline, codex, cursor,
+devin, droid, gemini, github-copilot, grok, hermes, kilo, kimi, kiro, letta,
+maki, muse, opencode, pi, qodercli and qwen. **Aider is not among them.**
+Its pane works normally as a terminal; the sidebar simply has no manifest to
+match it against.
 
 ---
 
