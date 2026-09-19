@@ -408,6 +408,37 @@ still expected never to ship.
    before anything else can reach the port — a one-shot, irreversible
    decision.
 
+### `codex-cli` could die at boot in a way CLEAN could not repair — fixed
+
+Hit on a real deploy: `ssh` to 2224 gave **"Connection refused"** right
+after a successful CLEAN. Not "never deployed" — the container was starting
+and exiting.
+
+`entrypoint.sh` symlinks `/home/codex/.codex/packages/standalone` →
+`/opt/codex/packages/standalone`, but created it **only when nothing
+existed at that path**. That path is inside the persistent `codex_home`
+volume, so a real directory left by an older image — or a symlink pointing
+somewhere the current image no longer uses — was preserved forever, the
+`-x` check on `current/codex` failed, and the entrypoint `exit 1`'d before
+`sshd` ever started.
+
+**CLEAN could not fix it**, because CLEAN rebuilds the image and this is
+volume state. Broken *and* immune to the heaviest repair the menu offers.
+
+The entrypoint now replaces a stale directory or a wrongly-pointed symlink
+before creating its own, and its failure message says the container is
+about to exit (so SSH will be *refused*, not rejected) and dumps the image
+tree so an empty one — meaning the build's Codex install failed — is
+obvious. Verified across four volume states: stale directory, wrong
+symlink, correct symlink, and empty.
+
+**Worth checking whether the same shape exists elsewhere.** Any entrypoint
+that creates something inside a persistent volume only when absent has the
+same trap. `claude-cli`'s `pre-deploy.sh` placeholder and `pi`/`opencode`'s
+seeded config files are deliberately seed-if-absent for *user-owned* data,
+which is correct — the hazard is specifically an **image-owned pointer**
+guarded that way.
+
 ### Herdr agent state — mostly a non-issue, one thing to confirm
 
 Assessed wrongly at first, corrected by reading herdr 0.9.1's source: its

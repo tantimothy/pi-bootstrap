@@ -33,11 +33,51 @@ mkdir -p /home/codex/.codex/packages /home/codex/workspace /home/codex/.ssh
 MANAGED_STANDALONE_DIR="/opt/codex/packages/standalone"
 RUNTIME_STANDALONE_DIR="/home/codex/.codex/packages/standalone"
 chown -R "$PUID:$PGID" /opt/codex
-if [ ! -e "$RUNTIME_STANDALONE_DIR" ] && [ ! -L "$RUNTIME_STANDALONE_DIR" ]; then
+# SELF-HEAL A STALE PATH, because CLEAN cannot.
+#
+# This used to create the symlink only when nothing existed at that path:
+#
+#     if [ ! -e "$RUNTIME..." ] && [ ! -L "$RUNTIME..." ]; then ln -s ...
+#
+# $RUNTIME_STANDALONE_DIR lives inside the PERSISTENT codex_home volume. So
+# anything already sitting there — a real directory written by an older
+# image, or a symlink left pointing somewhere the current image no longer
+# uses — was left alone forever, the executable check below failed, the
+# entrypoint exited 1, and the container died before sshd ever started. The
+# visible symptom is `ssh: connect to host localhost port 2224: Connection
+# refused`, which reads as "never deployed" rather than "crashed at boot".
+#
+# A CLEAN does not fix it: CLEAN rebuilds the IMAGE, and this is volume
+# state. That combination — broken, and immune to the heaviest repair the
+# menu offers — is why this heals instead of reporting.
+#
+# Replacing it is safe. The path is a pointer to image-owned files, never
+# user data: auth.json, config.toml, sessions and the rest sit elsewhere
+# under $CODEX_HOME and are untouched.
+if [ -L "$RUNTIME_STANDALONE_DIR" ]; then
+    # A symlink: keep it only if it still resolves to the image's tree.
+    if [ "$(readlink "$RUNTIME_STANDALONE_DIR")" != "$MANAGED_STANDALONE_DIR" ]; then
+        echo "   🔧 Repointing stale standalone symlink at $RUNTIME_STANDALONE_DIR"
+        rm -f "$RUNTIME_STANDALONE_DIR"
+    fi
+elif [ -e "$RUNTIME_STANDALONE_DIR" ]; then
+    # A real file or directory shadowing the mount point.
+    echo "   🔧 Replacing stale standalone directory at $RUNTIME_STANDALONE_DIR"
+    echo "      (image-owned pointer only — auth, config and sessions are elsewhere)"
+    rm -rf "$RUNTIME_STANDALONE_DIR"
+fi
+if [ ! -e "$RUNTIME_STANDALONE_DIR" ]; then
     ln -s "$MANAGED_STANDALONE_DIR" "$RUNTIME_STANDALONE_DIR"
 fi
+
 if [ ! -x "$RUNTIME_STANDALONE_DIR/current/codex" ]; then
     echo "ERROR: managed standalone Codex install is unavailable at $RUNTIME_STANDALONE_DIR/current/codex" >&2
+    echo "       symlink target: $MANAGED_STANDALONE_DIR" >&2
+    echo "       image tree:" >&2
+    ls -la "$MANAGED_STANDALONE_DIR" 2>&1 | sed 's/^/         /' >&2
+    echo "       The container will now exit, so SSH to this environment will be" >&2
+    echo "       REFUSED rather than rejected. If the image tree above is empty," >&2
+    echo "       the Codex installer failed during build — run CLEAN." >&2
     exit 1
 fi
 
