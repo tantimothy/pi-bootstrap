@@ -367,11 +367,17 @@ still expected never to ship.
 
 ### What a first real deploy should check, in order
 
-1. **`herdr-client`'s pane invocation is a placeholder.** The generator
-   emits a shell script whose single `herdr_pane()` function needs
-   confirming against `herdr --help` once. This was deliberate — Herdr's
-   own docs say the installed binary is the authority for command syntax,
-   and guessing a JSON session schema would fail silently.
+1. **RESOLVED — `herdr-client`'s pane invocation is no longer a guess.**
+   Verified against herdr 0.9.1's CLI source and its own "Agent
+   automation" guide: `tab create` / `pane split` return JSON and IDs are
+   captured from `.result.root_pane.pane_id` / `.result.pane.pane_id`,
+   then `pane rename` and `pane run`. Requires `jq`, as upstream's own
+   examples do. The generated script was executed end to end against a
+   fake `herdr` and issues exactly the intended calls.
+
+   Still emits a script rather than a `session.json`, now for a better
+   reason: the session file is herdr's own state, rewritten by the server
+   as you work, so generating one would race it.
 2. **`collie-client`'s funnel check** looks for `"AllowFunnel":{…true` in
    `tailscale serve status --json`. Verified against synthetic JSON, never
    against a real tailnet. It fails *closed*, so a false positive is a
@@ -401,6 +407,31 @@ still expected never to ship.
 5. **`executor` on the Mac, not the Pi**, and its owner account created
    before anything else can reach the port — a one-shot, irreversible
    decision.
+
+### Herdr agent state — mostly a non-issue, one thing to confirm
+
+Assessed wrongly at first, corrected by reading herdr 0.9.1's source: its
+agent detection is **screen-content matching**, not process or environment
+inspection, so the blocked/working/idle sidebar **works through SSH and the
+container's tmux**. Manifests ship for all five agents this repo deploys.
+
+Two caveats, one closed and one deliberately left open — full analysis in
+`docs/future-enhancements/herdr-agent-state.md`:
+
+- **OSC title rules were being swallowed by the container's tmux**, which
+  matters most for `codex` (its top-priority `working` rule is
+  title-based, so a busy codex could read as idle). Every agent
+  environment's `.tmux.conf` now sets `set-titles on` +
+  `set-titles-string "#{pane_title}"`. **Unverified against a real Herdr
+  session** — cheapest check is watching whether `codex` shows `working`
+  while it plainly is.
+- **`herdr integration install` hooks cannot cross the container boundary**
+  and are not worth forcing. They need `HERDR_PANE_ID`, a `herdr` binary
+  and this host's Unix socket inside the container; and the deeper blocker
+  is that a long-lived shared tmux session has one environment while
+  Herdr's model is one pane per agent. Closing it means either a bespoke
+  hook per agent or giving up session persistence. Recommendation recorded:
+  don't, yet.
 
 ### Still open from the original design
 
