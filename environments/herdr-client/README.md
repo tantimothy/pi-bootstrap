@@ -40,6 +40,81 @@ firstmate's own hard default, which is what this repo recommends. See
 
 ---
 
+## 🔍 How it finds your agents: it doesn't, and that's fine
+
+Worth stating plainly, because the obvious assumption is wrong in both
+directions.
+
+**There is no discovery.** Herdr knows nothing about Docker. A pane is just
+a PTY running whatever command you give it. The chain is:
+
+```
+Herdr pane ──ssh -p 2222──▶ container sshd ──login shell──▶ container tmux ──▶ claude
+```
+
+What this repo contributes is the middle step: `scripts/generate-session.sh`
+reads every deployed environment's own `.env` for its `SSH_PORT` and emits
+the pane commands. Herdr supplies the window; this repo supplies the
+knowledge of which ports exist.
+
+**Your sessions already persist** — inside each container's own tmux, not in
+Herdr. Closing a Herdr pane detaches a client; it does not stop the agent.
+
+### The state sidebar does work through all of that
+
+This surprised me, so it is worth recording why. Herdr's agent detection is
+**screen-content matching**, not process inspection — `detect_agent(agent,
+screen_content: &str)`, driven by per-agent regex manifests in
+`src/detect/manifests/*.toml`. It matches the agent's rendered TUI: spinner
+glyphs, `esc to interrupt`, prompt shapes.
+
+Rendered bytes cross SSH and nested tmux unchanged. So the sidebar lights up
+for a containerized agent the same as a local one. Manifests ship for
+**claude, codex, pi, opencode and hermes** — every agent in this repo.
+
+| Signal | Crosses SSH + container tmux? |
+|:---|:---|
+| Screen-content rules (the large majority) | ✅ Yes |
+| OSC title / progress rules | ⚠️ Only with `set-titles` forwarding — see below |
+| `herdr integration install` hooks | ❌ No — see below |
+
+### Two things that genuinely don't cross
+
+**OSC title rules, unless tmux forwards them.** tmux owns the outer terminal
+title and by default reports itself, so title-region rules silently never
+fire. **This repo now sets `set-titles on` plus `set-titles-string
+"#{pane_title}"` in every agent environment's `.tmux.conf`**, forwarding the
+inner application's title outward.
+
+How much that matters is very uneven, and it is worth knowing which of your
+environments actually depends on it:
+
+| Environment | Without title forwarding |
+|:---|:---|
+| **`codex-cli`** | **Breaks.** `osc_title_idle` is its **only** idle rule, so codex could never report idle. Its `working` signal also drops from the title rule (priority 1050) to a rule literally named `screen_working_fallback` (priority 500) |
+| **`claude-cli`** | Degrades, gracefully. Loses its fastest `working` path (priority 1100) and two low-priority idle fallbacks, but screen rules cover working, blocked **and** idle — `live_prompt_box` (950) outranks the OSC idle rules (250) anyway |
+| `pi` | No effect — zero OSC rules of its 2 |
+| `opencode` | No effect — zero OSC rules of its 3 |
+| `aider` | **No effect ever — herdr ships no `aider` manifest.** Aider is not in herdr's supported-agent list, so it gets no state detection at all and shows as a plain pane. The `set-titles` line is in its `.tmux.conf` for consistency and a nicer terminal title, nothing more |
+
+So: **`codex-cli` is the one that was actually broken**, `claude-cli` is the
+one that gets meaningfully better, and the rest are unaffected.
+
+**The hook integrations.** `herdr integration install claude` writes a hook
+into the agent's own config that calls `herdr pane report-agent` back over
+`HERDR_SOCKET_PATH`, using the `HERDR_PANE_ID` Herdr injects into the pane
+process (`src/pane.rs:168`). Across a container boundary all three legs
+break: the env var is set on the *ssh client* on this machine and our images
+set no `AcceptEnv`; there is no `herdr` binary in the images; and the socket
+is a Unix socket on this host.
+
+That costs the *enhanced* signal — session IDs and faster, more reliable
+state — not the basic one. See
+`docs/future-enhancements/herdr-agent-state.md` for what closing that gap
+would take and why it is not obviously worth it.
+
+---
+
 ## 📋 Requirements
 
 | Platform | Supported | Notes |

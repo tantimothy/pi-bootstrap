@@ -10,20 +10,18 @@
 # thin layer on top.
 #
 # ─────────────────────────────────────────────────────────────────────────
-# ONE THING IS DELIBERATELY NOT GUESSED
+# WHY A SCRIPT AND NOT A session.json
 #
-# Herdr's own docs say "the installed binary is the authority for command
-# syntax" and this repo has NOT verified the exact pane-creation invocation,
-# nor Herdr's session.json schema. So this script does not write a
-# session.json and does not pretend to know the flags: it emits a shell
-# script whose herdr invocation is factored into ONE function at the top
-# (`herdr_pane`), which you confirm against `herdr --help` once and then
-# never touch again.
+# An earlier version of this file shipped a GUESSED pane-creation command,
+# fenced off with "confirm this once". That has now been replaced with the
+# real API, read from herdr 0.9.1's own "Agent automation" guide and CLI
+# source: `tab create` / `pane split` return JSON, IDs are captured from the
+# response rather than predicted, and `pane run` / `pane rename` do the rest.
 #
-# That is a deliberate trade. Guessing a JSON schema would produce something
-# that looks right, silently fails, and is hard to debug — the exact failure
-# mode docs/lessons-learned warns about repeatedly. Emitting a readable
-# script fails loudly and is trivially fixable.
+# It still emits a SCRIPT rather than writing herdr's session.json, and that
+# part stays deliberate: the session file is herdr's own state, rewritten by
+# the server as you work, and generating one would mean racing it. Driving
+# the documented CLI is the supported path.
 # ─────────────────────────────────────────────────────────────────────────
 #
 # bash 3.2 compatible (macOS default): no mapfile, no associative arrays.
@@ -199,22 +197,54 @@ _emit() {
 
 set -euo pipefail
 
-# ─── CONFIRM THIS ONCE ───────────────────────────────────────────────────
-# Herdr's docs say the installed binary is the authority for command syntax,
-# and this repo has not verified the pane-creation flags. Run:
+HEADER
+
+    cat <<'FUNCS'
+# ─── Verified against herdr 0.9.1 ────────────────────────────────────────
+# The API below follows herdr's own "Agent automation" guide:
+#   * creation commands print JSON; capture IDs rather than predicting them
+#   * `tab create` returns .result.root_pane, `pane split` returns
+#     .result.pane
+#   * `pane run <pane_id> <command>` starts a process in an existing pane
+#   * `pane rename <pane_id> <label>` sets the sidebar label
 #
-#     herdr --help
-#     herdr pane --help     # or whichever group owns pane creation
-#
-# then fix the invocation below. Everything else in this file is discovered
-# from your own .env files and does not need touching.
+# jq is required, as it is in herdr's own documented examples.
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required (herdr's CLI returns JSON)." >&2
+    echo "  brew install jq" >&2
+    exit 1
+fi
+
+# Opens one pane running one command, labelled. The first call lands in the
+# tab's root pane; later calls split the previous one.
+HERDR_TAB_ROOT=""
+HERDR_LAST_PANE=""
+
 herdr_pane() {
-    local label="\$1" command="\$2"
-    herdr pane new --label "\$label" -- \$command
+    local label="$1" command="$2" out pane
+
+    if [ -z "$HERDR_TAB_ROOT" ]; then
+        out="$(herdr tab create --label agents --no-focus)"
+        pane="$(printf '%s\n' "$out" | jq -r '.result.root_pane.pane_id')"
+        HERDR_TAB_ROOT="$pane"
+    else
+        out="$(herdr pane split "$HERDR_LAST_PANE" --direction right --no-focus)"
+        pane="$(printf '%s\n' "$out" | jq -r '.result.pane.pane_id')"
+    fi
+
+    if [ -z "$pane" ] || [ "$pane" = "null" ]; then
+        echo "could not create a pane for $label; herdr said:" >&2
+        printf '%s\n' "$out" >&2
+        return 1
+    fi
+
+    herdr pane rename "$pane" "$label" >/dev/null
+    herdr pane run "$pane" "$command" >/dev/null
+    HERDR_LAST_PANE="$pane"
+    echo "  $label -> $pane"
 }
 # ─────────────────────────────────────────────────────────────────────────
-
-HEADER
+FUNCS
 
     if [ -n "$PANES" ]; then
         printf '# --- SSH panes (%s) ---\n' "$FOUND"

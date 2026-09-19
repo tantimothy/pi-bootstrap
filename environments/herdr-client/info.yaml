@@ -42,6 +42,22 @@ useful_commands: |2
         that offers to stop the remote server and its panes.
      🐑 Detach is not STOP. ctrl+a q detaches the client and leaves panes and
         agents running; STOP kills the server.
+     🔍 NO DISCOVERY — Herdr knows nothing about Docker. A pane is a PTY
+        running `ssh -p <port> <user>@localhost`; the generator supplies
+        those from each environment's own .env. Your sessions persist in
+        each CONTAINER's tmux, so closing a pane detaches, never stops work.
+     📊 The state sidebar DOES work through SSH and the container's tmux:
+        detection is screen-content matching (regex manifests per agent),
+        not process inspection, and rendered bytes cross both. Manifests
+        ship for claude, codex, pi, opencode and hermes.
+     ⚠️  Two signals do NOT cross. OSC title rules need tmux to forward the
+        title — this repo now sets set-titles in every agent environment's
+        .tmux.conf, which matters most for codex (its top-priority
+        "working" rule is title-based). And `herdr integration install`
+        hooks cannot work at all across the container boundary: they need
+        HERDR_PANE_ID, a herdr binary, and this host's Unix socket, none of
+        which reach inside. That costs the enhanced signal, not the basic
+        one — see docs/future-enhancements/herdr-agent-state.md.
      🤝 Firstmate is NOT required and is not installed here. Standalone Herdr
         — sidebar, session persistence, the generated panes, and Herdr's own
         skills/herdr for in-pane agent control — is a complete setup.
