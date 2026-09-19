@@ -152,6 +152,35 @@ this fixed anywhere.
 
 ---
 
+## `_check_sha256_tool` is duplicated verbatim in two client environments
+
+`environments/herdr-client/run.sh` and `environments/collie-client/run.sh`
+carry the same ~45-line `_check_sha256_tool`: it proves the SHA-256 tool
+each upstream installer *will pick* can actually execute, before letting
+the installer run.
+
+It exists because both installers select their hasher with `command -v`,
+which proves a file exists and is executable but not that it runs on this
+CPU. An Apple Silicon Mac carrying leftover x86_64 Homebrew tools in
+`/usr/local` (Intel's brew prefix) hits an Intel `sha256sum`, it dies with
+"Bad CPU type in executable", the captured digest is empty, and the
+installer reports **"downloaded … checksum did not match"** — a tampered-
+download message for a broken-hasher problem. Hit for real on one of two
+otherwise identical M1 Macs.
+
+**Why not extracted now:** the two copies differ by one word (the product
+name in the closing message), and this is exactly the
+host-level-`run.sh` layer that the `mac-terminal-setup` entry below already
+identifies as having no shared home. Extracting one helper into a new
+`lib/host-deploy-lib.sh` would create that library for a single function
+while `_deploy_file`/`_deploy_dir` — the other, older candidate — stay
+duplicated elsewhere. Better to create that library once, for both.
+
+**Revisit when:** a third environment installs a checksum-verifying
+upstream binary, OR when the `mac-terminal-setup` entry below is acted on
+— whichever comes first. They should land in the same `lib/` file, in the
+same pass.
+
 ## `mac-terminal-setup`'s backup-before-overwrite helpers have no shared home
 
 `environments/mac-terminal-setup/run.sh`'s `_deploy_file`/`_deploy_dir`
