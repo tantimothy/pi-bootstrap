@@ -1,0 +1,47 @@
+# OPT-IN: try to make pi-sandbox's bubblewrap work under a runtime that
+# withholds unprivileged user namespaces.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# Docker Compose reads docker-compose.override.yml automatically, so no
+# deploy.sh change is needed. Delete the file to go back.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# READ THE TRADE-OFF FIRST. THIS IS NOT OBVIOUSLY WORTH IT.
+#
+# Confirmed on OrbStack: bwrap fails with
+#   "Creating new namespace failed: Operation not permitted"
+#
+# The usual cause is Docker's DEFAULT SECCOMP PROFILE, which blocks the
+# syscalls bubblewrap needs to create a user namespace. That profile is also
+# what stops a container from making ~44 dangerous syscalls against the
+# host kernel.
+#
+# So this trades a real, host-facing protection for an inner one. What you
+# gain is a sandbox around what the AGENT can touch: your mounted repo, the
+# keys in /etc/environment, network egress. What you give up is part of what
+# stops the CONTAINER reaching the host kernel.
+#
+# For a coding agent on a personal machine that is arguably a wash, and it
+# may be a net loss. The unsandboxed default — container boundary plus a
+# scoped GH_TOKEN — is a defensible place to stay. Do not enable this just
+# because the warning in the log is annoying.
+#
+# UNVERIFIED: nobody has confirmed this actually makes bwrap work under
+# OrbStack. If you try it, `docker logs pi | grep -i sandbox` gives the
+# answer, and docs/pending-activities.md is where it belongs.
+# ─────────────────────────────────────────────────────────────────────────
+services:
+  pi:
+    security_opt:
+      # Least-privilege option first. Try ONLY this before anything below.
+      - seccomp=unconfined
+      # If that alone is not enough, uncomment. Irrelevant on a host without
+      # AppArmor (OrbStack's VM generally is one), so try it second.
+      # - apparmor=unconfined
+
+    # LAST RESORT, and a big step up: SYS_ADMIN is close to root-on-host in
+    # its reach. If seccomp=unconfined did not do it, seriously consider
+    # leaving pi-sandbox off instead of adding this.
+    # cap_add:
+    #   - SYS_ADMIN

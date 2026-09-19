@@ -1,0 +1,73 @@
+# Hermes Agent — a personal agent platform with a learning loop: it writes
+# its own skills from successful runs, keeps persistent memory, speaks ~20
+# chat platforms through one gateway, and runs cron jobs and subagents.
+#
+# ONE container, not the two in upstream's own docker-compose.yml. Upstream
+# runs the dashboard as a second service under `network_mode: host` so it can
+# share the gateway's PID namespace for liveness detection. Two reasons not
+# to copy that here:
+#
+#   * host networking is a Linux-shaped assumption, and the container host
+#     here is a Mac under OrbStack;
+#   * the image already supervises the dashboard as an s6-rc service inside
+#     the gateway container when HERMES_DASHBOARD=1 — upstream's own Docker
+#     guide documents that as the normal single-container shape, with the
+#     separate-container variant as the exception that needs the shared
+#     namespaces.
+#
+# Everything mutable lives in the ONE bind-mounted data directory. The image
+# is stateless and upgrades by pulling a new tag.
+services:
+  hermes:
+    container_name: ${CONTAINER_NAME:-hermes}
+    # Registry image, multi-arch (amd64 + arm64), so no build and no
+    # entry in maintenance.yaml's local_images — check-updates.sh takes the
+    # normal pull-and-compare path.
+    #
+    # Upstream tags :latest and :main on every push to main, and
+    # :<release-tag> on a release. Pin a release tag in .env: check-updates.sh
+    # compares running image IDs, so :latest reports an update every time
+    # main moves.
+    image: nousresearch/hermes-agent:${HERMES_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # Remapped by the image's s6-overlay stage2 hook so files created in
+      # /opt/data stay owned by the host user that owns the data directory.
+      - HERMES_UID=${PUID:-1000}
+      - HERMES_GID=${PGID:-1000}
+      # The dashboard is a supervised s6-rc service that stays DOWN unless
+      # this is set. It is off by default here — see pre-deploy.sh, which
+      # refuses to bring it up without an auth provider.
+      - HERMES_DASHBOARD=${HERMES_DASHBOARD:-}
+      - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-}
+      - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}
+      # Keeps dashboard sessions valid across a restart. Without it every
+      # container restart logs you out.
+      - HERMES_DASHBOARD_BASIC_AUTH_SECRET=${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}
+      - HERMES_DASHBOARD_OAUTH_CLIENT_ID=${HERMES_DASHBOARD_OAUTH_CLIENT_ID:-}
+      - HERMES_DASHBOARD_OIDC_ISSUER=${HERMES_DASHBOARD_OIDC_ISSUER:-}
+      - HERMES_DASHBOARD_OIDC_CLIENT_ID=${HERMES_DASHBOARD_OIDC_CLIENT_ID:-}
+      # The OpenAI-compatible API server. Gated on API_SERVER_ENABLED, and
+      # API_SERVER_KEY is mandatory when it listens beyond loopback.
+      - API_SERVER_ENABLED=${API_SERVER_ENABLED:-}
+      - API_SERVER_HOST=${API_SERVER_HOST:-}
+      - API_SERVER_KEY=${API_SERVER_KEY:-}
+    ports:
+      # Bound to the HOST's loopback by default. The dashboard binds 0.0.0.0
+      # INSIDE the container (it has to, or a published port would be
+      # unreachable), so the host-side bind address is what actually decides
+      # who can reach it. Set HERMES_BIND_ADDRESS=0.0.0.0 only deliberately.
+      - "${HERMES_BIND_ADDRESS:-127.0.0.1}:${API_SERVER_PORT:-8642}:8642"
+      - "${HERMES_BIND_ADDRESS:-127.0.0.1}:${HERMES_DASHBOARD_PORT:-9119}:9119"
+    volumes:
+      # A real bind mount onto a DIRECTORY, which is the safe shape — the
+      # OrbStack failure recorded in docs/lessons-learned/nanoclaw-mnemon.md
+      # was a single-FILE mount. pre-deploy.sh creates this directory with the
+      # right ownership before Docker can create it as a root-owned one.
+      #
+      # /opt/data is the single source of truth for all Hermes state: .env,
+      # config.yaml, SOUL.md, sessions/, memories/, skills/, cron/, hooks/,
+      # logs/ and the per-profile home/. THIS IS THE WHOLE VALUE OF THIS
+      # ENVIRONMENT — see info.yaml, which is what backup.sh reads.
+      - "${HERMES_DATA_PATH}:/opt/data"
+    command: ["gateway", "run"]

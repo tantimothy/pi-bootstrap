@@ -1,0 +1,48 @@
+# Static data for lib/info-lib.sh. The OS-dependent pieces (install path,
+# uninstall command) live in info.sh, which loads this file first and then
+# overrides just those — the documented escape hatch for values that cannot
+# be static YAML. See docs/environment-yaml-schemas.md.
+data_dirs: []
+install_dirs:
+  - path: "${HOME}/.config/herdr"
+    description: "Herdr's own config and session state — config.toml (deployed from this repo), session.json (workspaces, tabs, panes), and herdr.log/herdr-server.log/herdr-client.log"
+no_data_msg: "(none — herdr-client installs a binary and a config file, nothing persistent beyond ~/.config/herdr)"
+no_delete_msg: "herdr-client has no persistent data directories to delete.\n   Use TEARDOWN to remove the binary and ~/.config/herdr (config is backed\n   up to ${HOME}/.pi-bootstrap-backups/ first).\n   Removing the config does NOT touch any agent environment — Herdr only\n   ever attaches to them, it does not own them."
+custom_actions:
+  - label: "Launch Herdr"
+    command: "herdr"
+  - label: "Generate session from deployed environments"
+    command: "bash ${ENV_DIR}/scripts/generate-session.sh"
+  - label: "Preview generated session (no write)"
+    command: "bash ${ENV_DIR}/scripts/generate-session.sh --dry-run"
+  - label: "List linked machines"
+    command: "herdr machine list"
+  - label: "Stop the Herdr server (kills panes, keeps session shape)"
+    command: 'read -rp "Stop the Herdr server? Pane processes die; workspaces/tabs/layout are restored on next launch. [y/N]: " A; [[ "$A" =~ ^[Yy] ]] && herdr server stop || echo "Cancelled."'
+useful_commands: |2
+     herdr                                                    # Launch (starts the server, restores the saved session shape)
+     herdr machine add <host> --label "Raspberry Pi"          # Link another machine into one window
+     herdr machine list                                       # Saved machines
+     herdr server stop                                        # Stop the server — panes die, shape survives
+     herdr session stop <name>                                # Stop one session rather than the whole server
+     bash ${SCRIPT_DIR}/scripts/generate-session.sh --dry-run  # See what panes would be generated
+     cat ${HOME}/.config/herdr/config.toml                     # Active config (deployed from this repo)
+     tail -f ${HOME}/.config/herdr/herdr-server.log            # Server log
+
+  📌 Notes:
+     🔑 Client-side — installs a binary and a config on THIS machine. No
+        container runs, so there is nothing here to expose or firewall.
+     ⌨️  The prefix is ctrl+a, not Herdr's default ctrl+b. Every agent
+        environment in this repo auto-attaches you to a tmux session inside
+        its container, so a Herdr pane into one is two multiplexers stacked
+        — and tmux's default prefix is also ctrl+b. See config.toml.
+     🖥️ Multi-machine: run herdr-client on each machine, then `herdr machine
+        add` from one of them. Pin HERDR_VERSION to the SAME version
+        everywhere — an incompatible client/server pair triggers a setup
+        that offers to stop the remote server and its panes.
+     🐑 Detach is not STOP. ctrl+a q detaches the client and leaves panes and
+        agents running; STOP kills the server.
+     🤝 Firstmate is NOT required and is not installed here. Standalone Herdr
+        — sidebar, session persistence, the generated panes, and Herdr's own
+        skills/herdr for in-pane agent control — is a complete setup.
+     📖 Full details: environments/herdr-client/README.md

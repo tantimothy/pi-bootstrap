@@ -1,0 +1,72 @@
+# 🧭 Pick this when you want a BATTERIES-INCLUDED terminal agent.
+# OpenCode ships native MCP, LSP, a permission system, sub-agents, custom
+# commands, skills, plugins, themes, an ACP/SDK surface and a web/mobile
+# attach mode — and is powered by the Models.dev provider list, so most
+# providers work with `opencode auth login` and no config. Compare: pi (a
+# minimal harness you extend yourself), omp (IDE-grade — LSP on every write,
+# debugger ops), claude-cli / codex-cli (a vendor's own agent).
+data_dirs:
+  - path: "docker volume: ${CONTAINER_NAME:-opencode}_state"
+    description: "OpenCode's state — auth.json (API keys and OAuth tokens from `opencode auth login`), session storage, and log/"
+  - path: "docker volume: ${CONTAINER_NAME:-opencode}_config"
+    description: "opencode.json and tui.json, plus your agents/, commands/, modes/, plugins/, skills/, tools/ and themes/ directories"
+  - path: "docker volume: ${CONTAINER_NAME:-opencode}_user_home"
+    description: "The rest of the home directory — shell/tmux customisation, git and gh configuration, SSH known_hosts"
+  - path: "${OPENCODE_WORKSPACE_PATH:-~/opencode-workspace}"
+    description: "Your bind-mounted repository on the host. NOT deleted by WIPE — it is yours, not this environment's."
+install_dirs:
+  - path: "docker volume: ${CONTAINER_NAME:-opencode}_ssh_host_keys"
+    description: "The container's SSH host keys, so its fingerprint survives recreation"
+no_data_msg: "(nothing yet — deploy and connect once)"
+no_delete_msg: "WIPE removes the four docker volumes (OpenCode's state and config, the\\n   home directory, the SSH host keys). It does NOT touch\\n   ${OPENCODE_WORKSPACE_PATH:-~/opencode-workspace} — that is your repository on the host.\\n   WARNING: the state volume holds auth.json, i.e. every credential saved by\\n   `opencode auth login`, plus all session history. Wiping means logging in again."
+custom_actions:
+  - label: "Connect (SSH into the persistent OpenCode session)"
+    command: "ssh -p ${SSH_PORT:-2225} opencode@localhost"
+  - label: "Which OpenCode version is installed?"
+    command: "docker exec ${CONTAINER_NAME:-opencode} opencode --version"
+  - label: "List configured agents"
+    command: "docker exec -u opencode ${CONTAINER_NAME:-opencode} opencode agent list"
+  - label: "Show the active config (opencode.json)"
+    command: "docker exec ${CONTAINER_NAME:-opencode} cat /home/opencode/.config/opencode/opencode.json 2>/dev/null || echo '(none - OpenCode is running on defaults)'"
+  - label: "Which providers are authenticated?"
+    command: "docker exec -u opencode ${CONTAINER_NAME:-opencode} opencode auth list"
+useful_commands: |2
+     ssh -p ${SSH_PORT:-2225} opencode@localhost   # Attach to the persistent tmux session
+     opencode                                       # Start the TUI
+     opencode -c                                    # Continue the last session
+     opencode run "..."                             # One-shot, non-interactive
+     opencode auth login                            # Add a provider credential
+     opencode auth list                             # What is authenticated
+     opencode agent create                          # Build a scoped sub-agent
+     opencode agent list                            # Configured agents
+     /models                                        # Model picker, in the TUI
+     opencode --version                             # Installed version
+     opencode serve --port 4096                     # Headless backend
+     opencode attach http://<host>:4096             # TUI against a remote backend
+
+  📌 Notes:
+     🧭 Pick OpenCode when you want a batteries-included terminal agent —
+        native MCP, LSP, sub-agents, a permission system, skills and plugins,
+        and most providers working straight from `opencode auth login`.
+     🔌 NO mcporter in this image, deliberately. OpenCode has native MCP, so
+        an MCP client runtime would be redundant. (pi gets one because it has
+        no native MCP by design.)
+     📦 The installer does NO CHECKSUM VERIFICATION — it downloads and
+        unpacks. herdr's and collie's both verify a sha256 sidecar. Set
+        OPENCODE_VERSION in .env so at least the build is reproducible.
+     🏠 The binary lives in /usr/local/bin, copied from /opt at build time —
+        NOT in /home, which is a persistent volume. An upgrade installed into
+        the home directory would survive CLEAN and keep running while every
+        check reported the new version.
+     ⚠️  `--auto` (OPENCODE_AUTO_APPROVE=1) approves every permission not
+        explicitly denied. The permission system is the main thing
+        distinguishing OpenCode from pi's YOLO-by-default posture; turning it
+        off leaves the container boundary and a scoped GH_TOKEN doing that job.
+     🔀 Gateway routing sets a provider `baseURL` in opencode.json — the
+        entrypoint seeds it from OPENCODE_GATEWAY_BASE_URL, but only when the
+        file does not already exist.
+     🏷️ Release artifacts come from github.com/anomalyco/opencode, which is
+        the project's official home (its own README badges, brew tap and
+        download links point there). What to avoid is a third-party Docker
+        image, not that org.
+     📖 Full details: environments/opencode/README.md

@@ -1,0 +1,20 @@
+deployment:
+  kind: container
+  value: ${CONTAINER_NAME:-pi}
+
+updates:
+  local_images:
+    # DELIBERATELY NOT "*pi*". lib/maintenance-lib.sh walks
+    # environments/*/maintenance.yaml in directory order and the FIRST
+    # matching glob wins, so a loose pattern here would hijack
+    # pihole-wireguard's images — "pi" is a substring of rather a lot.
+    #
+    # Compose derives the image name from the project (this directory) and
+    # the service, giving pi-pi:latest. deploy-lib.sh passes no -p.
+    #
+    # Note what an update here means: Pi itself is pinned by exact npm
+    # version in the Dockerfile build arg, so a hit is the BASE IMAGE moving.
+    # Pi moves by bumping PI_PACKAGE_VERSION and running CLEAN.
+    - image_pattern: "pi-pi*"
+      dockerfile: Dockerfile
+      apt_updates: true

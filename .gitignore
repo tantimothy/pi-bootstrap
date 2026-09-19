@@ -45,4 +45,9 @@ environments/claude-cli/data/
 # runs `git add -A` in a real deployment, at which point they are staged.
 # `.env.example` is deliberately NOT matched by this and stays tracked.
 environments/*/.env
+
+# Per-machine compose overrides (e.g. pi's opt-in sandbox privileges).
+# Compose reads these automatically; they are local decisions about one
+# host's runtime, not repo content. The .example files ARE tracked.
+environments/*/docker-compose.override.yml
 environments/openclaw/data/

@@ -1,0 +1,56 @@
+# 🧭 Infrastructure, not an agent. Executor is an MCP GATEWAY: one endpoint
+# fronting every integration, credentials held server-side, per-tool
+# allow / require-approval / block. Agents point at it instead of each
+# holding its own copy of every token.
+data_dirs:
+  - path: "docker volume: ${CONTAINER_NAME:-executor}_data"
+    description: "⚠️ The SQLite (libSQL) database AND the generated secret-encryption key. Every credential you ever stored in Executor lives here, encrypted with a key that also lives here. Losing this volume loses all of them, and they are not recoverable from anywhere else."
+install_dirs: []
+no_data_msg: "(nothing yet — deploy and create the owner account)"
+no_delete_msg: "WIPE would delete the ${CONTAINER_NAME:-executor}_data volume, which holds both the\\n   database and the secret-encryption key that protects it. EVERY STORED\\n   CREDENTIAL GOES WITH IT, unrecoverably, and every agent pointed at this\\n   gateway loses access to every integration at once.\\n   Set BETTER_AUTH_SECRET and EXECUTOR_SECRET_KEY yourself if you want the\\n   key managed outside the volume."
+custom_actions:
+  - label: "Open the web UI"
+    command: 'echo "Open: ${EXECUTOR_WEB_BASE_URL:-http://localhost:${EXECUTOR_PORT:-4788}}"'
+  - label: "Health check"
+    command: "curl -fsS http://localhost:${EXECUTOR_PORT:-4788}/api/health && echo '' || echo 'not healthy'"
+  - label: "Setup status (has the owner account been created?)"
+    command: "curl -fsS http://localhost:${EXECUTOR_PORT:-4788}/api/setup-status && echo ''"
+  - label: "Logs (follow)"
+    command: "docker logs -f ${CONTAINER_NAME:-executor}"
+  - label: "Are the two widening switches on?"
+    command: 'docker exec ${CONTAINER_NAME:-executor} sh -c "echo local_network=\$EXECUTOR_ALLOW_LOCAL_NETWORK; echo stdio_mcp=\$EXECUTOR_ALLOW_STDIO_MCP"'
+useful_commands: |2
+     open ${EXECUTOR_WEB_BASE_URL:-http://localhost:${EXECUTOR_PORT:-4788}}   # The web UI
+     curl localhost:${EXECUTOR_PORT:-4788}/api/health         # Health
+     curl localhost:${EXECUTOR_PORT:-4788}/api/setup-status   # First-run state
+     docker logs -f ${CONTAINER_NAME:-executor}               # Logs
+     docker compose pull && docker compose up -d              # Update (from this env's folder)
+
+  📌 Notes:
+     🚪 FIRST RUN IS A ONE-SHOT DECISION. A fresh instance shows a setup
+        screen and THE FIRST PERSON TO CREATE AN ACCOUNT BECOMES OWNER.
+        Self-service signup then closes permanently; everyone else joins by
+        single-use invite minted from the Admin page. Create your account
+        before anything else can reach the port.
+     🖥️ HOST THIS ON THE MAC, NOT THE PI. The moment Mac-hosted agents
+        depend on it, the Pi stops being something you can switch off — and
+        keeping the Pi removable is an explicit constraint of this design.
+     🔑 The data volume holds the database AND the key that encrypts the
+        credentials in it. Losing it loses every stored credential at once,
+        for every agent pointed here.
+     🌐 EXECUTOR_WEB_BASE_URL must match scheme + host + port EXACTLY as the
+        browser loads it, or logins are rejected with nothing obviously
+        wrong. This is the most common way a working instance looks broken.
+     ⚠️  EXECUTOR_ALLOW_LOCAL_NETWORK lets sandboxed code reach loopback and
+        private addresses — where this repo's ollama, llm-gateways,
+        nanoclaw-mnemon and every agent container live. Off by default.
+     ⚠️  EXECUTOR_ALLOW_STDIO_MCP lets users configure MCP servers whose
+        commands EXECUTE ON THIS HOST. Upstream: "trusted deployments only".
+        Off unless set to the exact string "true".
+     📦 The image namespace moved: ghcr.io/usefulsoftwareco/ is current,
+        ghcr.io/rhyssullivan/ is the legacy name releases are mirrored to.
+     🔌 Who actually needs this: agents WITHOUT native MCP reach it through
+        mcporter (pi), and agents WITH native MCP point at it directly
+        (opencode, claude-cli, codex-cli). aider deliberately gets neither —
+        see settled decision 7 in the design doc.
+     📖 Full details: environments/executor/README.md

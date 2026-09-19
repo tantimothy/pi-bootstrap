@@ -118,12 +118,80 @@ if ! command -v yq &>/dev/null || ! yq --version 2>/dev/null | grep -q "mikefara
     echo "✅ yq (go-yq) successfully installed!"
 fi
 
-# Fall back to sudo if the invoking user can't run docker directly.
+# Decide how to invoke docker — and DISTINGUISH "you lack permission" from
+# "the daemon isn't running", because the fix for each is different and the
+# old code treated both as the former.
+#
+# It ran a bare `if ! docker ps; then DOCKER_CMD="sudo docker"; fi`, which on
+# macOS is never right and actively makes things worse: Docker Desktop and
+# OrbStack expose a PER-USER socket at $HOME/.docker/run/docker.sock, so sudo
+# switches to root's environment where that path does not resolve. A stopped
+# OrbStack therefore surfaced as a sudo password prompt followed by
+# "failed to connect to the docker API at unix:///Users/<you>/.docker/run/
+# docker.sock" — two misleading things stacked on a simple "it isn't running".
+#
+# sudo-docker is a Linux/Raspberry-Pi pattern (the docker group), so that is
+# the only place it is attempted now.
 DOCKER_CMD="docker"
-if ! docker ps &>/dev/null; then
-    echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
-    DOCKER_CMD="sudo docker"
+if ! command -v docker >/dev/null 2>&1; then
+    echo "❌ docker is not installed, or not on \$PATH." >&2
+    case "$(uname -s)" in
+        Darwin) echo "   Install OrbStack (recommended here) or Docker Desktop." >&2 ;;
+        *)      echo "   Install Docker Engine, then re-run this script." >&2 ;;
+    esac
+    exit 1
 fi
+
+_docker_err="$(docker ps 2>&1 >/dev/null)"
+if [ -n "$_docker_err" ]; then
+    case "$_docker_err" in
+        *"permission denied"*|*"Permission denied"*)
+            # A real permission problem: the user is not in the docker group.
+            if [ "$(uname -s)" = "Darwin" ]; then
+                echo "❌ Cannot talk to the Docker daemon: permission denied." >&2
+                echo "   On macOS the socket is per-user, so sudo does not help." >&2
+                echo "   Details: $_docker_err" >&2
+                exit 1
+            fi
+            if ! command -v sudo >/dev/null 2>&1; then
+                echo "❌ Cannot run docker, and sudo is not available to escalate." >&2
+                echo "   Add yourself to the 'docker' group:  sudo usermod -aG docker \$USER" >&2
+                echo "   then log out and back in." >&2
+                exit 1
+            fi
+            echo "🔒 Raw docker commands denied. Escalating to 'sudo docker' wrapper..."
+            DOCKER_CMD="sudo docker"
+            # Verify the escalation actually works NOW, rather than letting
+            # every later docker call re-prompt and fail one at a time.
+            if ! sudo docker ps >/dev/null 2>&1; then
+                echo "❌ 'sudo docker' does not work either." >&2
+                echo "   Is the daemon running?  sudo systemctl status docker" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            # Anything else is the daemon not being reachable at all.
+            echo "❌ Cannot reach the Docker daemon." >&2
+            echo "   $_docker_err" >&2
+            echo "" >&2
+            case "$(uname -s)" in
+                Darwin)
+                    echo "   The daemon is almost certainly not running. Start OrbStack" >&2
+                    echo "   (or Docker Desktop) and re-run this script:" >&2
+                    echo "     open -a OrbStack" >&2
+                    echo "" >&2
+                    echo "   NOT a permissions problem, and sudo will not help — the" >&2
+                    echo "   macOS socket lives under your own home directory." >&2
+                    ;;
+                *)
+                    echo "   Start it with:  sudo systemctl start docker" >&2
+                    ;;
+            esac
+            exit 1
+            ;;
+    esac
+fi
+unset _docker_err
 
 # CURL_USER (format "username:token", matching curl -u) rewrites github.com
 # URLs to embed the token, so `git fetch` on a pre-existing local repo
@@ -135,6 +203,69 @@ if [ ! -z "$CURL_USER" ]; then
 else
     GIT_CMD=(git)
 fi
+
+# Force-syncs the checkout to the remote tip OF THE BRANCH IT IS ACTUALLY ON,
+# not to origin/master.
+#
+# This used to be a bare `git reset --hard origin/master` in both callers,
+# which made deploy.sh unusable for testing anything on a branch: every run
+# silently threw the checkout back to master's tip. Worse, `reset --hard`
+# takes uncommitted work with it, and a feature branch under test is exactly
+# where uncommitted work lives.
+#
+# Resolution order, each step falling back to the next:
+#   1. the branch's configured upstream (@{u}) — correct even when the
+#      remote branch is named differently from the local one;
+#   2. origin/<current-branch>, for a branch that exists on the remote but
+#      has no upstream configured (a plain `git fetch` + `git checkout -b`);
+#   3. origin/master, which is both the original behaviour and the only
+#      sensible answer for a detached HEAD.
+#
+# A LOCAL-ONLY branch (no remote counterpart) resolves to none of these and
+# is left alone, loudly. Resetting it to master would discard exactly the
+# work that made someone create it.
+_sync_to_remote_tip() {
+    local branch target counts
+
+    branch="$("${GIT_CMD[@]}" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+
+    if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
+        target="$("${GIT_CMD[@]}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+        if [ -z "$target" ] && \
+           "${GIT_CMD[@]}" rev-parse --verify --quiet "origin/$branch" >/dev/null 2>&1; then
+            target="origin/$branch"
+        fi
+        if [ -z "$target" ]; then
+            echo "⏭️  On branch '$branch', which has no remote counterpart — leaving it alone."
+            echo "   (A local-only branch is not synced to master; that would discard it.)"
+            return 0
+        fi
+    else
+        target="origin/master"
+        echo "ℹ️  Detached HEAD — syncing to $target."
+    fi
+
+    # `reset --hard` discards uncommitted changes. That is the documented
+    # intent of this step, but it must not happen by surprise to someone
+    # mid-edit — which is the whole reason for running deploy.sh from a
+    # branch in the first place. Skip loudly instead of destroying work.
+    if [ -n "$("${GIT_CMD[@]}" status --porcelain 2>/dev/null)" ]; then
+        echo "⏭️  Uncommitted changes present — NOT resetting to $target."
+        echo "   Your working tree is untouched and deploy.sh will run as it"
+        echo "   stands on disk. Commit or stash first for a clean sync, or"
+        echo "   force one yourself:"
+        echo "     git reset --hard $target"
+        return 0
+    fi
+
+    counts="$("${GIT_CMD[@]}" rev-list --left-right --count "HEAD...$target" 2>/dev/null)"
+    case "$counts" in
+        "0	0") echo "✅ Already at $target." ; return 0 ;;
+    esac
+
+    echo "🔄 Forcing workspace sync with $target..."
+    "${GIT_CMD[@]}" reset --hard "$target"
+}
 
 echo "🔍 Checking execution environment..."
 # Determine PROJECT_DIR unconditionally so it is always set, even on re-exec.
@@ -153,8 +284,7 @@ if [ "$1" != "--updated" ]; then
         echo "📥 Fetching latest upstream tree..."
         "${GIT_CMD[@]}" fetch --all --prune
 
-        echo "🔄 Forcing workspace sync with remote origin repository..."
-        "${GIT_CMD[@]}" reset --hard origin/master
+        _sync_to_remote_tip
     else
         echo "📂 Preparing project directory at $PROJECT_DIR..."
 
@@ -201,7 +331,7 @@ if [ "$1" != "--updated" ]; then
                 echo "❌ git fetch failed — see the error above." >&2
                 exit 1
             fi
-            "${GIT_CMD[@]}" reset --hard origin/master
+            _sync_to_remote_tip
         fi
     fi
 
