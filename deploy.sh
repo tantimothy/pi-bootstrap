@@ -204,8 +204,8 @@ else
     GIT_CMD=(git)
 fi
 
-# Force-syncs the checkout to the remote tip OF THE BRANCH IT IS ACTUALLY ON,
-# not to origin/master.
+# Fast-forwards the checkout to the remote tip OF THE BRANCH IT IS ACTUALLY ON,
+# not always to origin/master.
 #
 # This used to be a bare `git reset --hard origin/master` in both callers,
 # which made deploy.sh unusable for testing anything on a branch: every run
@@ -222,7 +222,7 @@ fi
 #      sensible answer for a detached HEAD.
 #
 # A LOCAL-ONLY branch (no remote counterpart) resolves to none of these and
-# is left alone, loudly. Resetting it to master would discard exactly the
+# is left alone, loudly. Updating it to master would discard exactly the
 # work that made someone create it.
 _sync_to_remote_tip() {
     local branch target counts
@@ -245,16 +245,14 @@ _sync_to_remote_tip() {
         echo "ℹ️  Detached HEAD — syncing to $target."
     fi
 
-    # `reset --hard` discards uncommitted changes. That is the documented
-    # intent of this step, but it must not happen by surprise to someone
-    # mid-edit — which is the whole reason for running deploy.sh from a
-    # branch in the first place. Skip loudly instead of destroying work.
-    if [ -n "$("${GIT_CMD[@]}" status --porcelain 2>/dev/null)" ]; then
-        echo "⏭️  Uncommitted changes present — NOT resetting to $target."
+    # .env files, backup archives and other untracked data are normal here.
+    # Only tracked edits can make a code update overwrite work in progress.
+    # The fast-forward below will also refuse an untracked path that collides
+    # with a new tracked path, leaving that file untouched.
+    if [ -n "$("${GIT_CMD[@]}" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+        echo "⏭️  Tracked changes present — NOT updating to $target."
         echo "   Your working tree is untouched and deploy.sh will run as it"
-        echo "   stands on disk. Commit or stash first for a clean sync, or"
-        echo "   force one yourself:"
-        echo "     git reset --hard $target"
+        echo "   stands on disk. Commit or stash tracked changes first."
         return 0
     fi
 
@@ -263,8 +261,12 @@ _sync_to_remote_tip() {
         "0	0") echo "✅ Already at $target." ; return 0 ;;
     esac
 
-    echo "🔄 Forcing workspace sync with $target..."
-    "${GIT_CMD[@]}" reset --hard "$target"
+    echo "🔄 Fast-forwarding workspace to $target..."
+    if ! "${GIT_CMD[@]}" merge --ff-only "$target"; then
+        echo "❌ Could not fast-forward to $target. Resolve the reported conflict" >&2
+        echo "   without deleting untracked files, then re-run deploy.sh." >&2
+        return 1
+    fi
 }
 
 echo "🔍 Checking execution environment..."
@@ -282,9 +284,12 @@ if [ "$1" != "--updated" ]; then
         cd "$PROJECT_DIR" || exit 1
         echo "🏠 Running from within local repository: $PROJECT_DIR"
         echo "📥 Fetching latest upstream tree..."
-        "${GIT_CMD[@]}" fetch --all --prune
+        if ! "${GIT_CMD[@]}" fetch --all --prune; then
+            echo "❌ git fetch failed — see the error above." >&2
+            exit 1
+        fi
 
-        _sync_to_remote_tip
+        _sync_to_remote_tip || exit 1
     else
         echo "📂 Preparing project directory at $PROJECT_DIR..."
 
@@ -331,7 +336,7 @@ if [ "$1" != "--updated" ]; then
                 echo "❌ git fetch failed — see the error above." >&2
                 exit 1
             fi
-            _sync_to_remote_tip
+            _sync_to_remote_tip || exit 1
         fi
     fi
 
@@ -551,10 +556,10 @@ MENU_OPTIONS+=( "R" "[Backup] Restore From Archive" )
 
 # Which commit of pi-bootstrap is actually running, rendered at the bottom
 # right of the screen behind the main menu (see paint_version_footer below).
-# Normally this just echoes master, because startup hard-resets to
-# origin/master and re-execs before reaching here — the value is entirely in
-# the cases where it does NOT: a `--updated` re-run, a checkout deliberately
-# parked on a feature branch, an interrupted sync, or a tarball with no .git.
+# Normally this shows the current branch at its upstream tip, because startup
+# fast-forwards and re-execs before reaching here. The status details matter
+# when that sync is skipped (for example, because tracked files were edited),
+# when invoked with --updated directly, or when running from a tarball.
 # Purely local; the fetch already happened above, so nothing here touches the
 # network (and the ahead/behind counts below are as fresh as that fetch).
 REPO_VERSION="not a git checkout"
