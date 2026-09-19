@@ -98,6 +98,72 @@ COLLIE_TRUSTED_USER="${COLLIE_TRUSTED_USER:-}"
 COLLIE_ACK_REMOTE_SHELL="${COLLIE_ACK_REMOTE_SHELL:-}"
 COLLIE_ALLOW_EXISTING_FUNNEL="${COLLIE_ALLOW_EXISTING_FUNNEL:-}"
 
+# Proves the SHA-256 tool the installer will pick can ACTUALLY RUN.
+#
+# WHY THIS EXISTS, and why the failure it catches is worth catching: both
+# upstream installers select their hashing tool with `command -v`, which
+# only checks that a file exists and is executable — not that it can
+# execute on THIS CPU. On an Apple Silicon Mac carrying leftover x86_64
+# Homebrew tools in /usr/local (Intel's brew prefix; arm64 uses
+# /opt/homebrew), typically inherited through Migration Assistant, the
+# first hit is an Intel binary. With no Rosetta it dies with "Bad CPU type
+# in executable", the captured digest comes back EMPTY, empty never equals
+# the expected hash, and the installer reports:
+#
+#     ✗ downloaded Collie checksum did not match
+#
+# That is a false alarm with the worst possible wording. The download was
+# fine; the hasher was broken. A checksum mismatch reads as a tampered or
+# corrupted binary — which invites either alarm or, far worse, someone
+# "working around it" by skipping verification on a real compromise.
+#
+# Only the FIRST tool found matters, because that is the one the installer
+# commits to. A working shasum further down $PATH does not save you.
+_check_sha256_tool() {
+    local tool path out
+    for tool in sha256sum shasum openssl; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        path="$(command -v "$tool")"
+        case "$tool" in
+            sha256sum) out="$(printf '' | "$path" 2>&1)" ;;
+            shasum)    out="$(printf '' | "$path" -a 256 2>&1)" ;;
+            openssl)   out="$(printf '' | "$path" dgst -sha256 2>&1)" ;;
+        esac
+        # The SHA-256 of empty input is a known constant, but any 64-hex
+        # digest proves the tool ran; matching the exact value would add
+        # nothing and would break if the invocation ever changed.
+        if printf '%s' "$out" | grep -qE '[0-9a-f]{64}'; then
+            return 0
+        fi
+        echo "❌ '$path' cannot run on this machine, and it is the SHA-256 tool" >&2
+        echo "   the installer will pick." >&2
+        echo "" >&2
+        echo "   It failed with:" >&2
+        printf '     %s\n' "${out:-(no output)}" >&2
+        echo "" >&2
+        if printf '%s' "$out" | grep -q "Bad CPU type"; then
+            echo "   That is an INTEL (x86_64) binary on an Apple Silicon Mac, with no" >&2
+            echo "   Rosetta to run it. /usr/local is Intel Homebrew's prefix — arm64" >&2
+            echo "   Homebrew uses /opt/homebrew — so this is usually left over from an" >&2
+            echo "   old Mac via Migration Assistant." >&2
+            echo "" >&2
+            echo "   Fix it one of these ways, then deploy again:" >&2
+            echo "     sudo mv '$path' '$path.x86-disabled'   # fall through to shasum" >&2
+            echo "     softwareupdate --install-rosetta --agree-to-license" >&2
+        else
+            echo "   Repair or remove it so a working tool is found first." >&2
+        fi
+        echo "" >&2
+        echo "   STOPPING HERE ON PURPOSE. Left alone, the installer would report" >&2
+        echo "   'downloaded Collie checksum did not match' — which describes a" >&2
+        echo "   tampered download, not a broken hasher, and is the kind of message" >&2
+        echo "   people work around rather than investigate." >&2
+        return 1
+    done
+    # Nothing found at all: the installer has its own clear error for that.
+    return 0
+}
+
 COLLIE_BIN=""
 _collie_bin() {
     if [ -x "$COLLIE_INSTALL_DIR/current/bin/collie" ]; then
@@ -277,6 +343,11 @@ _install_collie() {
         echo "❌ curl is required to install Collie." >&2
         return 1
     fi
+    # Collie's installer refuses outright without a sha256 tool ("the
+    # download must be verified, so this stops here"), but it selects the
+    # tool the same way Herdr's does, so it is vulnerable to the same
+    # runs-on-paper-but-not-on-this-CPU failure.
+    _check_sha256_tool || return 1
     if [ "$COLLIE_TAG" = "latest" ]; then
         curl -fsSL https://colliepwa.dev/install.sh | COLLIE_DIR="$COLLIE_INSTALL_DIR" sh
     else
