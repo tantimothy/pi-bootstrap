@@ -433,35 +433,89 @@ log, and both were wrong:
 than technical: **"Connection refused" means not listening — check
 `docker ps -a` for `Restarting`, then `docker logs`, before theorising.**
 
-### Herdr agent state — mostly a non-issue, one thing to confirm
+### Herdr cannot detect containerized agents — assessed wrongly TWICE
 
-Assessed wrongly at first, corrected by reading herdr 0.9.1's source: its
-agent detection is **screen-content matching**, not process or environment
-inspection, so the blocked/working/idle sidebar **works through SSH and the
-container's tmux**. Manifests ship for all five agents this repo deploys.
+**Settled, from source:** detection is two steps and the first gates
+everything. `identify_agent_in_job()` matches the pane's **local foreground
+process name** to choose a manifest; only then is the rendered screen
+matched against it. A pane running `ssh` has `ssh` as its local process, so
+no agent is identified and the manifests are never consulted. Containerized
+agents show as plain panes with no state.
 
-Two caveats, one closed and one deliberately left open — full analysis in
-`docs/future-enhancements/herdr-agent-state.md`:
+**Confirmed empirically**, not just from source. On a live Herdr session
+with two panes SSH'd into agent containers:
 
-- **OSC title rules were being swallowed by the container's tmux**, which
-  matters most for `codex` (its top-priority `working` rule is
-  title-based, so a busy codex could read as idle). Every agent
-  environment's `.tmux.conf` now sets `set-titles on` +
-  `set-titles-string "#{pane_title}"`. Measured per manifest, the impact is
-  very uneven: **`codex-cli` is the only one that was actually broken** —
-  `osc_title_idle` is its ONLY idle rule, so codex could never report idle
-  — `claude-cli` gets meaningfully better, and `pi`/`opencode` have no OSC
-  rules at all. **`aider` will never show state regardless: herdr ships no
-  aider manifest.** **Unverified against a real Herdr session** — cheapest
-  check is whether `codex` ever shows `idle`, since that state has no other
-  source.
-- **`herdr integration install` hooks cannot cross the container boundary**
-  and are not worth forcing. They need `HERDR_PANE_ID`, a `herdr` binary
-  and this host's Unix socket inside the container; and the deeper blocker
-  is that a long-lived shared tmux session has one environment while
-  Herdr's model is one pane per agent. Closing it means either a bespoke
-  hook per agent or giving up session persistence. Recommendation recorded:
-  don't, yet.
+```
+herdr agent list      -> {"agents":[]}
+herdr workspace list  -> {"pane_count":2, ..., "agent_status":"unknown"}
+```
+
+Two panes, zero agents, workspace status `unknown` — exactly what the code
+path predicts.
+
+Then confirmed per-pane against the real ids:
+
+```
+herdr agent explain w2:p1  -> {"error":{"code":"agent_not_found",...}}
+herdr agent explain w2:p2  -> {"error":{"code":"agent_not_found",...}}
+```
+
+(Note `wN:tN` is a *tab* id; panes are `wN:pN`. `agent explain` on a tab id
+also returns `agent_not_found`, but for the wrong reason — it would read as
+confirmation while proving nothing. Use a real pane id.)
+
+**Both earlier assessments in this file were wrong, in opposite
+directions** — first "cannot work" for the wrong reason (blamed the hook
+path's env var and socket), then "does work" after finding the
+screen-matching function without asking what supplies its `agent` argument.
+The generalisable lesson: *when a function takes the thing you are trying to
+explain as a parameter, the explanation is upstream of it.*
+
+**Consequences:**
+
+- The `set-titles` change in every agent `.tmux.conf` does **not** enable
+  detection. Kept — harmless, better terminal titles, and load-bearing if
+  the push path below is ever built. No longer something to "confirm".
+- `docs/future-enhancements/herdr-agent-state.md` is rewritten: the push
+  path (`herdr pane report-agent`, which `herdr integration install`
+  automates) is not an enhancement, it is the **only** route.
+- **The route is Herdr's Machines feature, not hooks.**
+  `herdr machine add ssh://codex@localhost:2224` runs a herdr SERVER inside
+  the container over SSH and federates it into one window. Detection then
+  happens *inside* the container, where the agent process is local and
+  visible — the whole problem disappears. Supported for Linux servers on
+  x86_64/aarch64, and setup installs the remote binary.
+
+  **The catch is a real design change:** the agent must run in a herdr pane
+  inside the container, not in the container's tmux session, because herdr
+  cannot adopt an existing tmux session. So herdr replaces tmux inside each
+  agent image. Arguably a net win — it also removes the nested-multiplexer
+  problem that the `ctrl+a` prefix and the `set-titles` change both exist to
+  work around — but it changes how the environments are used.
+
+  **The tmux conflict is resolved without a forced migration.** The agent
+  images now branch on `HERDR_ENV` — which herdr sets on every process it
+  spawns in a pane (`src/pane.rs:156`) — so a herdr-machine pane runs the
+  agent directly while a plain SSH login still gets the persistent tmux
+  session. Both modes coexist; nothing about the existing SSH workflow
+  changes. `aider` is excluded, having no herdr manifest.
+
+  **Untested against a real machine connection.** The branch logic is
+  verified against all four entry conditions (plain SSH, herdr pane,
+  neither, already-in-tmux), but `herdr machine add` into a container has
+  not been run. First test: add one container as a machine, then
+  `herdr agent list`.
+
+  **Not done, deliberately:** pre-installing a pinned herdr binary in each
+  image. `machine add` offers to install it, so this is an optimisation
+  (reproducible, non-interactive, no network needed at connect time) rather
+  than a requirement — and it would be four more untested Dockerfile
+  changes. Worth doing once the machines path is proven.
+
+  See `docs/future-enhancements/herdr-agent-state.md`.
+
+What still works today and needs nothing: one window over several machines
+and repos, labelled panes, restored layout.
 
 ### Still open from the original design
 

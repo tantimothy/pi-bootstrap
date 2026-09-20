@@ -60,60 +60,71 @@ knowledge of which ports exist.
 **Your sessions already persist** — inside each container's own tmux, not in
 Herdr. Closing a Herdr pane detaches a client; it does not stop the agent.
 
-### The state sidebar does work through all of that
+### Agent state: works, but only via `herdr machine add`
 
-This surprised me, so it is worth recording why. Herdr's agent detection is
-**screen-content matching**, not process inspection — `detect_agent(agent,
-screen_content: &str)`, driven by per-agent regex manifests in
-`src/detect/manifests/*.toml`. It matches the agent's rendered TUI: spinner
-glyphs, `esc to interrupt`, prompt shapes.
+Detection is **two steps, and the first gates everything**:
 
-Rendered bytes cross SSH and nested tmux unchanged. So the sidebar lights up
-for a containerized agent the same as a local one. Manifests ship for
-**claude, codex, pi, opencode and hermes** — every agent in this repo.
+1. **Which agent is this?** — `identify_agent_in_job()` walks the pane's
+   **local foreground processes** and matches the process *name*
+   (`src/detect/mod.rs`). Unrecognised programs return `None`.
+2. **What state is it in?** — `detect_agent_with_osc()` matches the rendered
+   TUI against per-agent manifests in `src/detect/manifests/*.toml`.
 
-| Signal | Crosses SSH + container tmux? |
-|:---|:---|
-| Screen-content rules (the large majority) | ✅ Yes |
-| OSC title / progress rules | ⚠️ Only with `set-titles` forwarding — see below |
-| `herdr integration install` hooks | ❌ No — see below |
+Step 2 would cross SSH happily. **Step 1 will not**: in a pane running
+`ssh -p 2222 claude@localhost`, the local process is `ssh`, so no agent is
+identified and the manifests are never consulted.
 
-### Two things that genuinely don't cross
+Confirmed on a live session — two panes SSH'd into agent containers:
 
-**OSC title rules, unless tmux forwards them.** tmux owns the outer terminal
-title and by default reports itself, so title-region rules silently never
-fire. **This repo now sets `set-titles on` plus `set-titles-string
-"#{pane_title}"` in every agent environment's `.tmux.conf`**, forwarding the
-inner application's title outward.
+```
+herdr agent list           -> {"agents":[]}
+herdr agent explain w2:p1  -> agent_not_found
+```
 
-How much that matters is very uneven, and it is worth knowing which of your
-environments actually depends on it:
+#### The fix: make the container a machine, not an SSH target
 
-| Environment | Without title forwarding |
-|:---|:---|
-| **`codex-cli`** | **Breaks.** `osc_title_idle` is its **only** idle rule, so codex could never report idle. Its `working` signal also drops from the title rule (priority 1050) to a rule literally named `screen_working_fallback` (priority 500) |
-| **`claude-cli`** | Degrades, gracefully. Loses its fastest `working` path (priority 1100) and two low-priority idle fallbacks, but screen rules cover working, blocked **and** idle — `live_prompt_box` (950) outranks the OSC idle rules (250) anyway |
-| `pi` | No effect — zero OSC rules of its 2 |
-| `opencode` | No effect — zero OSC rules of its 3 |
-| `aider` | **No effect ever — herdr ships no `aider` manifest.** Aider is not in herdr's supported-agent list, so it gets no state detection at all and shows as a plain pane. The `set-titles` line is in its `.tmux.conf` for consistency and a nicer terminal title, nothing more |
+```bash
+herdr machine add ssh://claude@localhost:2222 --label "claude-cli"
+herdr machine add ssh://codex@localhost:2224  --label "codex-cli"
+```
 
-So: **`codex-cli` is the one that was actually broken**, `claude-cli` is the
-one that gets meaningfully better, and the rest are unaffected.
+**This runs a herdr server *inside* the container.** Detection then happens
+where the agent process is local and visible, and the machine's agents join
+your combined agent list. Upstream supports Linux servers on x86_64 and
+aarch64; a container is exactly that.
 
-**The hook integrations.** `herdr integration install claude` writes a hook
-into the agent's own config that calls `herdr pane report-agent` back over
-`HERDR_SOCKET_PATH`, using the `HERDR_PANE_ID` Herdr injects into the pane
-process (`src/pane.rs:168`). Across a container boundary all three legs
-break: the env var is set on the *ssh client* on this machine and our images
-set no `AcceptEnv`; there is no `herdr` binary in the images; and the socket
-is a Unix socket on this host.
+Run it from an interactive terminal the first time — if herdr is not already
+installed in the image, setup asks before installing it.
 
-That costs the *enhanced* signal — session IDs and faster, more reliable
-state — not the basic one. See
-`docs/future-enhancements/herdr-agent-state.md` for what closing that gap
-would take and why it is not obviously worth it.
+#### What this repo changed to make it work
 
----
+A herdr pane and a plain SSH login now take different paths, decided by
+`HERDR_ENV`, which herdr sets on every process it spawns in a pane
+(`src/pane.rs:156`):
+
+| Entry | What the login shell does | Why |
+|:---|:---|:---|
+| `herdr machine` pane | Runs the agent **directly** — no tmux | Herdr must see `claude`/`codex` as the foreground process. **Wrapping it in tmux is exactly what hides it** |
+| Plain `ssh -p 2222 …` | Attaches the persistent tmux session, as before | Unchanged; nothing about the old workflow breaks |
+
+Persistence is not lost on the herdr path — the container's own herdr server
+owns the session and keeps it across disconnects, which is the job tmux does
+on the SSH path.
+
+> **`aider` is excluded on purpose.** Herdr ships no `aider` manifest, so it
+> has no state to detect however it is reached. Its attach script is
+> unchanged.
+
+#### Consequences worth knowing
+
+- **The session generator is for the SSH path.** On the machines path you add
+  each container once and Herdr keeps it; there are no panes to regenerate.
+- **`set-titles` becomes load-bearing on the machines path**, where step 2
+  finally runs. It matters most for `codex`: `osc_title_idle` is its *only*
+  idle rule.
+- **The `ctrl+a` prefix override** exists because a tmux-inside-SSH pane
+  stacks two multiplexers. On the machines path there is only one, so that
+  workaround is unnecessary there — it stays for the SSH path.
 
 ## 📋 Requirements
 

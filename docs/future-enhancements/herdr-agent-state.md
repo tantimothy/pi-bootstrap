@@ -1,106 +1,161 @@
 # Herdr agent state across the container boundary
 
-**Status:** the basic signal already works and needs nothing. This document
-is about the *enhanced* signal, which does not cross — what it would take,
-and why it is not obviously worth doing.
+**Status:** detection does **not** work for this repo's containerized
+agents, and cannot without building the push path below. This document
+describes what that would take.
 
 Written after reading herdr 0.9.1's source directly (`src/detect/`,
-`src/pane.rs`, `src/integration/`, `docs/.../agent-automation.mdx`) rather
-than inferring from behaviour.
+`src/pane.rs`, `src/integration/`, `docs/.../agent-automation.mdx`).
 
 ---
 
-## What already works, and why
+## Why it does not work
 
-Herdr detects an agent's state by **matching the rendered screen**, not by
-inspecting processes:
+Detection is **two steps, and the first gates everything**:
 
 ```rust
+// 1. Which agent is this? — LOCAL PROCESS NAMES.
+pub fn identify_agent_in_job(job: &ForegroundJob) -> Option<(Agent, String)>
+//    walks job.processes, matches each normalized process name.
+//    Plain shells and unrecognised programs return None.
+
+// 2. What state is it in? — rendered screen + OSC.
 pub fn detect_agent_with_osc(
-    agent: Option<Agent>,
+    agent: Option<Agent>,        // <- from step 1; None means Unknown, full stop
     screen_content: &str,
     osc_title: &str,
     osc_progress: &str,
 ) -> AgentDetection
 ```
 
-Per-agent regex manifests live in `src/detect/manifests/*.toml` and match
-the agent's own TUI — spinner glyphs, `esc to interrupt`, prompt shapes.
+Step 2 is screen-based and would cross SSH and nested tmux happily — the
+bytes arrive either way. **Step 1 does not.** In a pane running
+`ssh -p 2222 claude@localhost`, the local foreground process is `ssh`.
+`identify_agent("ssh")` returns `None`, so `detect_agent(None, …)` returns
+`Unknown` and the per-agent manifests are never consulted.
 
-**Rendered bytes cross SSH and nested tmux unchanged**, so a containerized
-agent lights up the sidebar exactly like a local one. Manifests ship for
-every agent this repo deploys: `claude`, `codex`, `pi`, `opencode`,
-`hermes`.
+Manifests ship for `claude`, `codex`, `pi`, `opencode` and `hermes`. None of
+them are reachable from here.
 
-This was initially — and wrongly — assessed the other way round in this
-repo's own notes, on the assumption that detection was process- or
-environment-based. It is not. Recording the correction here because the
-wrong conclusion would have justified a large and pointless build.
+Confirm on any pane:
 
-### The one screen-adjacent gap, now closed
-
-OSC **title** and **progress** sequences are a separate detection region,
-and tmux owns the outer terminal title — by default it reports itself, so
-title-region rules silently never fire through a container's tmux.
-
-Counting rules understates it — what matters is whether a *state* has any
-other source. Measured per manifest:
-
-| Agent | OSC / total | What is actually lost without forwarding |
-|:---|:---|:---|
-| `codex` | 3 / 9 | **`idle` becomes unreachable.** `osc_title_idle` is its ONLY idle rule. `working` also falls back from the title rule (prio 1050) to `screen_working_fallback` (prio 500) |
-| `claude` | 3 / 16 | Its fastest `working` path (prio 1100) and two idle fallbacks (prio 250). Screen rules still cover working, blocked and idle — `live_prompt_box` (950) outranks the lost idle rules anyway |
-| `pi` | 0 / 2 | Nothing |
-| `opencode` | 0 / 3 | Nothing |
-| `aider` | — | Nothing, ever. **Herdr ships no `aider` manifest**, so aider gets no state detection at all regardless of titles |
-
-So the fix is load-bearing for exactly one environment — `codex-cli` — and a
-genuine improvement for one more. Every agent environment's `.tmux.conf`
-now sets:
-
-```tmux
-set -g set-titles on
-set -g set-titles-string "#{pane_title}"
+```bash
+herdr agent list                 # containerized panes do not appear
+herdr agent explain w1:p1        # says why that pane has no agent
 ```
 
-**Unverified against a real Herdr session** — it follows from how tmux
-titles work, not from an observed sidebar change. The cheapest confirmation
-uses `codex`, because it is the one with a state that has no other source:
-**does codex ever show `idle`?** If it does, titles are crossing. `working`
-is a weaker test, since a screen fallback can produce it either way.
+### This was assessed wrongly twice, in opposite directions
 
-### `aider` will never show agent state
+Recorded because the errors are instructive, and because each wrong
+conclusion pointed at a different and expensive build:
 
-Worth stating outright so nobody spends time debugging it. Herdr's
-supported-agent list covers amp, antigravity, claude, cline, codex, cursor,
-devin, droid, gemini, github-copilot, grok, hermes, kilo, kimi, kiro, letta,
-maki, muse, opencode, pi, qodercli and qwen. **Aider is not among them.**
-Its pane works normally as a terminal; the sidebar simply has no manifest to
-match it against.
+1. **First: "cannot work"** — correct conclusion, wrong reason. It blamed
+   `HERDR_PANE_ID` and the Unix socket, which is the *hook* path, and missed
+   that ordinary detection is process-based.
+2. **Then: "does work"** — found `detect_agent_with_osc` matching screen
+   content and concluded the sidebar would light up, without asking what
+   supplies its `agent` argument. Screen matching is real; it is just step 2.
+
+The lesson generalises past this file: **when a function takes the thing you
+are trying to explain as a parameter, the explanation is upstream of it.**
+
+### What the `set-titles` change is, and is not, for
+
+Every agent environment's `.tmux.conf` now sets `set-titles on` and
+`set-titles-string "#{pane_title}"`, forwarding the inner application's OSC
+title outward. It was added believing it enabled detection. **It does not** —
+OSC title rules are step-2 rules, and step 2 never runs.
+
+It is kept because it is harmless, gives a more useful terminal title, and
+**becomes load-bearing the moment the push path below exists**. Measured per
+manifest, at that point:
+
+| Agent | OSC / total | What titles are worth once step 1 is solved |
+|:---|:---|:---|
+| `codex` | 3 / 9 | **`idle` becomes unreachable without them** — `osc_title_idle` is its ONLY idle rule. `working` also falls back from prio 1050 to `screen_working_fallback` at 500 |
+| `claude` | 3 / 16 | Its fastest `working` path (1100) and two idle fallbacks (250). Screen rules still cover all three states |
+| `pi` | 0 / 2 | Nothing |
+| `opencode` | 0 / 3 | Nothing |
+| `aider` | — | Nothing, ever. **Herdr ships no `aider` manifest**, so aider is undetectable even locally |
+
+---
+
+## The supported route: Machines, not hooks
+
+**Found after the above was written, and it supersedes it.** Herdr has a
+first-class feature for exactly this shape, and the earlier plan — forward a
+socket, carry a pane ID, install hooks — is the hard way round.
+
+`herdr machine add ssh://codex@localhost:2224 --label "codex-cli"` **runs a
+herdr server on the remote over SSH** and federates it into one window:
+
+> "Keep your local work and remote agents in one Herdr window… Each machine
+> keeps its own Herdr server, sessions, and running processes… The agent
+> list includes connected machines."
+>
+> "Multi-machine connections are supported on Linux and macOS clients,
+> connecting to Linux and macOS servers on x86_64 or aarch64."
+
+A container is a Linux host reachable over SSH on an already-published port.
+**Inside it, `identify_agent_in_job()` sees the real `claude` or `codex`
+process** — the local-process problem disappears, because detection is now
+local to the container. No socket forwarding, no pane-ID plumbing, no
+per-agent hooks.
+
+Setup even installs the remote binary: *"Herdr checks both the installed
+binary and the running server. Missing or incompatible installations go
+through an approval-based setup."* Pre-installing a pinned herdr in each
+image makes that reproducible rather than interactive.
+
+### The catch, and it is a real design change
+
+**The agent must run in a herdr pane inside the container, not in the
+container's tmux session.** Herdr detects processes in panes it owns; it
+cannot adopt an existing tmux session.
+
+Every agent environment here currently auto-attaches SSH logins to a
+persistent tmux session. To use Machines, herdr replaces tmux *inside* the
+container.
+
+That is a material change, and it is not obviously a loss:
+
+| | Container tmux today | Container herdr |
+|:---|:---|:---|
+| Persistence | tmux session survives | herdr server + session survive |
+| Detection | none | native, the whole point |
+| Nested prefix | two multiplexers stacked; the `ctrl+a` workaround exists because of it | one multiplexer; the workaround becomes unnecessary |
+| Multi-client | several SSH clients share the session | herdr's own model |
+| Weight | tmux, already present | a Rust binary per image |
+
+It also makes `herdr-client`'s session generator largely redundant: instead
+of generating SSH panes, you add each container once as a machine and Herdr
+keeps them.
+
+### What would need doing
+
+1. **Pin a herdr binary into each agent image.** Static
+   `aarch64-unknown-linux-musl` / `x86_64-unknown-linux-musl` builds exist,
+   so it is a verified download, not a Rust toolchain.
+2. **Replace the tmux auto-attach** with a herdr session, per environment.
+3. **Swap the generator** from emitting SSH panes to emitting
+   `herdr machine add` calls — or drop it, since machines persist and panes
+   do not need regenerating.
+4. **Revisit `set-titles` and the `ctrl+a` prefix**, both of which exist
+   only because of the nested-tmux arrangement this would remove.
+
+### Recommendation
+
+**Prototype on one environment before touching the others** — `codex-cli`
+or `claude-cli` — because step 2 changes how you actually use the
+environment, and that is worth feeling before it is replicated five times.
+
+The hook path below is left recorded for completeness, but it should not be
+built: it is more work, more bespoke per agent, and fights the grain of a
+feature that already exists.
 
 ---
 
-## What does not cross: the hook integrations
-
-`herdr integration install <claude|codex|pi|opencode|hermes|…>` writes a
-hook into the agent's own configuration. The hook calls
-`herdr pane report-agent-session <pane_id>` back over `HERDR_SOCKET_PATH`,
-using the `HERDR_PANE_ID` that Herdr injects into the pane process
-(`src/pane.rs:168`).
-
-All three legs break at the container boundary:
-
-| Needed | Reality here |
-|:---|:---|
-| `HERDR_PANE_ID` visible to the agent | Set on the **ssh client** on the host. The images set no `AcceptEnv`, so it never crosses |
-| A `herdr` binary where the agent runs | Not in any image |
-| A reachable `HERDR_SOCKET_PATH` | A Unix socket on the host |
-
-What that costs is the **enhanced** signal: agent session IDs, and faster,
-more reliable state transitions than screen-matching infers. Not the basic
-sidebar.
-
----
+## The hook path (recorded, not recommended)
 
 ## What closing it would take
 
@@ -140,23 +195,38 @@ So piece 2 does not actually work as stated. The options are:
 
 ---
 
-## Recommendation: don't, yet
+## Recommendation
 
-The basic sidebar already works, which was the actual goal. The remaining
-delta is reliability and session IDs, and the honest price is either a
-bespoke hook per agent or losing session persistence.
+**The cost/benefit changed when the premise did.** An earlier version of
+this section said "the basic sidebar already works… the remaining delta is
+reliability and session IDs" and recommended doing nothing. That was written
+on the wrong premise. Without this work there is **no agent state at all**
+for a containerized agent — and the state sidebar is the main thing Herdr
+offers over tmux.
 
-**Revisit when** one of these is true:
+So the real question is not "is the extra signal worth it" but:
 
-- screen-based detection proves unreliable in practice for an agent
-  actually in daily use — measurable, and the only evidence that would
-  justify the cost;
-- a single agent becomes the clear daily driver, making a one-agent custom
-  hook a much smaller commitment than five;
-- upstream adds a way to set a pane ID on an existing agent, or a
-  network-reachable report endpoint, which would collapse pieces 1–3 into
-  configuration.
+> **Is Herdr worth running over containerized agents if every pane is inert?**
 
-**Check first, cheaply:** confirm the `set-titles` change fixes `codex`'s
-title-based `working` rule. If it does, the gap is narrower than this
-document assumes, and the case for building anything gets weaker still.
+Three honest answers, depending on what you want from it:
+
+| If you want | Then |
+|:---|:---|
+| One window over several machines and repos, with labelled panes and restored layout | **Nothing to build.** That all works today, and is a real improvement over bare SSH |
+| The blocked/working/idle sidebar, and Collie's "who needs me" ordering on your phone | **This has to be built**, because Collie reads the same state |
+| To evaluate the agents themselves, not the multiplexer | **Run one agent on the host instead of in a container.** Detection works natively there, with zero plumbing — the cheapest way to see what the sidebar is actually like |
+
+That third row is worth trying before building anything: it answers "is this
+feature worth the machinery" empirically and costs one `npm install`.
+
+### If it does get built
+
+Pieces 1 and 3 are mechanical. Piece 2 needs the file-based pane ID, because
+of the shared-tmux conflict above. Start with **one** agent — whichever
+becomes the daily driver — since the hook format differs per agent and five
+bespoke hooks is a maintenance surface this repo does not want.
+
+**Revisit sooner if** upstream adds either a way to pin an agent kind onto an
+existing pane (there is no `agent adopt` or `--kind` today) or a
+network-reachable report endpoint. Either would collapse pieces 1–3 into
+configuration and make this close to free.
