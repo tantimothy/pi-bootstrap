@@ -442,8 +442,20 @@ matched against it. A pane running `ssh` has `ssh` as its local process, so
 no agent is identified and the manifests are never consulted. Containerized
 agents show as plain panes with no state.
 
-Check with `herdr agent list` (they will not appear) or
-`herdr agent explain <pane>`.
+**Confirmed empirically**, not just from source. On a live Herdr session
+with two panes SSH'd into agent containers:
+
+```
+herdr agent list      -> {"agents":[]}
+herdr workspace list  -> {"pane_count":2, ..., "agent_status":"unknown"}
+```
+
+Two panes, zero agents, workspace status `unknown` — exactly what the code
+path predicts.
+
+(Note `wN:tN` is a *tab* id; panes are `wN:pN`. `herdr agent explain` on a
+tab id returns `agent_not_found` for the wrong reason, so use a real pane
+id from `herdr tab get <tab_id>` when checking a single pane.)
 
 **Both earlier assessments in this file were wrong, in opposite
 directions** — first "cannot work" for the wrong reason (blamed the hook
