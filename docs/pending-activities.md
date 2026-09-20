@@ -408,36 +408,30 @@ still expected never to ship.
    before anything else can reach the port — a one-shot, irreversible
    decision.
 
-### `codex-cli` could die at boot in a way CLEAN could not repair — fixed
+### `codex-cli` restart-loop — root cause found, and it was NOT the first guess
 
-Hit on a real deploy: `ssh` to 2224 gave **"Connection refused"** right
-after a successful CLEAN. Not "never deployed" — the container was starting
-and exiting.
+Full write-up in `docs/lessons-learned/codex-cli.md`.
 
-`entrypoint.sh` symlinks `/home/codex/.codex/packages/standalone` →
-`/opt/codex/packages/standalone`, but created it **only when nothing
-existed at that path**. That path is inside the persistent `codex_home`
-volume, so a real directory left by an older image — or a symlink pointing
-somewhere the current image no longer uses — was preserved forever, the
-`-x` check on `current/codex` failed, and the entrypoint `exit 1`'d before
-`sshd` ever started.
+**Actual cause:** `entrypoint.sh` ran `find … -exec chown` **without `-h`**.
+`chown` follows symlinks by default; Codex leaves dangling symlinks in
+`~/.codex/tmp/arg0/codex-argXXXXXX/` whose targets an image rebuild
+invalidates; the chown failed, `find` returned 1, and `set -euo pipefail`
+killed the entrypoint before `sshd` started. Fixed with `chown -h` in
+`codex-cli`, `pi` and `opencode` (same template). `claude-cli` and `aider`
+use `chown -R`, which does not dereference, and are unaffected — verified.
 
-**CLEAN could not fix it**, because CLEAN rebuilds the image and this is
-volume state. Broken *and* immune to the heaviest repair the menu offers.
+**Recorded because the debugging went wrong twice.** Two causes were
+proposed from reading code against the symptom, without the container's
+log, and both were wrong:
 
-The entrypoint now replaces a stale directory or a wrongly-pointed symlink
-before creating its own, and its failure message says the container is
-about to exit (so SSH will be *refused*, not rejected) and dumps the image
-tree so an empty one — meaning the build's Codex install failed — is
-obvious. Verified across four volume states: stale directory, wrong
-symlink, correct symlink, and empty.
+1. a stale `packages/standalone` path in the volume — a **real latent
+   hazard**, fixed separately, but *not* what was happening here;
+2. a wrong volume name making the cleanup a no-op — plausible, and also
+   not it.
 
-**Worth checking whether the same shape exists elsewhere.** Any entrypoint
-that creates something inside a persistent volume only when absent has the
-same trap. `claude-cli`'s `pre-deploy.sh` placeholder and `pi`/`opencode`'s
-seeded config files are deliberately seed-if-absent for *user-owned* data,
-which is correct — the hazard is specifically an **image-owned pointer**
-guarded that way.
+`docker logs` named the cause in one line. The lesson is procedural rather
+than technical: **"Connection refused" means not listening — check
+`docker ps -a` for `Restarting`, then `docker logs`, before theorising.**
 
 ### Herdr agent state — mostly a non-issue, one thing to confirm
 
