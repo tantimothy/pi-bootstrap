@@ -46,19 +46,24 @@ useful_commands: |2
         running `ssh -p <port> <user>@localhost`; the generator supplies
         those from each environment's own .env. Your sessions persist in
         each CONTAINER's tmux, so closing a pane detaches, never stops work.
-     ❌ THE STATE SIDEBAR DOES NOT WORK for these containers. Detection is
-        two steps and the FIRST one gates everything: identify_agent_in_job()
-        matches the pane's LOCAL foreground PROCESS NAME to pick a manifest,
-        and only then is the rendered screen matched against it. In a pane
-        running `ssh`, the local process is ssh, so no agent is identified
-        and the manifests are never consulted. Containerized agents show as
-        plain panes. Check with: herdr agent list / herdr agent explain <pane>
-     🔁 The only route is pushing state in — `herdr pane report-agent`, which
-        `herdr integration install` automates via a hook. That needs
-        HERDR_PANE_ID, a herdr binary and this host's socket INSIDE the
-        container, and there is no `agent adopt` or `--kind` to pin a kind
-        onto an existing pane. See
-        docs/future-enhancements/herdr-agent-state.md.
+     📊 AGENT STATE needs `herdr machine add`, not an SSH pane. Detection
+        identifies an agent from the LOCAL foreground process name, so a
+        pane running `ssh` shows nothing. Adding the container as a MACHINE
+        runs a herdr server inside it, where the agent process is local:
+           herdr machine add ssh://claude@localhost:2222 --label claude-cli
+           herdr machine add ssh://codex@localhost:2224  --label codex-cli
+        Run it interactively the first time — setup asks before installing
+        herdr into the image if it is missing.
+     🔀 The agent images now branch on HERDR_ENV, which herdr sets on every
+        pane process: in a herdr pane they run the agent DIRECTLY (no tmux,
+        because tmux is exactly what hides it from detection); over plain
+        SSH they attach the persistent tmux session as before. Nothing
+        about the old SSH workflow changes. aider is excluded — herdr ships
+        no aider manifest, so it has no state to detect either way.
+     🧩 On the machines path the session generator is unnecessary (machines
+        persist; panes do not need regenerating), set-titles finally
+        matters (codex's only idle rule is title-based), and the ctrl+a
+        prefix override is only needed for the SSH path.
      🤝 Firstmate is NOT required and is not installed here. Standalone Herdr
         — sidebar, session persistence, the generated panes, and Herdr's own
         skills/herdr for in-pane agent control — is a complete setup.

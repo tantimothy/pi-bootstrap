@@ -493,8 +493,26 @@ explain as a parameter, the explanation is upstream of it.*
   problem that the `ctrl+a` prefix and the `set-titles` change both exist to
   work around — but it changes how the environments are used.
 
-  **Prototype on one environment first.** See
-  `docs/future-enhancements/herdr-agent-state.md`.
+  **The tmux conflict is resolved without a forced migration.** The agent
+  images now branch on `HERDR_ENV` — which herdr sets on every process it
+  spawns in a pane (`src/pane.rs:156`) — so a herdr-machine pane runs the
+  agent directly while a plain SSH login still gets the persistent tmux
+  session. Both modes coexist; nothing about the existing SSH workflow
+  changes. `aider` is excluded, having no herdr manifest.
+
+  **Untested against a real machine connection.** The branch logic is
+  verified against all four entry conditions (plain SSH, herdr pane,
+  neither, already-in-tmux), but `herdr machine add` into a container has
+  not been run. First test: add one container as a machine, then
+  `herdr agent list`.
+
+  **Not done, deliberately:** pre-installing a pinned herdr binary in each
+  image. `machine add` offers to install it, so this is an optimisation
+  (reproducible, non-interactive, no network needed at connect time) rather
+  than a requirement — and it would be four more untested Dockerfile
+  changes. Worth doing once the machines path is proven.
+
+  See `docs/future-enhancements/herdr-agent-state.md`.
 
 What still works today and needs nothing: one window over several machines
 and repos, labelled panes, restored layout.
