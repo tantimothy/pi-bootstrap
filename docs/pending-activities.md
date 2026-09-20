@@ -479,10 +479,22 @@ explain as a parameter, the explanation is upstream of it.*
 - `docs/future-enhancements/herdr-agent-state.md` is rewritten: the push
   path (`herdr pane report-agent`, which `herdr integration install`
   automates) is not an enhancement, it is the **only** route.
-- Its recommendation changed with the premise. The cheap experiment worth
-  doing first is running **one agent on the host** rather than in a
-  container — detection works natively there, so it answers "is the sidebar
-  worth the machinery" for the price of an install.
+- **The route is Herdr's Machines feature, not hooks.**
+  `herdr machine add ssh://codex@localhost:2224` runs a herdr SERVER inside
+  the container over SSH and federates it into one window. Detection then
+  happens *inside* the container, where the agent process is local and
+  visible — the whole problem disappears. Supported for Linux servers on
+  x86_64/aarch64, and setup installs the remote binary.
+
+  **The catch is a real design change:** the agent must run in a herdr pane
+  inside the container, not in the container's tmux session, because herdr
+  cannot adopt an existing tmux session. So herdr replaces tmux inside each
+  agent image. Arguably a net win — it also removes the nested-multiplexer
+  problem that the `ctrl+a` prefix and the `set-titles` change both exist to
+  work around — but it changes how the environments are used.
+
+  **Prototype on one environment first.** See
+  `docs/future-enhancements/herdr-agent-state.md`.
 
 What still works today and needs nothing: one window over several machines
 and repos, labelled panes, restored layout.

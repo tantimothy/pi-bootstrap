@@ -80,6 +80,83 @@ manifest, at that point:
 
 ---
 
+## The supported route: Machines, not hooks
+
+**Found after the above was written, and it supersedes it.** Herdr has a
+first-class feature for exactly this shape, and the earlier plan — forward a
+socket, carry a pane ID, install hooks — is the hard way round.
+
+`herdr machine add ssh://codex@localhost:2224 --label "codex-cli"` **runs a
+herdr server on the remote over SSH** and federates it into one window:
+
+> "Keep your local work and remote agents in one Herdr window… Each machine
+> keeps its own Herdr server, sessions, and running processes… The agent
+> list includes connected machines."
+>
+> "Multi-machine connections are supported on Linux and macOS clients,
+> connecting to Linux and macOS servers on x86_64 or aarch64."
+
+A container is a Linux host reachable over SSH on an already-published port.
+**Inside it, `identify_agent_in_job()` sees the real `claude` or `codex`
+process** — the local-process problem disappears, because detection is now
+local to the container. No socket forwarding, no pane-ID plumbing, no
+per-agent hooks.
+
+Setup even installs the remote binary: *"Herdr checks both the installed
+binary and the running server. Missing or incompatible installations go
+through an approval-based setup."* Pre-installing a pinned herdr in each
+image makes that reproducible rather than interactive.
+
+### The catch, and it is a real design change
+
+**The agent must run in a herdr pane inside the container, not in the
+container's tmux session.** Herdr detects processes in panes it owns; it
+cannot adopt an existing tmux session.
+
+Every agent environment here currently auto-attaches SSH logins to a
+persistent tmux session. To use Machines, herdr replaces tmux *inside* the
+container.
+
+That is a material change, and it is not obviously a loss:
+
+| | Container tmux today | Container herdr |
+|:---|:---|:---|
+| Persistence | tmux session survives | herdr server + session survive |
+| Detection | none | native, the whole point |
+| Nested prefix | two multiplexers stacked; the `ctrl+a` workaround exists because of it | one multiplexer; the workaround becomes unnecessary |
+| Multi-client | several SSH clients share the session | herdr's own model |
+| Weight | tmux, already present | a Rust binary per image |
+
+It also makes `herdr-client`'s session generator largely redundant: instead
+of generating SSH panes, you add each container once as a machine and Herdr
+keeps them.
+
+### What would need doing
+
+1. **Pin a herdr binary into each agent image.** Static
+   `aarch64-unknown-linux-musl` / `x86_64-unknown-linux-musl` builds exist,
+   so it is a verified download, not a Rust toolchain.
+2. **Replace the tmux auto-attach** with a herdr session, per environment.
+3. **Swap the generator** from emitting SSH panes to emitting
+   `herdr machine add` calls — or drop it, since machines persist and panes
+   do not need regenerating.
+4. **Revisit `set-titles` and the `ctrl+a` prefix**, both of which exist
+   only because of the nested-tmux arrangement this would remove.
+
+### Recommendation
+
+**Prototype on one environment before touching the others** — `codex-cli`
+or `claude-cli` — because step 2 changes how you actually use the
+environment, and that is worth feeling before it is replicated five times.
+
+The hook path below is left recorded for completeness, but it should not be
+built: it is more work, more bespoke per agent, and fights the grain of a
+feature that already exists.
+
+---
+
+## The hook path (recorded, not recommended)
+
 ## What closing it would take
 
 Three mechanical pieces, and one that is not mechanical at all.
