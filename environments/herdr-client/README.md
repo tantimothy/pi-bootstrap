@@ -60,58 +60,72 @@ knowledge of which ports exist.
 **Your sessions already persist** — inside each container's own tmux, not in
 Herdr. Closing a Herdr pane detaches a client; it does not stop the agent.
 
-### The state sidebar does work through all of that
+### ❌ The state sidebar does NOT work for these containers
 
-This surprised me, so it is worth recording why. Herdr's agent detection is
-**screen-content matching**, not process inspection — `detect_agent(agent,
-screen_content: &str)`, driven by per-agent regex manifests in
-`src/detect/manifests/*.toml`. It matches the agent's rendered TUI: spinner
-glyphs, `esc to interrupt`, prompt shapes.
+Detection is **two steps, and the first one gates everything**:
 
-Rendered bytes cross SSH and nested tmux unchanged. So the sidebar lights up
-for a containerized agent the same as a local one. Manifests ship for
-**claude, codex, pi, opencode and hermes** — every agent in this repo.
+1. **Identify which agent is in the pane** — `identify_agent_in_job()` walks
+   the pane's **local foreground job processes** and matches the process
+   *name* (`src/detect/mod.rs`). Plain shells and unrecognised programs
+   return `None`.
+2. **Determine its state** — `detect_agent_with_osc(agent, screen_content,
+   …)` matches the rendered TUI against per-agent regex manifests in
+   `src/detect/manifests/*.toml`.
 
-| Signal | Crosses SSH + container tmux? |
-|:---|:---|
-| Screen-content rules (the large majority) | ✅ Yes |
-| OSC title / progress rules | ⚠️ Only with `set-titles` forwarding — see below |
-| `herdr integration install` hooks | ❌ No — see below |
+Step 2 is screen-based and would cross SSH happily. **Step 1 is not.** In a
+pane running `ssh -p 2222 claude@localhost`, the local foreground process is
+`ssh` — so `identify_agent` returns `None`, `detect_agent(None, …)` returns
+`Unknown`, and the manifests are never consulted.
 
-### Two things that genuinely don't cross
+**So a containerized agent shows as a plain pane with no state**, no matter
+how well its TUI renders. Manifests exist for claude, codex, pi, opencode
+and hermes, and none of them get used.
 
-**OSC title rules, unless tmux forwards them.** tmux owns the outer terminal
-title and by default reports itself, so title-region rules silently never
-fire. **This repo now sets `set-titles on` plus `set-titles-string
-"#{pane_title}"` in every agent environment's `.tmux.conf`**, forwarding the
-inner application's title outward.
+Confirm it yourself on any pane:
 
-How much that matters is very uneven, and it is worth knowing which of your
-environments actually depends on it:
+```bash
+herdr agent list                 # containerized panes will not appear
+herdr agent explain w1:p1        # says why that pane has no agent
+```
 
-| Environment | Without title forwarding |
-|:---|:---|
-| **`codex-cli`** | **Breaks.** `osc_title_idle` is its **only** idle rule, so codex could never report idle. Its `working` signal also drops from the title rule (priority 1050) to a rule literally named `screen_working_fallback` (priority 500) |
-| **`claude-cli`** | Degrades, gracefully. Loses its fastest `working` path (priority 1100) and two low-priority idle fallbacks, but screen rules cover working, blocked **and** idle — `live_prompt_box` (950) outranks the OSC idle rules (250) anyway |
-| `pi` | No effect — zero OSC rules of its 2 |
-| `opencode` | No effect — zero OSC rules of its 3 |
-| `aider` | **No effect ever — herdr ships no `aider` manifest.** Aider is not in herdr's supported-agent list, so it gets no state detection at all and shows as a plain pane. The `set-titles` line is in its `.tmux.conf` for consistency and a nicer terminal title, nothing more |
+> **This section has been wrong twice.** It first claimed detection could
+> not work (right conclusion, wrong reason — it blamed the environment and
+> socket, which is the *hook* path). It was then "corrected" to claim
+> detection *does* work, having found the screen-matching function without
+> noticing that something else chooses which manifest to apply. The
+> process-identification step is the one that decides, and it is local.
 
-So: **`codex-cli` is the one that was actually broken**, `claude-cli` is the
-one that gets meaningfully better, and the rest are unaffected.
+### The only route that works: push the state in
 
-**The hook integrations.** `herdr integration install claude` writes a hook
-into the agent's own config that calls `herdr pane report-agent` back over
-`HERDR_SOCKET_PATH`, using the `HERDR_PANE_ID` Herdr injects into the pane
-process (`src/pane.rs:168`). Across a container boundary all three legs
-break: the env var is set on the *ssh client* on this machine and our images
-set no `AcceptEnv`; there is no `herdr` binary in the images; and the socket
-is a Unix socket on this host.
+`herdr pane report-agent <pane_id> --source ID --agent LABEL --state
+idle|working|blocked|unknown` sets an agent on a pane explicitly, bypassing
+process identification entirely. That is what `herdr integration install
+<kind>` automates — it writes a hook into the agent's own config that calls
+back over `HERDR_SOCKET_PATH`, using the `HERDR_PANE_ID` Herdr injects into
+the pane process (`src/pane.rs:168`).
 
-That costs the *enhanced* signal — session IDs and faster, more reliable
-state — not the basic one. See
-`docs/future-enhancements/herdr-agent-state.md` for what closing that gap
-would take and why it is not obviously worth it.
+Across a container boundary all three legs break: the env var is set on the
+*ssh client* on this machine and our images set no `AcceptEnv`; there is no
+`herdr` binary in the images; and the socket is a Unix socket on this host.
+
+There is no `herdr agent adopt` or `--kind` flag to pin a kind onto an
+existing pane — `agent rename` only renames an agent Herdr already
+detected. Pushing state is the whole of the API surface here.
+
+### What the `set-titles` change is (and is not) for
+
+Every agent environment's `.tmux.conf` sets `set-titles on` plus
+`set-titles-string "#{pane_title}"`, forwarding the inner application's OSC
+title outward.
+
+**That does not enable detection**, because OSC title rules are step-2 rules
+and step 2 never runs. It was added believing otherwise. It is kept because
+it is harmless and gives a more informative terminal title — and because it
+becomes load-bearing the moment the push path below is built, at which point
+`codex` in particular needs it: `osc_title_idle` is its **only** idle rule.
+
+See `docs/future-enhancements/herdr-agent-state.md` for what closing this
+gap would take.
 
 ---
 
