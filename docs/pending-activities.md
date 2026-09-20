@@ -506,11 +506,32 @@ explain as a parameter, the explanation is upstream of it.*
   not been run. First test: add one container as a machine, then
   `herdr agent list`.
 
-  **Not done, deliberately:** pre-installing a pinned herdr binary in each
-  image. `machine add` offers to install it, so this is an optimisation
-  (reproducible, non-interactive, no network needed at connect time) rather
-  than a requirement — and it would be four more untested Dockerfile
-  changes. Worth doing once the machines path is proven.
+  **Now done, because deferring it was wrong.** `machine add` does offer to
+  install herdr — and then fails:
+
+  ```
+  herdr: installed remote binary to ~/.local/bin/herdr, but the remote
+  shell does not resolve `herdr` to that path
+  ```
+
+  Two reasons it cannot work there: SSH runs non-interactive commands under
+  a shell that never reads the login profile, so `~/.local/bin` is not on
+  PATH; and `$HOME` in these containers is a persistent volume, so a binary
+  installed into it survives CLEAN and goes stale. All four agent images now
+  install herdr to `/usr/local/bin` at build time via `HERDR_INSTALL_DIR`.
+
+  **Second bug found doing it: `HERDR_VERSION` never pinned anything.**
+  `herdr-client/run.sh` piped it into the installer believing it selected a
+  release. The installer reads only `HERDR_INSTALL_DIR` and `MANIFEST_URL`
+  and takes the version from `herdr.dev/latest.json`; the variable was
+  silently ignored. `.env.example` said the same thing and is corrected.
+  The variable still does something real — FAST compares it against the
+  installed version and reinstalls on a mismatch — but it holds a machine
+  at what was last served, it does not choose what gets downloaded.
+
+  **Also needed, user-side:** `ssh-add` before `machine add`, if the SSH key
+  has a passphrase. Setup can prompt once for the install step and then
+  fails with `Permission denied (publickey)` on its own connection.
 
   See `docs/future-enhancements/herdr-agent-state.md`.
 
