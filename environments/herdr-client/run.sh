@@ -209,16 +209,20 @@ _install_herdr() {
         return 1
     fi
     _check_sha256_tool || return 1
-    if [ "$HERDR_VERSION" = "latest" ]; then
-        curl -fsSL https://herdr.dev/install.sh | sh
-    else
-        # The installer reads HERDR_VERSION from the environment for a pinned
-        # install. Pinning matters for more than reproducibility here: `herdr
-        # machine add` triggers an approval-based setup when client and
-        # server versions are incompatible, and that setup offers to STOP the
-        # remote server and its panes. Same version everywhere avoids it.
-        curl -fsSL https://herdr.dev/install.sh | HERDR_VERSION="$HERDR_VERSION" sh
-    fi
+    # NO VERSION PIN IS POSSIBLE, and an earlier version of this script
+    # claimed otherwise. It piped HERDR_VERSION into the installer believing
+    # that pinned the release. It does not: the installer reads only
+    # HERDR_INSTALL_DIR and MANIFEST_URL, and takes the version from
+    # https://herdr.dev/latest.json. The variable was silently ignored.
+    #
+    # HERDR_VERSION is still honoured HERE, for the one thing it can do: the
+    # FAST branch compares it against the installed version and reinstalls on
+    # a mismatch. That keeps a machine pinned to whatever latest.json served
+    # when you last installed, rather than pinning what gets downloaded.
+    #
+    # MANIFEST_URL is the only real pin upstream offers. Nothing in this repo
+    # uses it, because a versioned manifest URL is not documented.
+    curl -fsSL https://herdr.dev/install.sh | sh
 }
 
 case "$POLICY" in

@@ -33,6 +33,37 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# ─────────────────────────────────────────────────────────────────────────
+# herdr — so this container can be added as a Herdr MACHINE.
+#
+# `herdr machine add ssh://<user>@host:PORT` runs a herdr server IN HERE,
+# which is the only way the blocked/working/idle sidebar can see this
+# agent: herdr identifies an agent from the LOCAL foreground process name,
+# so detection has to happen inside the container.
+#
+# HERDR_INSTALL_DIR=/usr/local/bin IS THE ENTIRE POINT. Left to itself,
+# `machine add` installs to $HOME/.local/bin and then fails with:
+#
+#   herdr: installed remote binary to ~/.local/bin/herdr, but the remote
+#   shell does not resolve `herdr` to that path
+#
+# — observed on a real deploy. Two reasons it cannot work there: SSH runs
+# non-interactive commands under a shell that does not read the login
+# profile, so ~/.local/bin is not on PATH; and $HOME here is a PERSISTENT
+# VOLUME, so a binary installed into it survives CLEAN and goes stale —
+# the same trap codex-cli's own /opt dance exists to avoid.
+#
+# NO VERSION PIN IS POSSIBLE. The installer reads only HERDR_INSTALL_DIR
+# and MANIFEST_URL; the version comes from https://herdr.dev/latest.json.
+# So this tracks latest at BUILD time, as herdr-client does at deploy
+# time. `machine add` requires a compatible client/server pair and offers
+# to replace a mismatched remote server, so if that prompt appears, CLEAN
+# this environment to rebuild against the same manifest the client used.
+RUN curl -fsSL https://herdr.dev/install.sh -o /tmp/herdr-install.sh \
+    && HERDR_INSTALL_DIR=/usr/local/bin sh /tmp/herdr-install.sh \
+    && rm -f /tmp/herdr-install.sh \
+    && /usr/local/bin/herdr --version
+
 # Official Node images reserve uid/gid 1000 for their "node" user. Remove it
 # before creating the runtime account so PUID/PGID defaults and remapping keep
 # the same behavior as the other CLI environments.
