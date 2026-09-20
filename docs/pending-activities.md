@@ -453,9 +453,16 @@ herdr workspace list  -> {"pane_count":2, ..., "agent_status":"unknown"}
 Two panes, zero agents, workspace status `unknown` — exactly what the code
 path predicts.
 
-(Note `wN:tN` is a *tab* id; panes are `wN:pN`. `herdr agent explain` on a
-tab id returns `agent_not_found` for the wrong reason, so use a real pane
-id from `herdr tab get <tab_id>` when checking a single pane.)
+Then confirmed per-pane against the real ids:
+
+```
+herdr agent explain w2:p1  -> {"error":{"code":"agent_not_found",...}}
+herdr agent explain w2:p2  -> {"error":{"code":"agent_not_found",...}}
+```
+
+(Note `wN:tN` is a *tab* id; panes are `wN:pN`. `agent explain` on a tab id
+also returns `agent_not_found`, but for the wrong reason — it would read as
+confirmation while proving nothing. Use a real pane id.)
 
 **Both earlier assessments in this file were wrong, in opposite
 directions** — first "cannot work" for the wrong reason (blamed the hook
