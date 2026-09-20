@@ -85,8 +85,25 @@ fi
 # under the image's original 1000:1000 identity. Explicitly prune the nested
 # bind-mounted workspace: recursively changing a possibly large host repo is
 # unnecessary on Linux and crosses the VM/host boundary on macOS.
+# -h (--no-dereference) is load-bearing, not tidiness.
+#
+# chown FOLLOWS symlinks by default. Agents leave dangling symlinks in
+# their own state — codex writes ~/.codex/tmp/arg0/codex-argXXXX/ holding
+# links to apply_patch, codex-linux-sandbox and friends, and after an image
+# rebuild those targets are gone. chown then fails with "cannot
+# dereference", find propagates a non-zero exit, and `set -euo pipefail`
+# at the top of this script kills the entrypoint BEFORE sshd starts.
+#
+# The container then restart-loops and the only symptom you see is
+# `ssh: connect ... Connection refused`, which reads as "never deployed".
+# And because the stale symlinks live in a PERSISTENT VOLUME, CLEAN does
+# not clear them — it rebuilds the image, not the volume. Confirmed on a
+# real deploy; see docs/lessons-learned.
+#
+# -h changes the link itself and never touches its target, so a broken
+# link is chowned successfully instead of aborting the boot.
 find /home/codex -path /home/codex/workspace -prune \
-    -o -exec chown "$PUID:$PGID" {} +
+    -o -exec chown -h "$PUID:$PGID" {} +
 chown "$PUID:$PGID" /home/codex/workspace
 
 ssh-keygen -A
