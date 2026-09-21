@@ -31,14 +31,19 @@ fi
 # (https://code.claude.com/docs/en/model-config), not guessed either way.
 MODELS=(claude-sonnet-5 claude-opus-5 claude-haiku-4-5-20251001 claude-fable-5 claude-sonnet-4-6 claude-opus-4-6 claude-sonnet-4-5)
 
+CURRENT_MODEL=$(grep -E '^CLAUDE_MODEL=' "$ENV_FILE" | tail -1 | cut -d= -f2-)
+
 echo "Which Claude model should \`claude\` launch with in this container's admin session?"
+echo "Current: ${CURRENT_MODEL:-(unset — Claude Code picks its own default)}"
 for i in "${!MODELS[@]}"; do
-    echo "  $((i + 1))) ${MODELS[$i]}"
+    MARK=""
+    [ "${MODELS[$i]}" = "$CURRENT_MODEL" ] && MARK=" (current)"
+    echo "  $((i + 1))) ${MODELS[$i]}${MARK}"
 done
 CUSTOM_NUM=$((${#MODELS[@]} + 1))
 CLEAR_NUM=$((${#MODELS[@]} + 2))
 echo "  ${CUSTOM_NUM}) Custom (type a model ID)"
-echo "  ${CLEAR_NUM}) Clear override (let Claude Code pick its own default)"
+echo "  ${CLEAR_NUM}) Clear override (let Claude Code pick its own default)$([ -z "$CURRENT_MODEL" ] && echo " (current)")"
 read -rp "Number: " CHOICE
 
 if ! [[ "$CHOICE" =~ ^[0-9]+$ ]]; then
