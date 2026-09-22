@@ -56,6 +56,12 @@ custom_actions:
     command: "bash ${ENV_DIR}/scripts/export-mnemon-pages.sh"
   - label: "Check / Restart Ollama"
     command: "bash ${PROJECT_DIR}/ollama-watchdog.sh"
+  # The action above is silent on its happy path (healthy, no binding drift —
+  # see ollama-watchdog.sh's own do_check_and_restart/check_binding_drift),
+  # which reads like nothing ran. This always prints something: health,
+  # bind address, schedule, and listeners.
+  - label: "Ollama Status (always prints something)"
+    command: "bash ${PROJECT_DIR}/ollama-watchdog.sh --status"
   # Opens a persistent, detachable tmux "claude" session directly inside
   # THIS environment's own orchestrator container (see scripts/claude-tmux.sh
   # — same grouped-session pattern as the standalone claude-cli environment,
