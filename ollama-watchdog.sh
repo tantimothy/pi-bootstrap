@@ -245,6 +245,11 @@ check_binding_drift() {
 
 do_check_and_restart() {
     if is_healthy; then
+        # check_binding_drift only logs when something's wrong, so without
+        # this the healthy/no-drift path (the common case) prints nothing at
+        # all — confirmed live, that reads as "did this even run?" from the
+        # deploy.sh menu, which has no other feedback for this action.
+        _log "✅ Ollama is responsive at $OLLAMA_HOST"
         check_binding_drift
         return 0
     fi
