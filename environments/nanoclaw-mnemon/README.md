@@ -559,6 +559,16 @@ Then, inside that session, run the skill for whichever channel you want: `/add-t
 
 Once pairing completes, that channel is live. See each skill's own troubleshooting section (visible in the session's own output while it runs) if a step fails.
 
+### Sharing an existing agent's memory/wiki with a 2nd chat
+
+**The core insight**: mnemon's memory (and everything else about an agent — its `CLAUDE.md`/workspace, its `groups/<folder>/` files) is keyed by **`agent_group_id`**, never by messaging group, channel, or platform. A Telegram DM, a Telegram group, and a Discord channel can all point at the same `agent_group_id` and will transparently share the same mnemon data dir and workspace. Session history (the actual message log) stays independent per messaging group unless you explicitly set `session_mode: agent-shared`.
+
+So "give this new chat the same memory/wiki as an existing one" is never a mnemon-specific operation — it's just **wiring the new messaging group to the existing agent group's folder instead of creating a new one**, using `/manage-channels`'s `wire-to:<folder>` mechanism (same session as "Adding Channels" above). That mechanism is documented purely in terms of session/workspace sharing; it's worth knowing it's also how you deliberately share mnemon memory, since nothing else says so.
+
+One Telegram-specific wrinkle: Telegram's Bot API has no 3-way DM (bot cannot create a group with two named humans) — to get bot + 2 people in one chat you need a real Telegram group, created by a human, with the bot added as a member. A pairing code posted in that group (`--intent wire-to:<existing-folder>` when issuing it) then a `register` step with `--folder <existing-folder>` completes the wiring, same as any other channel.
+
+Confirmed persistent across both FAST and CLEAN deploys — the wiring lives in `data/v2.db` and the shared memory under `groups/<folder>/`, both outside anything a deploy touches (see "💾 Data Directories" below). Full worked recipe and verification: [`docs/lessons-learned/nanoclaw-mnemon.md`](../../docs/lessons-learned/nanoclaw-mnemon.md#sharing-an-agents-memorywiki-across-a-2nd-messaging-group).
+
 ---
 
 ## 💬 Talking to NanoClaw via Terminal (No Channel Needed)
