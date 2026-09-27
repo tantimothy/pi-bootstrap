@@ -2655,6 +2655,55 @@ explored this session.
 5. Verify: `pnpm ncl wirings list --json` should show two rows, both with
    `agent_group_id` = the existing agent's id.
 
+Executed end-to-end this session: platform_id `telegram:-5336339406` ("Tan
+family notes"), wired to `ag-1783945827013-hhyk7w` alongside the existing DM.
+Both wirings confirmed live via `ncl wirings list --json` afterward.
+
+### Gotchas hit executing this recipe
+
+**A bot can look fully added to a group and still receive nothing — check
+the member-list badge, not just membership.** Telegram surfaces Group
+Privacy status directly under a bot's name in the group's member list: if it
+reads **"has no access to messages"**, the bot only receives commands
+(`/...`) and replies-to-its-own-messages — a plain `@botname CODE` message
+(no leading slash, per step 3 above) is silently dropped and never reaches
+the bot at all. This produces zero trace anywhere useful for diagnosis: no
+attempt recorded in `data/telegram-pairings.json`, no error in
+`logs/nanoclaw.error.log`, `getWebhookInfo`'s `pending_update_count`
+legitimately `0` (Telegram's side genuinely has nothing queued — not a
+delivery bug on NanoClaw's end). The member-list badge is the one piece of
+ground truth that surfaces this instantly; without checking it first, this
+session burned time on the wrong hypothesis (**"Allow Groups" being off**,
+a related but separate BotFather setting): Allow Groups gates whether the
+bot can be added to a group at all, and only takes effect at add-time.
+Group Privacy gates what it receives *after* it's a member, and — the
+non-obvious part — **changing Group Privacy takes effect immediately and
+needs no remove/re-add**, unlike Allow Groups, which does require a fresh
+add if it was off when the bot first joined. Check the member-list badge
+first, before assuming a code/pairing bug, any time step 3's pairing code
+never seems to register.
+
+**The main service's Telegram polling loop can die silently while the
+process stays alive — the crash-recovery watchdog won't catch it.**
+Mid-session, `logs/nanoclaw.error.log` showed `Telegram polling request
+failed: NetworkError` repeating with exponential backoff for ~30 minutes,
+then went completely silent — no more failures, no successes, nothing —
+while `node dist/index.js` (checked via `ps`/`/proc/<pid>/status`) was
+still alive and technically "sleeping," not crashed.
+`nanoclaw-entrypoint.sh` already has a watchdog for exactly this class of
+incident (its own comments describe a near-identical prior outage), but it
+only relaunches on process **exit** (`kill -0 $pid` failing) — a
+hung-but-alive polling loop never trips it. Recovery was simply
+`kill -TERM <pid>`, which let the watchdog detect the exit and relaunch
+cleanly within ~10s (confirmed via a fresh "Telegram adapter initialized" /
+"NanoClaw running" log sequence). Whether the watchdog should gain a real
+health check (an inbound-liveness timestamp checked every N minutes, not
+just process-alive) rather than only exit-detection is a design call for
+whoever owns that script, not something fixed here — this session only
+needed the `kill -TERM` workaround. If a group you just wired via this
+recipe never responds even though the wiring/pairing verify clean, check
+for this exact silent-hang signature before re-doing any of steps 1-4.
+
 ### Persistence across FAST *and* CLEAN pi-bootstrap deploys
 
 Verified from inside the install (not from `run.sh`, which isn't mounted into

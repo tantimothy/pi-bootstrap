@@ -559,6 +559,8 @@ Then, inside that session, run the skill for whichever channel you want: `/add-t
 
 Once pairing completes, that channel is live. See each skill's own troubleshooting section (visible in the session's own output while it runs) if a step fails.
 
+**Telegram group pairing that never seems to register**: before suspecting a code/pairing bug, check the bot's own row in the group's member list — if its Group Privacy badge reads "has no access to messages," a plain `@botname CODE` message (no leading slash) is silently dropped and never reaches the bot at all, with no trace in any log. This is a separate BotFather setting from "Allow Groups," takes effect immediately (no remove/re-add needed), and is the single most useful thing to check first. Full gotcha and how it was diagnosed: [`docs/lessons-learned/nanoclaw-mnemon.md`](../../docs/lessons-learned/nanoclaw-mnemon.md#gotchas-hit-executing-this-recipe).
+
 ### Sharing an existing agent's memory/wiki with a 2nd chat
 
 **The core insight**: mnemon's memory (and everything else about an agent — its `CLAUDE.md`/workspace, its `groups/<folder>/` files) is keyed by **`agent_group_id`**, never by messaging group, channel, or platform. A Telegram DM, a Telegram group, and a Discord channel can all point at the same `agent_group_id` and will transparently share the same mnemon data dir and workspace. Session history (the actual message log) stays independent per messaging group unless you explicitly set `session_mode: agent-shared`.
