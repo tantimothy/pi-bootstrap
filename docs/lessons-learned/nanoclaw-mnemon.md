@@ -2723,15 +2723,21 @@ this admin container — see caveat below):
   created 2026-07-13 and is still intact as of this write-up (2026-09-27),
   spanning whatever mix of FAST/CLEAN deploys ran in between.
 
-**Caveat this session couldn't fully close:** the admin session this was
-discovered from can only see the mounted NanoClaw install tree, not
-`environments/nanoclaw-mnemon/run.sh` itself. A quick grep of `run.sh` for
-`data`/`groups`/`rm -rf` turns up no branch that does an explicit
-`rm -rf data groups` on any deploy path — CLEAN's reinstall goes through
-`git reset --hard` (see the fixed-bug callout in `README.md`'s "💾 Data
-Directories" section), which by construction leaves untracked/ignored paths
-alone. So the finding above holds for every deploy path this environment
-actually has.
+**Confirmed directly against `run.sh`.** The admin session this pattern was
+discovered from could only see the mounted NanoClaw install tree, not
+`environments/nanoclaw-mnemon/run.sh` itself, and flagged this as an open
+caveat. Checked directly with pi-bootstrap repo access: `run.sh`'s CLEAN
+branch (`run.sh:2358-2394`) rebuilds the orchestrator image and tears down
+containers, but syncs NanoClaw's source via `git reset --hard`, not a
+directory wipe — no branch anywhere in the file does an explicit
+`rm -rf data groups`. The comment block at that exact spot documents why in
+NanoClaw's own history: CLEAN used to `rm -rf "$INSTALL_PATH"` and re-clone
+from scratch, which destroyed `groups/`, `data/`, `store/`, and `.env` right
+along with it (a real, hit-in-the-wild loss, not a theoretical one) — fixed
+by switching to `git reset --hard`, which by construction only touches
+git-tracked files, leaving `.gitignore`'d state (`dist/`, `store/`, `data/`,
+`groups/`, `.env`) alone. So the finding above holds for every deploy path
+this environment actually has, with no remaining caveat.
 
 ### General Lessons
 
