@@ -2558,3 +2558,197 @@ same boundary is a reasonable signal it's a real one.
 - **When the same knowledge lives in two stores with different retention rules,
   name which one is authoritative.** Not naming it doesn't avoid the decision;
   it just means the store that forgets fastest decides for you.
+
+## Sharing an agent's memory/wiki across a 2nd messaging group
+
+**Status:** pattern write-up, not a bug — nothing here was broken. Discovered
+live in this install's admin session on 2026-09-27, in response to an
+operator asking for a 2nd Telegram DM-style group that shares an existing
+agent's wiki/memory. Recorded here so future installs don't have to re-derive
+it from source.
+
+### Summary
+
+An operator wanted a new Telegram chat — a group with themself, one existing
+person, and one new person — that shares the same mnemon memory/wiki as an
+already-running agent group (`dm-with-operator`), and persists across
+restarts and rebuilds.
+
+### The core insight
+
+mnemon's memory graph is **not** keyed by messaging group, channel, or
+platform — it's keyed by `agent_group_id`:
+
+- `container/Dockerfile` bakes `ENV MNEMON_DATA_DIR=/home/node/.claude/mnemon`.
+- `src/container-runner.ts` mounts `/home/node/.claude` from
+  `DATA_DIR/v2-sessions/<agentGroupId>/.claude-shared` (host-side, per
+  `agent_group_id`).
+- So **any** messaging group — a different Telegram chat, a different
+  platform entirely, a group chat vs. a DM — wired to the *same*
+  `agent_group_id` automatically shares that mnemon data dir, the same
+  `CLAUDE.md`/workspace (`groups/<folder>/`), and the same agent identity.
+  Session history (the actual message log) stays independent per messaging
+  group unless `session_mode` is explicitly set to `agent-shared`.
+
+This means "share the wiki" is never a mnemon-specific operation — it's just:
+**wire the new messaging group to the existing agent group's folder instead
+of creating a new one.** The existing `/manage-channels` skill already
+documents this exact mechanism under "Add Channel Group" / `wire-to:<folder>`
+— the only non-obvious part is realizing that's *also* how you share mnemon
+memory, since the skill doc frames it purely in terms of session/workspace
+sharing and never mentions mnemon by name.
+
+### Why a "2-person DM" becomes a Telegram group
+
+Telegram's Bot API has no concept of a 3-way DM (bot + 2 humans) — bots
+cannot create group chats, and a "DM" on Telegram is strictly bot↔one user.
+The only way to get bot + 2 named humans in one chat is a real Telegram
+group, created by a human, with the bot added as a member. Whether this
+distinction applies to other channels (Discord/Slack support multi-person DM
+or group-DM primitives that might not require this workaround) wasn't
+explored this session.
+
+### Worked recipe (Telegram, reusing agent group `dm-with-operator`)
+
+1. **Human step (unavoidable on Telegram):** create a new Telegram group, add
+   the bot (`@<bot-username-from-getMe>` — NOT necessarily the assistant's
+   display/persona name; fetch the real handle via
+   `https://api.telegram.org/bot<TOKEN>/getMe` if unsure, since
+   `agent_groups.name` and the bot's Telegram `username` are two unrelated
+   fields) and the second person.
+
+2. Issue a pairing code scoped to the existing folder:
+   ```bash
+   pnpm exec tsx setup/index.ts --step pair-telegram -- --intent wire-to:dm-with-operator
+   ```
+
+3. Post the code in the new group: `@<bot-username> CODE`. This makes the
+   inbound interceptor create the `messaging_groups` row (`is_group=1`) and
+   capture its `platform_id` — no wiring yet.
+
+4. Register the wiring onto the **existing** folder (this is the step that
+   shares the wiki — the critical flag is `--folder` pointing at the
+   existing agent group's folder, not a new one):
+   ```bash
+   pnpm exec tsx setup/index.ts --step register -- \
+     --platform-id "<PLATFORM_ID from step 3>" --name "<group name>" \
+     --folder "dm-with-operator" --channel "telegram" \
+     --session-mode "shared" \
+     --engage-mode "pattern" --trigger "." \
+     --unknown-sender-policy "public" \
+     --assistant-name "Clawdia"
+   ```
+   Flags chosen here were this operator's specific preferences, not defaults
+   worth hard-coding:
+   - `--session-mode shared` (not `agent-shared`): same wiki/memory, but an
+     independent conversation thread from the existing 1:1 DM. The
+     channel-defaults engage default for Telegram *groups* is
+     `engage_mode: mention` — this operator wanted always-on instead
+     (`pattern` + `.`), matching the existing DM's behavior, so both were
+     overridden explicitly.
+   - `--unknown-sender-policy public`: skips the approval card for the second
+     person, appropriate only because this is a small operator-created
+     private group with two already-trusted people — the channel default
+     (`request_approval`) is the safer choice generally and should stay the
+     recommended default in any generalized guidance.
+
+5. Verify: `pnpm ncl wirings list --json` should show two rows, both with
+   `agent_group_id` = the existing agent's id.
+
+Executed end-to-end this session: platform_id `telegram:-5336339406` ("Tan
+family notes"), wired to `ag-1783945827013-hhyk7w` alongside the existing DM.
+Both wirings confirmed live via `ncl wirings list --json` afterward.
+
+### Gotchas hit executing this recipe
+
+**A bot can look fully added to a group and still receive nothing — check
+the member-list badge, not just membership.** Telegram surfaces Group
+Privacy status directly under a bot's name in the group's member list: if it
+reads **"has no access to messages"**, the bot only receives commands
+(`/...`) and replies-to-its-own-messages — a plain `@botname CODE` message
+(no leading slash, per step 3 above) is silently dropped and never reaches
+the bot at all. This produces zero trace anywhere useful for diagnosis: no
+attempt recorded in `data/telegram-pairings.json`, no error in
+`logs/nanoclaw.error.log`, `getWebhookInfo`'s `pending_update_count`
+legitimately `0` (Telegram's side genuinely has nothing queued — not a
+delivery bug on NanoClaw's end). The member-list badge is the one piece of
+ground truth that surfaces this instantly; without checking it first, this
+session burned time on the wrong hypothesis (**"Allow Groups" being off**,
+a related but separate BotFather setting): Allow Groups gates whether the
+bot can be added to a group at all, and only takes effect at add-time.
+Group Privacy gates what it receives *after* it's a member, and — the
+non-obvious part — **changing Group Privacy takes effect immediately and
+needs no remove/re-add**, unlike Allow Groups, which does require a fresh
+add if it was off when the bot first joined. Check the member-list badge
+first, before assuming a code/pairing bug, any time step 3's pairing code
+never seems to register.
+
+**The main service's Telegram polling loop can die silently while the
+process stays alive — the crash-recovery watchdog won't catch it.**
+Mid-session, `logs/nanoclaw.error.log` showed `Telegram polling request
+failed: NetworkError` repeating with exponential backoff for ~30 minutes,
+then went completely silent — no more failures, no successes, nothing —
+while `node dist/index.js` (checked via `ps`/`/proc/<pid>/status`) was
+still alive and technically "sleeping," not crashed.
+`nanoclaw-entrypoint.sh` already has a watchdog for exactly this class of
+incident (its own comments describe a near-identical prior outage), but it
+only relaunches on process **exit** (`kill -0 $pid` failing) — a
+hung-but-alive polling loop never trips it. Recovery was simply
+`kill -TERM <pid>`, which let the watchdog detect the exit and relaunch
+cleanly within ~10s (confirmed via a fresh "Telegram adapter initialized" /
+"NanoClaw running" log sequence). Whether the watchdog should gain a real
+health check (an inbound-liveness timestamp checked every N minutes, not
+just process-alive) rather than only exit-detection is a design call for
+whoever owns that script, not something fixed here — this session only
+needed the `kill -TERM` workaround. If a group you just wired via this
+recipe never responds even though the wiring/pairing verify clean, check
+for this exact silent-hang signature before re-doing any of steps 1-4.
+
+### Persistence across FAST *and* CLEAN pi-bootstrap deploys
+
+Verified from inside the install (not from `run.sh`, which isn't mounted into
+this admin container — see caveat below):
+
+- `data/` and `groups/*` are both listed in `.gitignore` and confirmed
+  untracked (`git ls-files groups` / `git ls-files data` return nothing) in
+  the NanoClaw repo.
+- `data/v2.db` is the central DB where `messaging_groups` /
+  `messaging_group_agents` rows live; `groups/<folder>/` is the agent
+  workspace; mnemon's actual data directory lives under
+  `data/v2-sessions/<agentGroupId>/.claude-shared/mnemon` — all three are
+  therefore outside anything a `git pull`/hard-reset-based FAST or CLEAN
+  deploy touches. This matches "💾 Data Directories" in `README.md` and the
+  `CLEAN`-no-longer-wipes-data fix recorded above in this file.
+- Empirical corroboration: the pre-existing `dm-with-operator` wiring was
+  created 2026-07-13 and is still intact as of this write-up (2026-09-27),
+  spanning whatever mix of FAST/CLEAN deploys ran in between.
+
+**Confirmed directly against `run.sh`.** The admin session this pattern was
+discovered from could only see the mounted NanoClaw install tree, not
+`environments/nanoclaw-mnemon/run.sh` itself, and flagged this as an open
+caveat. Checked directly with pi-bootstrap repo access: `run.sh`'s CLEAN
+branch (`run.sh:2358-2394`) rebuilds the orchestrator image and tears down
+containers, but syncs NanoClaw's source via `git reset --hard`, not a
+directory wipe — no branch anywhere in the file does an explicit
+`rm -rf data groups`. The comment block at that exact spot documents why in
+NanoClaw's own history: CLEAN used to `rm -rf "$INSTALL_PATH"` and re-clone
+from scratch, which destroyed `groups/`, `data/`, `store/`, and `.env` right
+along with it (a real, hit-in-the-wild loss, not a theoretical one) — fixed
+by switching to `git reset --hard`, which by construction only touches
+git-tracked files, leaving `.gitignore`'d state (`dist/`, `store/`, `data/`,
+`groups/`, `.env`) alone. So the finding above holds for every deploy path
+this environment actually has, with no remaining caveat.
+
+### General Lessons
+
+- **Two subsystems can share a keying scheme without either's docs saying
+  so.** Channel wiring and mnemon memory are connected only because both are
+  scoped to `agent_group_id` — nothing in `/manage-channels`'s own doc
+  mentions mnemon, and nothing in mnemon's own docs mention channel wiring.
+  Discovering the connection required reading `container-runner.ts` directly;
+  it should not have to be re-derived per install.
+- **A platform's own primitives can force an unintuitive setup step.**
+  "2-person DM" reads like it should map to a DM-shaped object; on Telegram
+  it maps to a group instead, because the platform's bot API simply has no
+  3-way-DM primitive. Don't assume every channel has an equivalent
+  workaround — check per-platform before generalizing.
