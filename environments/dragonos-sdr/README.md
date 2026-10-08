@@ -14,7 +14,7 @@ The container includes a built-in **TUI (Text User Interface) launch menu** powe
 
 - **`--privileged` and `--device "${HOST_SOUND_DEVICE}"`** — direct RTL-SDR/HackRF USB and `/dev/snd` audio hardware passthrough from *this specific* Pi.
 - **`--net=host`** — required for tools like `rtl_tcp` (network SDR server) and any TCP/UDP listeners the menu launches.
-- **X11 (`HOST_X11_UNIX_PATH`) and PulseAudio (`HOST_PULSE_NATIVE_SOCKET`, `HOST_PULSE_COOKIE_PATH`) socket forwarding** — lets GUI tools (GQRX, GNU Radio Companion) render a window and play audio on the host's own display/speakers, not just run headless.
+- **X11 (`HOST_X11_UNIX_PATH`) and PulseAudio (`HOST_PULSE_NATIVE_SOCKET`, `HOST_PULSE_COOKIE_PATH`) socket forwarding** — lets GUI tools (GQRX, SDR++, GNU Radio Companion) render a window and play audio on the host's own display/speakers, not just run headless.
 - **Config-drift fingerprinting** — hashes the host-specific settings above so a `FAST` reattach never silently uses stale USB/audio/display paths after you edit `.env`.
 - **The `.deployed` marker** — the container runs with `--rm`, so no lingering container/image state proves it was ever launched; `desktop-entries.yaml`'s `deployed_check` reads this marker instead.
 - **TTY handling for the interactive menu** — `exec < /dev/tty` before `docker run -it` so the script still works when invoked through a non-interactive pipe (e.g. `curl | bash`).
@@ -27,18 +27,19 @@ None of this is expressible via `docker-compose.yml` either (Compose has no per-
 
 Base image: [debian:bookworm-slim](https://hub.docker.com/_/debian) — additional SDR tools from the Debian package catalog can be installed with `apt-get install` inside the container. The following are pre-installed by the Dockerfile:
 
-> **Note:** everything below comes from `apt` except **readsb** and **acarsdec**, which have no Debian package at all — the Dockerfile compiles those (plus `libacars`) from pinned upstream sources. See [Tools built from source](#tools-built-from-source) for the pins and what to change when bumping one.
+> **Note:** everything below comes from `apt` except **readsb**, **acarsdec** and **SDR++**, which have no Debian package at all — the Dockerfile compiles those (plus `libacars`) from pinned upstream sources. See [Tools built from source](#tools-built-from-source) for the pins and what to change when bumping one.
 
-> **Note:** This container mirrors a subset of the [DragonOS](https://cemaxecuter.com) toolset. The full DragonOS distribution additionally includes SDR++ , CubicSDR, dump1090 (ADS-B), WSJT-X (FT8/FT4), Direwolf (APRS), gr-gsm (GSM), inspectrum, multimon-ng, rtl_433, and more — these can be added to the Dockerfile via `apt-get install`.
+> **Note:** This container mirrors a subset of the [DragonOS](https://cemaxecuter.com) toolset. The full DragonOS distribution additionally includes CubicSDR, dump1090 (ADS-B), WSJT-X (FT8/FT4), Direwolf (APRS), gr-gsm (GSM), inspectrum, multimon-ng, rtl_433, and more — these can be added to the Dockerfile via `apt-get install`.
 
 ### Graphical Tools
 
 | Tool | Link | Description |
 |------|------|-------------|
 | GQRX | [gqrx.dk](https://www.gqrx.dk) | Graphical SDR receiver — spectrum waterfall, FM/AM/SSB/CW demodulation, recording |
+| SDR++ | [github.com/AlexandreRouma/SDRPlusPlus](https://github.com/AlexandreRouma/SDRPlusPlus) | Graphical SDR receiver — fast spectrum waterfall, modular plugins, RTL-SDR/HackRF/SoapySDR/rtl_tcp/SpyServer sources. Built from source; see [Tools built from source](#tools-built-from-source) |
 | GNU Radio Companion | [gnuradio.org](https://www.gnuradio.org) | Visual flowgraph editor — build and run signal processing pipelines with drag-and-drop blocks |
 
-These two are the only X11 applications in the menu, and reaching the host's
+These three are the only X11 applications in the menu, and reaching the host's
 display from inside the container takes two things, not one:
 
 1. **The display socket** — `run.sh` mounts `/tmp/.X11-unix` and passes
@@ -142,7 +143,7 @@ Receives aircraft position broadcasts on **1090 MHz** — any RTL-SDR dongle can
 
 ### Tools built from source
 
-`readsb` and `acarsdec` are not in the Debian bookworm archive. Listing them
+`readsb`, `acarsdec` and SDR++ are not in the Debian bookworm archive. Listing them
 in the Dockerfile's `apt-get install` does not degrade gracefully — apt exits
 `100` with `Unable to locate package`, and the whole image build fails on that
 line, so nothing after it is built either. The Dockerfile compiles them (plus
@@ -155,6 +156,7 @@ pinned to an exact ref via a build `ARG`:
 | [wiedehopf/readsb](https://github.com/wiedehopf/readsb) | `READSB_VERSION=v3.16.16` | `make RTLSDR=yes`; no `install` target upstream, so `readsb` and `viewadsb` are copied to `/usr/local/bin` |
 | [szpajder/libacars](https://github.com/szpajder/libacars) | `LIBACARS_VERSION=v2.2.1` | CMake → `/usr/local`, then `ldconfig` so acarsdec's `pkg-config` lookup finds it |
 | [TLeconte/acarsdec](https://github.com/TLeconte/acarsdec) | `ACARSDEC_COMMIT=339f63eb…` | CMake with `-Drtl=ON` |
+| [AlexandreRouma/SDRPlusPlus](https://github.com/AlexandreRouma/SDRPlusPlus) | `SDRPP_VERSION=1.0.4` | CMake → `/usr/local`; Airspy, Airspy HF+, PlutoSDR and Discord modules off, RTL-SDR/HackRF/SoapySDR/audio on |
 
 Notes for anyone bumping these:
 
@@ -169,6 +171,14 @@ Notes for anyone bumping these:
   tuned for whichever CPU built the image. Correct here (`run.sh` builds on the
   Pi that runs it), but it means the image is not safely copyable to an older
   or different CPU.
+- **SDR++ is unverified.** It was added without a real build. A failed SDR++
+  build is downgraded to a `WARNING: SDR++ failed to build` line in the build
+  output instead of failing the image, so the symptom of a problem is
+  `run.sh --gui sdrpp` exiting with "executable file not found". Its only
+  tagged release (1.0.4) is older than `master`, which has more modules and
+  fixes; the moving `nightly` tag is deliberately not pinned. It renders with
+  OpenGL, so a slow or blank window under X11 forwarding without GPU
+  passthrough is the likely first issue, not a build problem.
 - Override any pin at build time without editing the Dockerfile, e.g.
   `docker build --build-arg READSB_VERSION=v3.16.16 -t dragonos-pi .`
 - These three add a few minutes to a cold build on a Pi. `REBUILD_POLICY=FAST`
@@ -349,7 +359,7 @@ handled automatically:
   After that the names show up in the picker and stay stable across reboots.
 
 GNU Radio (tag 2) is untouched by this — it has its own device selection built
-in. GQRX is launched from its desktop entry rather than the terminal-oriented
+in. GQRX and SDR++ are launched from their desktop entries rather than the terminal-oriented
 SDR menu. The HackRF tools (tags 8-A) address different hardware entirely.
 
 ---
@@ -400,6 +410,7 @@ bash lib/run-install-desktop.sh environments/dragonos-sdr
 | Desktop entry | How it opens |
 |:---|:---|
 | **GQRX** | `run.sh --gui gqrx` — forwards X11, PulseAudio/PipeWire, USB and the environment's configured data paths |
+| **SDR++** | `run.sh --gui sdrpp` — same forwarding as GQRX |
 | **GNU Radio Companion** | `run.sh --gui gnuradio-companion` — forwards X11, PulseAudio/PipeWire, USB and the environment's configured data paths |
 | **SDR Tools Menu** | Opens `run.sh` in your desktop's default terminal emulator, preserving the same host-device configuration |
 

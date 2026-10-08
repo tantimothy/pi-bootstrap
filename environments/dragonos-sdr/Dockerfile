@@ -132,6 +132,50 @@ RUN git clone https://github.com/TLeconte/acarsdec.git /tmp/acarsdec \
     && cmake --install /tmp/acarsdec/build \
     && rm -rf /tmp/acarsdec
 
+# AlexandreRouma/SDRPlusPlus (SDR++) — GUI receiver, no Debian package. Built
+# from the latest tagged release (1.0.4; the only other tag is the moving
+# `nightly`). Build dependencies are installed in their own layer so editing
+# this block never invalidates the apt layers above. libgl1-mesa-dri is the
+# runtime piece: SDR++ renders with OpenGL through GLFW, and the slim
+# --no-install-recommends base ships no software rasterizer for a container
+# whose host GPU is not passed through.
+#
+# Only modules whose libraries are installed here are enabled. The defaults
+# also turn on Airspy, Airspy HF+, PlutoSDR (libiio/libad9361) and Discord
+# presence; those are switched off rather than adding more -dev packages.
+# RTL-SDR, HackRF, SoapySDR, rtl_tcp, SpyServer and audio stay on.
+#
+# NOT YET VERIFIED by a real build: unlike the tools above, this one could
+# not be built from the session that added it, so a failure here is a
+# warning rather than an error. A broken SDR++ must not cost the whole
+# image (readsb and acarsdec once did exactly that); the symptom is
+# `run.sh --gui sdrpp` exiting with "executable file not found". Read the
+# build output for "WARNING: SDR++" to find out why.
+ARG SDRPP_VERSION=1.0.4
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libfftw3-dev \
+        libglfw3-dev \
+        libvolk2-dev \
+        librtaudio-dev \
+        libgl1-mesa-dri \
+    && ( git clone --depth 1 --branch "${SDRPP_VERSION}" https://github.com/AlexandreRouma/SDRPlusPlus.git /tmp/sdrpp \
+         && cmake -S /tmp/sdrpp -B /tmp/sdrpp/build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX=/usr/local \
+              -DOPT_BUILD_AIRSPY_SOURCE=OFF \
+              -DOPT_BUILD_AIRSPYHF_SOURCE=OFF \
+              -DOPT_BUILD_PLUTOSDR_SOURCE=OFF \
+              -DOPT_BUILD_DISCORD_PRESENCE=OFF \
+              -DOPT_BUILD_SOAPY_SOURCE=ON \
+         && cmake --build /tmp/sdrpp/build -j"$(nproc)" \
+         && cmake --install /tmp/sdrpp/build \
+         && ldconfig \
+         || echo "WARNING: SDR++ failed to build — 'run.sh --gui sdrpp' will not work. Everything else in the image is unaffected." ) \
+    && rm -rf /tmp/sdrpp \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Fix RTL-SDR Kernel Driver Conflict inside the container just in case
 RUN echo "blacklist dvb_usb_rtl28xxu" > /etc/modprobe.d/blacklist-rtl.conf
 
@@ -288,8 +332,8 @@ sdr_dev_arg_rtl433() {
 
 # --- Graphical (X11) tools -------------------------------------------------
 #
-# GNU Radio Companion is the only X11 application in this menu; GQRX is
-# available from its desktop entry instead. When GNU Radio cannot reach a
+# GNU Radio Companion is the only X11 application in this menu; GQRX and
+# SDR++ are available from their desktop entries instead. When GNU Radio cannot reach a
 # display it prints its reason to stderr and exits straight away. Every other
 # entry here pauses before returning to the menu; this one did not, so the
 # loop's own `clear` wiped that reason off the screen

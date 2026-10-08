@@ -33,7 +33,7 @@ HOST_PULSE_NATIVE_SOCKET="${HOST_PULSE_NATIVE_SOCKET:-${HOST_XDG_RUNTIME_DIR}/pu
 HOST_PULSE_COOKIE_PATH="${HOST_PULSE_COOKIE_PATH:-~/.config/pulse/cookie}"
 # X11 access control. Mounting the display socket is only half of what an X
 # client needs: the server also demands the session's MIT-MAGIC-COOKIE, which
-# lives in this file, so without it GQRX and GNU Radio Companion are refused
+# lives in this file, so without it GQRX, SDR++ and GNU Radio Companion are refused
 # by the server and exit immediately. Prefers whatever the host session
 # actually set over the conventional path, since a Wayland/XWayland session
 # generally puts its cookie under /run/user/<uid>/ rather than in $HOME.
@@ -49,14 +49,14 @@ GUI_COMMAND=""
 if [ "${1:-}" = "--gui" ]; then
     GUI_COMMAND="${2:-}"
     case "${GUI_COMMAND}" in
-        gqrx|gnuradio-companion) ;;
+        gqrx|sdrpp|gnuradio-companion) ;;
         *)
-            echo "Usage: $0 --gui {gqrx|gnuradio-companion}" >&2
+            echo "Usage: $0 --gui {gqrx|sdrpp|gnuradio-companion}" >&2
             exit 2
             ;;
     esac
 elif [ -n "${1:-}" ]; then
-    echo "Usage: $0 [--gui {gqrx|gnuradio-companion}]" >&2
+    echo "Usage: $0 [--gui {gqrx|sdrpp|gnuradio-companion}]" >&2
     exit 2
 fi
 
