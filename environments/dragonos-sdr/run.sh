@@ -107,7 +107,11 @@ if [ -n "${GUI_COMMAND}" ]; then
         echo "[WARN] No PulseAudio/PipeWire socket at ${HOST_PULSE_NATIVE_SOCKET}; GUI audio may be unavailable." >&2
     fi
 
-    exec "${DOCKER}" run --rm \
+    # Not `exec`: a desktop launcher has no terminal, so a failure here (an
+    # unbuilt tool, a refused X connection) would otherwise vanish and a
+    # double-click would appear to do nothing.
+    gui_status=0
+    "${DOCKER}" run --rm \
       --privileged \
       -v "${HOST_USB_BUS_PATH}:/dev/bus/usb" \
       -e DISPLAY="${DISPLAY}" \
@@ -119,7 +123,14 @@ if [ -n "${GUI_COMMAND}" ]; then
       -v "${HOST_CAPTURES_PATH}:/workspace/captures" \
       -v "${HOST_MSF_DATA_PATH}:/workspace/msf_data" \
       --entrypoint "${GUI_COMMAND}" \
-      "${DOCKER_IMAGE_TAG}"
+      "${DOCKER_IMAGE_TAG}" || gui_status=$?
+    if [ "${gui_status}" -ne 0 ]; then
+        echo "[ERROR] '${GUI_COMMAND}' exited with status ${gui_status}. Run 'bash ${SCRIPT_DIR}/run.sh --gui ${GUI_COMMAND}' in a terminal to see why." >&2
+        if command -v notify-send >/dev/null 2>&1; then
+            notify-send "DragonOS SDR: ${GUI_COMMAND} failed" "Exit status ${gui_status}. Run run.sh --gui ${GUI_COMMAND} in a terminal for details." || true
+        fi
+    fi
+    exit "${gui_status}"
 fi
 
 POLICY="${REBUILD_POLICY:-FAST}"
