@@ -54,7 +54,7 @@ network; the ahead/behind counts are as fresh as the fetch that already ran at s
 
 | Environment | Description |
 |:---|:---|
-| [dragonos-sdr](environments/dragonos-sdr/) | Software-defined radio toolkit — GQRX, GNU Radio, RTL-SDR utilities, HackRF tools, ADS-B aircraft tracking (dump1090, readsb), rtl_433 sensor decoding, APRS packet radio (direwolf), ACARS aircraft messages (acarsdec), FM/pager/EAS decoding (multimon-ng) |
+| [dragonos-sdr](environments/dragonos-sdr/) | Software-defined radio toolkit — GQRX, SDR++, GNU Radio, RTL-SDR utilities, HackRF tools, ADS-B aircraft tracking (dump1090, readsb), rtl_433 sensor decoding, APRS packet radio (direwolf), ACARS aircraft messages (acarsdec), FM/pager/EAS decoding (multimon-ng) |
 | [pihole-wireguard](environments/pihole-wireguard/) | Network stack — Pi-hole DNS ad-blocker + WireGuard VPN (wg-easy) + full monitoring suite (Prometheus, Grafana, Uptime Kuma, node/speedtest/blackbox exporters) + PADD terminal dashboard |
 | [kali-pentest](environments/kali-pentest/) | Headless Kali Linux pentest environment — wireless attacks (Wifite2, aircrack-ng suite, hcxdumptool), network MITM (Bettercap, Nmap, tshark), forensics (Autopsy, mitmproxy), wardriving (Kismet + GPS). Metasploit/Armitage and Legion split into their own [metasploit](environments/metasploit/) and [legion](environments/legion/) environments |
 | [internet-pi](environments/internet-pi/) | Ansible-managed Raspberry Pi — Pi-hole, Prometheus, Grafana, Speedtest Exporter, Blackbox Exporter, Node Exporter (based on [geerlingguy/internet-pi](https://github.com/geerlingguy/internet-pi)) |
@@ -87,7 +87,7 @@ This installs entries to `~/.local/share/applications/` (the application menu) *
 
 | Entry type | How it opens |
 |:---|:---|
-| GQRX, GNU Radio Companion | X11 socket passthrough — window appears directly on the Pi desktop |
+| GQRX, SDR++, GNU Radio Companion | X11 socket passthrough — window appears directly on the Pi desktop |
 | SDR menu, Kali, NanoClaw | Opens in your desktop's default terminal emulator |
 | Pi-hole, Grafana, Uptime Kuma, WireGuard, darkstat, Dozzle, ntopng, Portainer | Menu: tries `xdg-open`, then falls back through several other browser launchers against `http://localhost:<port>`. Desktop icon: a `Type=Link` entry opened directly by the desktop's default URL handler |
 | `<Environment> Info` | Same as above, pointed at that environment's generated `post-deploy-info.html` (see below) via a `file://` URL |
@@ -433,7 +433,7 @@ Also in there: `custom_actions` — an environment's own extension point for add
 
 ### `desktop-entries.yaml` (Recommended if there's a menu-launchable target)
 
-Not just web UIs — `entries[].kind: exec` covers X11 GUI apps (`dragonos-sdr`'s GQRX/GNU Radio Companion, launched via X11 socket passthrough) and terminal launchers (SDR menu, Kali, NanoClaw) just as much as `kind: link` covers browser-opened web UIs. Skip this only if the environment has no menu-launchable target at all (`pi-barebones` has none; `internet-pi`'s ports come from an externally-managed Ansible playbook rather than this repo's own `.env`, which is why it doesn't have one either — worth reconsidering if that ever changes). `install-desktop-entries.sh` at the repo root discovers every environment directory automatically and dispatches to `lib/run-install-desktop.sh` for each — nothing else needs registering it.
+Not just web UIs — `entries[].kind: exec` covers X11 GUI apps (`dragonos-sdr`'s GQRX/SDR++/GNU Radio Companion, launched via X11 socket passthrough) and terminal launchers (SDR menu, Kali, NanoClaw) just as much as `kind: link` covers browser-opened web UIs. Skip this only if the environment has no menu-launchable target at all (`pi-barebones` has none; `internet-pi`'s ports come from an externally-managed Ansible playbook rather than this repo's own `.env`, which is why it doesn't have one either — worth reconsidering if that ever changes). `install-desktop-entries.sh` at the repo root discovers every environment directory automatically and dispatches to `lib/run-install-desktop.sh` for each — nothing else needs registering it.
 
 ```yaml
 menu:

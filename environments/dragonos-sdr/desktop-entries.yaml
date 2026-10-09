@@ -19,6 +19,13 @@ entries:
     # PulseAudio/PipeWire, USB and data mounts as a normal deployment.
     target: 'bash -c "cd ''${ENV_DIR}'' && bash ./run.sh --gui gqrx"'
     terminal: false
+  - id: pi-bootstrap-sdrpp
+    name: "SDR++"
+    comment: "Software Defined Radio receiver — fast spectrum waterfall, modular, many SDR sources"
+    icon: sdrpp
+    kind: exec
+    target: 'bash -c "cd ''${ENV_DIR}'' && bash ./run.sh --gui sdrpp"'
+    terminal: false
   - id: pi-bootstrap-gnuradio
     name: "GNU Radio Companion"
     comment: "Visual signal processing flowgraph editor"
