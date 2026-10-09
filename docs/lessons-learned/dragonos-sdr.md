@@ -250,3 +250,18 @@ ends in a warning cannot.
   it.** Two entries out of twenty lacked the `read -p` every other one had, and
   that inconsistency alone turned a one-line X11 error into an unreproducible
   "it flashes by". Consistency in error handling is not cosmetic.
+
+## Session: SDR++ added, desktop entry did nothing on double-click
+
+**Status:** fixed, unverified by a real build.
+
+**Symptom:** after a `CLEAN` deploy reported no errors, double-clicking the SDR++ desktop entry did nothing.
+
+**Root cause:** SDR++ 1.0.4's core CMakeLists requires GLEW (`pkg_check_modules(GLEW REQUIRED glew)`) and `libglew-dev` was not installed, so cmake failed at configure time. The Dockerfile deliberately downgraded an SDR++ build failure to an `echo WARNING`, which is lost in a long build log, so the deploy looked clean and the image had no `sdrpp`. The launcher then failed inside `docker run`, and `Terminal=false` plus `exec` meant nothing was shown anywhere.
+
+**Fix:** install `libglew-dev`. `run.sh --gui` no longer `exec`s: a non-zero exit prints an error and sends a `notify-send` notification when available.
+
+**General lessons:**
+- A non-fatal build step needs a failure signal that survives a long log; a bare `echo WARNING` does not.
+- A GUI launcher with no terminal must surface its own failures.
+- Read the upstream CMakeLists for `REQUIRED` packages before choosing a dependency list.

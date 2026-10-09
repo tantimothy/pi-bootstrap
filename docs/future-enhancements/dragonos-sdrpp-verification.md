@@ -9,7 +9,7 @@ the rest of the image is unaffected.
 
 ## To verify (on a Pi)
 
-1. `REBUILD_POLICY=CLEAN` deploy; confirm the build log has no SDR++ warning
+1. `REBUILD_POLICY=CLEAN` deploy (first attempt: `libglew-dev` was missing and the build failed silently); confirm the build log has no SDR++ warning
    and `which sdrpp` resolves inside the container.
 2. `run.sh --gui sdrpp`: window opens over X11 forwarding, RTL-SDR and HackRF
    appear as sources, audio plays through PulseAudio/PipeWire.

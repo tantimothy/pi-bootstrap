@@ -134,7 +134,9 @@ RUN git clone https://github.com/TLeconte/acarsdec.git /tmp/acarsdec \
 
 # AlexandreRouma/SDRPlusPlus (SDR++) — GUI receiver, no Debian package. Built
 # from the latest tagged release (1.0.4; the only other tag is the moving
-# `nightly`). Build dependencies are installed in their own layer so editing
+# `nightly`). GLEW is a hard requirement of 1.0.4's core CMakeLists
+# (pkg_check_modules(GLEW REQUIRED glew)); leaving libglew-dev out made the
+# first build fail at configure time, silently, as the warning below. Build dependencies are installed in their own layer so editing
 # this block never invalidates the apt layers above. libgl1-mesa-dri is the
 # runtime piece: SDR++ renders with OpenGL through GLFW, and the slim
 # --no-install-recommends base ships no software rasterizer for a container
@@ -155,6 +157,7 @@ ARG SDRPP_VERSION=1.0.4
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libfftw3-dev \
+        libglew-dev \
         libglfw3-dev \
         libvolk2-dev \
         librtaudio-dev \
