@@ -147,12 +147,11 @@ RUN git clone https://github.com/TLeconte/acarsdec.git /tmp/acarsdec \
 # presence; those are switched off rather than adding more -dev packages.
 # RTL-SDR, HackRF, SoapySDR, rtl_tcp, SpyServer and audio stay on.
 #
-# NOT YET VERIFIED by a real build: unlike the tools above, this one could
-# not be built from the session that added it, so a failure here is a
-# warning rather than an error. A broken SDR++ must not cost the whole
-# image (readsb and acarsdec once did exactly that); the symptom is
-# `run.sh --gui sdrpp` exiting with "executable file not found". Read the
-# build output for "WARNING: SDR++" to find out why.
+# Built and launched on a Pi (1.0.4, bookworm). A failure here is a warning
+# rather than an error so a broken SDR++ cannot cost the whole image
+# (readsb and acarsdec once did exactly that), which means it is easy to
+# miss: the symptom is `run.sh --gui sdrpp` exiting with "executable file
+# not found". Search the build output for "WARNING: SDR++" to find out why.
 ARG SDRPP_VERSION=1.0.4
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

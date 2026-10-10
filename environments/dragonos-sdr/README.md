@@ -171,14 +171,16 @@ Notes for anyone bumping these:
   tuned for whichever CPU built the image. Correct here (`run.sh` builds on the
   Pi that runs it), but it means the image is not safely copyable to an older
   or different CPU.
-- **SDR++ is unverified.** It was added without a real build. A failed SDR++
-  build is downgraded to a `WARNING: SDR++ failed to build` line in the build
-  output instead of failing the image, so the symptom of a problem is
-  `run.sh --gui sdrpp` exiting with "executable file not found". Its only
-  tagged release (1.0.4) is older than `master`, which has more modules and
-  fixes; the moving `nightly` tag is deliberately not pinned. It renders with
-  OpenGL, so a slow or blank window under X11 forwarding without GPU
-  passthrough is the likely first issue, not a build problem.
+- **SDR++ builds and launches (`run.sh --gui sdrpp`) on a Pi; RTL-SDR/HackRF
+  sources and audio output have not been checked.** A failed SDR++ build is
+  downgraded to a `WARNING: SDR++ failed to build` line in the build output
+  instead of failing the image, so the symptom of a problem is
+  `run.sh --gui sdrpp` exiting with "executable file not found" — search the
+  build log for that warning. 1.0.4 requires `libglew-dev` (omitting it was
+  the first build failure). Its only tagged release is older than `master`,
+  which has more modules and fixes; the moving `nightly` tag is deliberately
+  not pinned. It renders with OpenGL, so a slow or blank window under X11
+  forwarding without GPU passthrough is the likeliest runtime issue.
 - Override any pin at build time without editing the Dockerfile, e.g.
   `docker build --build-arg READSB_VERSION=v3.16.16 -t dragonos-pi .`
 - These three add a few minutes to a cold build on a Pi. `REBUILD_POLICY=FAST`
