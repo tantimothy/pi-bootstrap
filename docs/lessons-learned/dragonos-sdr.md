@@ -253,7 +253,7 @@ ends in a warning cannot.
 
 ## Session: SDR++ added, desktop entry did nothing on double-click
 
-**Status:** fixed, unverified by a real build.
+**Status:** fixed; verified by a CLEAN rebuild and launch on a Pi.
 
 **Symptom:** after a `CLEAN` deploy reported no errors, double-clicking the SDR++ desktop entry did nothing.
 
