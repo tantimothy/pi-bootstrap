@@ -375,8 +375,20 @@ while IFS=$'\t' read -r NAME CONTAINER_ID <&3; do
         continue
     fi
 
-    PULL_OUTPUT=$($DOCKER pull "$IMAGE_REF" 2>&1)
-    if [ $? -ne 0 ]; then
+    # Retried: a registry pull dropped mid-layer ("failed to copy: failed to
+    # send write: EOF", connection reset) is a network blip, not a verdict on
+    # the image, and the layers already fetched make the retry cheap.
+    PULL_OK=false
+    for PULL_ATTEMPT in 1 2 3; do
+        if PULL_OUTPUT=$($DOCKER pull "$IMAGE_REF" 2>&1); then
+            PULL_OK=true
+            break
+        fi
+        [ "$PULL_ATTEMPT" -lt 3 ] && sleep $((PULL_ATTEMPT * 3))
+    done
+    if [ "$PULL_OK" != "true" ]; then
+        # Keep only the failure line(s), not the per-layer progress spam.
+        PULL_OUTPUT=$(echo "$PULL_OUTPUT" | grep -viE 'Pulling fs layer|Waiting|Download complete|Pull complete|Already exists|Verifying Checksum|Extracting|Downloading' || true)
         check_locally_built "$NAME" "$IMAGE_REF" "$CONTAINER_ID" "$PULL_OUTPUT"
         continue
     fi
