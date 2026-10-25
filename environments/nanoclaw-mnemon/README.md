@@ -410,6 +410,16 @@ Typical agent-side use: `tesseract image.png stdout` for a straight image, or fo
 
 ---
 
+## 🌐 Giving Agents a Browser (`browser` environment + Playwright MCP)
+
+Agents can drive a persistent Chromium — one *you* log into once over VNC — via the sibling [`browser`](../browser/README.md) environment. Opt-in:
+
+1. Deploy `browser`, connect with a VNC client, and log into the sites the agent will need.
+2. Set `BROWSER_CDP_URL=http://<this-host's-LAN-IP>:9222` in this environment's `.env` (an **IP**, not a hostname — Chromium rejects hostnames in the CDP `Host` header; the LAN IP is also the route that works on OrbStack).
+3. Deploy. `apply_browser_patch()` installs `@playwright/mcp` into the agent image and registers it, then the usual agent-image rebuild and container sweep make it live.
+
+Unsetting `BROWSER_CDP_URL` removes the patch. Details, anchors and what a correct fix looks like: `templates/patch-details/browser.md`. **Not yet exercised against a real deploy** — see `docs/future-enhancements/browser-agent.md`.
+
 ## Security Notes
 
 The orchestrator image has no `USER` directive, so NanoClaw's first-run "you are running as root" warning is expected in this container deployment. Docker socket access is already root-equivalent on the host.

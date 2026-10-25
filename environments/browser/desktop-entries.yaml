@@ -1,0 +1,17 @@
+menu:
+  id: browser
+  name: "Agent Browser"
+  icon: web-browser
+deployed_check:
+  kind: container
+  from_compose_service: browser
+entries:
+  - id: pi-bootstrap-browser-vnc
+    name: "Agent Browser (VNC)"
+    comment: "Open the agent's browser desktop to log into sites"
+    icon: web-browser
+    kind: link
+    target: "vnc://localhost:${VNC_PORT:-5901}"
+info:
+  id: pi-bootstrap-browser-info
+  name: "Agent Browser Info"

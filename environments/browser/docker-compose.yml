@@ -1,0 +1,27 @@
+services:
+  # A persistent, human-loginable Chromium that agents drive over CDP. See
+  # README.md for the VNC + CDP workflow and the security note on CDP_BIND.
+  browser:
+    container_name: ${CONTAINER_NAME:-browser}
+    build: .
+    image: pi-bootstrap-browser:latest
+    # Chromium crashes on Docker's 64MB default /dev/shm.
+    shm_size: 2gb
+    environment:
+      - VNC_PASSWORD=${VNC_PASSWORD:-}
+      - SCREEN_SIZE=${SCREEN_SIZE:-1440x900}
+      - CDP_ALLOW_RANGE=${CDP_ALLOW_RANGE:-}
+      - CHROMIUM_EXTRA_FLAGS=${CHROMIUM_EXTRA_FLAGS:-}
+    ports:
+      - "${VNC_BIND:-127.0.0.1}:${VNC_PORT:-5901}:5900"
+      - "${CDP_BIND:-0.0.0.0}:${CDP_PORT:-9222}:9222"
+    volumes:
+      - browser_data:/data
+    restart: unless-stopped
+
+volumes:
+  browser_data:
+    # Pinned literal name so renaming/re-cloning this directory can't orphan
+    # the logged-in profile — see portainer/docker-compose.yml for the same
+    # reasoning.
+    name: browser_data
