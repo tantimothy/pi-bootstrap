@@ -1,6 +1,6 @@
 # Pending Activities
 
-A snapshot of open follow-ups as of **2026-09-11** — though only the
+A snapshot of open follow-ups as of **2026-09-11** (the OneCLI-credentials entry at the end was added 2026-10-26) — though only the
 agent-control-environments entry was revised in that pass (it was added in
 the 2026-09-10 one). The dragonos-sdr
 entry was revised in the 2026-09-03 one (it was added in the 2026-08-31
@@ -613,3 +613,19 @@ logic duplicated across three files, `mac-terminal-setup`'s
 backup-before-overwrite helpers having no shared home with any other
 `run.sh`-based environment, and the total absence of automated tests for
 `lib/*.sh`'s `${VAR}`-expansion contract.
+
+## nanoclaw-mnemon: "Manage OneCLI Credentials" follow-ups
+
+Shipped in PRs [#323](https://github.com/tantimothy/pi-bootstrap/pull/323)
+and [#324](https://github.com/tantimothy/pi-bootstrap/pull/324); account in
+`docs/lessons-learned/nanoclaw-mnemon.md`. CLI restore and listing confirmed
+live (2026-10-26, gateway image 1.36.0). Not yet done:
+
+- **Add / update / delete** — confirm against a real gateway (header and
+  value-format fields in particular).
+- **Agent-access items (7-8)** — likely unsupported on gateway 1.36.0 (grants
+  need 1.44+). Either hide them when `onecli agents grants` is rejected, or
+  support the older per-agent secret-mode model.
+- **`scripts/install-codex-provider.sh`** still calls `setup/index.ts --step
+  onecli`, which current upstream no longer has; give it the same skill-first
+  handling as `manage-onecli.sh`.
