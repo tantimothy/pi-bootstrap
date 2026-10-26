@@ -32,7 +32,9 @@
 # docker-buildx and docker-compose to precisely that path.
 FROM docker:27-cli AS docker-cli
 
-FROM node:20-slim
+# Node 22: NanoClaw's package.json declares engines.node >=22 (as of
+# 2026.10.1-rc.2); on node:20 pnpm prints "Unsupported engine" at install time.
+FROM node:22-slim
 
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
