@@ -2825,3 +2825,56 @@ Findings worth keeping from upstream's skill:
 
 [#323](https://github.com/tantimothy/pi-bootstrap/pull/323) (the action),
 [#324](https://github.com/tantimothy/pi-bootstrap/pull/324) (CLI restore).
+
+## CLEAN on a newer upstream: the Ollama patch broke `tsc` (2026-10-26)
+
+**Status:** build-breaking part fixed and typechecked against a real clone of
+NanoClaw `2026.10.1-rc.2`. The Ollama env wiring is still not ported (see below),
+and two other problems from the same deploy are not repo bugs or not fixed here.
+
+### Symptom
+
+After merging the browser PR and running CLEAN, `pnpm run build` (`tsc`) failed:
+
+- `src/ollama-env.ts`: `'./config.js'` has no exported member `OLLAMA_HOST` /
+  `OLLAMA_ADMIN_TOOLS`
+- `src/channels/telegram.ts`: cannot find `@chat-adapter/telegram`, and `.id` does
+  not exist on `Promise<MessagingGroup | undefined>`
+- plus a pnpm warning: wanted node `>=22`, current `v20.20.2`
+
+### Root cause
+
+- **Ollama patch (this repo).** CLEAN hard-resets tracked files, so `config.ts`
+  lost the `OLLAMA_*` exports. The patch re-adds them by matching a key that
+  upstream has since removed, so that step was SKIPPED — but `src/ollama-env.ts`
+  is untracked, survives the reset, and imports those exports. A skipped sub-patch
+  left behind a file that could no longer compile. Separately, upstream replaced
+  `buildContainerArgs()` with `composeSessionSpec()`, so the container-runner
+  wiring has no anchor any more.
+- **Telegram (not this repo).** `telegram.ts` is an untracked channel adapter from
+  an older `/add-telegram`; core now returns promises where it expects values, and
+  the package dependency was dropped by the reset. The adapter is stale against
+  current core.
+- **Node version.** Upstream's `package.json` now requires node >=22; this
+  environment's orchestrator `Dockerfile` is `node:20-slim`.
+
+### Fix
+
+`run.sh`: the key-list splice falls back to the stable `const envConfig =
+readEnvFile([` line; `ollama-env.ts` is only written when `config.ts` has the
+exports, and a stale copy is renamed aside; a `grep -c ... || echo 0` that printed
+`0\n0` and broke the verification test is fixed. Verified with `tsc --noEmit` on a
+clone of upstream: fresh, repeat, and stale-file-plus-missing-anchor all pass.
+The browser patch was applied to the same clone and its anchors all matched.
+
+### General Lessons
+
+- **A patch that creates standalone files must be all-or-nothing with the splices
+  they depend on.** "Skip loudly" is only safe if nothing half-applied stays behind
+  — and untracked files outlive the reset that undoes the tracked ones.
+- **Typecheck patches against a real clone of upstream.** `bash -n` and mock files
+  cannot see this class of failure; a shallow clone and `tsc --noEmit` can, in a
+  minute.
+- **When upstream restructures, re-matching anchors is the wrong repair.** The
+  env-wiring needs a port to the new session-spec shape, not a new grep.
+

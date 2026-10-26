@@ -70,3 +70,27 @@ connectivity. If neither works, look at `NO_PROXY` first.
 
 Upstream skill reference:
 https://github.com/nanocoai/nanoclaw/blob/main/.claude/skills/add-ollama-tool/SKILL.md
+
+**Upstream drift (NanoClaw `2026.10.1-rc.2`).** Checked against a real clone of
+that release, with `tsc --noEmit`:
+
+- `src/config.ts` no longer has the `'ONECLI_GATEWAY_CONTAINER'` key (OneCLI moved
+  behind the gateway seam). The key-list splice now falls back to the opening
+  `const envConfig = readEnvFile([` line, which is where any key can go.
+- `src/container-runner.ts` no longer has `buildContainerArgs()` or the
+  `TZ=` `args.push(...)` line; the environment is now assembled as a record in
+  `composeSessionSpec()`. **The `ollamaEnvArgs()` wiring therefore does not apply
+  and is reported SKIPPED.** Effect: `OLLAMA_HOST`, `OLLAMA_ADMIN_TOOLS` and the
+  `NO_PROXY` re-assertion are not passed into agent containers, so the MCP server
+  runs on its built-in default (`http://host.docker.internal:11434`). The tool is
+  registered, but whether that default is reachable through the current gateway is
+  **not confirmed**. A real fix means adding the values to the `env` record in
+  `composeSessionSpec()` (or the gateway/provider contribution lane) and
+  re-deriving the `NO_PROXY` reasoning against the new gateway seam — not
+  re-matching the old anchors.
+- `src/ollama-env.ts` imports `OLLAMA_*` from `config.ts`. It is an untracked file,
+  so it survives CLEAN's hard reset while `config.ts` does not; a copy whose
+  imports no longer resolve fails `tsc` for the whole deploy. It is now only
+  written when `config.ts` has the exports, and a stale copy is renamed to
+  `ollama-env.ts.pi-bootstrap-disabled` rather than left to break the build.
+

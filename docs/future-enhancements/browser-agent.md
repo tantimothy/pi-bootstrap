@@ -13,8 +13,10 @@ READMEs) once verified.
    The `NO_PROXY` in the `index.ts` block is a reasoned fix, not a tested one;
    it is also unknown whether the MCP `env:` is merged with, or replaces, the
    inherited environment.
-3. **`npm` in the agent base image.** The Dockerfile block only warns if it is
-   missing, so a missing `playwright-mcp` would not fail the build.
+3. **`npm` in the agent base image** — confirmed present: upstream's
+   `container/Dockerfile` (2026.10.1-rc.2) is `FROM node:22...-slim`, and the browser
+   patch applies cleanly against it (anchor and `index.ts` splice checked on a real
+   clone). Whether `playwright-mcp` then starts and connects is still untested.
 4. **Whether `container/agent-runner/src/index.ts` is baked into the image or
    mounted at spawn** — the patch rebuilds either way.
 5. **`CDP_ALLOW_RANGE`** may be defeated on Docker Desktop / OrbStack, where the
