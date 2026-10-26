@@ -1,19 +1,27 @@
 #!/usr/bin/env node
-// Makes the OneCLI gateway endpoint that NanoClaw hands to agent containers
-// configurable. Upstream's OneCLI gateway provider (installed by the
+// Makes the address that agent containers use to reach the OneCLI gateway
+// proxy configurable. Upstream's OneCLI gateway provider (installed by the
 // /add-onecli skill, src/gateway-providers/onecli.ts) hardcodes
-//   endpoint: 'host.docker.internal'
-// with no override, unlike the adjacent ONECLI_GATEWAY_CONTAINER. On a host
-// where that name resolves to an address nothing listens on (confirmed on an
-// OrbStack install: agent containers retried the model API forever while the
-// gateway was reachable on the Docker bridge IP), there is no way to fix it
-// short of hand-editing skill-owned source — which the next CLEAN reverts.
+// 'host.docker.internal' in TWO places, and only one of them matters for
+// connectivity:
 //
-// Resolution order after this patch: process.env.ONECLI_GATEWAY_ENDPOINT,
-// then ONECLI_GATEWAY_ENDPOINT in NanoClaw's own .env (read from the
-// service's working directory — start-nanoclaw.sh cd's to the install),
-// then the original 'host.docker.internal'. Behavior is unchanged unless the
-// variable is set.
+//   1. contributionFromConfig() copies config.env verbatim from the gateway
+//      service's own container config, whose *_proxy / *_PROXY values point at
+//      http://...@host.docker.internal:<port>. THIS is the address agent
+//      containers actually dial. (Patched here from v2.)
+//   2. networkAccess.endpoint: 'host.docker.internal' is only used for Docker
+//      network-policy reconciliation. Patching it alone builds and deploys
+//      cleanly and changes nothing — v1 of this patch did exactly that.
+//
+// On a host where that name resolves, inside a container, to an address that
+// refuses connections (confirmed on an OrbStack install: 0.250.250.254, while
+// the gateway answered on the Docker bridge IP), every agent model call fails
+// with "Connection refused" until the proxy values are rewritten.
+//
+// Resolution order: process.env.ONECLI_GATEWAY_ENDPOINT, then
+// ONECLI_GATEWAY_ENDPOINT in NanoClaw's own .env (read from the service's
+// working directory — start-nanoclaw.sh cd's to the install), then
+// 'host.docker.internal'. With nothing set, behavior is unchanged.
 //
 // Usage: node - <install-path> < patch-onecli-endpoint.cjs
 // Exit codes: 0 = nothing to do (already at this version, or skipped because
@@ -21,12 +29,12 @@
 // run.sh rebuilds and restarts. Never exits 1 for a skip: a missing anchor
 // must not abort a deploy.
 //
-// The block is version-marked; bump VERSION whenever BLOCK's text changes,
-// or existing installs keep the stale text forever.
+// The block is version-marked; bump VERSION whenever BLOCK's text or the
+// call site changes, or existing installs keep the stale text forever.
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = 1;
+const VERSION = 2;
 const installPath = process.argv[2];
 if (!installPath) {
   console.error('usage: patch-onecli-endpoint.cjs <install-path>');
@@ -54,33 +62,79 @@ function _pbOnecliEndpoint(): string {
   }
   return 'host.docker.internal';
 }
+// Rewrites the proxy values the gateway hands out (HTTPS_PROXY, HTTP_PROXY,
+// NO_PROXY and lowercase forms) — see this patch's header for why this, not
+// networkAccess.endpoint, is what fixes connectivity.
+function _pbRewriteProxyHost(env: Record<string, string>): void {
+  const endpoint = _pbOnecliEndpoint();
+  if (endpoint === 'host.docker.internal') return;
+  for (const [k, v] of Object.entries(env)) {
+    if (/proxy/i.test(k) && typeof v === 'string' && v.includes('host.docker.internal')) {
+      env[k] = v.split('host.docker.internal').join(endpoint);
+    }
+  }
+}
 ${END}
 `;
 
+const ORIGINAL_ENDPOINT = "endpoint: 'host.docker.internal'";
+const PATCHED_ENDPOINT = 'endpoint: _pbOnecliEndpoint()';
+const ENV_ANCHOR = 'const env = { ...config.env };';
+const CALL_MARK = '// pi-bootstrap:onecli-endpoint call';
+const CALL = `  _pbRewriteProxyHost(env); ${CALL_MARK}`;
+
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const blockRe = new RegExp(`${esc(START)}(\\d+) >>>[\\s\\S]*?${esc(END)}\\n?`);
+
 let content = fs.readFileSync(target, 'utf-8');
-const ORIGINAL = "endpoint: 'host.docker.internal'";
-const PATCHED = 'endpoint: _pbOnecliEndpoint()';
-
-const blockRe = new RegExp(`${START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+) >>>[\\s\\S]*?${END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`);
 const existing = content.match(blockRe);
-
-if (existing && Number(existing[1]) === VERSION && content.includes(PATCHED)) {
+const upToDate =
+  existing && Number(existing[1]) === VERSION && content.includes(PATCHED_ENDPOINT) && content.includes(CALL_MARK);
+if (upToDate) {
   console.log(`✅ OneCLI endpoint patch v${VERSION} already applied.`);
   process.exit(0);
 }
 
-if (!existing && !content.includes(ORIGINAL)) {
-  console.error("⚠️  OneCLI endpoint patch SKIPPED: the anchor \"endpoint: 'host.docker.internal'\" is not in src/gateway-providers/onecli.ts (upstream changed it). Agent containers keep whatever endpoint upstream hardcodes; see templates/patch-details/onecli-endpoint.md.");
+const notes = [];
+let changed = false;
+
+// 1. networkAccess.endpoint (kept for consistency; not what fixes connectivity).
+if (content.includes(ORIGINAL_ENDPOINT)) {
+  content = content.replace(ORIGINAL_ENDPOINT, PATCHED_ENDPOINT);
+  changed = true;
+} else if (!content.includes(PATCHED_ENDPOINT)) {
+  notes.push("anchor \"endpoint: 'host.docker.internal'\" not found (networkAccess.endpoint left alone)");
+}
+
+// 2. The proxy-value rewrite — the part that matters. Needs its call site.
+let callOk = content.includes(CALL_MARK);
+if (!callOk) {
+  const count = content.split(ENV_ANCHOR).length - 1;
+  if (count === 1) {
+    content = content.replace(ENV_ANCHOR, `${ENV_ANCHOR}\n${CALL}`);
+    callOk = true;
+    changed = true;
+  } else {
+    notes.push(`anchor "${ENV_ANCHOR}" found ${count} time(s), expected exactly 1 — the proxy rewrite was NOT applied, so agents keep upstream's proxy address`);
+  }
+}
+
+// 3. The helper block — only worth having if something calls it or uses it.
+if (callOk || content.includes(PATCHED_ENDPOINT)) {
+  if (existing) {
+    content = content.replace(blockRe, BLOCK);
+  } else {
+    content = content.replace(/\n*$/, '\n\n') + BLOCK;
+  }
+  changed = true;
+} else {
+  console.error(`⚠️  OneCLI endpoint patch SKIPPED: ${notes.join('; ')}. See templates/patch-details/onecli-endpoint.md.`);
   process.exit(0);
 }
 
-if (existing) {
-  // Stale generation: replace the block in place; the call site is unchanged.
-  content = content.replace(blockRe, BLOCK).replace(ORIGINAL, PATCHED);
-} else {
-  content = content.replace(ORIGINAL, PATCHED);
-  content = content.replace(/\n*$/, '\n\n') + BLOCK;
-}
 fs.writeFileSync(target, content);
-console.log(`🩹 OneCLI endpoint patch v${VERSION} applied to src/gateway-providers/onecli.ts (set ONECLI_GATEWAY_ENDPOINT in NanoClaw's .env to override the endpoint).`);
-process.exit(2);
+if (notes.length) {
+  console.error(`⚠️  OneCLI endpoint patch v${VERSION} PARTIALLY applied: ${notes.join('; ')}. See templates/patch-details/onecli-endpoint.md.`);
+}
+console.log(`🩹 OneCLI endpoint patch v${VERSION} applied to src/gateway-providers/onecli.ts (set ONECLI_GATEWAY_ENDPOINT in NanoClaw's .env to override the proxy address).`);
+process.exit(changed ? 2 : 0);

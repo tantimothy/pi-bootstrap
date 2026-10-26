@@ -2801,8 +2801,8 @@ Findings worth keeping from upstream's skill:
 
 - An agent group holds **only the secrets attached to it**; a new credential is
   opt-in per agent (`onecli agents grants attach-secret`). That model needs gateway
-  1.44+; the install this was tested on runs 1.36.0, so menu items 7-8 are likely
-  unsupported there.
+  1.44+. The install was first seen on 1.36.0 (so items 7-8 looked unsupported) but
+  has since been upgraded to upstream's pinned 1.45.0, so they should work.
 - Upstream's `setup/index.ts` no longer has a `--step onecli`; gateway install is
   now a skill behind a `gateway` step. `scripts/install-codex-provider.sh` still
   calls `--step onecli` and may need the same skill-first handling.
@@ -2911,4 +2911,59 @@ A CLEAN deploy hard-reset NanoClaw to upstream. That reverted the tracked-file w
 ### Related PRs
 
 This PR.
+
+## Making CLEAN survive skill installs, and the OneCLI proxy bug (2026-10-26)
+
+**Status:** fixed in code and tested against a clone of NanoClaw `2026.10.1-rc.2`
+(`tsc --noEmit`, 172 upstream tests, a vitest probe); not yet run on a real install.
+Builds on the guard added in the entry above.
+
+### Summary
+
+The guard above made a lost skill install *loud*; this makes it *recoverable*, and
+fixes the networking half of the same outage, which the earlier endpoint patch had
+fixed in the wrong place.
+
+### What was wrong
+
+- **Detect-only.** The guard stopped the deploy and told the operator to re-run an
+  interactive skill. Upstream's `SKILL.md` carries machine-readable directives
+  (`nc:copy`, `nc:append`, `nc:dep`), so most of the restore can be replayed.
+- **Stale survivors.** Skill-copied files are untracked, so CLEAN's reset leaves them
+  behind while core moves on. A stale `telegram.ts` failed `tsc` against the new core;
+  a presence check cannot see that.
+- **All-or-nothing snapshot.** CLEAN's pre-reset snapshot of tracked-file edits was one
+  `git apply`; one conflicting file (`package.json`) dropped every other edit.
+- **Wrong field.** `patch-onecli-endpoint.cjs` v1 rewrote `networkAccess.endpoint`,
+  which only feeds Docker network-policy reconciliation. The address agents dial is
+  in `config.env`'s proxy values, copied verbatim by `contributionFromConfig()`.
+  Patching the wrong field builds, deploys and changes nothing — the failure that
+  was written up as a warning and then repeated.
+- **Dead sibling patch.** `patch-host-gateway.cjs` targeted `hostGatewayArgs()` in
+  `container-runtime.ts`, which upstream moved to `drivers/docker-driver.ts`; it has
+  been skipping with only a warning.
+- **A proposed fix that would have re-run the installer.** The suggested
+  `setup.ts` call, with no flags, falls into upstream's installer path whenever the
+  `onecli` CLI is missing from the container (always, right after CLEAN), rebinding
+  the gateway and installing its pinned version.
+
+### Fix
+
+`scripts/skill-restore-lib.sh` replays the skill's declarative directives (read from
+`SKILL.md` at deploy time), refreshes on every CLEAN, and never runs `nc:run` steps;
+the snapshot is per file; `patch-onecli-endpoint.cjs` is v2 and rewrites the proxy
+values; `check_startup_health` fails the deploy on `No gateway provider is
+registered`. Details: `templates/patch-details/skill-wiring.md`, `onecli-endpoint.md`.
+
+### General Lessons
+
+- **When a fix targets "the thing that looked right", check it changes the observable
+  behaviour.** A field that compiles and ships but is not on the path of the failing
+  request is invisible to every build-level check.
+- **Replay a tool's declarative steps; don't run its imperative ones.** A skill's
+  copy/append/dependency list is data; its setup step is a side-effecting program with
+  assumptions about the machine it runs on.
+- **State that survives a reset needs refreshing, not just presence-checking.**
+- **A patch that skips with a warning is a silent regression once nothing reads the
+  warning.** Prefer a status line that fails a check somewhere.
 
