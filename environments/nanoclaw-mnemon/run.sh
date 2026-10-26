@@ -55,6 +55,9 @@ source "$REPO_DIR/lib/ollama-lib.sh"
 # string-templating helper, not YAML-specific — reused below by
 # write_patches_manifest() to render templates/patches-manifest.md.tmpl.
 source "$REPO_DIR/lib/yaml-lib.sh"
+# restore_skill_install — replays a skill's declarative nc:copy/append/dep
+# directives after CLEAN reverts them. See the file's own header.
+source "$SCRIPT_DIR/scripts/skill-restore-lib.sh"
 
 echo "=========================================================="
 echo "🧠 NanoClaw + Mnemon Deployment Pipeline"
@@ -2208,6 +2211,39 @@ snapshot_skill_features() {
     fi
 }
 
+# "Wired" = source present, registered, and dependency declared. These are the
+# three things CLEAN's reset can independently revert.
+_onecli_wired() {
+    local prov="${INSTALL_PATH}/src/gateway-providers"
+    [ -f "${prov}/onecli.ts" ] && [ -f "${prov}/installed.ts" ] && grep -qi "onecli" "${prov}/installed.ts" \
+        && grep -q '"@onecli-sh/sdk"' "${INSTALL_PATH}/package.json" 2>/dev/null
+}
+_telegram_wired() {
+    [ -f "${INSTALL_PATH}/src/channels/telegram.ts" ] \
+        && grep -q "import './telegram.js';" "${INSTALL_PATH}/src/channels/index.ts" 2>/dev/null \
+        && grep -q '"@chat-adapter/telegram"' "${INSTALL_PATH}/package.json" 2>/dev/null
+}
+
+# After a deploy, look for the one startup failure that is otherwise
+# indistinguishable from any other crash in the logs: no gateway provider
+# registered. NanoClaw then FATALs on every boot and the circuit breaker backs
+# off up to 900s, so the service just looks dead. Only lines written during
+# this deploy count (STARTUP_ERRLOG_BASE is the log's length before it began).
+check_startup_health() {
+    local errlog="${INSTALL_PATH}/logs/nanoclaw.error.log" hit=""
+    [ -f "${INSTALL_PATH}/dist/index.js" ] || return 0
+    sleep 6
+    [ -f "$errlog" ] || return 0
+    hit=$(tail -n +"$(( ${STARTUP_ERRLOG_BASE:-0} + 1 ))" "$errlog" 2>/dev/null | grep -F "No gateway provider is registered" | tail -1 || true)
+    if [ -n "$hit" ]; then
+        echo "" >&2
+        echo "❌ NanoClaw is crash-looping: \"No gateway provider is registered in this build\" appeared in ${errlog} during this deploy." >&2
+        echo "   The OneCLI gateway provider's source wiring is missing (src/gateway-providers/installed.ts / onecli.ts)." >&2
+        echo "   See templates/patch-details/skill-wiring.md. Re-run /add-onecli in ${INSTALL_PATH}, then redeploy." >&2
+        exit 1
+    fi
+}
+
 verify_skill_wiring() {
     SKILL_WIRING_LOG=""
     local problems=""
@@ -2217,12 +2253,29 @@ verify_skill_wiring() {
     # FAST deploys never reset, but still need an up-to-date answer.
     [ -n "${SKILL_TELEGRAM_CONFIGURED:-}" ] || snapshot_skill_features
 
+    # Restore before declaring anything lost. On CLEAN a configured skill is
+    # refreshed even when its files are still there: they are untracked, so they
+    # survive the reset while core moves on underneath them, and a stale adapter
+    # that no longer matches core's API fails `tsc` for the whole deploy (seen
+    # with telegram.ts against 2026.10.1-rc.2). Restoring replays only the
+    # skill's own declarative directives — see scripts/skill-restore-lib.sh for
+    # why it never runs a skill's setup step.
+    SKILL_RESTORE_LOG=""
+    if [ "$SKILL_ONECLI_CONFIGURED" = true ] && { [ "$POLICY" = "CLEAN" ] || ! _onecli_wired; }; then
+        echo "🔧 Restoring the /add-onecli source wiring from the skill's own directives..."
+        restore_skill_install add-onecli || echo "⚠️  /add-onecli wiring was only partly restored — see the status below." >&2
+    fi
+    if [ "$SKILL_TELEGRAM_CONFIGURED" = true ] && { [ "$POLICY" = "CLEAN" ] || ! _telegram_wired; }; then
+        echo "🔧 Restoring the /add-telegram source wiring from the skill's own directives..."
+        restore_skill_install add-telegram || echo "⚠️  /add-telegram wiring was only partly restored — see the status below." >&2
+    fi
+
     if [ "$SKILL_TELEGRAM_CONFIGURED" = true ]; then
         if [ -f "${INSTALL_PATH}/src/channels/telegram.ts" ]; then
             SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- Telegram: token configured, src/channels/telegram.ts present — OK
 "
         else
-            problems="${problems}Telegram: a bot token is configured in .env but src/channels/telegram.ts is missing or was quarantined. Re-run /add-telegram.
+            problems="${problems}Telegram: a bot token is configured in .env but src/channels/telegram.ts is missing or was quarantined. Automatic restore did not recover it; re-run /add-telegram.
 "
             SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- Telegram: **LOST** — token configured, adapter source missing
 "
@@ -2238,7 +2291,7 @@ verify_skill_wiring() {
             SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- OneCLI: gateway configured, provider registered — OK
 "
         else
-            problems="${problems}OneCLI: a gateway is configured but its provider is not registered (src/gateway-providers/onecli.ts or installed.ts lost). NanoClaw would crash-loop with \"No gateway provider is registered in this build\". Re-run /add-onecli.
+            problems="${problems}OneCLI: a gateway is configured but its provider is not registered (src/gateway-providers/onecli.ts or installed.ts lost). NanoClaw would crash-loop with \"No gateway provider is registered in this build\". Automatic restore did not recover it; re-run /add-onecli.
 "
             SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- OneCLI: **LOST** — gateway configured, provider source not registered
 "
@@ -2247,6 +2300,8 @@ verify_skill_wiring() {
         SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- OneCLI: not configured — nothing to check
 "
     fi
+
+    SKILL_WIRING_LOG="${SKILL_WIRING_LOG}${SKILL_RESTORE_LOG:-}"
 
     if [ -n "$problems" ]; then
         write_patches_manifest
@@ -2701,6 +2756,8 @@ fi
 # .gitignore) is left alone by construction, the same way `git pull` above
 # already leaves it alone on a plain FAST redeploy.
 # ---------------------------------------------------------------------------------------
+STARTUP_ERRLOG_BASE=$(wc -l < "${INSTALL_PATH}/logs/nanoclaw.error.log" 2>/dev/null | tr -d ' ' || true)
+STARTUP_ERRLOG_BASE="${STARTUP_ERRLOG_BASE:-0}"
 if [ ! -f "${INSTALL_PATH}/nanoclaw.sh" ]; then
     echo "📥 Cloning NanoClaw repository to $INSTALL_PATH ..."
     git clone https://github.com/nanocoai/nanoclaw.git "$INSTALL_PATH"
@@ -2777,29 +2834,51 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # (see docs/lessons-learned/nanoclaw-mnemon.md), and the snapshot-and-
     # reapply below is best-effort — this is what makes a failed restore loud.
     snapshot_skill_features
-    CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain -- . ':!container/Dockerfile' ':!container/entrypoint.sh' ':!container/agent-runner/src/index.ts' ':!src/config.ts' ':!src/container-runner.ts' 2>/dev/null | grep -v '^??' || true)
-    CHANNEL_SKILL_PATCH=""
+    CHANNEL_SKILL_EXCLUDES=(':!container/Dockerfile' ':!container/entrypoint.sh' ':!container/agent-runner/src/index.ts' ':!src/config.ts' ':!src/container-runner.ts')
+    CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain -- . "${CHANNEL_SKILL_EXCLUDES[@]}" 2>/dev/null | grep -v '^??' || true)
+    # One patch PER FILE, not one for everything: a single `git apply` is
+    # all-or-nothing, so one conflicting file (package.json, whose dependency
+    # lines upstream edits constantly) used to drop every other file's edit
+    # along with it — including the channel barrel and gateway-provider imports
+    # that keep NanoClaw booting.
+    CHANNEL_SKILL_PATCH_DIR=""
+    CHANNEL_SKILL_PATCH_INDEX=""
     if [ -n "$CHANNEL_SKILL_MODS" ]; then
         echo "⚠️  CLEAN is about to discard local edits to these tracked files — likely a channel/provider skill's own wiring (e.g. /add-telegram's import in src/channels/index.ts or its package.json dependency):"
         echo "$CHANNEL_SKILL_MODS" | sed 's/^/     /'
-        _tmp_patch=$(mktemp)
-        if git -C "$INSTALL_PATH" diff HEAD -- . ':!container/Dockerfile' ':!container/entrypoint.sh' ':!container/agent-runner/src/index.ts' ':!src/config.ts' ':!src/container-runner.ts' > "$_tmp_patch" 2>/dev/null && [ -s "$_tmp_patch" ]; then
-            CHANNEL_SKILL_PATCH="$_tmp_patch"
-            echo "   Saved a patch of these edits — will try to reapply them automatically after the sync."
-        else
-            rm -f "$_tmp_patch"
+        CHANNEL_SKILL_PATCH_DIR=$(mktemp -d)
+        CHANNEL_SKILL_PATCH_INDEX="${CHANNEL_SKILL_PATCH_DIR}/index"
+        : > "$CHANNEL_SKILL_PATCH_INDEX"
+        _n=0
+        while IFS= read -r _f; do
+            [ -z "$_f" ] && continue
+            _n=$((_n + 1))
+            if git -C "$INSTALL_PATH" diff HEAD -- "$_f" > "${CHANNEL_SKILL_PATCH_DIR}/${_n}.patch" 2>/dev/null && [ -s "${CHANNEL_SKILL_PATCH_DIR}/${_n}.patch" ]; then
+                printf '%s\t%s\n' "$_n" "$_f" >> "$CHANNEL_SKILL_PATCH_INDEX"
+            fi
+        done < <(git -C "$INSTALL_PATH" diff HEAD --name-only -- . "${CHANNEL_SKILL_EXCLUDES[@]}" 2>/dev/null)
+        if [ -s "$CHANNEL_SKILL_PATCH_INDEX" ]; then
+            echo "   Saved a patch of each edited file — will try to reapply them one by one after the sync."
         fi
     fi
     echo "🔄 [CLEAN POLICY] Hard-syncing NanoClaw source to latest upstream (your data — .env, groups/, data/, any scaffolded wiki — is untouched; only git-tracked source files are reset)..."
     git -C "$INSTALL_PATH" fetch origin
     git -C "$INSTALL_PATH" reset --hard '@{u}'
-    if [ -n "$CHANNEL_SKILL_PATCH" ]; then
-        if git -C "$INSTALL_PATH" apply --check "$CHANNEL_SKILL_PATCH" 2>/dev/null; then
-            git -C "$INSTALL_PATH" apply "$CHANNEL_SKILL_PATCH"
-            echo "✅ Reapplied the local edits CLEAN would otherwise have discarded (channel/provider skill wiring) on top of the freshly-synced source."
-            rm -f "$CHANNEL_SKILL_PATCH"
+    if [ -n "$CHANNEL_SKILL_PATCH_INDEX" ] && [ -s "$CHANNEL_SKILL_PATCH_INDEX" ]; then
+        _ok_files=""; _bad_files=""
+        while IFS=$'\t' read -r _n _f; do
+            if git -C "$INSTALL_PATH" apply --check "${CHANNEL_SKILL_PATCH_DIR}/${_n}.patch" 2>/dev/null; then
+                git -C "$INSTALL_PATH" apply "${CHANNEL_SKILL_PATCH_DIR}/${_n}.patch"
+                _ok_files="${_ok_files}${_f} "
+            else
+                _bad_files="${_bad_files}${_f} "
+            fi
+        done < "$CHANNEL_SKILL_PATCH_INDEX"
+        [ -n "$_ok_files" ] && echo "✅ Reapplied the local edits CLEAN would otherwise have discarded, file by file: ${_ok_files}"
+        if [ -n "$_bad_files" ]; then
+            echo "⚠️  Couldn't reapply the edits to: ${_bad_files}— upstream changed the same lines. The skill-wiring restore below rebuilds what it can from each skill's own directives; the saved per-file patches are in: ${CHANNEL_SKILL_PATCH_DIR}"
         else
-            echo "⚠️  Couldn't automatically reapply those edits — upstream likely changed the same lines. Re-run the relevant channel/provider skill (e.g. /add-telegram) to restore it manually. The saved patch is still at: $CHANNEL_SKILL_PATCH"
+            rm -rf "$CHANNEL_SKILL_PATCH_DIR"
         fi
     fi
 else
@@ -3188,6 +3267,8 @@ if [ ! -f "${INSTALL_PATH}/dist/index.js" ]; then
         $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
     fi
 fi
+
+check_startup_health
 
 echo "ℹ️  NanoClaw has no web UI by default — describe problems in chat instead."
 echo "   Want one? Its optional /add-dashboard skill reserves port ${NANOCLAW_PORT} for it."

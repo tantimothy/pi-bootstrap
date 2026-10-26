@@ -619,13 +619,28 @@ backup-before-overwrite helpers having no shared home with any other
 Shipped in PRs [#323](https://github.com/tantimothy/pi-bootstrap/pull/323)
 and [#324](https://github.com/tantimothy/pi-bootstrap/pull/324); account in
 `docs/lessons-learned/nanoclaw-mnemon.md`. CLI restore and listing confirmed
-live (2026-10-26, gateway image 1.36.0). Not yet done:
+live (2026-10-26). Not yet done:
 
 - **Add / update / delete** — confirm against a real gateway (header and
   value-format fields in particular).
-- **Agent-access items (7-8)** — likely unsupported on gateway 1.36.0 (grants
-  need 1.44+). Either hide them when `onecli agents grants` is rejected, or
-  support the older per-agent secret-mode model.
+- **Agent-access items (7-8)** — the gateway is now at upstream's pinned 1.45.0, so
+  `onecli agents grants` should work; confirm attach-secret end to end.
 - **`scripts/install-codex-provider.sh`** still calls `setup/index.ts --step
   onecli`, which current upstream no longer has; give it the same skill-first
   handling as `manage-onecli.sh`.
+
+## nanoclaw-mnemon: CLEAN skill-restore and OneCLI proxy patch
+
+Code and docs in the PR that added `scripts/skill-restore-lib.sh` and
+`patch-onecli-endpoint.cjs` v2; tested only against a clone of upstream. On the
+next real CLEAN, confirm:
+
+- **Restore on a real install** — Telegram and OneCLI wiring come back without a
+  manual skill re-run, and the status lines appear in `pi-bootstrap-patches.md`.
+- **Proxy rewrite** — with `ONECLI_GATEWAY_ENDPOINT` set, agent model calls reach the
+  gateway (`HTTPS_PROXY` inside an agent container shows the bridge IP).
+- **File `ONECLI_GATEWAY_ENDPOINT` upstream** against `/add-onecli`'s own payload
+  (`onecli.ts`), so no pi-bootstrap patch is needed at all.
+- **`patch-host-gateway.cjs` is dead** (target moved to `drivers/docker-driver.ts`);
+  delete it, or port it if `--add-host` still matters on OrbStack.
+
