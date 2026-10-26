@@ -40,7 +40,7 @@ dependency declared in `package.json`.
 
 **Then the check.** If a configured feature still fails its check, the deploy
 exits non-zero before any rebuild or restart, naming the skill to re-run.
-After the deploy, `check_startup_health` also greps this deploy's slice of
+After the deploy, `check_startup_health` also polls (up to `STARTUP_HEALTH_WAIT`, default 12s, stopping at the first hit) this deploy's slice of
 `logs/nanoclaw.error.log` for `No gateway provider is registered` and fails
 loudly, since that error is otherwise indistinguishable from any other crash.
 

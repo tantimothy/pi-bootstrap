@@ -2230,11 +2230,21 @@ _telegram_wired() {
 # off up to 900s, so the service just looks dead. Only lines written during
 # this deploy count (STARTUP_ERRLOG_BASE is the log's length before it began).
 check_startup_health() {
-    local errlog="${INSTALL_PATH}/logs/nanoclaw.error.log" hit=""
+    local errlog="${INSTALL_PATH}/logs/nanoclaw.error.log" hit="" waited=0
+    local limit="${STARTUP_HEALTH_WAIT:-12}"
     [ -f "${INSTALL_PATH}/dist/index.js" ] || return 0
-    sleep 6
-    [ -f "$errlog" ] || return 0
-    hit=$(tail -n +"$(( ${STARTUP_ERRLOG_BASE:-0} + 1 ))" "$errlog" 2>/dev/null | grep -F "No gateway provider is registered" | tail -1 || true)
+    # Poll rather than sleep once: the FATAL fires within seconds of a boot
+    # attempt, but how many seconds depends on the host. Stops at the first hit;
+    # a healthy deploy waits the full limit (STARTUP_HEALTH_WAIT, default 12s).
+    while :; do
+        if [ -f "$errlog" ]; then
+            hit=$(tail -n +"$(( ${STARTUP_ERRLOG_BASE:-0} + 1 ))" "$errlog" 2>/dev/null | grep -F "No gateway provider is registered" | tail -1 || true)
+            [ -n "$hit" ] && break
+        fi
+        [ "$waited" -ge "$limit" ] && break
+        sleep 2
+        waited=$((waited + 2))
+    done
     if [ -n "$hit" ]; then
         echo "" >&2
         echo "❌ NanoClaw is crash-looping: \"No gateway provider is registered in this build\" appeared in ${errlog} during this deploy." >&2
