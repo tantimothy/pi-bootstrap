@@ -1518,3 +1518,15 @@ whole time and took a few minutes to read. Order of operations: read the
 upstream skill/installer and docs first, then ask the operator only for facts
 that exist only on their machine (versions, which containers are running). Full
 account: `docs/lessons-learned/nanoclaw-mnemon.md`, "Manage OneCLI Credentials".
+
+## A patch that compiles and deploys can still change nothing (2026-10-26)
+
+The OneCLI endpoint patch (v1) rewrote `networkAccess.endpoint`, a field that built,
+deployed and passed review, but only feeds a network-policy reconciliation step. The
+address agents actually dialled was in a different, adjacent value. Nothing at build
+time could tell the two apart. Two habits catch it: (1) before patching, trace the
+failing request to the exact value it reads, and say which line that is; (2) test the
+behaviour (a probe that calls the patched function and asserts the output), not just
+that the file type-checks. Related: validate patches against a real clone of the
+upstream project, not mock files — see `CLAUDE.md` and
+`docs/lessons-learned/nanoclaw-mnemon.md`.

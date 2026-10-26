@@ -2828,9 +2828,10 @@ Findings worth keeping from upstream's skill:
 
 ## CLEAN on a newer upstream: the Ollama patch broke `tsc` (2026-10-26)
 
-**Status:** build-breaking part fixed and typechecked against a real clone of
-NanoClaw `2026.10.1-rc.2`. The Ollama env wiring is still not ported (see below),
-and two other problems from the same deploy are not repo bugs or not fixed here.
+**Status:** build-breaking part fixed (PR #325) and typechecked against a real clone
+of NanoClaw `2026.10.1-rc.2`. The Node bump landed in PR #326, and the stale Telegram
+adapter is now refreshed automatically on CLEAN (PR #328, see the entry below). The
+Ollama env wiring is still not ported — it is the one open item from this deploy.
 
 ### Symptom
 
@@ -2856,7 +2857,8 @@ After merging the browser PR and running CLEAN, `pnpm run build` (`tsc`) failed:
   the package dependency was dropped by the reset. The adapter is stale against
   current core.
 - **Node version.** Upstream's `package.json` now requires node >=22; this
-  environment's orchestrator `Dockerfile` is `node:20-slim`.
+  environment's orchestrator `Dockerfile` was `node:20-slim`. Fixed in #326
+  (`node:22-slim`; upstream's own agent image is already `node:22`).
 
 ### Fix
 

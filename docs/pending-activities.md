@@ -644,3 +644,32 @@ next real CLEAN, confirm:
 - **`patch-host-gateway.cjs` is dead** (target moved to `drivers/docker-driver.ts`);
   delete it, or port it if `--add-host` still matters on OrbStack.
 
+## `browser` environment and the NanoClaw browser patch
+
+Shipped in [#322](https://github.com/tantimothy/pi-bootstrap/pull/322) without a Docker
+daemon; account in `docs/lessons-learned/browser.md`, open assumptions in
+`docs/future-enhancements/browser-agent.md`. On first real use, confirm:
+
+- **`docker compose build && up`** of `environments/browser` on amd64 and arm64
+  (Debian `chromium` under Xvfb with `--no-sandbox`), and a VNC login from a macOS client.
+- **An agent reaching CDP by LAN IP** through OneCLI's proxy (the `NO_PROXY` on the MCP
+  subprocess is reasoned, not tested), and that `playwright-mcp` starts in the agent image.
+- **`CDP_ALLOW_RANGE`** on OrbStack / Docker Desktop, where container source addresses can
+  be NAT'd.
+
+## nanoclaw-mnemon: Ollama env wiring is not applied on current upstream
+
+PR [#325](https://github.com/tantimothy/pi-bootstrap/pull/325) stopped the Ollama patch
+breaking `tsc`, but upstream replaced `buildContainerArgs()` with `composeSessionSpec()`,
+so `OLLAMA_HOST` / `OLLAMA_ADMIN_TOOLS` / the `NO_PROXY` re-assertion no longer reach
+agent containers (reported SKIPPED). The MCP tool falls back to its built-in default
+address. A real port means adding the values to the session-spec env record (or the
+gateway/provider contribution lane) and re-deriving the `NO_PROXY` reasoning against the
+current gateway seam; whether the default is reachable today is unconfirmed.
+
+## nanoclaw-mnemon: first real CLEAN on `2026.10.1-rc.2` after #325/#326/#328
+
+- Confirm the orchestrator builds on `node:22-slim` (arm64 and amd64) and the engine
+  warning is gone.
+- Confirm the Telegram adapter is refreshed and `tsc` passes without a manual
+  `/add-telegram`.
