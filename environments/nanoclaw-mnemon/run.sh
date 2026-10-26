@@ -1744,6 +1744,9 @@ OLLAMA_INDEX_BLOCK
         echo "🦙 Wiring OLLAMA_HOST/OLLAMA_ADMIN_TOOLS/OLLAMA_NO_PROXY_OVERRIDE into config.ts..."
         local keys_anchor
         keys_anchor=$(grep -n "^  'ONECLI_GATEWAY_CONTAINER'," "$config_ts" | head -1 | cut -d: -f1)
+        # Upstream dropped that key when OneCLI moved behind the gateway seam.
+        # Any key works, so fall back to the list's own opening line.
+        [ -z "$keys_anchor" ] && keys_anchor=$(grep -n "^const envConfig = readEnvFile(\[" "$config_ts" | head -1 | cut -d: -f1)
         if [ -z "$keys_anchor" ]; then
             echo "❌ Couldn't find the readEnvFile() key-list anchor in config.ts." >&2
             echo "   NanoClaw's own config.ts may have changed upstream — skipping;" >&2
@@ -1794,7 +1797,22 @@ OLLAMA_CONFIG_EXPORT_BLOCK
     # 4. src/ollama-env.ts — the fixed ollamaEnvArgs() implementation.
     # Fully owned by this patch, same "fill in if missing, never overwrite"
     # rule as ollama-mcp-stdio.ts above.
-    if [ -f "$ollama_env" ]; then
+    #
+    # It imports OLLAMA_* from config.ts, so it must not exist unless step 3
+    # left those exports in place: an untracked file survives CLEAN's hard
+    # reset while config.ts does not, and a copy whose imports no longer
+    # resolve fails `tsc` for the entire deploy. A stale copy is renamed aside
+    # (not deleted — it may carry a live admin-session fix) instead.
+    if ! grep -q "^export const OLLAMA_HOST" "$config_ts"; then
+        if [ -f "$ollama_env" ]; then
+            mv "$ollama_env" "${ollama_env}.pi-bootstrap-disabled"
+            echo "⚠️  config.ts has no OLLAMA_* exports, so src/ollama-env.ts would break the build — moved it aside." >&2
+            _ollama_log "ollama-env.ts: **DISABLED** — config.ts lacks the OLLAMA_* exports it imports; renamed to ollama-env.ts.pi-bootstrap-disabled (see \"Upstream drift\" below)"
+        else
+            _ollama_log "ollama-env.ts: **NOT WRITTEN** — config.ts lacks the OLLAMA_* exports it imports (see \"Upstream drift\" below)"
+        fi
+        OLLAMA_PATCH_OK=false
+    elif [ -f "$ollama_env" ]; then
         echo "✅ ollama-env.ts already present."
         _ollama_log "ollama-env.ts: already present (left untouched)"
     else
@@ -1845,7 +1863,10 @@ OLLAMA_ENV_TS
     # buildContainerArgs(). Two separate splices in the same file; each
     # re-finds its own anchor fresh rather than assuming a line number
     # computed before the first splice still applies after it.
-    if grep -q "ollama-env" "$container_runner"; then
+    if [ ! -f "$ollama_env" ]; then
+        _ollama_log "container-runner.ts: **SKIPPED** — ollama-env.ts is not in place, nothing to wire (see \"Upstream drift\" below)"
+        OLLAMA_PATCH_OK=false
+    elif grep -q "ollama-env" "$container_runner"; then
         echo "✅ container-runner.ts already wires ollamaEnvArgs()."
         _ollama_log "container-runner.ts: already patched"
     else
@@ -1895,9 +1916,11 @@ OLLAMA_ENV_TS
     # container (and its dependencies) genuinely exist.
     local mcp_count index_count runner_count config_count
     mcp_count=$([ -f "$mcp_stdio" ] && echo 1 || echo 0)
-    index_count=$(grep -c "ollama" "$index_ts" 2>/dev/null || echo 0)
-    runner_count=$(grep -c "ollamaEnvArgs" "$container_runner" 2>/dev/null || echo 0)
-    config_count=$(grep -c "OLLAMA_HOST" "$config_ts" 2>/dev/null || echo 0)
+    # `|| true`, not `|| echo 0`: grep -c already prints 0 on no match (exiting
+    # 1), so `|| echo 0` made the value "0<newline>0" and broke the -gt tests.
+    index_count=$(grep -c "ollama" "$index_ts" 2>/dev/null || true)
+    runner_count=$(grep -c "ollamaEnvArgs" "$container_runner" 2>/dev/null || true)
+    config_count=$(grep -c "OLLAMA_HOST" "$config_ts" 2>/dev/null || true)
     if [ "$mcp_count" -gt 0 ] && [ "$index_count" -gt 0 ] && [ "$runner_count" -gt 0 ] && [ "$config_count" -gt 0 ] && [ -f "$ollama_env" ]; then
         echo "✅ Ollama-tool patch verified (all five files present/wired)."
         _ollama_log "**Verification: PASSED** (all five files present/wired)"
