@@ -13,6 +13,13 @@
 # several older commands RETIRED). A rejected command's own error is printed
 # verbatim rather than interpreted.
 #
+# Grants: per upstream's add-onecli skill, an agent group holds only the secrets
+# attached to it — a new credential is opt-in per agent, via menu items 7-8
+# (`onecli agents list --max 0` maps a group's `identifier` to the agent id).
+# `secrets update --value` has no --file form, so an updated value is briefly
+# on a command line INSIDE the container (not on the host); add and every
+# other path keep values off command lines.
+#
 # Secret values never appear in this script's argv or in shell history: they
 # are read with `read -s` and piped over stdin into the container.
 
@@ -31,11 +38,61 @@ require_container() {
         echo "❌ $CONTAINER_NAME is not running. Deploy the environment first." >&2
         exit 1
     fi
-    if ! "$DOCKER" exec "$CONTAINER_NAME" bash -lc 'onecli version >/dev/null 2>&1'; then
-        echo "❌ The onecli CLI isn't available (or isn't authenticated) inside $CONTAINER_NAME." >&2
-        echo "   A fresh install installs it during NanoClaw's first-run wizard; after a CLEAN," >&2
-        echo "   'Manage Codex Provider' → Install / refresh restores it." >&2
+    if ! cli_present; then
+        echo "⚠️  The onecli CLI isn't installed inside $CONTAINER_NAME."
+        echo "   NanoClaw's setup installs it into this (disposable) container, so recreating the"
+        echo "   container removes it. The OneCLI gateway and your stored credentials are separate"
+        echo "   and are NOT affected — NanoClaw itself keeps working without the CLI."
+        restore_cli || exit 1
+    fi
+    # Version presence is not the same as being logged in to the gateway.
+    if ! "$DOCKER" exec "$CONTAINER_NAME" bash -lc 'onecli secrets list --max 1 >/dev/null 2>&1'; then
+        echo "⚠️  onecli is installed but 'onecli secrets list' fails — it may not be logged in to the gateway." >&2
+        echo "   Run:  docker exec -it $CONTAINER_NAME onecli auth login --api-key <key from the OneCLI dashboard>" >&2
+        echo "   (If NanoClaw's .env has ONECLI_API_KEY, option 'Restore CLI' below uses it.)" >&2
         exit 1
+    fi
+}
+
+cli_present() {
+    "$DOCKER" exec "$CONTAINER_NAME" bash -lc 'onecli version >/dev/null 2>&1'
+}
+
+# Re-installs the CLI the way NanoClaw's own setup does for a gateway that is
+# already running: upstream's add-onecli skill setup script, in --remote-url
+# mode, which installs only the pinned CLI binary, points it at the gateway
+# (`onecli config set api-host`) and logs in if a token is supplied. Newer
+# NanoClaw has that script under .claude/skills/add-onecli/; older checkouts
+# expose it as `setup/index.ts --step onecli`.
+restore_cli() {
+    local envf="$INSTALL_PATH/.env" url="" key="" ans=""
+    if [ -f "$envf" ]; then
+        url=$(sed -n 's/^ONECLI_URL=//p' "$envf" | tail -1 | tr -d "\"'")
+        key=$(sed -n 's/^ONECLI_API_KEY=//p' "$envf" | tail -1 | tr -d "\"'")
+    fi
+    if [ -z "$url" ]; then
+        echo "❌ No ONECLI_URL in $envf, so there's no gateway URL to point the CLI at." >&2
+        echo "   Finish NanoClaw's first-run setup first (it installs the gateway and writes that line)." >&2
+        return 1
+    fi
+    echo "   Gateway: $url${key:+  (will log in with ONECLI_API_KEY from that .env)}"
+    read -rp "Re-install the CLI now? [y/N] " ans
+    [[ "$ans" =~ ^[Yy]$ ]] || { echo "Cancelled."; return 1; }
+    printf '%s' "$key" | "$DOCKER" exec -i "$CONTAINER_NAME" bash -lc '
+        set -e
+        cd "$1"
+        export NANOCLAW_ONECLI_API_TOKEN="$(cat)"
+        skill=.claude/skills/add-onecli/scripts/setup.ts
+        if [ -f "$skill" ]; then
+            pnpm exec tsx "$skill" --remote-url "$2"
+        else
+            pnpm exec tsx setup/index.ts --step onecli --remote-url "$2"
+        fi' _ "$INSTALL_PATH" "$url" || { echo "❌ Restoring the CLI failed — see the output above." >&2; return 1; }
+    if cli_present; then
+        echo "✅ onecli CLI restored."
+    else
+        echo "❌ The installer ran but 'onecli' still isn't found in $CONTAINER_NAME." >&2
+        return 1
     fi
 }
 
