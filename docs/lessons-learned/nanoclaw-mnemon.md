@@ -2917,7 +2917,9 @@ This PR.
 ## Making CLEAN survive skill installs, and the OneCLI proxy bug (2026-10-26)
 
 **Status:** fixed in code and tested against a clone of NanoClaw `2026.10.1-rc.2`
-(`tsc --noEmit`, 172 upstream tests, a vitest probe); not yet run on a real install.
+(`tsc --noEmit`, 172 upstream tests, a vitest probe). A real CLEAN on the operator's install
+has since completed successfully; the proxy rewrite itself (agent calls reaching the gateway
+with `ONECLI_GATEWAY_ENDPOINT` set) has not been separately confirmed.
 Builds on the guard added in the entry above.
 
 ### Summary
