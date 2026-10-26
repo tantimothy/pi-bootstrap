@@ -420,6 +420,14 @@ Agents can drive a persistent Chromium — one *you* log into once over VNC — 
 
 Unsetting `BROWSER_CDP_URL` removes the patch. Details, anchors and what a correct fix looks like: `templates/patch-details/browser.md`. **Not yet exercised against a real deploy** — see `docs/future-enhancements/browser-agent.md`.
 
+## 🔑 Managing OneCLI Credentials
+
+**Manage OneCLI Credentials** in this environment's action menu (`scripts/manage-onecli.sh`) lists, adds, updates and deletes the credentials OneCLI injects into agent requests, so you don't need the dashboard link an agent is handed when it is blocked on an unknown host. Adding one stores a value against a host (and optional path) pattern, injected as a header (`Authorization: Bearer {value}`, `Cookie: name={value}`) or a query parameter. Values are typed hidden and passed over stdin to a `0600` temp file inside the container, never on a command line.
+
+NanoClaw's setup installs the `onecli` CLI into the orchestrator container, so recreating that container removes it while the gateway (and your stored credentials) keep working. If the CLI is missing the menu offers to re-install it using upstream's `add-onecli` skill setup script in `--remote-url` mode, reading `ONECLI_URL` (and `ONECLI_API_KEY`, if present) from NanoClaw's `.env`. Per upstream, an agent group holds only the secrets attached to it, so a new credential is opt-in per agent (menu items 7-8).
+
+Two caveats: the CLI's flags were read from the `onecli-cli` source at `main`, not the version installed in your container, so a rejected command's own error is shown as-is; and newer OneCLI servers use per-agent *grants*, so a new credential may also need **Agent access → attach** before requests stop being blocked. Don't store a credential for a third-party mirror of a service (e.g. a Redlib instance) unless you'd hand that operator the credential directly — OneCLI sends it to whatever host matches. **Not yet exercised against a real OneCLI install.**
+
 ## Security Notes
 
 The orchestrator image has no `USER` directive, so NanoClaw's first-run "you are running as root" warning is expected in this container deployment. Docker socket access is already root-equivalent on the host.

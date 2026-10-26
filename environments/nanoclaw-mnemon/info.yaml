@@ -25,6 +25,10 @@ web_uis: []
 custom_actions:
   - label: "Manage Codex Provider"
     command: "bash ${ENV_DIR}/scripts/manage-codex-provider.sh"
+  # List/add/update/delete the credentials OneCLI injects into agent traffic,
+  # via the `onecli` CLI inside the container — see the script's own header.
+  - label: "Manage OneCLI Credentials"
+    command: "bash ${ENV_DIR}/scripts/manage-onecli.sh"
   - label: "Scaffold a Wiki for a Group (Mnemon profile)"
     command: 'read -rp "Group folder name (under groups/): " GROUP; bash ${ENV_DIR}/scripts/scaffold-wiki.sh "$GROUP"'
   - label: "Reload Mnemon for a Group (Mnemon profile)"
