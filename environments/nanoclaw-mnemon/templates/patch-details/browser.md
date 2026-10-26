@@ -43,6 +43,14 @@ value present or the next deploy will overwrite your edit.
    The Dockerfile block prints a warning rather than failing the build if it is
    missing. Check with the commands below.
 
+**OneCLI does not cover the browser.** Agent traffic goes through OneCLI,
+which injects credentials per host and blocks hosts it has none for. The browser
+is a separate container: what the agent loads through it is not subject to that
+blocking or to per-agent grants, and its logins live in the browser profile, not
+the vault. This patch widens what the agent can reach; it is not a OneCLI
+feature. (Credentials for ordinary agent requests are managed with the "Manage
+OneCLI Credentials" action.)
+
 **Hostname vs IP.** See rule 1. The deploy warns when `BROWSER_CDP_URL` uses a
 hostname.
 

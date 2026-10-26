@@ -58,6 +58,14 @@ bound to loopback, so by default it's published on `0.0.0.0`. Narrow that:
 - `CDP_ALLOW_RANGE=<cidr>` to filter source addresses in the relay
 - firewall the port to this host
 
+**This browser is outside OneCLI.** NanoClaw routes agent traffic through the OneCLI gateway, which injects stored credentials for matching hosts and blocks hosts it has none for. Chromium here is a separate container with its own network path, so:
+
+- Pages the agent opens through it are **not** subject to OneCLI's blocking of unknown hosts or its per-agent grants.
+- Logins you make over VNC live in the browser profile, not in OneCLI's vault, and OneCLI doesn't see or control their use.
+- The agent's CDP connection to this container is itself excluded from the proxy (`NO_PROXY` on the Playwright MCP subprocess), because it is a LAN address the gateway has no route for.
+
+Treat the browser as a separate trust boundary from the rest of the agent's access.
+
 Only log into accounts you're willing to let the agent act as. VNC is
 password-protected but unencrypted; it's bound to loopback by default — use an
 SSH tunnel from another machine.
