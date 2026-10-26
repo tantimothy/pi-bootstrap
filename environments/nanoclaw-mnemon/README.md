@@ -428,6 +428,10 @@ NanoClaw's setup installs the `onecli` CLI into the orchestrator container, so r
 
 **Confirmed live** (against a gateway running image `ghcr.io/onecli/onecli:1.36.0`): the CLI restore, and listing credentials. **Not yet confirmed**: add, update and delete, and menu items 7-8. Those items use `onecli agents grants ...`, which upstream says needs gateway 1.44 or newer (upstream's `add-onecli` skill pins 1.45.0), so they will likely be rejected on an older gateway. A rejected command's own error is shown as-is. The CLI's flags were read from the `onecli-cli` source at `main`, not from the installed version.
 
+**CLEAN and the skill installs.** `/add-telegram` and `/add-onecli` are upstream skill installs, and CLEAN's hard reset can revert their tracked-file wiring. After patching, a CLEAN (or FAST) deploy now checks that a previously configured Telegram token or OneCLI gateway still has its source in place, and fails before restarting NanoClaw if not, naming the skill to re-run (bypass: `SKIP_SKILL_WIRING_CHECK=1`). See `templates/patch-details/skill-wiring.md`.
+
+**Gateway unreachable from agent containers.** If `host.docker.internal` resolves to an address that refuses connections (seen on OrbStack), set `ONECLI_GATEWAY_ENDPOINT=<docker bridge gateway IP>` in NanoClaw's `.env`; a patch reapplied on every deploy makes the OneCLI provider honour it (default unchanged). See `templates/patch-details/onecli-endpoint.md`. Not yet verified on a real install.
+
 Don't store a credential for a third-party mirror of a service (e.g. a Redlib instance) unless you'd hand that operator the credential directly — OneCLI sends it to whatever host matches.
 
 ## Security Notes

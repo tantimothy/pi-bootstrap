@@ -2878,3 +2878,37 @@ The browser patch was applied to the same clone and its anchors all matched.
 - **When upstream restructures, re-matching anchors is the wrong repair.** The
   env-wiring needs a port to the new session-spec shape, not a new grep.
 
+---
+
+## Issue Found & Fixed: CLEAN silently reverts /add-telegram and /add-onecli (2026-10-26)
+
+**Status:** Fixed in code; **not yet verified on a real install** (no Docker in the authoring session).
+
+### Summary
+
+A CLEAN deploy hard-reset NanoClaw to upstream. That reverted the tracked-file wiring of two upstream skill installs. Telegram degraded; the OneCLI gateway provider registration did not degrade, it crashed the service.
+
+### Symptom
+
+"Telegram isn't responding" was really the whole service down: `No gateway provider is registered in this build` thrown at startup, crash-looping with backoff up to 900s for ~20 minutes. After restoring OneCLI, agents still never replied because `onecli.ts` hardcodes `endpoint: 'host.docker.internal'`, which resolved to a refusing address on OrbStack while the gateway was reachable on the bridge IP.
+
+### Root cause
+
+1. pi-bootstrap's CLEAN only re-applies its own patches. Skill installs also edit tracked files; `reset --hard` reverts those edits, the best-effort patch snapshot did not restore them, and nothing noticed.
+2. The gateway endpoint had no override, so a host-specific networking quirk could only be fixed by editing skill-owned source.
+
+### Fix
+
+- `verify_skill_wiring` (run.sh): records before the reset whether Telegram/OneCLI were configured, then fails the deploy before any rebuild or restart if the source is gone, naming the skill to re-run. Bypass `SKIP_SKILL_WIRING_CHECK=1`. Auto-reinstall was deliberately not attempted: the skills are upstream's interactive installs and their steps cannot be checked from here.
+- `scripts/patch-onecli-endpoint.cjs`: version-marked patch making the endpoint read `ONECLI_GATEWAY_ENDPOINT` (env, then NanoClaw's `.env`), default unchanged; skips loudly if the anchor moves. Docs: `templates/patch-details/skill-wiring.md`, `onecli-endpoint.md`.
+
+### General Lessons
+
+- **Anything a CLEAN-style reset can revert needs a "was it configured, is it still there" check, not just a re-apply.** A crash loop is a bad way to learn a deploy lost something.
+- **A hardcoded host-networking value in third-party source needs an override before it needs a fix.** The existing `patch-host-gateway.cjs` covered `--add-host` but not a value passed straight to OneCLI.
+- **A guard that cannot repair should fail where the cause is, at deploy time, with the remedy named.**
+
+### Related PRs
+
+This PR.
+
