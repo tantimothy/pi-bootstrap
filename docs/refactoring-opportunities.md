@@ -259,3 +259,32 @@ fixing in more than one place at once — at that point, extract the launch
 directory and the invocation wrapper as parameters to a single shared
 `lib/claude-tmux-lib.sh` function, sourced by all copies instead of
 pasted into each.
+
+---
+
+## `manage-onecli.sh` and `manage-codex-provider.sh` share a helper skeleton
+
+Both `environments/nanoclaw-mnemon/scripts/` menus repeat `require_container()`,
+an `inside`/`run_in` wrapper around `docker exec ... bash -lc`, group/ID prompt
+validation, and the same `.env`-sourcing preamble. `manage-onecli.sh` adds a
+third near-copy of "read a key out of NanoClaw's own `.env`" that `run.sh`'s
+`_env_value()` and `install-codex-provider.sh` each also implement.
+
+**Why deferred.** Two menus and three small readers is not yet a pattern worth a
+shared file, and the two scripts differ in what they pass over stdin (secrets
+vs. nothing), which is exactly where a shared wrapper would be easiest to get
+subtly wrong. Revisit when a third `manage-*.sh` menu is added, or if the
+`.env` readers diverge (quote handling already differs slightly).
+
+---
+
+## `skill-restore-lib.sh` and `patch-onecli-endpoint.cjs` both parse upstream text
+
+The restore lib reads `nc:*` fences out of upstream `SKILL.md` files with awk;
+`patch-onecli-endpoint.cjs` splices upstream TypeScript by exact-string anchors.
+They are separate mechanisms for the same underlying problem (upstream's source
+is the input and moves under us). **Why deferred:** one is declarative replay,
+the other a code edit; unifying them would mean building a general patch engine.
+Revisit if a third patch needs anchored edits in a file the restore lib also
+overwrites (the ordering between the two already matters: the restore rewrites
+`onecli.ts`, so the endpoint patch must run after it).
