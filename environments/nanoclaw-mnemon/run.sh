@@ -2179,6 +2179,85 @@ _patch_detail() {
     fi
 }
 
+# ---------------------------------------------------------------------------------------
+# Skill-wiring guard. /add-telegram and /add-onecli are upstream-NanoClaw skill
+# installs, not pi-bootstrap patches, and CLEAN's `reset --hard` silently
+# reverts their tracked-file halves (package.json dependency, channel barrel
+# import, src/gateway-providers/installed.ts). Telegram then quietly goes dead;
+# a missing gateway provider is worse — NanoClaw throws "No gateway provider is
+# registered in this build" on every boot and crash-loops. pi-bootstrap cannot
+# re-run those skills headlessly (they are upstream's interactive installs, and
+# guessing their steps would splice blind), so it does the next best thing:
+# detect "was configured, source now gone" and stop the deploy BEFORE the
+# rebuild/restart, naming the skill to re-run. Details and bypass:
+# templates/patch-details/skill-wiring.md.
+# ---------------------------------------------------------------------------------------
+_env_value() { # <file> <key> — last non-empty assignment, quotes stripped
+    [ -f "$1" ] || return 0
+    grep -E "^${2}=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//' || true
+}
+
+snapshot_skill_features() {
+    SKILL_TELEGRAM_CONFIGURED=false
+    SKILL_ONECLI_CONFIGURED=false
+    local envf="${INSTALL_PATH}/.env"
+    [ -n "$(_env_value "$envf" TELEGRAM_BOT_TOKEN)" ] && SKILL_TELEGRAM_CONFIGURED=true
+    if [ -n "$(_env_value "$envf" ONECLI_URL)" ] \
+       || { [ -f "${INSTALL_PATH}/src/gateway-providers/installed.ts" ] && grep -qi 'onecli' "${INSTALL_PATH}/src/gateway-providers/installed.ts"; }; then
+        SKILL_ONECLI_CONFIGURED=true
+    fi
+}
+
+verify_skill_wiring() {
+    SKILL_WIRING_LOG=""
+    local problems=""
+    # A fresh install has nothing configured yet; the setup wizard does it.
+    [ -f "${INSTALL_PATH}/dist/index.js" ] || { SKILL_WIRING_LOG="- Skipped — first install, no earlier configuration to lose.
+"; return 0; }
+    # FAST deploys never reset, but still need an up-to-date answer.
+    [ -n "${SKILL_TELEGRAM_CONFIGURED:-}" ] || snapshot_skill_features
+
+    if [ "$SKILL_TELEGRAM_CONFIGURED" = true ]; then
+        if [ -f "${INSTALL_PATH}/src/channels/telegram.ts" ]; then
+            SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- Telegram: token configured, src/channels/telegram.ts present — OK
+"
+        else
+            problems="${problems}Telegram: a bot token is configured in .env but src/channels/telegram.ts is missing or was quarantined. Re-run /add-telegram.
+"
+            SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- Telegram: **LOST** — token configured, adapter source missing
+"
+        fi
+    else
+        SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- Telegram: not configured — nothing to check
+"
+    fi
+
+    if [ "$SKILL_ONECLI_CONFIGURED" = true ]; then
+        local prov="${INSTALL_PATH}/src/gateway-providers"
+        if [ -f "${prov}/onecli.ts" ] && [ -f "${prov}/installed.ts" ] && grep -qi 'onecli' "${prov}/installed.ts"; then
+            SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- OneCLI: gateway configured, provider registered — OK
+"
+        else
+            problems="${problems}OneCLI: a gateway is configured but its provider is not registered (src/gateway-providers/onecli.ts or installed.ts lost). NanoClaw would crash-loop with \"No gateway provider is registered in this build\". Re-run /add-onecli.
+"
+            SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- OneCLI: **LOST** — gateway configured, provider source not registered
+"
+        fi
+    else
+        SKILL_WIRING_LOG="${SKILL_WIRING_LOG}- OneCLI: not configured — nothing to check
+"
+    fi
+
+    if [ -n "$problems" ]; then
+        write_patches_manifest
+        echo "❌ A previously configured NanoClaw skill install was lost (typically reverted by CLEAN's hard reset):" >&2
+        printf '%s' "$problems" | sed 's/^/   - /' >&2
+        echo "   Stopping before the rebuild/restart so NanoClaw is not left crash-looping. Run the skill(s) above in a Claude Code session in ${INSTALL_PATH}, then redeploy." >&2
+        echo "   To deploy anyway: SKIP_SKILL_WIRING_CHECK=1 (see templates/patch-details/skill-wiring.md)." >&2
+        [ "${SKIP_SKILL_WIRING_CHECK:-}" = "1" ] || exit 1
+    fi
+}
+
 write_patches_manifest() {
     local manifest="${INSTALL_PATH}/pi-bootstrap-patches.md"
     local template="${SCRIPT_DIR}/templates/patches-manifest.md.tmpl"
@@ -2201,6 +2280,10 @@ write_patches_manifest() {
 }"
     local telegram_status="${TELEGRAM_IMPORT_PATCH_LOG:-- (no status recorded — apply_telegram_import_patch may not have run)
 }"
+    local skill_wiring_status="${SKILL_WIRING_LOG:-- (no status recorded — verify_skill_wiring may not have run)
+}"
+    local onecli_endpoint_status="${ONECLI_ENDPOINT_PATCH_LOG:-- Not applied yet — this patch runs later in the deploy than the others, after the orchestrator container is up.
+}"
     local generated_at
     generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -2217,6 +2300,8 @@ write_patches_manifest() {
     ollama_detail="$(_patch_detail ollama-tool)"
     local browser_detail; browser_detail="$(_patch_detail browser)"
     telegram_detail="$(_patch_detail telegram-import)"
+    local skill_wiring_detail; skill_wiring_detail="$(_patch_detail skill-wiring)"
+    local onecli_endpoint_detail; onecli_endpoint_detail="$(_patch_detail onecli-endpoint)"
     group_images_detail="$(_patch_detail group-images)"
     local ollama_daemon_detail; ollama_daemon_detail="$(_patch_detail ollama-daemon)"
     local ollama_daemon_status="${OLLAMA_DAEMON_LOG:-- Not checked — MNEMON_EMBED_ENDPOINT is unset, so this deploy never probed the Ollama daemon. The Ollama MCP tool may still use it; check from inside an agent container per the section below.
@@ -2686,6 +2771,12 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # letting the generic snapshot-and-reapply mechanism also touch them
     # risks resurrecting stale patch text that then satisfies that
     # function's own marker-based idempotency check and never updates again.
+    # Record BEFORE the reset which skill-installed features were configured,
+    # for verify_skill_wiring() after the patches run. The reset reverts the
+    # tracked half of /add-telegram and /add-onecli with no error anywhere
+    # (see docs/lessons-learned/nanoclaw-mnemon.md), and the snapshot-and-
+    # reapply below is best-effort — this is what makes a failed restore loud.
+    snapshot_skill_features
     CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain -- . ':!container/Dockerfile' ':!container/entrypoint.sh' ':!container/agent-runner/src/index.ts' ':!src/config.ts' ':!src/container-runner.ts' 2>/dev/null | grep -v '^??' || true)
     CHANNEL_SKILL_PATCH=""
     if [ -n "$CHANNEL_SKILL_MODS" ]; then
@@ -2755,6 +2846,7 @@ apply_browser_patch || true
 # channel, not a pi-bootstrap addition; see apply_telegram_import_patch()'s
 # own header comment for why this self-heal exists at all.
 apply_telegram_import_patch || true
+verify_skill_wiring
 write_patches_manifest
 
 # Group-local CLAUDE.local.md survives CLEAN and is read on every agent
@@ -2856,6 +2948,21 @@ if $DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scrip
 else
     patch_rc=$?
 fi
+
+# OneCLI's gateway provider hardcodes the endpoint agent containers use to
+# reach the gateway; this makes it overridable via ONECLI_GATEWAY_ENDPOINT
+# (see patch-onecli-endpoint.cjs and templates/patch-details/onecli-endpoint.md).
+# Same every-run, exit-code-2-means-rebuild treatment as the patch above. Its
+# output is captured as the manifest status line; the exit code is captured
+# inside the `if` for the same set -e reason.
+if ONECLI_ENDPOINT_OUT=$($DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-onecli-endpoint.cjs" 2>&1); then
+    onecli_endpoint_rc=0
+else
+    onecli_endpoint_rc=$?
+fi
+echo "$ONECLI_ENDPOINT_OUT"
+ONECLI_ENDPOINT_PATCH_LOG="- ${ONECLI_ENDPOINT_OUT}
+"
 
 # requestApproval() (src/modules/approvals/primitive.ts) silently drops an
 # approval card — logging apparent success — whenever getDeliveryAdapter()
@@ -3010,8 +3117,8 @@ fi
 # manifest re-renders identically from the same status variables.
 write_patches_manifest
 
-if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
-    echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway and/or approval-delivery fix)..."
+if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ] || [ "$onecli_endpoint_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway, approval-delivery and/or OneCLI endpoint fix)..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
     stamp_upgrade_state
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
@@ -3023,7 +3130,7 @@ fi
 # synced source so the upgrade actually takes effect instead of silently
 # continuing to run the old build. Skipped when either patch above already
 # did this same rebuild+restart (patch_rc/approval_patch_rc == 2).
-if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -ne 2 ] && [ "$onecli_endpoint_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
     stamp_upgrade_state
