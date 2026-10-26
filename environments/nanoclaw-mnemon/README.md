@@ -410,6 +410,12 @@ Typical agent-side use: `tesseract image.png stdout` for a straight image, or fo
 
 ---
 
+## 🔑 Managing OneCLI Credentials
+
+**Manage OneCLI Credentials** in this environment's action menu (`scripts/manage-onecli.sh`) lists, adds, updates and deletes the credentials OneCLI injects into agent requests, so you don't need the dashboard link an agent is handed when it is blocked on an unknown host. Adding one stores a value against a host (and optional path) pattern, injected as a header (`Authorization: Bearer {value}`, `Cookie: name={value}`) or a query parameter. Values are typed hidden and passed over stdin to a `0600` temp file inside the container, never on a command line.
+
+Two caveats: the CLI's flags were read from the `onecli-cli` source at `main`, not the version installed in your container, so a rejected command's own error is shown as-is; and newer OneCLI servers use per-agent *grants*, so a new credential may also need **Agent access → attach** before requests stop being blocked. Don't store a credential for a third-party mirror of a service (e.g. a Redlib instance) unless you'd hand that operator the credential directly — OneCLI sends it to whatever host matches. **Not yet exercised against a real OneCLI install.**
+
 ## Security Notes
 
 The orchestrator image has no `USER` directive, so NanoClaw's first-run "you are running as root" warning is expected in this container deployment. Docker socket access is already root-equivalent on the host.
