@@ -1507,3 +1507,14 @@ much worse than the bug:
   and systemd kinds named their container or unit; the marker kind — the one
   case where the thing checked is invisible and written mid-deploy — said only
   "not deployed".
+
+## Read the upstream installer before asking the operator to probe (2026-10-26)
+
+When a script depended on a third-party CLI that turned out to be missing, the
+first response was a series of `docker exec ... command -v` probes for the
+operator to run. The answer — where the CLI gets installed, and that it is
+removed when the container is recreated — was in upstream's setup script the
+whole time and took a few minutes to read. Order of operations: read the
+upstream skill/installer and docs first, then ask the operator only for facts
+that exist only on their machine (versions, which containers are running). Full
+account: `docs/lessons-learned/nanoclaw-mnemon.md`, "Manage OneCLI Credentials".

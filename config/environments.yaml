@@ -59,6 +59,7 @@ categories:
       - executor
       - herdr-client
       - collie-client
+      - browser
   - id: network-security
     name: "Networking & Security"
     environments:

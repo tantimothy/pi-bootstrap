@@ -1,0 +1,25 @@
+deployment:
+  kind: container
+  value: "${CONTAINER_NAME:-browser}"
+data_dirs: []
+install_dirs: []
+named_volumes:
+  - name: browser_data
+    description: "Chromium profile — every login, cookie and extension the agent browser has — plus the generated VNC password"
+delete_confirm_msg: "Every site login saved in the agent browser's profile will be lost; you will have to log in again over VNC."
+# |2 pins the strip to exactly 2 spaces — see portainer/info.yaml.
+useful_commands: |2
+     open vnc://${HOST_IP}:${VNC_PORT:-5901}                          # log into sites (macOS); any VNC client works
+     docker exec ${CONTAINER_NAME:-browser} cat /data/vnc-password    # the VNC password
+     curl http://${HOST_IP}:${CDP_PORT:-9222}/json/version            # confirm CDP answers (must use an IP, see below)
+     docker logs -f ${CONTAINER_NAME:-browser}                        # live logs
+
+  📌 Notes:
+     🔐 CDP (port ${CDP_PORT:-9222}) is unauthenticated full control of this browser.
+        Restrict CDP_BIND / CDP_ALLOW_RANGE in .env rather than leaving it open
+        on your LAN.
+     🌐 Chromium rejects a CDP request whose Host header is a hostname other
+        than localhost, so agents must be pointed at an IP address
+        (http://<lan-ip>:${CDP_PORT:-9222}), not a name.
+     🤖 NanoClaw: set BROWSER_CDP_URL in nanoclaw-mnemon's .env to that URL,
+        then deploy it.

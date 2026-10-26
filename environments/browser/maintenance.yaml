@@ -1,0 +1,8 @@
+deployment:
+  kind: container
+  value: "${CONTAINER_NAME:-browser}"
+updates:
+  local_images:
+    - image_pattern: "pi-bootstrap-browser:*"
+      dockerfile: Dockerfile
+      apt_updates: true

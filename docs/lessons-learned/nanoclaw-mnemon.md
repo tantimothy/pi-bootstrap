@@ -2752,3 +2752,76 @@ this environment actually has, with no remaining caveat.
   it maps to a group instead, because the platform's bot API simply has no
   3-way-DM primitive. Don't assume every channel has an equivalent
   workaround — check per-platform before generalizing.
+
+## "Manage OneCLI Credentials" action: the `onecli` CLI wasn't where the script looked (2026-10-26)
+
+**Status:** fixed and confirmed live (CLI restored, credentials listed). Add /
+update / delete and the agent-grant items are not yet confirmed.
+
+### Summary
+
+Added a **Manage OneCLI Credentials** action (`scripts/manage-onecli.sh`) that
+wraps the `onecli` CLI. On first real use it stopped with "The onecli CLI isn't
+available" even though NanoClaw was working and the gateway containers
+(`onecli`, `onecli-postgres-1`) were healthy.
+
+### Symptom
+
+- `docker exec nanoclaw-mnemon bash -lc 'command -v onecli'` → not found.
+- `find / -xdev -name 'onecli*' -type f` in the orchestrator → nothing.
+- `docker exec onecli sh -c 'command -v onecli'` → not found either.
+- NanoClaw itself unaffected.
+
+### Root cause
+
+Two separate things share the name "OneCLI", and the script assumed they were
+one:
+
+- **The gateway** — the server holding credentials and injecting them into agent
+  traffic. A separate container, brought up by NanoClaw's setup. It was running.
+- **The CLI** — a client binary that talks to the gateway's API. Upstream's
+  `add-onecli` skill (`setup.ts`) installs it into *the machine running setup*,
+  which here is the disposable orchestrator container. Recreating that container
+  removes it. The gateway image does not contain it. NanoClaw never needs the CLI
+  at runtime (it uses the SDK), so nothing else noticed.
+
+The assumption that the CLI lived in the orchestrator came from the existing
+Codex menu, which uses it there; it was never checked against upstream.
+
+### Fix
+
+`manage-onecli.sh` detects a missing CLI, explains the gateway/CLI split, and
+offers to re-install it with upstream's own setup script in `--remote-url` mode
+(`.claude/skills/add-onecli/scripts/setup.ts`, falling back to
+`setup/index.ts --step onecli` on older checkouts), reading `ONECLI_URL` and
+`ONECLI_API_KEY` from NanoClaw's `.env` and passing the key over stdin. It also
+separates "installed" from "logged in".
+
+Findings worth keeping from upstream's skill:
+
+- An agent group holds **only the secrets attached to it**; a new credential is
+  opt-in per agent (`onecli agents grants attach-secret`). That model needs gateway
+  1.44+; the install this was tested on runs 1.36.0, so menu items 7-8 are likely
+  unsupported there.
+- Upstream's `setup/index.ts` no longer has a `--step onecli`; gateway install is
+  now a skill behind a `gateway` step. `scripts/install-codex-provider.sh` still
+  calls `--step onecli` and may need the same skill-first handling.
+- `onecli secrets update` has no `--file`, so an updated value is briefly on a
+  command line inside the container; `create` uses `--file` and avoids that.
+
+### General Lessons
+
+- **Don't ask the operator to probe a system before reading its installer.** The
+  question "where does the CLI get installed?" was answered by upstream's
+  `setup.ts`; three rounds of diagnostic commands were spent re-deriving it.
+- **When one product name covers a server and a client, state which one a script
+  needs and where it will run.** "OneCLI is running" and "the CLI is installed"
+  are independent facts.
+- **An assumption borrowed from a neighbouring script is still an assumption.**
+  The Codex menu using the CLI in the orchestrator did not show the CLI would
+  still be there after a container recreation.
+
+### Related PRs
+
+[#323](https://github.com/tantimothy/pi-bootstrap/pull/323) (the action),
+[#324](https://github.com/tantimothy/pi-bootstrap/pull/324) (CLI restore).

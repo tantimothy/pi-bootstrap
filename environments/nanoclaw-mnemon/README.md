@@ -410,13 +410,25 @@ Typical agent-side use: `tesseract image.png stdout` for a straight image, or fo
 
 ---
 
+## 🌐 Giving Agents a Browser (`browser` environment + Playwright MCP)
+
+Agents can drive a persistent Chromium — one *you* log into once over VNC — via the sibling [`browser`](../browser/README.md) environment. Opt-in:
+
+1. Deploy `browser`, connect with a VNC client, and log into the sites the agent will need.
+2. Set `BROWSER_CDP_URL=http://<this-host's-LAN-IP>:9222` in this environment's `.env` (an **IP**, not a hostname — Chromium rejects hostnames in the CDP `Host` header; the LAN IP is also the route that works on OrbStack).
+3. Deploy. `apply_browser_patch()` installs `@playwright/mcp` into the agent image and registers it, then the usual agent-image rebuild and container sweep make it live.
+
+Unsetting `BROWSER_CDP_URL` removes the patch. Details, anchors and what a correct fix looks like: `templates/patch-details/browser.md`. **Not yet exercised against a real deploy** — see `docs/future-enhancements/browser-agent.md`.
+
 ## 🔑 Managing OneCLI Credentials
 
 **Manage OneCLI Credentials** in this environment's action menu (`scripts/manage-onecli.sh`) lists, adds, updates and deletes the credentials OneCLI injects into agent requests, so you don't need the dashboard link an agent is handed when it is blocked on an unknown host. Adding one stores a value against a host (and optional path) pattern, injected as a header (`Authorization: Bearer {value}`, `Cookie: name={value}`) or a query parameter. Values are typed hidden and passed over stdin to a `0600` temp file inside the container, never on a command line.
 
 NanoClaw's setup installs the `onecli` CLI into the orchestrator container, so recreating that container removes it while the gateway (and your stored credentials) keep working. If the CLI is missing the menu offers to re-install it using upstream's `add-onecli` skill setup script in `--remote-url` mode, reading `ONECLI_URL` (and `ONECLI_API_KEY`, if present) from NanoClaw's `.env`. Per upstream, an agent group holds only the secrets attached to it, so a new credential is opt-in per agent (menu items 7-8).
 
-Two caveats: the CLI's flags were read from the `onecli-cli` source at `main`, not the version installed in your container, so a rejected command's own error is shown as-is; and newer OneCLI servers use per-agent *grants*, so a new credential may also need **Agent access → attach** before requests stop being blocked. Don't store a credential for a third-party mirror of a service (e.g. a Redlib instance) unless you'd hand that operator the credential directly — OneCLI sends it to whatever host matches. **Not yet exercised against a real OneCLI install.**
+**Confirmed live** (against a gateway running image `ghcr.io/onecli/onecli:1.36.0`): the CLI restore, and listing credentials. **Not yet confirmed**: add, update and delete, and menu items 7-8. Those items use `onecli agents grants ...`, which upstream says needs gateway 1.44 or newer (upstream's `add-onecli` skill pins 1.45.0), so they will likely be rejected on an older gateway. A rejected command's own error is shown as-is. The CLI's flags were read from the `onecli-cli` source at `main`, not from the installed version.
+
+Don't store a credential for a third-party mirror of a service (e.g. a Redlib instance) unless you'd hand that operator the credential directly — OneCLI sends it to whatever host matches.
 
 ## Security Notes
 

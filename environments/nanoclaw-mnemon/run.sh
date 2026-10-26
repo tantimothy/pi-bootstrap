@@ -471,13 +471,14 @@ MEDIA_TOOLS_PATCH_VERSION=3
 MNEMON_PATCH_VERSION=2
 
 # Deletes a marked block (any version) for one patch id, in place. awk rather
-# than sed -i, which is not portable between GNU and BSD/macOS.
+# than sed -i, which is not portable between GNU and BSD/macOS. $3 is the
+# comment prefix the markers use ("#" by default; "//" for TypeScript files).
 _strip_patch_block() {
-    local file="$1" id="$2" tmp
+    local file="$1" id="$2" prefix="${3:-#}" tmp
     tmp=$(mktemp)
-    awk -v id="$id" '
-        $0 ~ ("^# >>> pi-bootstrap:" id " v") { skip = 1; next }
-        skip && $0 ~ ("^# <<< pi-bootstrap:" id " <<<$") { skip = 0; next }
+    awk -v id="$id" -v p="$prefix" '
+        $0 ~ ("^[ \t]*" p " >>> pi-bootstrap:" id " v") { skip = 1; next }
+        skip && $0 ~ ("^[ \t]*" p " <<< pi-bootstrap:" id " <<<$") { skip = 0; next }
         !skip { print }
     ' "$file" > "$tmp"
     mv "$tmp" "$file"
@@ -486,12 +487,13 @@ _strip_patch_block() {
 # Classifies one patch block's state in $1 against the current version.
 # Echoes exactly one of: current | stale-marked | stale-unmarked | absent
 # $2 = patch id, $3 = current version, $4 = legacy content signature (a
-# grep -q pattern that matches a pre-marker block).
+# grep -q pattern that matches a pre-marker block). $5 = comment prefix
+# ("#" by default).
 _patch_block_state() {
-    local file="$1" id="$2" version="$3" legacy_sig="$4"
-    if grep -qF "# >>> pi-bootstrap:${id} v${version} >>>" "$file"; then
+    local file="$1" id="$2" version="$3" legacy_sig="$4" prefix="${5:-#}"
+    if grep -qF "${prefix} >>> pi-bootstrap:${id} v${version} >>>" "$file"; then
         echo current
-    elif grep -q "^# >>> pi-bootstrap:${id} v" "$file"; then
+    elif grep -q "^[[:space:]]*${prefix} >>> pi-bootstrap:${id} v" "$file"; then
         echo stale-marked
     elif grep -q "$legacy_sig" "$file"; then
         echo stale-unmarked
@@ -1907,6 +1909,205 @@ OLLAMA_ENV_TS
 }
 
 # ---------------------------------------------------------------------------------------
+# Browser patch — gives every agent a Playwright MCP server wired to a
+# persistent, human-loginable Chromium running as the sibling `browser`
+# environment (environments/browser), over CDP. Opt-in: does nothing unless
+# BROWSER_CDP_URL is set in .env, and REMOVES its own blocks if it is later
+# unset, so disabling it actually disables it rather than leaving stale wiring.
+#
+# Two version-marked blocks, both owned by this function:
+#   container/Dockerfile                    — `npm install -g @playwright/mcp@<ver>`
+#   container/agent-runner/src/index.ts     — the `browser` mcpServers entry
+# Documentation, anchors and the shape of a correct fix:
+# templates/patch-details/browser.md.
+#
+# Unlike the Dockerfile/index.ts blocks the other patches write, these two
+# interpolate deploy-time values (the pinned package version; the CDP URL).
+# The marker's v<N> only tracks the TEXT of the block, so a content-blind
+# "marker is current" check would leave an edited BROWSER_CDP_URL or
+# BROWSER_MCP_VERSION invisible forever — the exact stale-block bug the
+# markers exist to prevent. So "current" additionally requires the
+# interpolated value to be present in the block; otherwise it is re-written.
+# ---------------------------------------------------------------------------------------
+BROWSER_PATCH_VERSION=1
+
+apply_browser_patch() {
+    local dockerfile="${INSTALL_PATH}/container/Dockerfile"
+    local index_ts="${INSTALL_PATH}/container/agent-runner/src/index.ts"
+    local cdp_url="${BROWSER_CDP_URL:-}"
+    local mcp_version="${BROWSER_MCP_VERSION:-0.0.83}"
+
+    BROWSER_PATCH_OK=true
+    BROWSER_PATCH_LOG=""
+    _browser_log() { BROWSER_PATCH_LOG="${BROWSER_PATCH_LOG}- ${1}
+"; }
+
+    if [ -z "$cdp_url" ]; then
+        local removed=false
+        if [ -f "$dockerfile" ] && grep -q "^# >>> pi-bootstrap:browser v" "$dockerfile"; then
+            _strip_patch_block "$dockerfile" browser
+            removed=true
+        fi
+        if [ -f "$index_ts" ] && grep -q "// >>> pi-bootstrap:browser v" "$index_ts"; then
+            _strip_patch_block "$index_ts" browser '//'
+            removed=true
+        fi
+        if [ "$removed" = true ]; then
+            AGENT_IMAGE_NEEDS_REBUILD=true
+            echo "🌐 BROWSER_CDP_URL is unset — removed the browser patch from container/Dockerfile and index.ts."
+            _browser_log "**REMOVED** — BROWSER_CDP_URL is unset, so a previously applied browser patch was stripped; agent image rebuilt this deploy."
+        else
+            _browser_log "Not enabled — BROWSER_CDP_URL is unset in .env."
+        fi
+        return 0
+    fi
+
+    if [ ! -f "$dockerfile" ] || [ ! -f "$index_ts" ]; then
+        echo "⚠️  Couldn't find container/Dockerfile or container/agent-runner/src/index.ts under $INSTALL_PATH — skipping the browser patch." >&2
+        _browser_log "**SKIPPED (whole patch)** — container/Dockerfile or container/agent-runner/src/index.ts missing."
+        BROWSER_PATCH_OK=false
+        return 1
+    fi
+
+    # The URL is spliced into a single-quoted TypeScript string, and the host
+    # becomes a NO_PROXY entry. Accept only http://<host>:<port>, which is all
+    # CDP needs, rather than escaping arbitrary text.
+    if ! [[ "$cdp_url" =~ ^http://([A-Za-z0-9.-]+):([0-9]+)$ ]]; then
+        echo "⚠️  BROWSER_CDP_URL='$cdp_url' must look like http://<ip>:<port> — skipping the browser patch." >&2
+        _browser_log "**SKIPPED (whole patch)** — BROWSER_CDP_URL is not of the form http://<host>:<port>."
+        BROWSER_PATCH_OK=false
+        return 1
+    fi
+    local cdp_host="${BASH_REMATCH[1]}"
+    if ! [[ "$cdp_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || "$cdp_host" = "localhost" ]]; then
+        echo "⚠️  BROWSER_CDP_URL uses the hostname '$cdp_host'. Chromium rejects CDP requests whose Host header is a hostname" >&2
+        echo "   (\"not an IP address or localhost\"), so this will likely fail at connect time. Use the host's LAN IP." >&2
+        _browser_log "**WARNING** — \`${cdp_host}\` is a hostname, not an IP. See \"Hostname vs IP\" below."
+    fi
+
+    # Can a CONTAINER reach it? The only question that matters — see
+    # ensure_ollama_ready()'s identical probe. --noproxy '*' so a host-side
+    # proxy can't produce a false success.
+    if [ -n "$($DOCKER images -q "$IMAGE_TAG" 2>/dev/null)" ]; then
+        if $DOCKER run --rm --entrypoint sh "$IMAGE_TAG" -c \
+            "curl -fsS --max-time 5 --noproxy '*' '${cdp_url}/json/version' >/dev/null 2>&1" >/dev/null 2>&1; then
+            echo "✅ A container can reach the browser's CDP at ${cdp_url}."
+            _browser_log "CDP reachability from a CONTAINER at \`${cdp_url}\`: verified this deploy."
+        else
+            local lan_ip; lan_ip="$(ollama_host_lan_ip)"
+            echo "⚠️  A container could NOT reach ${cdp_url}/json/version." >&2
+            echo "   Is the browser environment deployed? Is its CDP_BIND/CDP_ALLOW_RANGE letting this address in?" >&2
+            [ -n "$lan_ip" ] && [ "$cdp_host" != "$lan_ip" ] && echo "   This host's LAN IP is ${lan_ip} — host.docker.internal-style names are not dependable on every platform (OrbStack)." >&2
+            _browser_log "**WARNING — CDP unreachable from a container** at \`${cdp_url}\` this deploy. Patch applied anyway. See \"Reachability\" below."
+        fi
+    else
+        _browser_log "CDP reachability from a container: not tested (no orchestrator image built yet to probe from)."
+    fi
+
+    # 1. container/Dockerfile — install the MCP server into the agent image.
+    local state
+    state=$(_patch_block_state "$dockerfile" browser "$BROWSER_PATCH_VERSION" 'pi-bootstrap-browser-never-matches')
+    if [ "$state" = current ] && ! grep -qF "@playwright/mcp@${mcp_version}" "$dockerfile"; then
+        state=stale-marked
+    fi
+    case "$state" in
+        current)
+            echo "✅ @playwright/mcp@${mcp_version} already patched into container/Dockerfile (v${BROWSER_PATCH_VERSION}, current)."
+            _browser_log "container/Dockerfile: already patched, current (v${BROWSER_PATCH_VERSION}, @playwright/mcp@${mcp_version})"
+            ;;
+        *)
+            [ "$state" = stale-marked ] && _strip_patch_block "$dockerfile" browser
+            local anchor
+            anchor=$(grep -n '^# ---- Bun runtime' "$dockerfile" | head -1 | cut -d: -f1)
+            if [ -z "$anchor" ]; then
+                echo "❌ Couldn't find the '# ---- Bun runtime' anchor in container/Dockerfile — skipping the browser Dockerfile block." >&2
+                _browser_log "container/Dockerfile: **SKIPPED** — '# ---- Bun runtime' anchor not found."
+                BROWSER_PATCH_OK=false
+            else
+                echo "🌐 Patching @playwright/mcp@${mcp_version} into container/Dockerfile (agent sandbox)..."
+                local tmp; tmp=$(mktemp)
+                {
+                    head -n "$((anchor - 1))" "$dockerfile"
+                    cat <<BROWSER_DOCKER_BLOCK
+# >>> pi-bootstrap:browser v${BROWSER_PATCH_VERSION} >>>
+# ---- browser tool — Playwright MCP, so the agent can drive the persistent
+# Chromium from environments/browser over CDP. Only the MCP server is
+# installed: no browser is downloaded, the browser lives in its own container.
+# A missing npm is a loud warning, not a build failure — a broken agent image
+# is a worse outcome than a missing optional tool.
+RUN if command -v npm >/dev/null 2>&1; then \\
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g @playwright/mcp@${mcp_version} && npm cache clean --force; \\
+    else \\
+        echo "pi-bootstrap:browser — npm not found in this image; @playwright/mcp NOT installed" >&2; \\
+    fi
+# <<< pi-bootstrap:browser <<<
+
+BROWSER_DOCKER_BLOCK
+                    tail -n "+${anchor}" "$dockerfile"
+                } > "$tmp"
+                mv "$tmp" "$dockerfile"
+                _browser_log "container/Dockerfile: patched (v${BROWSER_PATCH_VERSION}, @playwright/mcp@${mcp_version})"
+                AGENT_IMAGE_NEEDS_REBUILD=true
+            fi
+            ;;
+    esac
+
+    # 2. container/agent-runner/src/index.ts — register the MCP server.
+    state=$(_patch_block_state "$index_ts" browser "$BROWSER_PATCH_VERSION" 'pi-bootstrap-browser-never-matches' '//')
+    if [ "$state" = current ] && ! grep -qF "'--cdp-endpoint', '${cdp_url}'" "$index_ts"; then
+        state=stale-marked
+    fi
+    case "$state" in
+        current)
+            echo "✅ index.ts already registers the browser MCP server (v${BROWSER_PATCH_VERSION}, current)."
+            _browser_log "index.ts: already registered, current (v${BROWSER_PATCH_VERSION}, \`${cdp_url}\`)"
+            ;;
+        *)
+            [ "$state" = stale-marked ] && _strip_patch_block "$index_ts" browser '//'
+            local idx_anchor
+            idx_anchor=$(grep -n "args: \['run', mcpServerPath\]," "$index_ts" | head -1 | cut -d: -f1)
+            if [ -z "$idx_anchor" ]; then
+                echo "❌ Couldn't find the 'nanoclaw' mcpServers entry anchor in index.ts — skipping the browser MCP registration." >&2
+                _browser_log "index.ts: **SKIPPED** — \`args: ['run', mcpServerPath],\` anchor not found, upstream layout may have changed."
+                BROWSER_PATCH_OK=false
+            else
+                echo "🌐 Registering the browser MCP server in index.ts..."
+                local insert_after=$((idx_anchor + 2))
+                local tmp2; tmp2=$(mktemp)
+                {
+                    head -n "$insert_after" "$index_ts"
+                    # NO_PROXY: agent containers get HTTPS_PROXY/NODE_USE_ENV_PROXY
+                    # from OneCLI, and Playwright honours the proxy env for its
+                    # CDP connect. The browser is a LAN address the proxy has no
+                    # route for, so it is excluded for this one subprocess only.
+                    cat <<BROWSER_INDEX_BLOCK
+    // >>> pi-bootstrap:browser v${BROWSER_PATCH_VERSION} >>>
+    browser: {
+      command: 'playwright-mcp',
+      args: ['--cdp-endpoint', '${cdp_url}'],
+      env: { NO_PROXY: '${cdp_host}', no_proxy: '${cdp_host}' },
+    },
+    // <<< pi-bootstrap:browser <<<
+BROWSER_INDEX_BLOCK
+                    tail -n "+$((insert_after + 1))" "$index_ts"
+                } > "$tmp2"
+                mv "$tmp2" "$index_ts"
+                _browser_log "index.ts: patched (v${BROWSER_PATCH_VERSION}, browser entry added after the nanoclaw mcpServers entry)"
+                AGENT_IMAGE_NEEDS_REBUILD=true
+            fi
+            ;;
+    esac
+
+    if grep -q "^# >>> pi-bootstrap:browser v${BROWSER_PATCH_VERSION} >>>" "$dockerfile" \
+       && grep -q "// >>> pi-bootstrap:browser v${BROWSER_PATCH_VERSION} >>>" "$index_ts"; then
+        _browser_log "**Verification: PASSED** (both blocks present at v${BROWSER_PATCH_VERSION})"
+    else
+        _browser_log "**Verification: FAILED** — Dockerfile block present=$(grep -q '^# >>> pi-bootstrap:browser v' "$dockerfile" && echo yes || echo no), index.ts block present=$(grep -q '// >>> pi-bootstrap:browser v' "$index_ts" && echo yes || echo no)"
+        BROWSER_PATCH_OK=false
+    fi
+}
+
+# ---------------------------------------------------------------------------------------
 # Writes $INSTALL_PATH/pi-bootstrap-patches.md — a status report of every
 # host-side patch this environment applies to the NanoClaw checkout
 # (mnemon, media-tools/whisper, ollama-tool), regenerated on every deploy.
@@ -1973,6 +2174,8 @@ write_patches_manifest() {
     fi
     local ollama_status="${OLLAMA_PATCH_LOG:-- (no status recorded — apply_ollama_tool_patch may not have run)
 }"
+    local browser_status="${BROWSER_PATCH_LOG:-- (no status recorded — apply_browser_patch may not have run)
+}"
     local telegram_status="${TELEGRAM_IMPORT_PATCH_LOG:-- (no status recorded — apply_telegram_import_patch may not have run)
 }"
     local generated_at
@@ -1989,6 +2192,7 @@ write_patches_manifest() {
     mnemon_detail="$(_patch_detail mnemon)"
     media_tools_detail="$(_patch_detail media-tools)"
     ollama_detail="$(_patch_detail ollama-tool)"
+    local browser_detail; browser_detail="$(_patch_detail browser)"
     telegram_detail="$(_patch_detail telegram-import)"
     group_images_detail="$(_patch_detail group-images)"
     local ollama_daemon_detail; ollama_daemon_detail="$(_patch_detail ollama-daemon)"
@@ -2522,6 +2726,8 @@ fi
 # per-agent-group capability, not specific to the mnemon profile (see
 # .env.example's OLLAMA_ADMIN_TOOLS comment).
 apply_ollama_tool_patch || true
+# Opt-in (BROWSER_CDP_URL); also strips its own blocks when that is unset.
+apply_browser_patch || true
 # Applied regardless of NANOCLAW_SETUP too — Telegram is a base NanoClaw
 # channel, not a pi-bootstrap addition; see apply_telegram_import_patch()'s
 # own header comment for why this self-heal exists at all.
