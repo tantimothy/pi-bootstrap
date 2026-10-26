@@ -3,8 +3,10 @@ services:
   # README.md for the VNC + CDP workflow and the security note on CDP_BIND.
   browser:
     container_name: ${CONTAINER_NAME:-browser}
+    # No `image:` key, like every other build-only environment here: with one set,
+    # `compose up` first tries to PULL that name from a registry ("pull access denied")
+    # before falling back to the local build.
     build: .
-    image: pi-bootstrap-browser:latest
     # Chromium crashes on Docker's 64MB default /dev/shm.
     shm_size: 2gb
     environment:
