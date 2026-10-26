@@ -632,11 +632,11 @@ live (2026-10-26). Not yet done:
 ## nanoclaw-mnemon: CLEAN skill-restore and OneCLI proxy patch
 
 Code and docs in the PR that added `scripts/skill-restore-lib.sh` and
-`patch-onecli-endpoint.cjs` v2; tested only against a clone of upstream. On the
-next real CLEAN, confirm:
+`patch-onecli-endpoint.cjs` v2. A real CLEAN on `2026.10.1-rc.2` has since completed
+successfully on the operator's install (so the orchestrator builds on `node:22-slim`).
+Which skills the restore recovered automatically is recorded in `pi-bootstrap-patches.md`
+on that install, not here. Still to confirm:
 
-- **Restore on a real install** — Telegram and OneCLI wiring come back without a
-  manual skill re-run, and the status lines appear in `pi-bootstrap-patches.md`.
 - **Proxy rewrite** — with `ONECLI_GATEWAY_ENDPOINT` set, agent model calls reach the
   gateway (`HTTPS_PROXY` inside an agent container shows the bridge IP).
 - **File `ONECLI_GATEWAY_ENDPOINT` upstream** against `/add-onecli`'s own payload
@@ -666,10 +666,3 @@ agent containers (reported SKIPPED). The MCP tool falls back to its built-in def
 address. A real port means adding the values to the session-spec env record (or the
 gateway/provider contribution lane) and re-deriving the `NO_PROXY` reasoning against the
 current gateway seam; whether the default is reachable today is unconfirmed.
-
-## nanoclaw-mnemon: first real CLEAN on `2026.10.1-rc.2` after #325/#326/#328
-
-- Confirm the orchestrator builds on `node:22-slim` (arm64 and amd64) and the engine
-  warning is gone.
-- Confirm the Telegram adapter is refreshed and `tsc` passes without a manual
-  `/add-telegram`.
