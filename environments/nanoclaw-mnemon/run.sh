@@ -2349,6 +2349,8 @@ write_patches_manifest() {
 }"
     local onecli_endpoint_status="${ONECLI_ENDPOINT_PATCH_LOG:-- Not applied yet — this patch runs later in the deploy than the others, after the orchestrator container is up.
 }"
+    local reconcile_status="${RECONCILE_PATCH_LOG:-- Not applied yet — this patch runs later in the deploy than the others, after the orchestrator container is up.
+}"
     local generated_at
     generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -2368,6 +2370,7 @@ write_patches_manifest() {
     local skill_wiring_detail; skill_wiring_detail="$(_patch_detail skill-wiring)"
     local onecli_endpoint_detail; onecli_endpoint_detail="$(_patch_detail onecli-endpoint)"
     group_images_detail="$(_patch_detail group-images)"
+    local reconcile_detail; reconcile_detail="$(_patch_detail reconcile-concurrency)"
     local ollama_daemon_detail; ollama_daemon_detail="$(_patch_detail ollama-daemon)"
     local ollama_daemon_status="${OLLAMA_DAEMON_LOG:-- Not checked — MNEMON_EMBED_ENDPOINT is unset, so this deploy never probed the Ollama daemon. The Ollama MCP tool may still use it; check from inside an agent container per the section below.
 }"
@@ -2838,13 +2841,17 @@ elif [ "$POLICY" = "CLEAN" ]; then
     # letting the generic snapshot-and-reapply mechanism also touch them
     # risks resurrecting stale patch text that then satisfies that
     # function's own marker-based idempotency check and never updates again.
+    # src/host-sweep.ts is excluded too: apply patch-reconcile-concurrency.cjs
+    # owns it (version-marked, re-applied every run). A hand edit there that
+    # imported a new export from the also-excluded src/config.ts would otherwise
+    # be reapplied against a config.ts that no longer has it and fail tsc.
     # Record BEFORE the reset which skill-installed features were configured,
     # for verify_skill_wiring() after the patches run. The reset reverts the
     # tracked half of /add-telegram and /add-onecli with no error anywhere
     # (see docs/lessons-learned/nanoclaw-mnemon.md), and the snapshot-and-
     # reapply below is best-effort — this is what makes a failed restore loud.
     snapshot_skill_features
-    CHANNEL_SKILL_EXCLUDES=(':!container/Dockerfile' ':!container/entrypoint.sh' ':!container/agent-runner/src/index.ts' ':!src/config.ts' ':!src/container-runner.ts')
+    CHANNEL_SKILL_EXCLUDES=(':!container/Dockerfile' ':!container/entrypoint.sh' ':!container/agent-runner/src/index.ts' ':!src/config.ts' ':!src/container-runner.ts' ':!src/host-sweep.ts')
     CHANNEL_SKILL_MODS=$(git -C "$INSTALL_PATH" status --porcelain -- . "${CHANNEL_SKILL_EXCLUDES[@]}" 2>/dev/null | grep -v '^??' || true)
     # One patch PER FILE, not one for everything: a single `git apply` is
     # all-or-nothing, so one conflicting file (package.json, whose dependency
@@ -3053,6 +3060,18 @@ echo "$ONECLI_ENDPOINT_OUT"
 ONECLI_ENDPOINT_PATCH_LOG="- ${ONECLI_ENDPOINT_OUT}
 "
 
+# Host-sweep reconcile fan-out override (NANOCLAW_RECONCILE_CONCURRENCY); see
+# patch-reconcile-concurrency.cjs and templates/patch-details/reconcile-concurrency.md.
+# Same capture-inside-the-`if` treatment as above, for the same set -e reason.
+if RECONCILE_OUT=$($DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-reconcile-concurrency.cjs" 2>&1); then
+    reconcile_rc=0
+else
+    reconcile_rc=$?
+fi
+echo "$RECONCILE_OUT"
+RECONCILE_PATCH_LOG="- ${RECONCILE_OUT}
+"
+
 # requestApproval() (src/modules/approvals/primitive.ts) silently drops an
 # approval card — logging apparent success — whenever getDeliveryAdapter()
 # returns falsy, instead of failing loudly. Confirmed against a live
@@ -3206,8 +3225,8 @@ fi
 # manifest re-renders identically from the same status variables.
 write_patches_manifest
 
-if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ] || [ "$onecli_endpoint_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
-    echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway, approval-delivery and/or OneCLI endpoint fix)..."
+if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ] || [ "$onecli_endpoint_rc" -eq 2 ] || [ "$reconcile_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway, approval-delivery, OneCLI endpoint and/or reconcile-concurrency fix)..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
     stamp_upgrade_state
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
@@ -3219,7 +3238,7 @@ fi
 # synced source so the upgrade actually takes effect instead of silently
 # continuing to run the old build. Skipped when either patch above already
 # did this same rebuild+restart (patch_rc/approval_patch_rc == 2).
-if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -ne 2 ] && [ "$onecli_endpoint_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -ne 2 ] && [ "$onecli_endpoint_rc" -ne 2 ] && [ "$reconcile_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
     stamp_upgrade_state
