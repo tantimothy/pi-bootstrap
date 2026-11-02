@@ -2971,3 +2971,22 @@ registered`. Details: `templates/patch-details/skill-wiring.md`, `onecli-endpoin
 - **A patch that skips with a warning is a silent regression once nothing reads the
   warning.** Prefer a status line that fails a check somewhere.
 
+
+---
+
+## Issue Found & Fixed: Monday cron pile-up starves OneCLI; hand fix would not survive CLEAN (2026-11-02)
+
+**Status:** Fixed in pi-bootstrap (`patch-reconcile-concurrency.cjs`); not yet verified on a real install.
+
+**Summary:** The admin session fixed an outage by making `RECONCILE_CONCURRENCY` configurable in NanoClaw's `src/config.ts` and `src/host-sweep.ts`. It flagged that it had not checked whether CLEAN carries those edits across.
+
+**Symptom:** No Telegram replies. Inbound routing was fine, but agent containers were killed mid-turn with `reason="gateway-unavailable"`. Killing containers or restarting services changed nothing.
+
+**Root cause:** About 10 weekly tasks shared one cron slot. With a fan-out of 8, CPU-heavy agent spawns starved OneCLI's Postgres, which made its `/v1/agents` health probe time out. NanoClaw then killed every session, the backlog re-armed the same burst, and the loop repeated.
+
+**Fix:** The edit would NOT have survived CLEAN as written. `src/config.ts` is in CLEAN's snapshot exclude list (the Ollama patch owns it), so that half is dropped, while `src/host-sweep.ts` was snapshotted and reapplied importing an export that no longer existed. The patch now lives in `scripts/patch-reconcile-concurrency.cjs`, touches only `host-sweep.ts`, reads `.env` itself, and `host-sweep.ts` is added to the snapshot excludes.
+
+**General Lessons:**
+- Before telling an operator a local source edit is durable, check it against CLEAN's snapshot exclude list as well as the snapshot itself. A multi-file edit can be half-kept.
+- A fix that adds an export to one excluded file and an import in another is the worst case: it turns a lost tweak into a build failure.
+- A restart cannot clear overload driven by persisted due-work. Pause the scheduler series instead.
