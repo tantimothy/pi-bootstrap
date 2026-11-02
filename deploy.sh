@@ -1417,6 +1417,46 @@ cd "$TARGET_WORKSPACE_DIR" || exit 1
 # 🔐 ADVANCED BULK FORM COMPILER WITH DEFAULT INJECTION
 # =======================================================
 if [ -f ".env.example" ] && [ "$REBUILD_POLICY" != "STOP" ] && [ "$REBUILD_POLICY" != "TEARDOWN" ] && [ "$REBUILD_POLICY" != "INFO" ] && [ "$REBUILD_POLICY" != "WIPE" ] && [[ "$REBUILD_POLICY" != ACTION_* ]]; then
+    # CLEAN only: offer optional variables that .env.example gained since this
+    # environment's .env was last reconciled. Uncommented new keys already show
+    # up in the form below with the example's value as their default, but a
+    # commented-out optional line ("#KEY=default") is documentation-only to
+    # that form until something sets it in .env — so a variable added to
+    # .env.example later (e.g. a new tuning knob) was invisible on an existing
+    # install. Selected lines are appended to .env as real KEY=default entries
+    # and the form below then promotes them to editable fields. What has been
+    # offered is remembered in the gitignored .env.example.seen, so a variable
+    # declined once is not asked about on every later CLEAN; with no snapshot
+    # yet, every currently-unset optional line is offered once.
+    if [ "$REBUILD_POLICY" = "CLEAN" ] && [ -f ".env" ] && command -v dialog >/dev/null 2>&1; then
+        _opt_items=()
+        while IFS= read -r _l || [ -n "$_l" ]; do
+            _l=$(echo "$_l" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            [[ "$_l" =~ ^#[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+            _k="${_l#\#}"; _k="${_k%%=*}"
+            grep -q "^${_k}=" .env && continue
+            if [ -f ".env.example.seen" ] && grep -q "^#\{0,1\}${_k}=" .env.example.seen; then continue; fi
+            _opt_items+=("$_k" "${_l#\#}" off)
+        done < .env.example
+        if [ ${#_opt_items[@]} -gt 0 ]; then
+            _opt_out=$(mktemp)
+            if dialog --clear --separate-output \
+                   --title " New optional variables: [$ENV_NAME] " \
+                   --checklist "These optional variables in .env.example are not set in your .env. Select any to add (with the default shown); you can edit them in the next form. Unselected ones are not offered again." \
+                   22 76 12 "${_opt_items[@]}" 2> "$_opt_out"; then
+                while IFS= read -r _sel || [ -n "$_sel" ]; do
+                    [ -z "$_sel" ] && continue
+                    _line=$(grep -m1 "^#${_sel}=" .env.example | sed -e 's/^#//' -e 's/[[:space:]]*$//')
+                    [ -n "$_line" ] && printf '%s\n' "$_line" >> .env
+                done < "$_opt_out"
+                cp .env.example .env.example.seen
+            fi
+            rm -f "$_opt_out"
+        else
+            cp .env.example .env.example.seen
+        fi
+    fi
+
     echo "🔑 Building multi-field runtime parameters board..."
     
     KEYS=()

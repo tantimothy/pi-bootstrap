@@ -51,3 +51,7 @@ environments/*/.env
 # host's runtime, not repo content. The .example files ARE tracked.
 environments/*/docker-compose.override.yml
 environments/openclaw/data/
+
+# deploy.sh's CLEAN-time record of which .env.example optional variables
+# have already been offered, so a declined one isn't asked again.
+environments/*/.env.example.seen
