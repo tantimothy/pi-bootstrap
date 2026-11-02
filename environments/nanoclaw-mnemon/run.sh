@@ -2200,6 +2200,37 @@ _env_value() { # <file> <key> — last non-empty assignment, quotes stripped
     grep -E "^${2}=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//' || true
 }
 
+# Keys this environment's own .env can set that belong in NanoClaw's .env (the
+# install directory's, a different file), because the pi-bootstrap patches read
+# them from NanoClaw's working directory. Listing them in this environment's
+# .env.example makes them visible in deploy.sh's form and new-variable
+# checklist; this copies the set ones across on every deploy. An UNSET key is
+# left alone, so a value hand-set in NanoClaw's .env is never deleted.
+NANOCLAW_ENV_PASSTHROUGH_KEYS="NANOCLAW_RECONCILE_CONCURRENCY NANOCLAW_MAX_ACTIVE_CONTAINERS ONECLI_GATEWAY_ENDPOINT"
+NANOCLAW_ENV_SYNC_LOG=""
+sync_nanoclaw_env() {
+    local envf="${INSTALL_PATH}/.env" key val cur changed=""
+    if [ ! -f "$envf" ]; then
+        NANOCLAW_ENV_SYNC_LOG="- NanoClaw's .env does not exist yet, so passthrough keys were not copied. Re-run a deploy once the install has created it."
+        return 0
+    fi
+    for key in $NANOCLAW_ENV_PASSTHROUGH_KEYS; do
+        val="${!key:-}"
+        [ -z "$val" ] && continue
+        cur="$(_env_value "$envf" "$key")"
+        [ "$cur" = "$val" ] && continue
+        { grep -v "^${key}=" "$envf" || true; printf '%s=%s\n' "$key" "$val"; } > "${envf}.pb-tmp" \
+            && cat "${envf}.pb-tmp" > "$envf" && rm -f "${envf}.pb-tmp"
+        changed="${changed}${key} "
+    done
+    if [ -n "$changed" ]; then
+        NANOCLAW_ENV_SYNC_LOG="- Wrote to NanoClaw's .env: ${changed}— takes effect when NanoClaw next restarts."
+        echo "🔧 ${NANOCLAW_ENV_SYNC_LOG#- }"
+    else
+        NANOCLAW_ENV_SYNC_LOG="- Passthrough keys already match NanoClaw's .env."
+    fi
+}
+
 snapshot_skill_features() {
     SKILL_TELEGRAM_CONFIGURED=false
     SKILL_ONECLI_CONFIGURED=false
@@ -2945,6 +2976,7 @@ apply_browser_patch || true
 # channel, not a pi-bootstrap addition; see apply_telegram_import_patch()'s
 # own header comment for why this self-heal exists at all.
 apply_telegram_import_patch || true
+sync_nanoclaw_env || true
 verify_skill_wiring
 write_patches_manifest
 
