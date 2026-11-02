@@ -8,6 +8,11 @@ named_volumes:
     description: "Chromium profile — every login, cookie and extension the agent browser has — plus the generated VNC password"
 delete_confirm_msg: "Every site login saved in the agent browser's profile will be lost; you will have to log in again over VNC."
 # |2 pins the strip to exactly 2 spaces — see portainer/info.yaml.
+custom_actions:
+  # Copies the VNC password to the clipboard and opens the VNC URL — see the
+  # script's own header for why the password is not placed in the URL.
+  - label: "Open VNC (password on clipboard)"
+    command: "bash ${ENV_DIR}/scripts/open-vnc.sh"
 useful_commands: |2
      open vnc://${HOST_IP}:${VNC_PORT:-5901}                          # log into sites (macOS); any VNC client works
      docker exec ${CONTAINER_NAME:-browser} cat /data/vnc-password    # the VNC password

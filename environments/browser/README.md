@@ -19,8 +19,11 @@ profile. The cost is that it starts empty; you log into each site once.
 ## Use
 
 1. `./deploy.sh` → Environments → Agent Browser.
-2. Connect a VNC client to `<host>:5901` (macOS: `open vnc://localhost:5901`).
-   Password: `docker exec browser cat /data/vnc-password`.
+2. Connect a VNC client to `<host>:5901` — or just choose **Open VNC (password on
+   clipboard)** in this environment's action menu, which copies the password and
+   opens `vnc://localhost:5901`. By hand: `open vnc://localhost:5901`, password from
+   `docker exec browser cat /data/vnc-password`. VNC only uses the first 8 characters
+   of a password.
 3. Log into whatever the agent will need. Sessions persist in the volume
    across restarts; they expire like any browser's, so re-login when they do.
 4. Confirm CDP answers: `curl http://<lan-ip>:9222/json/version`.
