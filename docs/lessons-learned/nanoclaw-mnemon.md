@@ -3006,3 +3006,4 @@ registered`. Details: `templates/patch-details/skill-wiring.md`, `onecli-endpoin
 **General Lessons:**
 - A limit on the thing that requests work is not a limit on the work. Bound the resource that is actually scarce (live containers here).
 - Observing calmer metrics after a fix is weaker evidence than seeing the new guard fire; say which one you have.
+- A guard you cannot observe is not verified. The patch's detail file now says which log lines prove it held and how the admin session should check and report them.
