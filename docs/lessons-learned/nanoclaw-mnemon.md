@@ -2990,3 +2990,19 @@ registered`. Details: `templates/patch-details/skill-wiring.md`, `onecli-endpoin
 - Before telling an operator a local source edit is durable, check it against CLEAN's snapshot exclude list as well as the snapshot itself. A multi-file edit can be half-kept.
 - A fix that adds an export to one excluded file and an import in another is the worst case: it turns a lost tweak into a build failure.
 - A restart cannot clear overload driven by persisted due-work. Pause the scheduler series instead.
+
+---
+
+## Issue Found & Fixed: `RECONCILE_CONCURRENCY` did not bound running containers (2026-11-02, second session)
+
+**Status:** Fixed in pi-bootstrap (`patch-max-active-containers.cjs`); deferral path not yet seen under real load.
+
+**Summary:** Lowering `NANOCLAW_RECONCILE_CONCURRENCY` to 2 did not stop the thrash. Five containers spawned within four seconds, ran for about a minute, and were all killed with `reason="gateway-unavailable"`.
+
+**Root cause:** `RECONCILE_CONCURRENCY` bounds the sweep's own parallel `reconcileSession()` calls. Each returns once a spawn is requested, so the backlog drains in seconds while the containers keep running. Upstream has no cap on concurrently running containers; its "admission" concept is only a gateway-health gate. Separately, `pause` stops future recurrences but does not pull an already-overdue message out of the sweep.
+
+**Fix:** A default-off `NANOCLAW_MAX_ACTIVE_CONTAINERS` check in `wakeContainer()`, applied as its own patch. The admin's hand version also edited `src/config.ts`, which CLEAN does not carry (see the entry above), so the patch reads its value itself.
+
+**General Lessons:**
+- A limit on the thing that requests work is not a limit on the work. Bound the resource that is actually scarce (live containers here).
+- Observing calmer metrics after a fix is weaker evidence than seeing the new guard fire; say which one you have.

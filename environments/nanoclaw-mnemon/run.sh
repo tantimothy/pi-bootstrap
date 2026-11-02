@@ -2349,6 +2349,8 @@ write_patches_manifest() {
 }"
     local onecli_endpoint_status="${ONECLI_ENDPOINT_PATCH_LOG:-- Not applied yet — this patch runs later in the deploy than the others, after the orchestrator container is up.
 }"
+    local maxactive_status="${MAXACTIVE_PATCH_LOG:-- Not applied yet — this patch runs later in the deploy than the others, after the orchestrator container is up.
+}"
     local reconcile_status="${RECONCILE_PATCH_LOG:-- Not applied yet — this patch runs later in the deploy than the others, after the orchestrator container is up.
 }"
     local generated_at
@@ -2371,6 +2373,7 @@ write_patches_manifest() {
     local onecli_endpoint_detail; onecli_endpoint_detail="$(_patch_detail onecli-endpoint)"
     group_images_detail="$(_patch_detail group-images)"
     local reconcile_detail; reconcile_detail="$(_patch_detail reconcile-concurrency)"
+    local maxactive_detail; maxactive_detail="$(_patch_detail max-active-containers)"
     local ollama_daemon_detail; ollama_daemon_detail="$(_patch_detail ollama-daemon)"
     local ollama_daemon_status="${OLLAMA_DAEMON_LOG:-- Not checked — MNEMON_EMBED_ENDPOINT is unset, so this deploy never probed the Ollama daemon. The Ollama MCP tool may still use it; check from inside an agent container per the section below.
 }"
@@ -3072,6 +3075,18 @@ echo "$RECONCILE_OUT"
 RECONCILE_PATCH_LOG="- ${RECONCILE_OUT}
 "
 
+# Opt-in cap on simultaneously-running agent containers
+# (NANOCLAW_MAX_ACTIVE_CONTAINERS); see patch-max-active-containers.cjs and
+# templates/patch-details/max-active-containers.md. Same capture treatment.
+if MAXACTIVE_OUT=$($DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-max-active-containers.cjs" 2>&1); then
+    maxactive_rc=0
+else
+    maxactive_rc=$?
+fi
+echo "$MAXACTIVE_OUT"
+MAXACTIVE_PATCH_LOG="- ${MAXACTIVE_OUT}
+"
+
 # requestApproval() (src/modules/approvals/primitive.ts) silently drops an
 # approval card — logging apparent success — whenever getDeliveryAdapter()
 # returns falsy, instead of failing loudly. Confirmed against a live
@@ -3225,8 +3240,8 @@ fi
 # manifest re-renders identically from the same status variables.
 write_patches_manifest
 
-if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ] || [ "$onecli_endpoint_rc" -eq 2 ] || [ "$reconcile_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
-    echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway, approval-delivery, OneCLI endpoint and/or reconcile-concurrency fix)..."
+if { [ "$patch_rc" -eq 2 ] || [ "$approval_patch_rc" -eq 2 ] || [ "$onecli_endpoint_rc" -eq 2 ] || [ "$reconcile_rc" -eq 2 ] || [ "$maxactive_rc" -eq 2 ]; } && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+    echo "🔄 Rebuilding NanoClaw to pick up patched source (host-gateway, approval-delivery, OneCLI endpoint, reconcile-concurrency and/or max-active-containers fix)..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm run build"
     stamp_upgrade_state
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && bash start-nanoclaw.sh"
@@ -3238,7 +3253,7 @@ fi
 # synced source so the upgrade actually takes effect instead of silently
 # continuing to run the old build. Skipped when either patch above already
 # did this same rebuild+restart (patch_rc/approval_patch_rc == 2).
-if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -ne 2 ] && [ "$onecli_endpoint_rc" -ne 2 ] && [ "$reconcile_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
+if [ "$POLICY" = "CLEAN" ] && [ "$patch_rc" -ne 2 ] && [ "$approval_patch_rc" -ne 2 ] && [ "$onecli_endpoint_rc" -ne 2 ] && [ "$reconcile_rc" -ne 2 ] && [ "$maxactive_rc" -ne 2 ] && [ -f "${INSTALL_PATH}/dist/index.js" ]; then
     echo "🔄 [CLEAN POLICY] Rebuilding NanoClaw from the freshly-synced source..."
     $DOCKER exec "$CONTAINER_NAME" bash -lc "cd '$INSTALL_PATH' && pnpm install && pnpm run build"
     stamp_upgrade_state
