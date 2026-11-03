@@ -28,7 +28,7 @@
 # because the warning in the log is annoying.
 #
 # UNVERIFIED: nobody has confirmed this actually makes bwrap work under
-# OrbStack. If you try it, `docker logs pi | grep -i sandbox` gives the
+# OrbStack. If you try it, `docker logs earendil-pi-agent | grep -i sandbox` gives the
 # answer, and docs/pending-activities.md is where it belongs.
 # ─────────────────────────────────────────────────────────────────────────
 services:

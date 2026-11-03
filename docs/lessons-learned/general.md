@@ -1530,3 +1530,10 @@ behaviour (a probe that calls the patched function and asserts the output), not 
 that the file type-checks. Related: validate patches against a real clone of the
 upstream project, not mock files — see `CLAUDE.md` and
 `docs/lessons-learned/nanoclaw-mnemon.md`.
+
+## Renaming an environment directory (pi → earendil-pi-agent)
+
+- **Status:** Done, untested on Docker.
+- **Symptom risk:** The directory name is the compose project name, the image prefix (`pi-pi` → `earendil-pi-agent-pi`) and the `maintenance.yaml` glob, and the untracked `.env` does not move with `git mv`.
+- **Fix:** `pre-deploy.sh` copies the old `.env`, removes the old project's container (a `container_name` collision otherwise), and leaves explicitly-named volumes alone.
+- **General lesson:** Explicit `name:` on volumes made the rename data-safe; rename checklist = dir, `config/environments.yaml`, `maintenance.yaml` glob, cross-references in other READMEs/docs, and untracked per-install files.

@@ -148,7 +148,7 @@ cannot be tested until this environment exists to point it at.
 
 - `docs/future-enhancements/agent-control-environments.md` — the full design
   reasoning, settled decision 7 on `aider`, and why this was sequenced last.
-- `environments/pi/` — the one agent here that reaches Executor through
+- `environments/earendil-pi-agent/` — the one agent here that reaches Executor through
   `mcporter` rather than natively.
 - `environments/llm-gateways/` — the other shared service in this repo, and
   the precedent for how this one publishes its port.

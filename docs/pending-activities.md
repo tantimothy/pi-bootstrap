@@ -392,7 +392,7 @@ still expected never to ship.
    namespaces bubblewrap needs. The entrypoint's preflight caught it and
    degraded loudly, as designed, so Pi runs unsandboxed and says so.
 
-   `environments/pi/docker-compose.override.yml.example` offers
+   `environments/earendil-pi-agent/docker-compose.override.yml.example` offers
    `seccomp=unconfined` as an opt-in, **untested**, and deliberately not
    the default: Docker's seccomp profile is what blocks ~44 dangerous
    syscalls against the host kernel, so enabling it trades a host-facing
@@ -550,7 +550,7 @@ and repos, labelled panes, restored layout.
   or only shrink. Now testable for the first time: `executor` exists.
 - Herdr's `session.json` schema — see item 1 above.
 - A port map, now that roughly eight services co-locate on one Mac.
-  Currently allocated by these: 2225 (`opencode`), 2227 (`pi`), 4788
+  Currently allocated by these: 2225 (`opencode`), 2227 (`earendil-pi-agent`), 4788
   (`executor`), 8642 + 9119 (`hermes`).
 
 Resolved during the build:

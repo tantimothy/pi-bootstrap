@@ -31,7 +31,7 @@ config file at all.
 
 ## 🔌 No `mcporter` here, deliberately
 
-`environments/pi` installs [mcporter](https://www.npmjs.com/package/mcporter)
+`environments/earendil-pi-agent` installs [mcporter](https://www.npmjs.com/package/mcporter)
 because Pi has **no native MCP by design** — an MCP tool schema costs 7–14k
 tokens of context against Pi's ~200-token system prompt, so MCP has to become
 a *command* rather than a loaded schema.
@@ -176,7 +176,7 @@ again.
 - `docs/future-enhancements/agent-control-environments.md` — why this
   environment exists, how it compares to the other coding CLIs, and the
   settled decisions behind these choices.
-- `environments/pi/` — the minimal-harness counterpart, and the one that
+- `environments/earendil-pi-agent/` — the minimal-harness counterpart, and the one that
   gets `mcporter`.
 - `environments/herdr-client/` — one window over every agent environment.
   Its session generator will emit a pane for this container labelled

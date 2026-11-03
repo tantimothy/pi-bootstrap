@@ -35,6 +35,27 @@ if [ -f .env ]; then
     set +a
 fi
 
+# ONE-TIME MIGRATION from the old directory name (environments/pi, renamed so
+# it is not confused with Raspberry Pi). Two things would otherwise break:
+#  - the untracked .env stayed behind in environments/pi/;
+#  - the old container "pi" still exists under compose project "pi", so the
+#    new project's container_name (if CONTAINER_NAME is still "pi") collides.
+# Data volumes are NOT touched: they are named explicitly from CONTAINER_NAME,
+# and a carried-over .env keeps CONTAINER_NAME=pi, so they keep attaching.
+OLD_DIR="$SCRIPT_DIR/../pi"
+if [ ! -f .env ] && [ -f "$OLD_DIR/.env" ]; then
+    cp "$OLD_DIR/.env" .env
+    echo "ℹ️  Migrated .env from environments/pi/ (old directory name)."
+fi
+DOCKER_BIN="${DOCKER_CMD:-docker}"
+if command -v ${DOCKER_BIN%% *} >/dev/null 2>&1; then
+    OLD_ID="$($DOCKER_BIN ps -aq --filter "label=com.docker.compose.project=pi" --filter "label=com.docker.compose.service=pi" 2>/dev/null | head -1 || true)"
+    if [ -n "$OLD_ID" ]; then
+        echo "ℹ️  Removing the old compose project 'pi' container (volumes are kept)."
+        $DOCKER_BIN rm -f "$OLD_ID" >/dev/null 2>&1 || true
+    fi
+fi
+
 KEYS="${SSH_AUTHORIZED_KEYS_PATH:-$HOME/.ssh/authorized_keys}"
 # Expand a leading ~ the way a .env reader does not.
 case "$KEYS" in
