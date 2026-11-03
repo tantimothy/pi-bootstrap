@@ -3007,3 +3007,19 @@ registered`. Details: `templates/patch-details/skill-wiring.md`, `onecli-endpoin
 - A limit on the thing that requests work is not a limit on the work. Bound the resource that is actually scarce (live containers here).
 - Observing calmer metrics after a fix is weaker evidence than seeing the new guard fire; say which one you have.
 - A guard you cannot observe is not verified. The patch's detail file now says which log lines prove it held and how the admin session should check and report them.
+
+---
+
+## Issue Found & Fixed: chats queued behind scheduled tasks at the container cap (2026-11-03)
+
+**Status:** Patched (`patch-max-active-containers.cjs` v2); untested on a live install, no Docker in the authoring session.
+
+**Summary:** With a cap in place, a Telegram message could wait for the next sweep tick behind running scheduled tasks. The request was a default cap of 3 and for chats to interrupt tasks and the queue.
+
+**Root cause:** Upstream has no notion of priority at spawn time. Every wake goes through `wakeContainer()`, and each task series runs in its own session whose `thread_id` starts with `system:tasks:`, so tasks and chats compete for the same slots.
+
+**Fix:** v2 defaults the cap to 3 (`0` disables). A chat wake at the cap kills the longest-running task container and respawns from the kill's exit callback; task wakes defer for 90s after a chat was refused. A second sub-patch in `src/reconcile-session.ts` skips the `tries + 1` reset for a preempted session, because otherwise `MAX_TRIES = 5` would eventually fail a task that was only ever interrupted. The v1 call site is replaced in place on upgrade.
+
+**General Lessons:**
+- Check what a kill costs downstream before adding one: the existing stuck-claim reset charges a retry, which a deliberate preemption must not.
+- A version bump that changes a call site must rewrite the old call site, not just the block, or v1 installs keep calling a function with the wrong signature.
