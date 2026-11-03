@@ -3201,6 +3201,52 @@ echo "$RECONCILE_OUT"
 RECONCILE_PATCH_LOG="- ${RECONCILE_OUT}
 "
 
+# Copy NANOCLAW_MAX_ACTIVE_CONTAINERS from this environment's .env (the deploy.sh
+# form) into NanoClaw's own .env, which is where the patch below reads it: the
+# NanoClaw service runs on the host and does not inherit this script's
+# environment. Only a valid value (integer 0-64) is written; empty or invalid
+# leaves NanoClaw's .env alone, so the patch default applies. Rewritten via a
+# temp file because `sed -i` differs between GNU and BSD (macOS).
+_sync_max_active_containers() {
+    local val="${NANOCLAW_MAX_ACTIVE_CONTAINERS:-}" envf="${INSTALL_PATH}/.env" tmp
+    [ -z "$val" ] && return 0
+    case "$val" in
+        *[!0-9]*) echo "⚠️  NANOCLAW_MAX_ACTIVE_CONTAINERS='$val' is not an integer; leaving NanoClaw's .env unchanged." >&2; return 0 ;;
+    esac
+    if [ "$val" -gt 64 ]; then
+        echo "⚠️  NANOCLAW_MAX_ACTIVE_CONTAINERS=$val is above 64; leaving NanoClaw's .env unchanged." >&2
+        return 0
+    fi
+    [ -d "$INSTALL_PATH" ] || return 0
+    tmp="$(mktemp)" || return 0
+    { grep -v '^NANOCLAW_MAX_ACTIVE_CONTAINERS=' "$envf" 2>/dev/null || true; echo "NANOCLAW_MAX_ACTIVE_CONTAINERS=$val"; } > "$tmp"
+    cat "$tmp" > "$envf" && echo "🔧 NanoClaw .env: NANOCLAW_MAX_ACTIVE_CONTAINERS=$val"
+    rm -f "$tmp"
+}
+_sync_max_active_containers || true
+
+# Same bridge for NANOCLAW_RECONCILE_CONCURRENCY (host-sweep fan-out; range 1-64
+# to match patch-reconcile-concurrency.cjs). The patch above has already run by
+# now and reads this at service start, so a change takes effect on the next
+# NanoClaw restart (not verified that every deploy performs one).
+_sync_reconcile_concurrency() {
+    local val="${NANOCLAW_RECONCILE_CONCURRENCY:-}" envf="${INSTALL_PATH}/.env" tmp
+    [ -z "$val" ] && return 0
+    case "$val" in
+        *[!0-9]*) echo "⚠️  NANOCLAW_RECONCILE_CONCURRENCY='$val' is not an integer; leaving NanoClaw's .env unchanged." >&2; return 0 ;;
+    esac
+    if [ "$val" -lt 1 ] || [ "$val" -gt 64 ]; then
+        echo "⚠️  NANOCLAW_RECONCILE_CONCURRENCY=$val is outside 1-64; leaving NanoClaw's .env unchanged." >&2
+        return 0
+    fi
+    [ -d "$INSTALL_PATH" ] || return 0
+    tmp="$(mktemp)" || return 0
+    { grep -v '^NANOCLAW_RECONCILE_CONCURRENCY=' "$envf" 2>/dev/null || true; echo "NANOCLAW_RECONCILE_CONCURRENCY=$val"; } > "$tmp"
+    cat "$tmp" > "$envf" && echo "🔧 NanoClaw .env: NANOCLAW_RECONCILE_CONCURRENCY=$val"
+    rm -f "$tmp"
+}
+_sync_reconcile_concurrency || true
+
 # Cap (default 4) on simultaneously-running agent containers; chats preempt tasks
 # (NANOCLAW_MAX_ACTIVE_CONTAINERS); see patch-max-active-containers.cjs and
 # templates/patch-details/max-active-containers.md. Same capture treatment.

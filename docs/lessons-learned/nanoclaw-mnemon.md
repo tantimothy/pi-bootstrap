@@ -3026,6 +3026,9 @@ registered`. Details: `templates/patch-details/skill-wiring.md`, `onecli-endpoin
 
 **Follow-up (2026-11-03):** default cap raised from 3 to 4 (patch v3). The default lives in the patch code, not in `.env`, so only an install whose `.env` sets `NANOCLAW_MAX_ACTIVE_CONTAINERS` explicitly needs a hand edit.
 
+**Follow-up (2026-11-03, `.env.example`):** the cap was documented only in the patch-details file, so it never appeared in the deploy.sh form. The form is built from uncommented `.env.example` keys and writes this environment's `.env`, which the host NanoClaw service never reads. The key is now in `.env.example` and `run.sh` copies it into NanoClaw's own `.env`.
+- A setting that a patch reads from the product's own `.env` needs an explicit bridge from the repo's `.env`; adding it to `.env.example` alone is a silent no-op.
+
 ---
 
 ## Issue Found & Fixed: concurrent agents fight over the one shared browser (2026-11-03)
