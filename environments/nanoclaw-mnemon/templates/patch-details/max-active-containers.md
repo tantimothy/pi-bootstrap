@@ -25,6 +25,14 @@ file.
   one reset for a preempted session; the next container clears the stale claim
   and the task stays `pending` with its `tries` unchanged.
 
+**Where to set it.** `NANOCLAW_MAX_ACTIVE_CONTAINERS` is in this environment's
+`.env.example`, so deploy.sh's parameter form shows it. `run.sh`
+(`_sync_max_active_containers`) copies a valid value (integer 0-64) into
+NanoClaw's own `.env` before the patch step, because the NanoClaw service runs
+on the host and does not inherit this script's environment. An empty or invalid
+value leaves NanoClaw's `.env` alone and the default of 4 applies. The patch
+re-reads the file on every wake, so a change needs no restart.
+
 **Why `NANOCLAW_RECONCILE_CONCURRENCY` is not enough.** That bounds the sweep's
 own parallel `reconcileSession()` calls, but each returns as soon as a spawn is
 requested, so a backlog drains in seconds while the spawned containers run for
