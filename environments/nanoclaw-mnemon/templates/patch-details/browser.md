@@ -12,6 +12,14 @@ environment's `.env`, and it strips its own blocks if that is later unset.
 | `container/Dockerfile` | version-marked block, `# >>> pi-bootstrap:browser v<N> >>>` | `# ---- Bun runtime` |
 | `container/agent-runner/src/index.ts` | version-marked block, `// >>> pi-bootstrap:browser v<N> >>>` | `args: ['run', mcpServerPath],` (+2 lines) |
 
+The shared-browser lock (below) adds three more things to this same opt-in:
+
+| File | How | Anchor |
+|---|---|---|
+| `container/Dockerfile` | version-marked block `# >>> pi-bootstrap:browser-lock v<N> >>>`: `COPY scripts/browser-lock.sh`, `chmod`, and `ENV BROWSER_LOCK_TTL_SECS/WAIT_SECS` | `# ---- Bun runtime` |
+| `container/scripts/browser-lock.sh` | plain file copied from `templates/browser-lock.sh`; written only together with the Dockerfile block | — |
+| `container/CLAUDE.md` | version-marked block `<!-- >>> pi-bootstrap:browser-lock v<N> >>> -->`, appended at the end | none (append) |
+
 Only `@playwright/mcp` is installed into the agent image (pinned by
 `BROWSER_MCP_VERSION`, default `0.0.83`). No browser is downloaded
 (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`); the browser lives in its own container.
@@ -42,6 +50,32 @@ value present or the next deploy will overwrite your edit.
 4. **`npm` being present in the agent base image is assumed, not confirmed.**
    The Dockerfile block prints a warning rather than failing the build if it is
    missing. Check with the commands below.
+
+**Concurrent sessions share one browser, so there is a lock.** Every agent
+container reaches the same Chromium over the LAN, and no host-side chokepoint
+sees that traffic, so two sessions at once fight over the same pages (seen live:
+"Browser daemon is busy"). The patch installs `/usr/local/bin/browser-lock`
+(`acquire` / `release` / `status`) and tells agents, in `container/CLAUDE.md`,
+to take it around any use of the shared browser, through `mcp__browser__*` or
+`agent-browser connect` / `--cdp`. It is **advisory**: nothing stops a session
+that skips it. The robust fix, not built, is a serializing proxy in front of the
+CDP endpoint.
+
+- Lock state is the directory `/workspace/agent/.browser-lock.d`, on the group's
+  shared mount, so it is visible across concurrent sessions of a group. `mkdir`
+  is the atomic step. Sessions in *different* groups do not share that mount and
+  so do not see each other's lock.
+- A lock older than `BROWSER_LOCK_TTL_SECS` (default 600) is reclaimed, because
+  a holder killed mid-turn never releases. `release` checks a per-acquisition
+  token, so a session whose lock was reclaimed cannot free the new holder's.
+- `acquire` polls up to `BROWSER_LOCK_WAIT_SECS` (default 120), then exits
+  non-zero. Both settings come from `.env` and are baked in as `ENV` lines; the
+  block is rewritten when they change.
+- A hand-added `## Shared browser` section in `container/CLAUDE.md` is left
+  alone; the marked block replaces it after the next CLEAN.
+- Check: `docker run --rm --entrypoint sh <agent-image> -c 'browser-lock status'`
+  should print `browser-lock: free`. From outside, the CDP endpoint's
+  `/json/list` shows what page the shared browser has open.
 
 **OneCLI does not cover the browser.** Agent traffic goes through OneCLI,
 which injects credentials per host and blocks hosts it has none for. The browser

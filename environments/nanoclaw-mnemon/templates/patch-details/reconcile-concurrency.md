@@ -31,3 +31,10 @@ block. Upstreaming an env override would make this patch unnecessary.
 
 **Verified.** Against a fresh clone of upstream `main`: applies, idempotent
 rerun, `tsc --noEmit` clean. Not yet verified on a real install.
+
+**Where to set it.** `NANOCLAW_RECONCILE_CONCURRENCY` is in this environment's
+`.env.example`, so deploy.sh's parameter form shows it (default 8, upstream's own
+value). `run.sh` (`_sync_reconcile_concurrency`) copies a valid value (integer
+1-64) into NanoClaw's own `.env`, because the NanoClaw service runs on the host
+and does not inherit this script's environment. An empty or invalid value leaves
+that file alone. The patch reads it at service start, so a change needs a restart.

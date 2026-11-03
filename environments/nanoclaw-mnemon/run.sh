@@ -477,11 +477,11 @@ MNEMON_PATCH_VERSION=2
 # than sed -i, which is not portable between GNU and BSD/macOS. $3 is the
 # comment prefix the markers use ("#" by default; "//" for TypeScript files).
 _strip_patch_block() {
-    local file="$1" id="$2" prefix="${3:-#}" tmp
+    local file="$1" id="$2" prefix="${3:-#}" suffix="${4:-}" tmp
     tmp=$(mktemp)
-    awk -v id="$id" -v p="$prefix" '
+    awk -v id="$id" -v p="$prefix" -v sfx="$suffix" '
         $0 ~ ("^[ \t]*" p " >>> pi-bootstrap:" id " v") { skip = 1; next }
-        skip && $0 ~ ("^[ \t]*" p " <<< pi-bootstrap:" id " <<<$") { skip = 0; next }
+        skip && $0 ~ ("^[ \t]*" p " <<< pi-bootstrap:" id " <<<" sfx "$") { skip = 0; next }
         !skip { print }
     ' "$file" > "$tmp"
     mv "$tmp" "$file"
@@ -1956,6 +1956,13 @@ OLLAMA_ENV_TS
 # interpolated value to be present in the block; otherwise it is re-written.
 # ---------------------------------------------------------------------------------------
 BROWSER_PATCH_VERSION=1
+# The shared-browser lock rides on the same opt-in (BROWSER_CDP_URL) but is its
+# own pair of blocks, so its text can be versioned independently:
+#   container/Dockerfile   — `pi-bootstrap:browser-lock`  COPY + ENV for templates/browser-lock.sh
+#   container/CLAUDE.md    — `pi-bootstrap:browser-lock`  the "Shared browser" instructions
+# Settings (BROWSER_LOCK_TTL_SECS / BROWSER_LOCK_WAIT_SECS) are baked in as ENV
+# lines, so like the CDP URL they must be present in the block to count as current.
+BROWSER_LOCK_PATCH_VERSION=1
 
 apply_browser_patch() {
     local dockerfile="${INSTALL_PATH}/container/Dockerfile"
@@ -1978,9 +1985,17 @@ apply_browser_patch() {
             _strip_patch_block "$index_ts" browser '//'
             removed=true
         fi
+        if [ -f "$dockerfile" ] && grep -q "^# >>> pi-bootstrap:browser-lock v" "$dockerfile"; then
+            _strip_patch_block "$dockerfile" browser-lock
+            removed=true
+        fi
+        if [ -f "${INSTALL_PATH}/container/CLAUDE.md" ] && grep -q "^<!-- >>> pi-bootstrap:browser-lock v" "${INSTALL_PATH}/container/CLAUDE.md"; then
+            _strip_patch_block "${INSTALL_PATH}/container/CLAUDE.md" browser-lock '<!--' ' -->'
+            removed=true
+        fi
         if [ "$removed" = true ]; then
             AGENT_IMAGE_NEEDS_REBUILD=true
-            echo "🌐 BROWSER_CDP_URL is unset — removed the browser patch from container/Dockerfile and index.ts."
+            echo "🌐 BROWSER_CDP_URL is unset — removed the browser patch (and browser lock) from container/Dockerfile, index.ts and CLAUDE.md."
             _browser_log "**REMOVED** — BROWSER_CDP_URL is unset, so a previously applied browser patch was stripped; agent image rebuilt this deploy."
         else
             _browser_log "Not enabled — BROWSER_CDP_URL is unset in .env."
@@ -2123,6 +2138,117 @@ BROWSER_INDEX_BLOCK
             fi
             ;;
     esac
+
+    # 3. Shared-browser lock — the one browser is shared by every concurrent
+    # agent session, so a cooperative lock + the instruction to use it.
+    local lock_ttl="${BROWSER_LOCK_TTL_SECS:-600}" lock_wait="${BROWSER_LOCK_WAIT_SECS:-120}"
+    if ! [[ "$lock_ttl" =~ ^[0-9]+$ ]]; then
+        echo "⚠️  BROWSER_LOCK_TTL_SECS='$lock_ttl' is not whole seconds — using 600." >&2
+        _browser_log "**WARNING** — BROWSER_LOCK_TTL_SECS is not a whole number; used the default 600."
+        lock_ttl=600
+    fi
+    if ! [[ "$lock_wait" =~ ^[0-9]+$ ]]; then
+        echo "⚠️  BROWSER_LOCK_WAIT_SECS='$lock_wait' is not whole seconds — using 120." >&2
+        _browser_log "**WARNING** — BROWSER_LOCK_WAIT_SECS is not a whole number; used the default 120."
+        lock_wait=120
+    fi
+    local lock_src="${SCRIPT_DIR}/templates/browser-lock.sh"
+    local lock_dst="${INSTALL_PATH}/container/scripts/browser-lock.sh"
+    local lock_doc="${SCRIPT_DIR}/templates/browser-lock-claude.md"
+    local claude_md="${INSTALL_PATH}/container/CLAUDE.md"
+    BROWSER_LOCK_FILES_OK=true
+    if [ ! -f "$lock_src" ] || [ ! -f "$lock_doc" ]; then
+        _browser_log "browser lock: **SKIPPED** — templates/browser-lock.sh or browser-lock-claude.md missing from the pi-bootstrap checkout."
+        BROWSER_LOCK_FILES_OK=false
+        BROWSER_PATCH_OK=false
+    fi
+
+    if [ "$BROWSER_LOCK_FILES_OK" = true ]; then
+        # The script is a standalone, untracked file: write it only together with
+        # the Dockerfile COPY that uses it (see the all-or-nothing rule in CLAUDE.md).
+        state=$(_patch_block_state "$dockerfile" browser-lock "$BROWSER_LOCK_PATCH_VERSION" 'pi-bootstrap-browser-lock-never-matches')
+        if [ "$state" = current ] && ! grep -qF "ENV BROWSER_LOCK_TTL_SECS=${lock_ttl} BROWSER_LOCK_WAIT_SECS=${lock_wait}" "$dockerfile"; then
+            state=stale-marked
+        fi
+        case "$state" in
+            current)
+                _browser_log "browser lock, Dockerfile: already patched, current (v${BROWSER_LOCK_PATCH_VERSION}, ttl ${lock_ttl}s, wait ${lock_wait}s)"
+                ;;
+            *)
+                [ "$state" = stale-marked ] && _strip_patch_block "$dockerfile" browser-lock
+                local lanchor
+                lanchor=$(grep -n '^# ---- Bun runtime' "$dockerfile" | head -1 | cut -d: -f1)
+                if [ -z "$lanchor" ]; then
+                    echo "❌ Couldn't find the '# ---- Bun runtime' anchor in container/Dockerfile — skipping the browser lock." >&2
+                    _browser_log "browser lock, Dockerfile: **SKIPPED** — '# ---- Bun runtime' anchor not found."
+                    BROWSER_LOCK_FILES_OK=false
+                    BROWSER_PATCH_OK=false
+                else
+                    echo "🔒 Patching the shared-browser lock into container/Dockerfile..."
+                    local ltmp; ltmp=$(mktemp)
+                    {
+                        head -n "$((lanchor - 1))" "$dockerfile"
+                        cat <<BROWSER_LOCK_DOCKER_BLOCK
+# >>> pi-bootstrap:browser-lock v${BROWSER_LOCK_PATCH_VERSION} >>>
+# ---- browser lock — cooperative mutex for the shared browser (advisory).
+COPY scripts/browser-lock.sh /usr/local/bin/browser-lock
+RUN chmod a+rx /usr/local/bin/browser-lock
+ENV BROWSER_LOCK_TTL_SECS=${lock_ttl} BROWSER_LOCK_WAIT_SECS=${lock_wait}
+# <<< pi-bootstrap:browser-lock <<<
+
+BROWSER_LOCK_DOCKER_BLOCK
+                        tail -n "+${lanchor}" "$dockerfile"
+                    } > "$ltmp"
+                    mv "$ltmp" "$dockerfile"
+                    _browser_log "browser lock, Dockerfile: patched (v${BROWSER_LOCK_PATCH_VERSION}, ttl ${lock_ttl}s, wait ${lock_wait}s)"
+                    AGENT_IMAGE_NEEDS_REBUILD=true
+                fi
+                ;;
+        esac
+    fi
+
+    if [ "$BROWSER_LOCK_FILES_OK" = true ]; then
+        mkdir -p "$(dirname "$lock_dst")"
+        if ! cmp -s "$lock_src" "$lock_dst" 2>/dev/null; then
+            cp "$lock_src" "$lock_dst"
+            chmod a+rx "$lock_dst"
+            AGENT_IMAGE_NEEDS_REBUILD=true
+            _browser_log "browser lock, script: written to container/scripts/browser-lock.sh"
+        else
+            _browser_log "browser lock, script: already identical"
+        fi
+    fi
+
+    # container/CLAUDE.md — the instruction that makes agents use it. Appended
+    # (no anchor needed). Composed into each agent's CLAUDE.md at spawn, so this
+    # reaches agents without an image rebuild.
+    if [ "$BROWSER_LOCK_FILES_OK" = true ]; then
+        if [ ! -f "$claude_md" ]; then
+            _browser_log "browser lock, container/CLAUDE.md: **SKIPPED** — file not found; agents will not be told to use the lock."
+            BROWSER_PATCH_OK=false
+        else
+            state=$(_patch_block_state "$claude_md" browser-lock "$BROWSER_LOCK_PATCH_VERSION" 'pi-bootstrap-browser-lock-never-matches' '<!--')
+            case "$state" in
+                current)
+                    _browser_log "browser lock, container/CLAUDE.md: already patched, current (v${BROWSER_LOCK_PATCH_VERSION})"
+                    ;;
+                *)
+                    [ "$state" = stale-marked ] && _strip_patch_block "$claude_md" browser-lock '<!--' ' -->'
+                    if grep -q '^## Shared browser' "$claude_md"; then
+                        # A hand-added copy (e.g. by the admin session): leave it, CLEAN will replace it.
+                        _browser_log "browser lock, container/CLAUDE.md: an unmarked \`## Shared browser\` section already exists — left alone; the next CLEAN replaces it with the marked block."
+                    else
+                        {
+                            printf '\n<!-- >>> pi-bootstrap:browser-lock v%s >>> -->\n' "$BROWSER_LOCK_PATCH_VERSION"
+                            cat "$lock_doc"
+                            printf '<!-- <<< pi-bootstrap:browser-lock <<< -->\n'
+                        } >> "$claude_md"
+                        _browser_log "browser lock, container/CLAUDE.md: patched (v${BROWSER_LOCK_PATCH_VERSION})"
+                    fi
+                    ;;
+            esac
+        fi
+    fi
 
     if grep -q "^# >>> pi-bootstrap:browser v${BROWSER_PATCH_VERSION} >>>" "$dockerfile" \
        && grep -q "// >>> pi-bootstrap:browser v${BROWSER_PATCH_VERSION} >>>" "$index_ts"; then
@@ -3098,6 +3224,28 @@ _sync_max_active_containers() {
     rm -f "$tmp"
 }
 _sync_max_active_containers || true
+
+# Same bridge for NANOCLAW_RECONCILE_CONCURRENCY (host-sweep fan-out; range 1-64
+# to match patch-reconcile-concurrency.cjs). The patch above has already run by
+# now and reads this at service start, so a change takes effect on the next
+# NanoClaw restart (not verified that every deploy performs one).
+_sync_reconcile_concurrency() {
+    local val="${NANOCLAW_RECONCILE_CONCURRENCY:-}" envf="${INSTALL_PATH}/.env" tmp
+    [ -z "$val" ] && return 0
+    case "$val" in
+        *[!0-9]*) echo "⚠️  NANOCLAW_RECONCILE_CONCURRENCY='$val' is not an integer; leaving NanoClaw's .env unchanged." >&2; return 0 ;;
+    esac
+    if [ "$val" -lt 1 ] || [ "$val" -gt 64 ]; then
+        echo "⚠️  NANOCLAW_RECONCILE_CONCURRENCY=$val is outside 1-64; leaving NanoClaw's .env unchanged." >&2
+        return 0
+    fi
+    [ -d "$INSTALL_PATH" ] || return 0
+    tmp="$(mktemp)" || return 0
+    { grep -v '^NANOCLAW_RECONCILE_CONCURRENCY=' "$envf" 2>/dev/null || true; echo "NANOCLAW_RECONCILE_CONCURRENCY=$val"; } > "$tmp"
+    cat "$tmp" > "$envf" && echo "🔧 NanoClaw .env: NANOCLAW_RECONCILE_CONCURRENCY=$val"
+    rm -f "$tmp"
+}
+_sync_reconcile_concurrency || true
 
 # Cap (default 4) on simultaneously-running agent containers; chats preempt tasks
 # (NANOCLAW_MAX_ACTIVE_CONTAINERS); see patch-max-active-containers.cjs and
