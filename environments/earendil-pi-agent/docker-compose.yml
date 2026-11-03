@@ -1,6 +1,6 @@
 services:
   pi:
-    container_name: ${CONTAINER_NAME:-pi}
+    container_name: ${CONTAINER_NAME:-earendil-pi-agent}
     build:
       context: .
       args:
@@ -55,8 +55,8 @@ services:
 
 volumes:
   pi_user_home:
-    name: ${CONTAINER_NAME:-pi}_user_home
+    name: ${CONTAINER_NAME:-earendil-pi-agent}_user_home
   pi_agent_home:
-    name: ${CONTAINER_NAME:-pi}_agent_home
+    name: ${CONTAINER_NAME:-earendil-pi-agent}_agent_home
   pi_ssh_host_keys:
-    name: ${CONTAINER_NAME:-pi}_ssh_host_keys
+    name: ${CONTAINER_NAME:-earendil-pi-agent}_ssh_host_keys

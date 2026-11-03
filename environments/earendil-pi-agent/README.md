@@ -1,5 +1,17 @@
 # Pi — Minimal Terminal Coding Harness
 
+> **Renamed from `environments/pi`** so it is not confused with Raspberry Pi
+> (this repo's target hardware). The container default is now
+> `earendil-pi-agent`, the image `earendil-pi-agent-pi`. The `pi` command, the
+> in-container `pi` user and SSH port 2227 are unchanged. Existing installs:
+> the first deploy copies `.env` from the old directory and removes the old
+> `pi` container; your `.env` keeps `CONTAINER_NAME=pi`, so the existing
+> volumes keep attaching. To adopt the new name instead, set
+> `CONTAINER_NAME=earendil-pi-agent` and copy the three `pi_*` volumes to
+> `earendil-pi-agent_*` first (docker cannot rename volumes). The old
+> `pi-pi` image can be removed with `docker rmi pi-pi`. **Untested** (no
+> Docker in the authoring sandbox).
+
 A standalone [Pi](https://pi.dev) container reachable over its own SSH
 server — same shape as this repo's `claude-cli`, `codex-cli` and `aider`
 environments (own sshd, persistent detachable tmux session, bind-mounted
@@ -227,7 +239,7 @@ The Dockerfile hardcodes the scope and pins the version via the
 `PI_PACKAGE_VERSION` build arg. Check what actually landed:
 
 ```bash
-docker exec pi npm ls -g --depth=0 | grep pi-coding-agent
+docker exec earendil-pi-agent npm ls -g --depth=0 | grep pi-coding-agent
 ```
 
 > **`pi update --self` is the wrong lever here.** It updates Pi *inside the

@@ -242,7 +242,7 @@ convenience, not a claim about the software.
 
 ### Pi's environment and OpenClaw's harness are separate concerns
 
-`environments/pi/` deploys the standalone Pi coding-agent CLI. Separately,
+`environments/earendil-pi-agent/` deploys the standalone Pi coding-agent CLI. Separately,
 `environments/openclaw/Dockerfile` builds `FROM
 ghcr.io/openclaw/openclaw:latest`, and OpenClaw embeds Pi's SDK
 internally as its agent harness — its gateway calls `createAgentSession()`
@@ -307,7 +307,7 @@ belongs in the README and the `info.yaml` notes.
 **Host it on the Mac, not the Pi** — the moment Mac-hosted agents depend
 on it, the Pi stops being something you can switch off.
 
-### `environments/opencode/` · `environments/omp/` · `environments/pi/`
+### `environments/opencode/` · `environments/omp/` · `environments/earendil-pi-agent/`
 
 All three follow `aider` and `codex-cli` exactly: Dockerfile installs the
 agent, SSH server, entrypoint drops you into a persistent tmux session
@@ -537,7 +537,7 @@ is why `herdr-client` earns a folder.
 | `codex-cli` | 2224 | tmux session over ssh |
 | `opencode` | 2225 (proposed) | tmux session over ssh |
 | `omp` | 2226 (proposed) | tmux session over ssh |
-| `pi` | 2227 (proposed) | tmux session over ssh |
+| `earendil-pi-agent` | 2227 (proposed) | tmux session over ssh |
 | `openclaw` | — | `openclaw-cli-tmux` via docker exec |
 | `nanoclaw-mnemon` | — | admin session only; group containers are dynamic |
 
@@ -1033,7 +1033,7 @@ Two details that only show up in Pi's own `docs/models.md`:
 - **`apiKey` is required even when the endpoint ignores it.** Pi treats a
   model as unavailable until auth is configured, so a keyless local
   server's models would load and then stay invisible in `/model` with
-  nothing saying why. `environments/pi`'s entrypoint uses the placeholder
+  nothing saying why. `environments/earendil-pi-agent`'s entrypoint uses the placeholder
   `gateway`.
 - **`compat.supportsDeveloperRole` / `compat.supportsReasoningEffort`**
   exist for OpenAI-compatible servers that reject the `developer` role —
@@ -1126,9 +1126,9 @@ container*, as a dashboard that silently never comes up, which is why
 `lib/maintenance-lib.sh` walks `environments/*/maintenance.yaml` in
 directory order and the **first matching glob wins**. A loose pattern in an
 early-sorting directory therefore captures a later environment's images.
-`environments/pi` is exactly that hazard: `"*pi*"` would have hijacked
+`environments/earendil-pi-agent` is exactly that hazard: `"*pi*"` would have hijacked
 `pihole-wireguard`. Both new environments match on the Compose-derived
-image name instead (`pi-pi*`, `opencode-opencode*`); `deploy-lib.sh` passes
+image name instead (`earendil-pi-agent-pi*`, `opencode-opencode*`); `deploy-lib.sh` passes
 no `-p`, so the project name is the directory name.
 
 ---

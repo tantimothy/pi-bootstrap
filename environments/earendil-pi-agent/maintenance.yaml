@@ -1,6 +1,6 @@
 deployment:
   kind: container
-  value: ${CONTAINER_NAME:-pi}
+  value: ${CONTAINER_NAME:-earendil-pi-agent}
 
 updates:
   local_images:
@@ -10,11 +10,11 @@ updates:
     # pihole-wireguard's images — "pi" is a substring of rather a lot.
     #
     # Compose derives the image name from the project (this directory) and
-    # the service, giving pi-pi:latest. deploy-lib.sh passes no -p.
+    # the service, giving earendil-pi-agent-pi:latest. deploy-lib.sh passes no -p.
     #
     # Note what an update here means: Pi itself is pinned by exact npm
     # version in the Dockerfile build arg, so a hit is the BASE IMAGE moving.
     # Pi moves by bumping PI_PACKAGE_VERSION and running CLEAN.
-    - image_pattern: "pi-pi*"
+    - image_pattern: "earendil-pi-agent-pi*"
       dockerfile: Dockerfile
       apt_updates: true
