@@ -2,8 +2,8 @@
 containers run at once. `wakeContainer()` gets one early return, after the
 "already running" and "wake already in flight" short-circuits and before
 `spawnContainer()`. The cap is `NANOCLAW_MAX_ACTIVE_CONTAINERS` (process
-environment, then NanoClaw's `.env`): integer 1-64, **default 3 when unset**,
-`0` disables it, anything else warns and uses 3. Running containers are never
+environment, then NanoClaw's `.env`): integer 1-64, **default 4 when unset**,
+`0` disables it, anything else warns and uses 4. Running containers are never
 killed to enforce it, with one exception below. The helpers live in a
 version-marked block (`pi-bootstrap:max-active-containers`) at the end of the
 file.
@@ -87,8 +87,8 @@ directory. Do these in order and report each result:
    `grep -c "pi-bootstrap:max-active-containers" src/container-runner.ts`
    (expect 3: two markers and the call-site marker),
    `grep -c 'max-active-containers preempt' src/reconcile-session.ts` (expect 1) and
-   `grep NANOCLAW_MAX_ACTIVE_CONTAINERS .env` (a value overrides the default of 3; absent
-   means 3, `0` means off).
+   `grep NANOCLAW_MAX_ACTIVE_CONTAINERS .env` (a value overrides the default of 4; absent
+   means 4, `0` means off).
 2. Find the log (the expected path is `logs/nanoclaw.log`; if it is missing run
    `ls logs/`) and extract the window of interest:
    `grep -E "Spawning container|Deferring (container|chat|task) spawn|Preempting task|Container exited|gateway-unavailable" logs/nanoclaw.log | tail -200`
