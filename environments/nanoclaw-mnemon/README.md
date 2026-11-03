@@ -418,6 +418,8 @@ Agents can drive a persistent Chromium — one *you* log into once over VNC — 
 2. Set `BROWSER_CDP_URL=http://<this-host's-LAN-IP>:9222` in this environment's `.env` (an **IP**, not a hostname — Chromium rejects hostnames in the CDP `Host` header; the LAN IP is also the route that works on OrbStack).
 3. Deploy. `apply_browser_patch()` installs `@playwright/mcp` into the agent image and registers it, then the usual agent-image rebuild and container sweep make it live.
 
+The same patch installs a cooperative **browser lock** (`browser-lock acquire|release`) and tells agents to use it, because all concurrent sessions share the one browser. It is advisory; tune it with `BROWSER_LOCK_TTL_SECS` / `BROWSER_LOCK_WAIT_SECS` (see `.env.example`).
+
 Unsetting `BROWSER_CDP_URL` removes the patch. Details, anchors and what a correct fix looks like: `templates/patch-details/browser.md`. **Not yet exercised against a real deploy** — see `docs/future-enhancements/browser-agent.md`.
 
 ## 🔑 Managing OneCLI Credentials

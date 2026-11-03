@@ -3025,3 +3025,21 @@ registered`. Details: `templates/patch-details/skill-wiring.md`, `onecli-endpoin
 - A version bump that changes a call site must rewrite the old call site, not just the block, or v1 installs keep calling a function with the wrong signature.
 
 **Follow-up (2026-11-03):** default cap raised from 3 to 4 (patch v3). The default lives in the patch code, not in `.env`, so only an install whose `.env` sets `NANOCLAW_MAX_ACTIVE_CONTAINERS` explicitly needs a hand edit.
+
+---
+
+## Issue Found & Fixed: concurrent agents fight over the one shared browser (2026-11-03)
+
+**Status:** Patched (`browser-lock` v1, part of `apply_browser_patch`); validated against a real upstream clone and a local run of the lock logic, not yet in a live Docker build.
+
+**Summary:** Agent sessions that ran at once all drove the same Chromium; one returned "Browser daemon is busy" mid-task, and `/json/list` showed a second task's page open in it. The admin session added a cooperative lock by hand to NanoClaw source.
+
+**Root cause:** The browser is a separate container that every agent container reaches over the LAN, outside OneCLI, so no host process sees the traffic to serialize it. Even `agent-browser` can be pointed at the shared target with `connect` / `--cdp`, so "this task uses the local browser" cannot be assumed.
+
+**Fix:** The lock script, a Dockerfile `COPY`/`ENV` block and a `container/CLAUDE.md` "Shared browser" section are now pi-bootstrap-owned, version-marked blocks that follow `BROWSER_CDP_URL`. The two tunables are `.env` settings baked into the image as `ENV`, so no change to the container spawn code was needed. The lock is advisory; a serializing CDP proxy is the enforced alternative and is not built.
+
+**General Lessons:**
+- A fix the admin session hand-adds to upstream source is not durable. Fold it into the patch that already owns the feature, so it follows that patch's opt-in and survives CLEAN.
+- A shell script copied into the image is a standalone file, so write it only together with the `COPY` that uses it.
+- An advisory lock has to be checked against the TTL case (holder killed mid-turn) and the wrong-owner release, not just the happy path.
+
