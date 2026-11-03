@@ -422,6 +422,30 @@ The same patch installs a cooperative **browser lock** (`browser-lock acquire|re
 
 Unsetting `BROWSER_CDP_URL` removes the patch. Details, anchors and what a correct fix looks like: `templates/patch-details/browser.md`. **Not yet exercised against a real deploy** — see `docs/future-enhancements/browser-agent.md`.
 
+## 🚦 Limiting Concurrent Agent Containers
+
+Each agent session is a full container, so a burst of scheduled tasks plus chat traffic can saturate a small host. Two settings in this environment's `.env` (both visible in the deploy form) bound the load; `run.sh` copies them into NanoClaw's own `.env` on every deploy:
+
+| Variable | Default | Effect |
+|:---|:---|:---|
+| `NANOCLAW_MAX_ACTIVE_CONTAINERS` | `4` | Hard cap on agent containers running at once (integer 1-64, `0` = no cap). Spawns past the cap are deferred and retried. **Chats outrank scheduled tasks:** when every slot is full and a chat message arrives, the longest-running task container is killed and retried later. Takes effect on the next container wake, no restart needed. |
+| `NANOCLAW_RECONCILE_CONCURRENCY` | `8` | How many sessions the host sweep reconciles in parallel (1-64). Alone this does **not** bound running containers; the cap above does. Takes effect on the next NanoClaw restart. |
+
+Details, anchors and how to verify the cap held: `templates/patch-details/max-active-containers.md` and `templates/patch-details/reconcile-concurrency.md`. **Not yet seen under real load** (the deferral path) — see `docs/lessons-learned/nanoclaw-mnemon.md`.
+
+## ✅ After a CLEAN: what carries over, and what to tell NanoClaw
+
+**Nothing needs to be re-told to NanoClaw by hand.** Every deploy regenerates `pi-bootstrap-patches.md` inside the install (`$NANOCLAW_INSTALL_PATH`), and the admin `claude` session's `/root/CLAUDE.md` points at it. It lists every patch's PASSED/SKIPPED/FAILED status and what a correct fix looks like — including the browser lock, the container cap and reconcile concurrency. Ask the admin session to read it if something looks off.
+
+| Item | After CLEAN | You do |
+|:---|:---|:---|
+| Concurrency cap, reconcile concurrency, browser lock TTL/wait | Re-applied by `run.sh` from this environment's `.env` (copied into NanoClaw's `.env` / baked into the image) | Nothing. Check `grep NANOCLAW_MAX_ACTIVE_CONTAINERS <install>/.env` if unsure |
+| Browser (Playwright MCP + lock) | Re-applied when `BROWSER_CDP_URL` is set | Nothing |
+| Telegram and OneCLI skill installs | Restored by replaying the skills' declarative steps; if one is still missing, the deploy **stops before the rebuild** | Run the named skill in a Claude Code session in the install, then redeploy (or `SKIP_SKILL_WIRING_CHECK=1`) |
+| Per-group derived agent images | Rebuilt automatically when older than the base | Nothing |
+| Codex provider auth | Provider installed (if `NANOCLAW_INSTALL_CODEX=true`) but not authenticated | **Manage Codex Provider** in the action menu |
+| Hand-fixes the admin session made to NanoClaw source | **Lost** unless they match a patch's own check | Make sure they were recorded in `pi-bootstrap-patch-fixes.md` (never overwritten), then fold them into the patch in this repo |
+
 ## 🔑 Managing OneCLI Credentials
 
 **Manage OneCLI Credentials** in this environment's action menu (`scripts/manage-onecli.sh`) lists, adds, updates and deletes the credentials OneCLI injects into agent requests, so you don't need the dashboard link an agent is handed when it is blocked on an unknown host. Adding one stores a value against a host (and optional path) pattern, injected as a header (`Authorization: Bearer {value}`, `Cookie: name={value}`) or a query parameter. Values are typed hidden and passed over stdin to a `0600` temp file inside the container, never on a command line.

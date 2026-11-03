@@ -7,7 +7,7 @@ factual claim below was checked against a primary source except where
 explicitly marked inferred.
 
 Built so far: the menu regrouping, `herdr-client` (with its session
-generator), `collie-client`, `pi`, `opencode`, `hermes` and `executor`.
+generator), `collie-client`, `earendil-pi-agent`, `opencode`, `hermes` and `executor`.
 Still proposals: the skills experiment (phase 7) and `omp`, which was
 always conditional on Pi proving interesting enough to want its
 IDE-wired cousin.
@@ -629,7 +629,7 @@ about rather than adopting:
 - **pi-dispatch** — runs Pi as a service with cron and GitHub issue/PR
   triggers, its own container, persistent queue and spending cap. The
   only item that is environment-shaped rather than extension-shaped, and
-  a genuinely different product from the interactive `pi` environment.
+  a genuinely different product from the interactive `earendil-pi-agent` environment.
   Out of scope for now.
 
 ### Subscribe or vendor — the axis this turns on
@@ -936,7 +936,7 @@ you do with it, not by vendor:**
 
 | Category | Environments |
 |:---|:---|
-| **Coding CLIs** | `claude-cli`, `codex-cli`, `aider`, `opencode`, `omp`, `pi` |
+| **Coding CLIs** | `claude-cli`, `codex-cli`, `aider`, `opencode`, `omp`, `earendil-pi-agent` (Pi) |
 | **Personal Agent Platforms** | `openclaw`, `nanoclaw-mnemon`, `hermes` |
 | **Model & Routing** | `ollama`, `llm-gateways`, `chat-frontends` |
 | **Agent Control** | `executor`, `herdr-client`, `collie-client` |
@@ -987,7 +987,7 @@ single operator evaluating candidates it is the *last* thing that pays.
 4. **`collie-client`.** Phone reach over a blocked agent is a daily-life
    change. Needs the SSH-not-`docker exec` pane rule in place, plus
    `tailscale serve`, the funnel refusal and the pre-install confirm.
-5. **The evaluation cohort — `pi`, then `opencode`.** Build `pi` first
+5. **The evaluation cohort — `earendil-pi-agent`, then `opencode`.** Build Pi first
    and confirm the template end to end. Node 24 plus `mcporter` for
    `pi`; `opencode` needs neither. Add `omp` only if Pi proves
    interesting enough to want its IDE-wired cousin.

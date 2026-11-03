@@ -666,3 +666,20 @@ agent containers (reported SKIPPED). The MCP tool falls back to its built-in def
 address. A real port means adding the values to the session-spec env record (or the
 gateway/provider contribution lane) and re-deriving the `NO_PROXY` reasoning against the
 current gateway seam; whether the default is reachable today is unconfirmed.
+
+## nanoclaw-mnemon: concurrency cap and shared-browser lock (2026-11-03)
+
+Shipped in PRs [#334](https://github.com/tantimothy/pi-bootstrap/pull/334)–[#339](https://github.com/tantimothy/pi-bootstrap/pull/339)
+without a Docker daemon. On a real CLEAN deploy, confirm:
+
+- **The cap holds and chats preempt tasks** — with `NANOCLAW_MAX_ACTIVE_CONTAINERS=4`, no more than four agent
+  containers run at once, and a chat message during a full house kills and retries the oldest task container
+  (`templates/patch-details/max-active-containers.md`, "How to verify").
+- **The browser lock** serialises two concurrent sessions on the shared `browser` Chromium, and a lock left by a
+  killed holder is reclaimed after `BROWSER_LOCK_TTL_SECS`.
+
+## `earendil-pi-agent` rename (2026-11-03)
+
+Renamed from `environments/pi` in [#337](https://github.com/tantimothy/pi-bootstrap/pull/337), untested. On a host with
+an existing `pi` install, confirm the first deploy migrates `.env` and removes the old container while the `pi_*`
+volumes keep attaching (`pre-deploy.sh`).

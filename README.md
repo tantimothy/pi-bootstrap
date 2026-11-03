@@ -65,6 +65,7 @@ network; the ahead/behind counts are as fresh as the fetch that already ran at s
 | [llm-gateways](environments/llm-gateways/) | An OpenAI-compatible proxy layer in front of your host's Ollama (and, optionally, hosted providers) — [LiteLLM](https://github.com/BerriAI/litellm) (on by default, config-only, no database needed) and [Portkey Gateway](https://github.com/Portkey-AI/gateway) (opt-in, a lighter no-config alternative). LiteLLM's Postgres (Virtual Keys/spend tracking/Admin UI) is a separate opt-in on top of that. Toggle which ones run via `COMPOSE_PROFILES` in `.env`, no rebuild needed |
 | [claude-cli](environments/claude-cli/) | Standalone Claude CLI in a container with its own SSH server — no channel bots, no orchestrator. SSH in from any machine and land in a persistent `tmux` session running `claude` against a bind-mounted repo. For when you just want remote terminal access to Claude, not a chat-platform presence |
 | [codex-cli](environments/codex-cli/) | Standalone Codex CLI in a container with its own SSH server. SSH in from any machine and land in a persistent `tmux` session running `codex` against a bind-mounted repo, with auth, configuration, and conversations preserved across rebuilds |
+| [earendil-pi-agent](environments/earendil-pi-agent/) | Standalone [Pi](https://pi.dev) terminal coding agent in a container with its own SSH server and persistent `tmux` session; optionally routed through `llm-gateways` and wired to MCP via `mcporter` (formerly `environments/pi`, renamed so it isn't confused with Raspberry Pi) |
 | [pi-barebones](environments/pi-barebones/) | Minimal Pi setup — tmux, fastfetch system info, TigerVNC remote desktop, custom package installs and `.bashrc` tweaks |
 | [ntopng](environments/ntopng/) | Deep per-flow traffic analysis — DPI (nDPI), historical/timeseries trends via Redis. Split out as its own environment since it's heavyweight; pairs well alongside pihole-wireguard on a Pi with headroom to spare |
 | [portainer](environments/portainer/) | Container visualization & management — full container/network/volume/image management UI with a live topology view. General-purpose Docker tooling, useful alongside any other environment on this Pi |
@@ -277,7 +278,7 @@ environments/
 
 ### `.env.example` Format
 
-Only skip this file if the environment genuinely has nothing to configure — no ports, no secrets, no container names to declare (`pi-barebones` is the one environment that does without it). Every variable needs a `#` comment immediately above it — that comment becomes the form label shown to the user:
+Only skip this file if the environment genuinely has nothing to configure — no ports, no secrets, no container names to declare (`pi-barebones` is the one environment that does without it). Every variable needs a `#` comment immediately above it — that comment becomes the form label shown to the user. **Only uncommented `KEY=value` lines appear in the "Configure Runtime Variables" form**; a commented-out optional variable (`# KEY=value`) is invisible there, so give a setting a real default if users should be able to see and change it from the TUI:
 
 ```ini
 # Name used by the dashboard to track container state.
