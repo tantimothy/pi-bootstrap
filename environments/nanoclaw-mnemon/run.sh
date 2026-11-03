@@ -3075,7 +3075,7 @@ echo "$RECONCILE_OUT"
 RECONCILE_PATCH_LOG="- ${RECONCILE_OUT}
 "
 
-# Opt-in cap on simultaneously-running agent containers
+# Cap (default 3) on simultaneously-running agent containers; chats preempt tasks
 # (NANOCLAW_MAX_ACTIVE_CONTAINERS); see patch-max-active-containers.cjs and
 # templates/patch-details/max-active-containers.md. Same capture treatment.
 if MAXACTIVE_OUT=$($DOCKER exec -i "$CONTAINER_NAME" node - "$INSTALL_PATH" < "$SCRIPT_DIR/scripts/patch-max-active-containers.cjs" 2>&1); then
