@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Caps simultaneously-running agent containers (default 3) and lets an incoming
+// Caps simultaneously-running agent containers (default 4) and lets an incoming
 // chat preempt a running task container when the cap is full
 // (NANOCLAW_MAX_ACTIVE_CONTAINERS). RECONCILE_CONCURRENCY alone does not bound
 // this: reconcileSession() -> wakeContainer() returns as soon as a spawn is
@@ -22,8 +22,8 @@
 // preempted session. v1 -> v2 upgrades replace the call site in place.
 //
 // Resolution: process.env.NANOCLAW_MAX_ACTIVE_CONTAINERS, then the same key in
-// NanoClaw's .env (service cwd), else 3. Integer 1-64; 0 disables the cap;
-// anything else warns and uses 3. Touches src/container-runner.ts (+ one line pair in
+// NanoClaw's .env (service cwd), else 4. Integer 1-64; 0 disables the cap;
+// anything else warns and uses 4. Touches src/container-runner.ts (+ one line pair in
 // src/reconcile-session.ts) and does not
 // depend on src/config.ts (config.ts is owned by the Ollama patch).
 //
@@ -33,7 +33,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = 2;
+const VERSION = 3;
 const installPath = process.argv[2];
 if (!installPath) {
   console.error('usage: patch-max-active-containers.cjs <install-path>');
@@ -59,12 +59,12 @@ function _pbMaxActiveContainers(): number {
       // no .env or unreadable: unbounded
     }
   }
-  if (!raw) return 3;
+  if (!raw) return 4;
   if (raw === '0') return 0;
   const n = Number(raw);
   if (Number.isInteger(n) && n >= 1 && n <= 64) return n;
-  log.warn('NANOCLAW_MAX_ACTIVE_CONTAINERS=' + raw + ' is not an integer in 0-64; using 3');
-  return 3;
+  log.warn('NANOCLAW_MAX_ACTIVE_CONTAINERS=' + raw + ' is not an integer in 0-64; using 4');
+  return 4;
 }
 const _pbTaskSessions = new Set<string>();
 const _pbPreempted = new Set<string>();
@@ -180,5 +180,5 @@ if (!changed) {
   console.log(`✅ Max-active-containers patch v${VERSION} already applied (${rsNote}).`);
   process.exit(0);
 }
-console.log(`🩹 Max-active-containers patch v${VERSION} applied (default cap 3, chats preempt tasks; ${rsNote}).`);
+console.log(`🩹 Max-active-containers patch v${VERSION} applied (default cap 4, chats preempt tasks; ${rsNote}).`);
 process.exit(2);

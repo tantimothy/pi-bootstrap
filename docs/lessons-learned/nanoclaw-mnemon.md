@@ -3023,3 +3023,5 @@ registered`. Details: `templates/patch-details/skill-wiring.md`, `onecli-endpoin
 **General Lessons:**
 - Check what a kill costs downstream before adding one: the existing stuck-claim reset charges a retry, which a deliberate preemption must not.
 - A version bump that changes a call site must rewrite the old call site, not just the block, or v1 installs keep calling a function with the wrong signature.
+
+**Follow-up (2026-11-03):** default cap raised from 3 to 4 (patch v3). The default lives in the patch code, not in `.env`, so only an install whose `.env` sets `NANOCLAW_MAX_ACTIVE_CONTAINERS` explicitly needs a hand edit.
